@@ -1,5 +1,6 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
 import asyncio
+import ctypes
 import logging
 import multiprocessing
 import os
@@ -20,6 +21,16 @@ CHILD_NICE_PARSE = 0
 # 想恢复错峰：把这里改回 10 即可（只动这一个常量，无其他副作用）。
 CHILD_NICE_BACKGROUND = 0
 
+# Linux ``comm`` is limited to 15 visible bytes.  Keep the type first so tools
+# such as ps/top and scripts/monitor_worker_memory.sh can identify each worker.
+_WORKER_PROCESS_NAMES = {
+    "KVCacheLogParseWorker": "kv-parse",
+    "KVCacheLogEventDiagnosisWorker": "kv-diag",
+    "StoreTraceContextLogsWorker": "trace-store",
+    "BrpcLogParseWorker": "brpc-parse",
+    "BrpcLogDiagnosisWorker": "brpc-diag",
+}
+
 
 class ProcessHandler:
     """进程处理器类"""
@@ -34,6 +45,25 @@ class ProcessHandler:
     # 收尾等待（秒）：SIGTERM 优雅退出后等多久、升级 SIGKILL 后再等多久
     _GRACEFUL_JOIN_S = 2
     _KILL_JOIN_S = 2
+
+    @staticmethod
+    def _process_name(target, task_id: str) -> str:
+        owner = getattr(target, "__qualname__", "").split(".", 1)[0]
+        worker = _WORKER_PROCESS_NAMES.get(owner, "latency-worker")
+        return f"{worker}:{task_id[:8]}"
+
+    @staticmethod
+    def _set_os_process_name() -> None:
+        """Expose the multiprocessing name through Linux /proc/PID/comm."""
+        if os.name != "posix":
+            return
+        name = multiprocessing.current_process().name.encode("utf-8")[:15]
+        try:
+            libc = ctypes.CDLL(None, use_errno=True)
+            if libc.prctl(15, ctypes.c_char_p(name), 0, 0, 0) != 0:  # PR_SET_NAME
+                logger.debug("[ProcessHandler] 设置进程名失败: errno=%s", ctypes.get_errno())
+        except (AttributeError, OSError):
+            logger.debug("[ProcessHandler] 当前平台不支持设置进程名", exc_info=True)
 
     @staticmethod
     async def _run_target_after_init(target, *args, **kwargs):
@@ -61,6 +91,7 @@ class ProcessHandler:
     @staticmethod
     def subprocess_target(ready_event, target, *args, child_nice: int = 0, **kwargs):
         ProcessHandler._setup_child_process_logging()
+        ProcessHandler._set_os_process_name()
 
         # Every task owns a process group.  Native tools launched by a worker
         # inherit this group, allowing cancellation to reap the complete tree
@@ -159,6 +190,7 @@ class ProcessHandler:
             try:
                 ready_event = multiprocessing.Event()
                 process = multiprocessing.Process(
+                    name=ProcessHandler._process_name(target, task_id),
                     target=ProcessHandler.subprocess_target,
                     args=(ready_event, target) + args,
                     kwargs={**kwargs, "child_nice": child_nice},

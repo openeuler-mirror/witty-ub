@@ -131,7 +131,7 @@ def _has_yuanrong_cols(worker_columnar: dict[str, list]) -> bool:
 def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
     """对已 per-trace 归并的 df_trace 追加 26 项 yuanrong 分段时延。
 
-    要求 df_trace 已含 __se/__we/__ue/__ce/__me/__re 等原材料列
+    要求 df_trace 已含 __se/__wsum/__umax/__ce0/__me/__re 等原材料列
     （由外层 group_by("tid") 一次性产出）。
     """
     import polars as pl
@@ -153,19 +153,12 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
     )
 
     # ── Phase 3: list aggregates for client RPC + worker ────────────────
-    yr = yr.with_columns([
-        pl.col("__we").list.sum().alias("__wsum"),
-        pl.col("__we").list.max().alias("__wmax"),
-        pl.col("__ce").list.sum().alias("__ce2esum"),
-    ])
+    # 扫描归并时已将后续计算所需信息压成标量，不再保留可变长 List 列。
 
     # ── Phase 4: derived 26 output columns ──────────────────────────────
-    _ce0 = pl.col("__ce").list.first()
-    _ce1 = pl.col("__ce").list.tail(1).list.first()
-    _cs0 = pl.col("__cs").list.first()
-    _cs1 = pl.col("__cs").list.tail(1).list.first()
-    _cnw0 = pl.col("__cnw").list.first()
-    _cnw1 = pl.col("__cnw").list.tail(1).list.first()
+    _ce0, _ce1 = pl.col("__ce0"), pl.col("__ce1")
+    _cs0, _cs1 = pl.col("__cs0"), pl.col("__cs1")
+    _cnw0, _cnw1 = pl.col("__cnw0"), pl.col("__cnw1")
     _ct_0 = (_ce0 - _cs0).clip(0)
     _ct_1 = (_ce1 - _cs1).clip(0)
     _cf_0 = (_ct_0 - _cnw0).clip(0)
@@ -204,7 +197,7 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
         ).then(
             (pl.col("__se") - pl.col("__ce2esum")).clip(0)
         ).when(
-            pl.col("__we").list.len() > 0
+            pl.col("__wn") > 0
         ).then(
             (pl.col("__se") - pl.col("__wsum")).clip(0)
         ).otherwise(
@@ -219,11 +212,11 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
         pl.col("__wmax").alias("worker_access_latency_us"),
 
         pl.when(pl.col("__isset"))
-          .then((_remote_proc - pl.col("__ue").list.max()).clip(0))
+          .then((_remote_proc - pl.col("__umax")).clip(0))
           .otherwise(_remote_proc)
           .alias("remote_worker_internal_us"),
 
-        pl.when(~pl.col("__isd") & (pl.col("__we").list.len() > 0))
+        pl.when(~pl.col("__isd") & (pl.col("__wn") > 0))
           .then((pl.col("__wsum") - _m_e2e.fill_null(0) - _r_e2e.fill_null(0)).clip(0))
           .alias("local_worker_internal_us"),
 
@@ -249,12 +242,12 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
 
         pl.when(pl.col("__isset"))
           .then(pl.lit(None, dtype=pl.Float64))
-          .otherwise(pl.col("__ue").list.max())
+          .otherwise(pl.col("__umax"))
           .alias("urma_processing_us"),
 
         pl.when(pl.col("__isset"))
           .then(pl.lit(None, dtype=pl.Float64))
-          .otherwise(pl.col("__ui").list.max())
+          .otherwise(pl.col("__uimax"))
           .alias("urma_inflight_max"),
 
         _remote_proc.alias("remote_worker_processing_us"),
@@ -276,7 +269,11 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
 
 # ── 主入口 ─────────────────────────────────────────────────────────────
 
-def _base_agg_exprs(columns: "frozenset[str] | set[str] | None" = None) -> dict[str, "pl.Expr"]:
+def _base_agg_exprs(
+    columns: "frozenset[str] | set[str] | None" = None,
+    *,
+    nullable_rank: bool = False,
+) -> dict[str, "pl.Expr"]:
     """构建 TRACE_COLUMNS 归并 agg 表达式（精确复现参考实现 entries[0] 语义）。
 
     与旧版 build_trace_frame 的 _MERGE_SPEC 循环一致；抽出共享，供
@@ -295,25 +292,18 @@ def _base_agg_exprs(columns: "frozenset[str] | set[str] | None" = None) -> dict[
         if columns is not None and col not in columns:
             continue
         if op == "max_rank":
-            # 取 _src_rank 最大的那一行的值。旧写法 filter(rank == rank.max()).first()
-            # 会为每个组物化一份过滤结果（207 万行实测 2.27s）；改走 sort_by 归并路径
-            # 语义逐值等价、实测 0.65s（-3.5x）：
-            #   * 唯一最大 → 取同一行；
-            #   * 最大值并列 → polars 排序稳定，sort_by 后首个 == 组内行序首个，
-            #     与 filter().first() 同值（2 万组随机并列样本 + 真实数据逐列 sha1 已比对）；
-            #   * _src_rank 由 columnar 恒定写 Int64（两份真实数据实测 0 个 null），
-            #     故不存在 "全 null 组"下旧写法得 null、排序写法得首行的差异。
+            # Rank is non-null for scanner rows. arg_max selects the first
+            # maximum (including ties) without allocating/sorting each group.
             agg_exprs[col] = (
-                pl.col(col)
-                .sort_by(pl.col(_SRC_RANK_COL), descending=True)
-                .first()
+                pl.col(col).sort_by(pl.col(_SRC_RANK_COL), descending=True).first()
+                if nullable_rank else
+                pl.col(col).get(pl.col(_SRC_RANK_COL).arg_max())
             )
         elif op == "sdk_first":
             agg_exprs[col] = (
                 pl.col(col)
                 .filter(pl.col("_label") == SDK_LABEL)
-                .drop_nulls()
-                .first()
+                .first(ignore_nulls=True)
             )
         elif op == "sdk_then_worker":
             # 取**请求发起方**（SDK access）的值；没有 SDK 行（纯 worker 日志）时退回
@@ -322,12 +312,10 @@ def _base_agg_exprs(columns: "frozenset[str] | set[str] | None" = None) -> dict[
             agg_exprs[col] = pl.coalesce([
                 pl.col(col)
                 .filter(pl.col("_label") == SDK_LABEL)
-                .drop_nulls()
-                .first(),
+                .first(ignore_nulls=True),
                 pl.col(col)
                 .filter(pl.col("_label") == WORKER_ACCESS_LABEL)
-                .drop_nulls()
-                .first(),
+                .first(ignore_nulls=True),
             ])
         elif op == "implode_unique":
             # 收集所有非空且非重复的值到列表（用于 pod_ip / cluster_name）。
@@ -335,12 +323,12 @@ def _base_agg_exprs(columns: "frozenset[str] | set[str] | None" = None) -> dict[
             # （否则前端看到的多 pod 列表顺序会随物理行序漂移）。
             agg_exprs[col] = pl.col(col).drop_nulls().unique().sort().implode()
         else:
-            agg_exprs[col] = pl.col(col).drop_nulls().first()
+            agg_exprs[col] = pl.col(col).first(ignore_nulls=True)
     return agg_exprs
 
 
 def _yuanrong_agg_exprs() -> dict[str, "pl.Expr"]:
-    """构建 16 项 yuanrong 原材料（``__`` 前缀）agg 表达式。
+    """构建 yuanrong 紧凑原材料（``__`` 前缀）agg 表达式。
 
     这些列只供 _yuanrong_from_grouped 消费（run() 对 subset 延后计算）。
     """
@@ -349,13 +337,21 @@ def _yuanrong_agg_exprs() -> dict[str, "pl.Expr"]:
     return {
         "__se": pl.col("_elapsed_us").filter(pl.col("_label") == SDK_LABEL).first(),
         "__sop": pl.col("op").filter(pl.col("_label") == SDK_LABEL).first(),
-        "__we": pl.col("_elapsed_us").filter(pl.col("_label") == WORKER_ACCESS_LABEL).implode(),
-        "__ue": pl.col("_elapsed_us").filter(pl.col("_label") == URMA_LABEL).implode(),
-        "__ui": pl.col("inflight_count").filter(pl.col("_label") == URMA_LABEL).implode(),
+        # Use the original list reduction order for bit-for-bit floating-point
+        # parity, but retain only its scalar result between pipeline stages.
+        "__wsum": pl.col("_elapsed_us").filter(pl.col("_label") == WORKER_ACCESS_LABEL).implode().list.sum(),
+        "__wmax": pl.col("_elapsed_us").filter(pl.col("_label") == WORKER_ACCESS_LABEL).max(),
+        "__wn": pl.col("_label").filter(pl.col("_label") == WORKER_ACCESS_LABEL).len(),
+        "__umax": pl.col("_elapsed_us").filter(pl.col("_label") == URMA_LABEL).max(),
+        "__uimax": pl.col("inflight_count").filter(pl.col("_label") == URMA_LABEL).max(),
         "__cn": pl.col("_label").filter(pl.col("_label") == CLIENT_RPC_LABEL).count(),
-        "__ce": pl.col("_rpc_e2e_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).implode(),
-        "__cs": pl.col("_rpc_server_exec_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).implode(),
-        "__cnw": pl.col("_rpc_network_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).implode(),
+        "__ce0": pl.col("_rpc_e2e_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).first(),
+        "__ce1": pl.col("_rpc_e2e_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).last(),
+        "__ce2esum": pl.col("_rpc_e2e_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).implode().list.sum(),
+        "__cs0": pl.col("_rpc_server_exec_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).first(),
+        "__cs1": pl.col("_rpc_server_exec_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).last(),
+        "__cnw0": pl.col("_rpc_network_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).first(),
+        "__cnw1": pl.col("_rpc_network_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).last(),
         "__me": pl.col("_rpc_e2e_us").filter(pl.col("_label") == MASTER_RPC_LABEL).first(),
         "__ms": pl.col("_rpc_server_exec_us").filter(pl.col("_label") == MASTER_RPC_LABEL).first(),
         "__mn": pl.col("_rpc_network_us").filter(pl.col("_label") == MASTER_RPC_LABEL).first(),
@@ -401,7 +397,9 @@ def detail_tids_from(
     threshold_ms: float,
     top_k: int = 1000,
     det: bool | None = None,
-) -> set[str]:
+    *,
+    as_series: bool = False,
+) -> "set[str] | pl.Series":
     """明细子集 tid（= 时延异常 ∪ total_latency top_k）。
 
     口径与 :func:`build_trace_frame` 内部推导**同一份代码**（从那里搬出来，
@@ -411,11 +409,14 @@ def detail_tids_from(
     """
     import polars as pl
 
+    # Keep large anomaly sets columnar in the production path.
     if det is None:
         det = deterministic_enabled()
-    tids = set(
-        df_trace.filter(pl.col("total_ms") >= threshold_ms)["tid"].to_list()
-    )
+    anomalies = df_trace.select("tid", "total_ms").filter(
+        pl.col("total_ms") >= threshold_ms
+    )["tid"]
+    ranked = df_trace.select("tid", "total_latency")
+    tids = set()
     if det:
         # WITTY_UB_DETERMINISTIC=1：sort(total_latency desc, tid asc).head(k)
         # 稳定断结（DataFrame.top_k 在并列处按内部实现取，不可复现）。
@@ -426,18 +427,20 @@ def detail_tids_from(
         # 确定的，不破坏可复现性），最多多算 1 条 trace。
         try:
             tids |= set(
-                df_trace.top_k(k=top_k, by="total_latency")["tid"].to_list()
+                ranked.top_k(k=top_k, by="total_latency")["tid"].to_list()
             )
         except Exception:
             pass
     else:
         try:
             tids |= set(
-                df_trace.top_k(k=top_k, by="total_latency")["tid"].to_list()
+                ranked.top_k(k=top_k, by="total_latency")["tid"].to_list()
             )
         except Exception:
             pass
-    return tids
+    if as_series:
+        return pl.concat([anomalies, pl.Series("tid", list(tids), dtype=pl.String)]).unique()
+    return tids | set(anomalies.to_list())
 
 
 def build_trace_frame(
@@ -494,12 +497,15 @@ def build_trace_frame(
         # 基础归并：TRACE_COLUMNS（总时延等聚合标量，用于 p99/p9999 折线图、
     # src_dst / time_window 聚合、分位桶统计）。仅在 无阈值(测试/全量) 时
     # 一并聚合 yuanrong 原材料列（单段 group_by，与旧实现等价、零倒退）。
+    # Scanner ranks are non-null. Generic callers may supply null ranks;
+    # preserve the original null-first ordering for those inputs.
+    base_exprs = _base_agg_exprs(nullable_rank=bool(frame[_SRC_RANK_COL].null_count()))
     if do_yuanrong and threshold_ms is None:
         df_trace = frame.group_by("tid", maintain_order=det).agg(
-            **{**_base_agg_exprs(), **_yuanrong_agg_exprs()}
+            **{**base_exprs, **_yuanrong_agg_exprs()}
         )
     else:
-        df_trace = frame.group_by("tid", maintain_order=det).agg(**_base_agg_exprs())
+        df_trace = frame.group_by("tid", maintain_order=det).agg(**base_exprs)
 
     # w2w/create/publish 固定 None；c2w 归并后推导
     df_trace = df_trace.with_columns(
@@ -547,15 +553,16 @@ def build_trace_frame(
         yr_exprs = _yuanrong_agg_exprs()
         # 显式给了集合就用它（轻列/宽列分离路径：明细子集 ∪ 分桶代表行）；
         # 否则就地推导（口径见 detail_tids_from，与本文件旧实现逐字一致）。
-        detail_tids = (
-            set(detail_tids)
-            if detail_tids is not None
-            else detail_tids_from(df_trace, threshold_ms, top_k=top_k, det=det)
-        )
+        if detail_tids is None:
+            detail_tids = detail_tids_from(
+                df_trace, threshold_ms, top_k=top_k, det=det, as_series=True
+            )
+        elif not isinstance(detail_tids, pl.Series):
+            detail_tids = pl.Series("tid", list(detail_tids), dtype=pl.String)
         # 空子集时 filter 得空 frame，group_by 后仍保留 __ 列（全 null），
         # join how="left" 使非明细 trace 的 __ 列为 null，契约列数不变。
         detail_frame = (
-            frame.filter(pl.col("tid").is_in(list(detail_tids)))
+            frame.filter(pl.col("tid").is_in(detail_tids.implode()))
             .group_by("tid", maintain_order=det)
             .agg(**yr_exprs)
         )
@@ -651,7 +658,7 @@ def build_trace_frame_light(frame) -> "pl.DataFrame":
     det = deterministic_enabled()
 
     df_trace = src.group_by("tid", maintain_order=det).agg(
-        **_base_agg_exprs(LIGHT_COLUMNS)
+        **_base_agg_exprs(LIGHT_COLUMNS, nullable_rank=bool(src[_SRC_RANK_COL].null_count()))
     )
 
     # Fallback: total_ms / total_latency 为空时退回 worker_total_latency
@@ -688,78 +695,11 @@ def build_trace_frame_light(frame) -> "pl.DataFrame":
 def bucket_representative_tids(
     df_trace_light, *, granularities: tuple[int, ...] = (10, 60, 600, 3600)
 ) -> set:
-    """从轻列 df_trace 里算出分桶代表行的 tid 集合（4 档粒度 × 4 位次）。
+    """Use the same percentile selector as bucket persistence."""
+    from latency.bucket.representatives import select_bucket_representatives
 
-    **与 bucket/statistics.py:298-347（``compute_bucket_stats_from_frame``
-    Phase 1）同源，改动必须同步**，否则改造后桶表结果（含每档行数与行内容）
-    会变。逐项对应：
-
-    - C0 过滤：``bucket_epoch`` 与 ``total_ms`` 非空（statistics.py:298-301）。
-    - ``_op_code``：``operation.str.contains("GET", literal=True)`` → 0，否则 1
-      （statistics.py:305-310，注意是大小写敏感的 ``literal=True``，不是
-      ``_normalize_op`` 的 ``upper()`` 口径）。
-    - 全局定序：``sort(["total_latency", "tid"], nulls_last=True)`` —— 一次排序
-      服务 4 档；组内相对序只由 (total_latency, tid) 决定（statistics.py:323）。
-    - 每档：``_bucket_id = bucket_epoch // g``，组 = (桶, op)，组内
-      ``rank("ordinal")``（并列按行序断结）与 ``len().over(组)``
-      （statistics.py:327-335）。
-    - 位次：``kth_rank = clip(floor(cnt * p), 1, cnt)``，p 取自
-      ``PERCENTILE_MODES``（median 0.5 / p99 0.99 / p9999 0.9999 / pmax 1.0），
-      与 ``percentile_kth_positions`` 的 0-based 位置 +1 一致
-      （statistics.py:336-344）。
-    - 命中行：``filter(_rank == kth_rank)``（statistics.py:347）。原实现在此处
-      再 ``sort(["_bucket_id", "_op_code"])`` 只为落库行序，本函数返回集合，
-      故省掉该排序（成员不变）。
-
-    只读轻列：``bucket_epoch`` / ``total_ms`` / ``operation`` / ``total_latency``
-    / ``tid`` —— 与全量口径选出的代表行集合相同（位次只看 (total_latency, tid)
-    全序与组大小）。
-
-    Args:
-        df_trace_light: ``build_trace_frame_light`` 的产物。
-        granularities: 桶粒度（秒），默认与 ``GRANULARITY_KEYS`` 同值。
-
-    Returns:
-        tid 集合（跨 4 档粒度、4 个位次、所有 (桶, op) 组的并集）。
-    """
-    import polars as pl
-
-    df = df_trace_light.filter(
-        pl.col("bucket_epoch").is_not_null()
-        & pl.col("total_ms").is_not_null()
-    )
-    if df.height == 0:
-        return set()
-
-    df = df.with_columns(
-        pl.when(pl.col("operation").str.contains("GET", literal=True))
-        .then(pl.lit(0, dtype=pl.Int64))
-        .otherwise(pl.lit(1, dtype=pl.Int64))
-        .alias("_op_code"),
-    )
-
-    # 一次定序服务 4 档：组内相对序只由 (total_latency, tid) 决定
-    df_ord = df.select(["bucket_epoch", "_op_code", "tid", "total_latency"]).sort(
-        ["total_latency", "tid"], nulls_last=True
-    )
-
-    tids: set = set()
-    for g in granularities:
-        dg = df_ord.with_columns((pl.col("bucket_epoch") // g).alias("_bucket_id"))
-        dg = dg.with_columns(
-            pl.col("total_latency")
-            .rank("ordinal")
-            .over(["_bucket_id", "_op_code"])
-            .cast(pl.Int64)
-            .alias("_rank"),
-            pl.len().over(["_bucket_id", "_op_code"]).alias("_cnt"),
-        )
-        for _mode_name, p in _percentile_modes():
-            kth_rank = (
-                (pl.col("_cnt").cast(pl.Float64) * p)
-                .floor()
-                .cast(pl.Int64)
-                .clip(lower_bound=1, upper_bound=pl.col("_cnt"))
-            )
-            tids.update(dg.filter(pl.col("_rank") == kth_rank)["tid"].to_list())
-    return tids
+    return {
+        tid
+        for selected in select_bucket_representatives(df_trace_light, granularities).values()
+        for tid in selected["tid"].to_list()
+    }

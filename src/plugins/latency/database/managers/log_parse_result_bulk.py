@@ -79,7 +79,8 @@ from __future__ import annotations
 
 import logging
 import time
-import uuid
+import os
+from itertools import repeat
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Sequence
@@ -425,6 +426,18 @@ def project_frame(df: Any, spec: CopySpec) -> Any:
     return df.select(expressions)
 
 
+def _uuid4_strings(count: int) -> list[str]:
+    """Generate one bounded COPY batch of RFC 4122 v4 IDs with one syscall."""
+    data = os.urandom(count * 16).hex()
+    variants = dict(zip("0123456789abcdef", "89ab" * 4))
+    return [
+        f"{value[:8]}-{value[8:12]}-4{value[13:16]}-"
+        f"{variants[value[16]]}{value[17:20]}-{value[20:]}"
+        for offset in range(0, len(data), 32)
+        for value in (data[offset:offset + 32],)
+    ]
+
+
 def build_records(
     df: Any,
     spec: CopySpec,
@@ -432,7 +445,8 @@ def build_records(
     created_at: Any = None,
     generate_ids: bool | None = None,
     values: Mapping[str, Any] | None = None,
-) -> tuple[list[tuple[Any, ...]], tuple[str, ...]]:
+    materialize: bool = True,
+) -> tuple[Any, tuple[str, ...]]:
     """DataFrame -> COPY 记录 + 列名（不连库，便于离线比对 / 预检）。
 
     Args:
@@ -444,6 +458,8 @@ def build_records(
             时自动开启；frame 自带同名列时，空串 / NULL 单元格仍会补 uuid4
             （与 ``result_to_pg_tuple`` 一致）。
         values: 本批常量列（优先级最高；如 ``{"log_id": log_file_id}``）。
+        materialize: False 时返回有界列迭代器，直接由 COPY 消费，避免为
+            整批同时分配宽 tuple；默认保留列表接口。
 
     Returns:
         ``(records, columns)``；``records`` 可直接喂
@@ -466,59 +482,96 @@ def build_records(
             parse_timestamp(created_at) if created_at is not None else utc_now()
         )
 
-    columns: list[list[Any]] = []
+    from latency.database.utils import _parse_created_at
+
+    columns = []
+    available = set(df.columns)
     for target in spec.columns:
         kind, nullable = meta.get(target, ("scalar", True))
-        convert = _KIND_CONVERTERS[kind]
-        coercion = COERCIONS[spec.coercions.get(target, "identity")]
-
+        convert = (_parse_created_at if kind == "datetime" and target == spec.created_at_column
+                   else _KIND_CONVERTERS[kind])
+        coercion_name = spec.coercions.get(target, "identity")
+        coercion = COERCIONS[coercion_name]
+        source = spec.source_for(target)
+        raw = None
+        converted_native = False
+        constant = None
         if target in overrides:
-            raw = [overrides[target]] * rows
+            constant = overrides[target]
         elif target in spec.constants:
-            raw = [spec.constants[target]] * rows
-        elif spec.source_for(target) in df.columns:
-            source = spec.source_for(target)
-            raw = df[source].to_list()
+            constant = spec.constants[target]
+        elif source in available:
+            series = df[source]
             if target == spec.id_column and auto_ids:
-                # 空串 / NULL 的 id 与现状 result_to_pg_tuple 一致补 uuid4
-                raw = [value if value else str(uuid.uuid4()) for value in raw]
+                raw = series.to_list()
+                missing = [index for index, value in enumerate(raw) if not value]
+                for index, value in zip(missing, _uuid4_strings(len(missing))):
+                    raw[index] = value
+            elif series.null_count() != rows:
+                if series.dtype == pl.List(pl.String) and (
+                    (kind == "array" and coercion_name == "identity")
+                    or (kind == "scalar" and coercion_name == "list_join")
+                ):
+                    # Native string lists need no per-element Python str()
+                    # calls or second list allocation. Match str(None) inside
+                    # a list, while retaining null and empty-list semantics.
+                    normalized = series.list.eval(pl.element().fill_null("None"))
+                    if kind == "array":
+                        raw = [value or None for value in normalized.to_list()]
+                    else:
+                        raw = normalized.list.join(", ").to_list()
+                    converted_native = True
+                elif kind == "datetime" and coercion_name == "identity" and (
+                    isinstance(series.dtype, pl.Datetime) and series.dtype.time_zone is None
+                ):
+                    raw = series.to_list()
+                    converted_native = True
+                else:
+                    raw = series.to_list()
         elif target == spec.id_column:
-            if not auto_ids:
-                raw = [None] * rows
-            else:
-                raw = [str(uuid.uuid4()) for _ in range(rows)]
+            if auto_ids:
+                raw = _uuid4_strings(rows)
         elif target == spec.created_at_column:
-            raw = [created] * rows
+            constant = created
         elif target in spec.defaults:
-            raw = [spec.defaults[target]] * rows
-        elif nullable:
-            raw = [None] * rows
-        else:
+            constant = spec.defaults[target]
+        elif not nullable:
             raise ValueError(
                 f"{spec.table}.{target} is NOT NULL but frame has no source "
-                f"column {spec.source_for(target)!r} and spec has no "
+                f"column {source!r} and spec has no "
                 f"default/constant/override for it"
             )
 
-        if kind != "scalar" or spec.coercions.get(target, "identity") != "identity":
-            raw = [convert(coercion(value)) for value in raw]
-        columns.append(raw)
+        if raw is None:
+            # Do not allocate or convert an entire Python column for constants
+            # and typed-null arrays. zip consumes only one batch of repeats.
+            if rows:
+                constant = convert(coercion(constant))
+            invalid_index = 0 if constant is None and rows else None
+            # Array conversion previously returned an independent list per row.
+            # Keep that contract without allocating a full repeated column.
+            column = (map(list, repeat(constant, rows)) if kind == "array" and constant is not None
+                      else repeat(constant, rows))
+        else:
+            if converted_native:
+                pass
+            elif kind != "scalar" and coercion_name != "identity":
+                raw = [convert(coercion(value)) for value in raw]
+            elif kind != "scalar":
+                raw = [convert(value) for value in raw]
+            elif coercion_name != "identity":
+                raw = [coercion(value) for value in raw]
+            invalid_index = raw.index(None) if spec.strict_not_null and not nullable and None in raw else None
+            column = raw
+        if spec.strict_not_null and not nullable and invalid_index is not None:
+            raise ValueError(
+                f"{spec.table}.{target} is NOT NULL but row {invalid_index} is NULL "
+                f"(source={source!r})"
+            )
+        columns.append(column)
 
-    if spec.strict_not_null:
-        for target, column in zip(spec.columns, columns):
-            kind, nullable = meta.get(target, ("scalar", True))
-            if nullable:
-                continue
-            for index, value in enumerate(column):
-                if value is None:
-                    raise ValueError(
-                        f"{spec.table}.{target} is NOT NULL but row {index} is NULL "
-                        f"(source={spec.source_for(target)!r})"
-                    )
-
-    if rows == 0:
-        return [], tuple(spec.columns)
-    return list(zip(*columns)), tuple(spec.columns)
+    records = zip(*columns) if rows else iter(())
+    return (list(records) if materialize else records), tuple(spec.columns)
 
 
 async def copy_records(
@@ -637,10 +690,11 @@ async def copy_dataframe(
                 created_at=shared_created_at,
                 generate_ids=generate_ids,
                 values=values,
+                materialize=False,
             )
             state["build"] += time.perf_counter() - t_build
             state["columns"] = columns
-            if not records:
+            if chunk.is_empty():
                 continue
             t_copy = time.perf_counter()
             await pg.copy_records_to_table(
@@ -648,6 +702,9 @@ async def copy_dataframe(
             )
             state["copy"] += time.perf_counter() - t_copy
             state["batches"] += 1
+            # The next build allocates Python columns and COPY tuples; release
+            # this batch before that allocation instead of during assignment.
+            del records, chunk
 
     if pg_conn is not None:
         await _run(pg_conn)

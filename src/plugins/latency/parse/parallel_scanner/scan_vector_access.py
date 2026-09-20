@@ -173,9 +173,14 @@ def _trace_id_expr(head: str, sources: Sequence[str]) -> pl.Expr:
     import polars as pl  # 用途待确认（模块顶层已导入 polars，此处为重复导入）
 
     explicit = pl.coalesce([_explicit_trace_id(pl.col(src)) for src in sources])
-    uuid = pl.coalesce([pl.col(src).str.extract(V_UUID_RE, 1) for src in sources])
     head_col = pl.col(head)
     head_ok = head_col.is_not_null() & (head_col != "")
+    # Polars evaluates both when branches. Null the regex input first so
+    # records already carrying a trace column never scan for a UUID fallback.
+    uuid = pl.coalesce([
+        pl.when(head_ok).then(None).otherwise(pl.col(src)).str.extract(V_UUID_RE, 1)
+        for src in sources
+    ])
     explicit_ok = explicit.is_not_null() & (explicit != "")
     uuid_ok = uuid.is_not_null() & (uuid != "")
     return (
@@ -430,18 +435,26 @@ def _prepare_candidates(
     平均活跃线程 2.73。现在整体保持惰性，这些算子随调用方第一次 _collect()（streaming）
     一起并行执行；chunk 结构由执行器决定，原来手工 _rechunk_k 那一步也不再需要。
     """
+    categorical_paths = (
+        _FILE_COLUMN in frame.columns
+        and frame.schema[_FILE_COLUMN] == pl.Categorical
+        and not any("\\" in path for path in frame[_FILE_COLUMN].unique() if path is not None)
+    )
     if _FILE_COLUMN in frame.columns:
         # polars 的 include_file_paths 在 Windows 上给正斜杠，而调用方传的是
         # os.path.join 风格的反斜杠 → is_in/join 全部命中不到，表现为"access 三个 label 全空"。
         # 统一归一成 posix 形式后比较。
         base = frame.lazy().select(
             pl.col("line").cast(pl.Utf8),
-            pl.col(_FILE_COLUMN).cast(pl.Utf8).str.replace("\\", "/", literal=True),
+            (pl.col(_FILE_COLUMN) if categorical_paths else
+             pl.col(_FILE_COLUMN).cast(pl.Utf8).str.replace("\\", "/", literal=True)),
+            *([pl.col(_ROW_COLUMN).cast(pl.Int64)] if _ROW_COLUMN in frame.columns else []),
         )
     elif len(paths) == 1:
         base = frame.lazy().select(
             pl.col("line").cast(pl.Utf8),
             pl.lit(paths[0], dtype=pl.Utf8).alias(_FILE_COLUMN),
+            *([pl.col(_ROW_COLUMN).cast(pl.Int64)] if _ROW_COLUMN in frame.columns else []),
         )
     else:
         raise ValueError("access_label_columns: frame 缺少 '__file' 且 files 不唯一")
@@ -483,7 +496,14 @@ def _prepare_candidates(
         pl.col("_file_pod_ip").cast(pl.Utf8),
         pl.col("_log_id").cast(pl.Utf8),
     )
-    return base.join(meta_frame.lazy(), on=_FILE_COLUMN, how="left"), meta
+    if categorical_paths:
+        # Scanner source paths are already dictionary encoded. Join their
+        # integer keys before expanding the public string output column.
+        meta_frame = meta_frame.with_columns(pl.col(_FILE_COLUMN).cast(pl.Categorical))
+    base = base.join(meta_frame.lazy(), on=_FILE_COLUMN, how="left")
+    if categorical_paths:
+        base = base.with_columns(pl.col(_FILE_COLUMN).cast(pl.String))
+    return base, meta
 
 
 
@@ -583,9 +603,12 @@ def _finish(out: pl.DataFrame, label: str, *, light: bool = False) -> pl.DataFra
     if not light:
         # 原本这里是 to_list() + Python 字典循环（逐行 Python）；改成三条列表达式。
         out = out.with_columns(
-            _rpc_expr("_resp_msg", "e2e_us", "_rpc_e2e_us"),
-            _rpc_expr("_resp_msg", "server_exec_us", "_rpc_server_exec_us"),
-            _rpc_expr("_resp_msg", "network_residual_us", "_rpc_network_us"),
+            _rpc_expr("_resp_msg", key, column)
+            for key, column in (
+                ("e2e_us", "_rpc_e2e_us"),
+                ("server_exec_us", "_rpc_server_exec_us"),
+                ("network_residual_us", "_rpc_network_us"),
+            ) if column not in out.columns
         )
     # 只保留真实存在的列；缺列由 scan_vector._normalize 补齐（避免每行铺 null）
     wanted = [
@@ -617,24 +640,17 @@ def _access_rows(base: pl.LazyFrame, meta: _FileMeta, log_ids: dict[str, str] | 
     fields = _access_base_fields(parts)
     gate = (
         line.str.starts_with("2")
-        & (line.str.count_matches("|", literal=True) >= _ACCESS_PIPES)
+        & parts[_ACCESS_PIPES].is_not_null()
         & line.str.contains(kw_re)
         & fields["_handle"].is_in(ops)
     )
-    # 相位一：切列 + 门禁 + 丢掉 line —— **只此一次**真正碰 519 MB 的 line 列。
-    # （之前探针与最终 collect 都从 line 重算，实测 337k 行就要 13 次计划执行 = 1.5s；
-    #  2M 行按线性外推 ~10s。把重活收敛到一次是关键。）
-    # 注意：这个相位一物化帧叫 stage1 而不是 light —— 本模块的 `light` 已是
-    # "只算轻列"的模式开关（见 _project_exprs / _finish）。
-    stage1 = (
+    # Keep projection in the same lazy plan: light mode never needs to allocate
+    # wide-only intermediate strings such as pod, cluster, or response fields.
+    lf = (
         lf.with_columns(**fields)
         .filter(gate.fill_null(False))
         .select([_FILE_COLUMN, _ROW_COLUMN, _RANK_COLUMN, "_file_pod_ip", "_log_id", *fields.keys()])
     )
-    stage1 = _collect(stage1)
-    if stage1.height == 0:
-        return None
-    lf = stage1.lazy()
 
     ok_ts, ts_str, ts_bucket, ts_epoch = _ts_exprs("_ts_raw")
     status_expr, status_invalid = _status_exprs("_status_raw")
@@ -686,7 +702,8 @@ def _access_rows(base: pl.LazyFrame, meta: _FileMeta, log_ids: dict[str, str] | 
 def _client_rpc_rows(base: pl.LazyFrame, meta: _FileMeta, log_ids: dict[str, str] | None, *,
                      window: tuple[int, int] | None = None,
                      min_elapsed_us: float | None = None,
-                     light: bool = False) -> pl.DataFrame | None:
+                     light: bool = False, defer_unused: bool = False,
+                     sparse: bool = False) -> pl.DataFrame | None:
     paths = meta.client_paths
     if not paths:
         return None
@@ -705,22 +722,26 @@ def _client_rpc_rows(base: pl.LazyFrame, meta: _FileMeta, log_ids: dict[str, str
     )
     gate = (
         line.str.starts_with("2")
-        & (line.str.count_matches("|", literal=True) >= _RUN_PIPES)
+        & parts[_RUN_PIPES].is_not_null()
         & line.str.contains(_ZMQ_KEYWORD, literal=True)
     )
+    if light and defer_unused:
+        # RPC records have no light metrics. Keep their source locator; the
+        # selected wide pass still performs full timing/format validation.
+        # scan_frame removes these rank-zero rows before light aggregation.
+        return _collect(lf.filter(gate.fill_null(False)).select(
+            _trace_id_expr("_trace_col", ["line"]).alias("tid"),
+            pl.lit(0, dtype=pl.Int64).alias("_src_rank"),
+            pl.col(_FILE_COLUMN), pl.col(_ROW_COLUMN), pl.col(_RANK_COLUMN),
+        ))
     lf = lf.filter(gate.fill_null(False)).with_columns(
         pl.col("_msg").str.extract_groups(MASTER_RPC_RE.pattern).alias("_groups")
     )
-    stage1 = (
+    lf = (
         lf.filter(pl.col("_groups").struct.field("remote_processing_us").is_not_null())
         .select([_FILE_COLUMN, _ROW_COLUMN, _RANK_COLUMN, "_file_pod_ip", "_log_id", "_ts_raw",
                  "_pod_name", "_trace_col", "_cluster", "_msg", "_groups", "line"])
     )
-    stage1 = _collect(stage1)
-    if stage1.height == 0:
-        return None
-    lf = stage1.lazy()
-
     ok_ts, ts_str, ts_bucket, ts_epoch = _ts_exprs("_ts_raw")
     elapsed_expr = (
         pl.col("_groups").struct.field("remote_processing_us")
@@ -737,9 +758,27 @@ def _client_rpc_rows(base: pl.LazyFrame, meta: _FileMeta, log_ids: dict[str, str
         "_elapsed_us": elapsed_expr.cast(pl.Float64),
         "_resp_msg": _format_timed_resp_msg(pl.col("_groups")),
     }
-    plan = lf.filter(valid.fill_null(False)).select(
-        _project_exprs(CLIENT_RPC_LABEL, values, light=light)
-    )
+    exprs = _project_exprs(CLIENT_RPC_LABEL, values, light=light)
+    if not light:
+        if sparse:
+            exprs = [expr for expr in exprs if expr.meta.output_name() != "_resp_msg"]
+        # RPC response text is itself built from these captures. Keep the
+        # numeric values directly instead of formatting then extracting them.
+        exprs.extend(
+            pl.coalesce(
+                # Preserve first-match behavior if unusual trace text itself
+                # contains a comma-separated RPC key before the real field.
+                pl.col("_groups").struct.field("rpc_trace_id")
+                .str.extract(r"\b" + key + r"\s*=\s*(-?\d+)\s*(?:,|$)", 1),
+                pl.col("_groups").struct.field(key),
+            ).cast(pl.Float64, strict=False).alias(column)
+            for key, column in (
+                ("e2e_us", "_rpc_e2e_us"),
+                ("server_exec_us", "_rpc_server_exec_us"),
+                ("network_residual_us", "_rpc_network_us"),
+            )
+        )
+    plan = lf.filter(valid.fill_null(False)).select(exprs)
     return _finish(_collect(plan), CLIENT_RPC_LABEL, light=light)
 
 
@@ -753,6 +792,8 @@ def access_label_columns(
     window: tuple[int, int] | None = None,
     min_elapsed_us: float | None = None,
     light: bool = False,
+    defer_unused: bool = False,
+    sparse: bool = False,
 ) -> pl.DataFrame:
     """access 三类记录（SDK / Worker access / Client rpc）的列式解析。
 
@@ -760,6 +801,9 @@ def access_label_columns(
     行序键 ``__file``/``__row``/``__rank`` 与 ``_src_rank``），宽列（``_label`` /
     ``_elapsed_us`` / ``_resp_msg`` / ``_rpc_*`` 等）**一个表达式都不 select**；
     行集与 ``light=False`` 逐行一致（门禁、有效性判定、过滤条件一字未改）。
+    ``defer_unused=True`` lets the worker keep only source locators for light
+    RPC candidates, postponing full validation until selected wide projection.
+    These metric-free candidates must be excluded from light aggregation.
     """
     paths, per_file = _normalize_inputs(files, parsers)
     base, meta = _prepare_candidates(frame, paths, per_file, file_rank, log_ids)
@@ -768,7 +812,9 @@ def access_label_columns(
     frames: list[pl.DataFrame] = []
     for builder in (_sdk_rows, _worker_access_rows, _client_rpc_rows):
         part = builder(base, meta, log_ids, window=window,
-                       min_elapsed_us=min_elapsed_us, light=light)
+                       min_elapsed_us=min_elapsed_us, light=light,
+                       **({"defer_unused": defer_unused, "sparse": sparse}
+                          if builder is _client_rpc_rows else {}))
         if part is not None and part.height:
             frames.append(part)
     if not frames:

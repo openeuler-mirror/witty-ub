@@ -27,7 +27,8 @@ using namespace ubse::context;
 
 namespace {
 constexpr const char *DEFAULT_WITTY_DIR = "/var/witty-ub";
-constexpr const char *RESULT_DIRECTORY_NAME = "brpc-diag";
+constexpr const char *BATCH_DIRECTORY_NAME = "brpc-tmp";
+constexpr const char *SCHEMA_DIRECTORY_NAME = "cache";
 constexpr std::size_t MAX_TASK_ID_LENGTH = 128;
 using ArgumentMap = std::unordered_map<std::string, std::string>;
 
@@ -99,7 +100,8 @@ RackResult DiagnosisModule::Initialize()
 {
     engine_.reset();
     collector_.reset();
-    outputPath_.clear();
+    batchOutputPath_.clear();
+    schemaOutputPath_.clear();
     taskId_.clear();
     timestamp_ = 0;
 
@@ -121,7 +123,8 @@ RackResult DiagnosisModule::Initialize()
 
     const char *wittyDirEnv = std::getenv("WITTY_DIR");
     const std::filesystem::path wittyDir = wittyDirEnv ? wittyDirEnv : DEFAULT_WITTY_DIR;
-    outputPath_ = wittyDir / RESULT_DIRECTORY_NAME;
+    batchOutputPath_ = wittyDir / BATCH_DIRECTORY_NAME;
+    schemaOutputPath_ = wittyDir / SCHEMA_DIRECTORY_NAME;
 
     collector_ = std::make_unique<LogCollector>(brpcLogPath);
     engine_ = DiagnosisEngine::Create(wittyDir);
@@ -132,7 +135,8 @@ RackResult DiagnosisModule::Initialize()
     }
 
     LOG_INFO << "DiagnosisModule initialized, brpc-log: " << brpcLogPath.string() << ", task-id: " << taskId_
-             << ", output: " << outputPath_.string() << ", timestamp: " << timestamp_;
+             << ", batch-output: " << batchOutputPath_.string() << ", schema-output: "
+             << schemaOutputPath_.string() << ", timestamp: " << timestamp_;
     return RACK_OK;
 }
 
@@ -162,7 +166,7 @@ RackResult DiagnosisModule::Start()
     }
 
     // 步骤3：输出规则快照和本次诊断批次
-    if (!result->Dump(outputPath_, taskId_)) {
+    if (!result->Dump(batchOutputPath_, schemaOutputPath_, taskId_)) {
         return RACK_FAIL;
     }
 

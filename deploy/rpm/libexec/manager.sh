@@ -493,8 +493,7 @@ do_clean() {
     _info "清理运行数据..."
     find "${WITTY_DIR}/latency/file/file_upload" -mindepth 1 -delete 2>/dev/null || true
     find "${WITTY_DIR}/latency/file/file_parse_result" -mindepth 1 -delete 2>/dev/null || true
-    find "${WITTY_DIR}/brpc-diag" -mindepth 1 -delete 2>/dev/null || true
-    rm -rf "${WITTY_DIR}/cache" 2>/dev/null || true
+    rm -rf "${WITTY_DIR}/brpc-tmp" "${WITTY_DIR}/cache" 2>/dev/null || true
     _log "运行数据已清空"
 
     # 4. 范围2: 删 venv/日志；RPM 文件仍由包管理器保留。

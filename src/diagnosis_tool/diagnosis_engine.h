@@ -131,7 +131,7 @@ private:
     void ResetResult();
 
     bool AnalyzeAccessLogs(const std::vector<std::string> &paths);
-    std::optional<std::size_t> ResolveAccessRule(const FailureLogInfoAccess &log) const;
+    std::optional<std::size_t> ResolveAccessRule(int statusCode, bool respMsgNonempty) const;
     bool IsAccessLocationMismatch(std::size_t ruleIndex, const FailureLogInfoAccess &log) const;
     bool AnalyzeRuntimeLogs(const std::vector<std::string> &paths);
     void MatchRuntimeLine(std::string_view line, RuntimeMatchBatch &batch) const;
