@@ -5136,6 +5136,11 @@ const createFaultEchartsOption = (
   const labels = buckets.map((bucket) => bucket.label)
   const seriesNames = codes.map((code) => `故障码${code}`)
   const xAxisLabelStep = labels.length <= 10 ? 1 : Math.ceil(labels.length / 10)
+  const isXAxisLabelVisible = (index: number) =>
+    labels.length <= 10 ||
+    index === 0 ||
+    index === labels.length - 1 ||
+    index % xAxisLabelStep === 0
 
   return {
     tooltip: {
@@ -5149,7 +5154,7 @@ const createFaultEchartsOption = (
     grid: {
       top: 58,
       right: 68,
-      bottom: 15,
+      bottom: 64,
       left: 80,
       containLabel: true,
     },
@@ -5157,31 +5162,74 @@ const createFaultEchartsOption = (
       type: 'category',
       data: labels,
       name: '时间',
+      boundaryGap: true,
+      axisTick: {
+        show: true,
+        alignWithLabel: true,
+        length: 6,
+        lineStyle: {
+          color: '#94a3b8',
+          width: 1,
+        },
+      },
+      axisLine: {
+        lineStyle: {
+          color: '#94a3b8',
+        },
+      },
       axisLabel: {
-        interval: (index: number) =>
-          labels.length <= 10 ||
-          index === 0 ||
-          index === labels.length - 1 ||
-          index % xAxisLabelStep === 0,
+        interval: (index: number) => isXAxisLabelVisible(index),
         color: '#64748b',
         fontSize: 12,
         rotate: 38,
         margin: 6,
+      },
+      nameTextStyle: {
+        color: '#475569',
+        fontSize: 12,
       },
     },
     yAxis: {
       type: 'value',
       name: '故障计数',
       minInterval: 1,
+      splitLine: {
+        lineStyle: {
+          color: '#e2e8f0',
+        },
+      },
       axisLabel: {
+        color: '#64748b',
+        fontSize: 12,
         formatter: (value: number) => String(Math.trunc(value)),
+      },
+      nameTextStyle: {
+        color: '#475569',
+        fontSize: 12,
       },
     },
     series: codes.map((code) => ({
       name: `故障码${code}`,
       type: 'line',
-      data: buckets.map((bucket) => bucket.counts[code] ?? 0),
+      data: buckets.map((bucket, index) => ({
+        value: bucket.counts[code] ?? 0,
+        symbol: isXAxisLabelVisible(index) ? 'circle' : 'none',
+      })),
       smooth: true,
+      symbol: 'circle',
+      symbolSize: codes.length > 12 ? 4 : 6,
+      lineStyle: {
+        width: codes.length > 12 ? 1.5 : 2,
+        opacity: codes.length > 12 ? 0.76 : 0.9,
+      },
+      emphasis: {
+        focus: 'series',
+        lineStyle: {
+          width: 3,
+          opacity: 1,
+        },
+      },
+      z: 2,
     })),
   }
 }
@@ -7491,9 +7539,25 @@ const loadFaultChart = async () => {
   try {
     const filters = appliedFilters.value
     const chartRange = faultChartRange.value
+
+    const maxPoints =
+      chartRange && selectedFaultScale.value > 0
+        ? Math.min(
+            5000,
+            Math.max(
+              100,
+              Math.ceil(
+                (chartRange.endTime - chartRange.startTime) /
+                  (selectedFaultScale.value * 1000),
+              ),
+            ),
+          )
+        : 5000
+
     const requestBody: Record<string, unknown> = {
       kb_id: assetId,
-      max_points: 1000,
+      max_points: maxPoints,
+      bucket_seconds: selectedFaultScale.value,
     }
 
     if (filters.startTime) {
