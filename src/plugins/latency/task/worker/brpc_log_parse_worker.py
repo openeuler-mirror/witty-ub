@@ -11,13 +11,13 @@ import logging
 import re
 import time
 
-from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
-from latency.parse.brpc_profiling_parser import BrpcProfilingParser
+from latency.database.managers.brpc_profiling_result import BrpcProfilingResultPGManager
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.task import TaskPGManager
-from latency.database.managers.brpc_profiling_result import BrpcProfilingResultPGManager
+from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
+from latency.parse.brpc_profiling_parser import BrpcProfilingParser
 from latency.schemas.task import TaskModel
 from latency.task.worker.base import BaseWorker
 
@@ -29,9 +29,9 @@ _PROFILING_TIMESTAMP_RE = re.compile(r"^timeStamp:\s*\S")
 def _is_profiling_log(file_path: str) -> bool:
     """Read the first line and check if it matches the profiling timestamp format."""
     try:
-        with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
+        with open(file_path, encoding="utf-8-sig", errors="ignore") as f:
             first_line = f.readline().strip()
-    except (IOError, OSError):
+    except OSError:
         return False
     return bool(_PROFILING_TIMESTAMP_RE.match(first_line))
 
@@ -107,7 +107,7 @@ class BrpcLogParseWorker(BaseWorker):
         if not log_dir:
             raise ValueError("Either log_id or log_dir must be provided")
 
-        import os
+        import os  # 懒加载：本文件仅此处用到 os
 
         profiling_files: list[str] = []
         if os.path.isfile(log_dir):
@@ -195,8 +195,10 @@ class BrpcLogParseWorker(BaseWorker):
             return True
         except Exception as e:
             logger.exception(f"UBSocket task {task_id} failed: {e}")
-            await TaskPGManager.update_task(
-                task_id, {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
+            await TaskPGManager.mark_failed_with_report(
+                task_id,
+                f"任务失败：UBSocket 日志解析异常，{type(e).__name__}: {e}",
+                status=TaskStatusEnum.FAILED_PENDING_REMOVE,
             )
             return False
 

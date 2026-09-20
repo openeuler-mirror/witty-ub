@@ -46,9 +46,7 @@ class LogKnowledgeService:
         if not log_kb:
             raise NotFoundBizException(resource="知识库")
 
-        # Stop every active task tree before making the asset invisible.  A
-        # failed stop is recorded for operations, but does not prevent the
-        # user-requested asset deletion from completing.
+        # No worker may survive while its database rows are being removed.
         tasks = await TaskPGManager.list_tasks_by_kb_id(
             kb_id, [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]
         )
@@ -61,21 +59,20 @@ class LogKnowledgeService:
                 failed_task_ids.append(task.id)
                 logger.exception("停止资产库任务进程树失败: task_id=%s", task.id)
         if failed_task_ids:
-            logger.error(
-                "资产库 %s 删除前有 %d 个任务进程树未能确认停止，继续删除: %s",
-                kb_id,
-                len(failed_task_ids),
-                failed_task_ids,
+            raise RuntimeError(
+                f"资产库中任务进程树未能确认终止，取消删除: {failed_task_ids}"
             )
 
-        rowcount = await LogKnowledgePGManager.update_log_kb(
-            kb_id, {"existed_status": False}
+        log_file_ids = await LogFilePGManager.list_log_file_ids(
+            kb_id=kb_id, include_inactive=True
         )
-        if rowcount == 0:
-            raise NotFoundBizException(resource="知识库")
-        
-        log_file_ids = await LogFilePGManager.list_log_file_ids(kb_id=kb_id)
         for log_file_id in log_file_ids:
+            deleted = await LogFilePGManager.hard_delete_log_file_with_related_data(
+                log_file_id
+            )
+            if not deleted:
+                raise RuntimeError(f"级联删除日志文件失败: {log_file_id}")
+
             cleanup_preprocess_dir(log_file_id)
             logger.info("已清理日志文件预处理目录: %s", log_file_id)
             
@@ -86,8 +83,13 @@ class LogKnowledgeService:
                     logger.info("已清理诊断输出目录: %s", diagnosis_output_dir)
                 except OSError as e:
                     logger.error("清理诊断输出目录 %s 失败: %s", diagnosis_output_dir, e)
-        
+
+        # Remove tasks not tied to a current log row as well (for example,
+        # remnants of an interrupted upload), then physically remove the KB.
+        await TaskPGManager.hard_delete_tasks_by_kb_id(kb_id)
         await DiagnosisConfigPGManager.delete(kb_id)
+        if not await LogKnowledgePGManager.delete_log_kb_by_kb_id(kb_id):
+            raise RuntimeError("删除资产库失败")
         return DeleteLogKnowledgeMsg(kb_id=kb_id)
 
     @staticmethod

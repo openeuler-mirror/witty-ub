@@ -1,14 +1,24 @@
 import asyncio
 import logging
-from datetime import datetime
+
 from latency.common.local_time import local_now
-from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
-from latency.task.process_handle import ProcessHandler
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.task_report import TaskReportPGManager
+from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.schemas.task import TaskReportModel
+from latency.task.process_handle import (
+    CHILD_NICE_BACKGROUND,
+    CHILD_NICE_PARSE,
+    ProcessHandler,
+)
 
 logger = logging.getLogger(__name__)
+
+#: 解析类任务（拿默认 CPU 优先级）：KVCache 解析、UBSocket 解析。
+_PARSE_TASK_TYPES = frozenset({
+    TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+    TaskTypeEnum.BRPC_LOG_PARSE_WORKER,
+})
 
 PREPROCESS_TASK_TYPE_GROUPS = (
     frozenset(
@@ -167,16 +177,32 @@ class BaseWorker:
         
         worker_name = task.task_type
         args = (task_id, log_dir) if log_dir else (task_id,)
-        flag = ProcessHandler.add_task(
+        # 解析类任务拿默认优先级；诊断/上下文落库让路（见 process_handle 的 CHILD_NICE_*）
+        child_nice = (
+            CHILD_NICE_PARSE
+            if worker_name in _PARSE_TASK_TYPES
+            else CHILD_NICE_BACKGROUND
+        )
+        # add_task 里要 spawn 子进程并等它就绪（子进程要重新 import polars 等，
+        # 实测 1~4s）。同步调用会把这 4 秒压在事件循环上，导致同一批的三个任务
+        # 一个起完才起下一个（实测子进程出现时刻各差 ~4s，端到端因此翻倍）。
+        # 放线程里跑：多个任务并发 spawn，事件循环继续走调度节拍。
+        flag = await asyncio.to_thread(
+            ProcessHandler.add_task,
             task_id,
             BaseWorker.find_worker_class(worker_name).run,
             *args,
+            child_nice=child_nice,
             **(worker_kwargs or {}),
         )
         if not flag:
             logger.error("ProcessHandler.add_task 失败: task_id=%s worker=%s", task_id, worker_name)
             return False
-        await TaskPGManager.update_task(task_id, {"status": TaskStatusEnum.RUNNING.value})
+        # The dispatcher atomically claims PENDING -> RUNNING before starting
+        # the child.  Do not write RUNNING again here: a small/local log can
+        # finish in the child before add_task() returns, and this parent-side
+        # write would then overwrite SUCCESSFUL_PENDING_REMOVE.  The result is
+        # a task with a 100% report that remains RUNNING forever in the UI.
         return True
 
     @staticmethod
@@ -188,14 +214,14 @@ class BaseWorker:
             return True
         
         worker_name = task.task_type
-        logger.warning(f"[BaseWorker] 停止任务 {task_id}, 当前状态: {task.status}, worker: {worker_name}")
+        logger.warning(
+            f"[BaseWorker] 停止任务 {task_id}, 当前状态: {task.status}, worker: {worker_name}"
+        )
         
         should_update_status = False
         process_stopped = True
         if task.status == TaskStatusEnum.RUNNING:
-            process_stopped = await asyncio.to_thread(
-                ProcessHandler.remove_task, task_id
-            )
+            process_stopped = await asyncio.to_thread(ProcessHandler.remove_task, task_id)
             logger.warning(f"[BaseWorker] 已调用 ProcessHandler.remove_task({task_id})")
             should_update_status = process_stopped
         elif task.status == TaskStatusEnum.PENDING:
@@ -213,7 +239,9 @@ class BaseWorker:
             if task_id_from_stop:
                 logger.warning(f"[BaseWorker] worker.stop 返回: {task_id_from_stop}")
         except Exception as e:
-            logger.error(f"[BaseWorker] worker.stop 异常: {e}")
+            logger.exception(
+                f"[BaseWorker] worker.stop 异常: task_id={task_id}, worker={worker_name}, {e}"
+            )
 
         if not process_stopped:
             logger.error("[BaseWorker] 任务 %s 的进程树未能确认终止", task_id)

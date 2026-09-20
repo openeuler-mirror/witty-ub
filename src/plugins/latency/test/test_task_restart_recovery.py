@@ -9,7 +9,63 @@ from latency.database.managers.task import TaskPGManager
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.schemas.request import ParseConfig
 from latency.task.task_handler import TaskHandler
+from latency.task.process_handle import ProcessHandler
 from latency.task.worker.base import BaseWorker
+from latency.common.disk_space import DiskCapacity
+
+
+@pytest.fixture(autouse=True)
+def _reset_dispatch_state(monkeypatch):
+    monkeypatch.setattr(
+        "latency.task.task_handler.disk_capacity",
+        lambda: DiskCapacity("normal", 1000, 2000, 100, 50, 150),
+    )
+    monkeypatch.setattr(ProcessHandler, "collect_finished_tasks", lambda: {})
+    monkeypatch.setattr(ProcessHandler, "has_capacity", lambda: True)
+    monkeypatch.setattr(TaskHandler, "_collect_finished_processes", AsyncMock(return_value={}))
+    TaskHandler._dispatching_task_ids.clear()
+    TaskHandler._preprocess_inflight.clear()
+    TaskHandler._disk_stopped_task_ids.clear()
+    yield
+    TaskHandler._dispatching_task_ids.clear()
+    TaskHandler._preprocess_inflight.clear()
+    TaskHandler._disk_stopped_task_ids.clear()
+
+
+async def _drain_pending_dispatch():
+    """handle_pending_tasks 后台派发：等待本轮派发协程全部结束。"""
+    dispatch_tasks = list(TaskHandler._dispatch_tasks)
+    if dispatch_tasks:
+        await asyncio.gather(*dispatch_tasks)
+
+
+def _make_task(**overrides):
+    task = SimpleNamespace(
+        id="task-id",
+        op_id="log-id",
+        task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
+        task_config=None,
+    )
+    task.__dict__.update(overrides)
+    return task
+
+
+def _mock_dispatch_claim(monkeypatch, claimed=True, running_status=None):
+    """派发协程依赖的状态迁移/回查 mock。"""
+    transitions = AsyncMock(return_value=claimed)
+    monkeypatch.setattr(
+        TaskPGManager,
+        "transition_task_status",
+        transitions,
+    )
+    if running_status is None:
+        running_status = TaskStatusEnum.RUNNING
+    monkeypatch.setattr(
+        TaskPGManager,
+        "get_task_by_task_id",
+        AsyncMock(return_value=SimpleNamespace(status=running_status)),
+    )
+    return transitions
 
 
 @pytest.fixture(autouse=True)
@@ -69,6 +125,50 @@ async def test_init_task_queue_routes_interrupted_tasks_through_retry(monkeypatc
     await TaskHandler.init_task_queue()
 
     recover.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_warning_disk_mode_pauses_dispatch_and_retry(monkeypatch):
+    monkeypatch.setattr(
+        "latency.task.task_handler.disk_capacity",
+        lambda: DiskCapacity("warning", 90, 2000, 100, 50, 150),
+    )
+    success = AsyncMock()
+    failed = AsyncMock()
+    pending = AsyncMock()
+    monkeypatch.setattr(TaskHandler, "handle_successed_tasks", success)
+    monkeypatch.setattr(TaskHandler, "handle_failed_tasks", failed)
+    monkeypatch.setattr(TaskHandler, "handle_pending_tasks", pending)
+
+    await TaskHandler.handle_tasks()
+
+    success.assert_awaited_once()
+    failed.assert_not_awaited()
+    pending.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_critical_disk_mode_stops_running_tasks_for_retry(monkeypatch):
+    task = _make_task(status=TaskStatusEnum.RUNNING)
+    monkeypatch.setattr(
+        "latency.task.task_handler.disk_capacity",
+        lambda: DiskCapacity("critical", 40, 2000, 100, 50, 150),
+    )
+    monkeypatch.setattr(TaskHandler, "handle_successed_tasks", AsyncMock())
+    monkeypatch.setattr(
+        TaskPGManager, "list_tasks_by_status", AsyncMock(return_value=[task])
+    )
+    monkeypatch.setattr(TaskHandler, "_stop_process", AsyncMock(return_value=True))
+    mark_failed = AsyncMock(return_value=True)
+    monkeypatch.setattr(TaskPGManager, "mark_failed_with_report", mark_failed)
+
+    await TaskHandler.handle_tasks()
+
+    mark_failed.assert_awaited_once_with(
+        "task-id",
+        "任务异常停止：服务器磁盘空间达到紧急阈值；释放空间后将自动重试",
+        status=TaskStatusEnum.FAILED_PENDING_REMOVE,
+    )
 
 
 @pytest.mark.asyncio
@@ -200,6 +300,28 @@ async def test_dispatch_reverts_to_pending_when_worker_start_fails(monkeypatch):
         call("task-id", TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING),
         call("task-id", TaskStatusEnum.RUNNING, TaskStatusEnum.PENDING),
     ]
+
+
+@pytest.mark.asyncio
+async def test_base_worker_start_does_not_overwrite_fast_child_completion(monkeypatch):
+    """The dispatcher owns RUNNING; BaseWorker.run must not restore stale state."""
+    task = _make_task()
+    monkeypatch.setattr(
+        TaskPGManager,
+        "get_task_by_task_id",
+        AsyncMock(return_value=task),
+    )
+    update_task = AsyncMock(return_value=True)
+    monkeypatch.setattr(TaskPGManager, "update_task", update_task)
+    monkeypatch.setattr(
+        BaseWorker,
+        "find_worker_class",
+        lambda _name: SimpleNamespace(run=lambda: None),
+    )
+    monkeypatch.setattr(ProcessHandler, "add_task", lambda *_args, **_kwargs: True)
+
+    assert await BaseWorker.run(task.id) is True
+    update_task.assert_not_awaited()
 
 
 @pytest.mark.asyncio

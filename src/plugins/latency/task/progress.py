@@ -6,8 +6,7 @@ an elapsed duration.  Those reports must never participate in UI progress.
 
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 
-
-NON_PROGRESS_REPORT_PREFIXES = ("[perf]", "[parse_log]", "[TASK]")
+NON_PROGRESS_REPORT_PREFIXES = ("[perf]", "[parse_log]", "[TASK]", "[timing]")
 PREPROCESS_REPORT_MESSAGES = {
     "日志预处理完成",
     "复用已完成的日志预处理目录",

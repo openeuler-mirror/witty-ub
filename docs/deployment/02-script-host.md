@@ -66,7 +66,7 @@ NONINTERACTIVE=1 WITTY_BACKEND_URL=http://<后端IP>:9772 \
 验证：
 
 ```bash
-curl http://127.0.0.1:8080/                 # Web 200
+curl http://127.0.0.1:8080/                 # 前端页面 200
 curl http://127.0.0.1:8080/health_check     # 远端后端经反代 200
 curl http://127.0.0.1:8080/agent-api/doc    # OpenCode 经反代 200
 ```
@@ -100,14 +100,19 @@ bash deploy/host/deploy.sh --deploy
 | ⑥ C++ 编译 | 编译 `witty-ub-diag-tool` 诊断工具（已存在则跳过） |
 | ⑦ 数据文件 | 将故障模式、配置文件复制到 `/var/witty-ub/` |
 | ⑧ 凭据同步 | 仅将 host/port/user/db 写入 `diagnosis_config.toml`；后端启动时从 `deploy/pg.passwd` 读取密码并注入进程环境 |
-| ⑨ 启动服务 | FastAPI(9772) + 前端（nginx 托管，回退 vite preview 5173）+ OpenCode(4096) |
+| ⑨ 启动服务 | FastAPI(9772) + 前端（vite preview 5173；`--role frontend` 时改为 nginx 8080）+ OpenCode(4096) |
 
 ### 验证部署
 
 ```bash
 curl http://localhost:9772/health_check
-curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/   # 或 5173（vite 回退）
+curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/   # 单机默认（vite preview）
 ```
+
+> `--role all` 的单机部署用 Vite 模式（`run_frontend_vite.sh`，5173）托管构建产物；
+> Nginx 模式（`run_frontend_nginx.sh`，8080）用于 `--role frontend` 的分离部署。单机也要
+> Nginx 模式时，构建完 `dist/` 后执行 `bash deploy/host/run_frontend_nginx.sh start`，即可
+> 保留 5173 并在 8080 提供静态托管 + 反代入口（详见 [源码部署](06-source.md)）。
 
 ---
 

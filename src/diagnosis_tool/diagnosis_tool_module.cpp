@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -29,6 +30,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <zlib.h>
 
 #include "failure_def.h"
 #include "failure_log_helper.h"
@@ -64,13 +66,51 @@ constexpr char HIDDEN_FILE_PREFIX = '.';
 constexpr char WINDOWS_LINE_END = '\r';
 constexpr mode_t OUTPUT_DIRECTORY_PERMISSIONS = 0755;
 constexpr std::size_t ESTIMATED_LOG_LINE_LENGTH = 128;
+constexpr std::size_t GZIP_READ_BUFFER_SIZE = 16 * 1024 * 1024;
+constexpr std::size_t GZIP_INTERNAL_BUFFER_SIZE = 1024 * 1024;
+constexpr std::size_t OUTPUT_BUFFER_SIZE = 1024 * 1024;
+constexpr std::size_t POSTFIX_LEN = 3;
+constexpr std::size_t SIZE_SCALE = 2;
+
+bool IsGzipPath(const std::string &path)
+{
+    constexpr std::string_view suffix = ".gz";
+    if (path.size() < suffix.size()) {
+        return false;
+    }
+    const std::string_view tail(path.data() + path.size() - suffix.size(), suffix.size());
+    return std::equal(tail.begin(), tail.end(), suffix.begin(),
+                      [](char left, char right) { return std::tolower(static_cast<unsigned char>(left)) == right; });
+}
+
+std::string GzipBaseName(const std::string &path)
+{
+    return IsGzipPath(path) ? path.substr(0, path.size() - POSTFIX_LEN) : path;
+}
+
+bool PatternMatchesLogFile(const std::string &pattern, const std::string &filename)
+{
+    const auto matches = [&pattern](const std::string &candidate) {
+        return pattern.find(WILDCARD_MARKER) == std::string::npos ? candidate == pattern :
+                                                                    log_helper::WildcardMatch(pattern, candidate);
+    };
+    if (matches(filename) || (IsGzipPath(filename) && matches(GzipBaseName(filename)))) {
+        return true;
+    }
+    if (!IsGzipPath(pattern)) {
+        return false;
+    }
+    const std::string basePattern = GzipBaseName(pattern);
+    return basePattern.find(WILDCARD_MARKER) == std::string::npos ? filename == basePattern :
+                                                                    log_helper::WildcardMatch(basePattern, filename);
+}
 
 bool MatchesAnyPattern(const std::string &patternList, const fs::path &filename)
 {
     std::vector<std::string_view> patternViews;
     log_helper::SplitView(patternViews, patternList, PATTERN_LIST_DELIMITER);
     return std::any_of(patternViews.begin(), patternViews.end(), [&](std::string_view pattern) {
-        return !pattern.empty() && log_helper::WildcardMatch(std::string(pattern), filename.string());
+        return !pattern.empty() && PatternMatchesLogFile(std::string(pattern), filename.string());
     });
 }
 } // namespace
@@ -78,7 +118,7 @@ bool MatchesAnyPattern(const std::string &patternList, const fs::path &filename)
 MappedReadFile::MappedReadFile(const std::string &path)
 {
     descriptor_ = ::open(path.c_str(), O_RDONLY);
-    struct stat status {};
+    struct stat status{};
     if (descriptor_ < 0 || ::fstat(descriptor_, &status) != 0 || status.st_size < 0 ||
         static_cast<std::uintmax_t>(status.st_size) > std::numeric_limits<std::size_t>::max()) {
         Close();
@@ -267,8 +307,7 @@ std::vector<std::string> DiagnosisToolModule::FindMatchingFiles(const std::strin
             continue;
         }
         const bool matched = std::any_of(patterns.begin(), patterns.end(), [&](const std::string &item) {
-            return item.find(WILDCARD_MARKER) == std::string::npos ? filename == item :
-                                                                     log_helper::WildcardMatch(item, filename);
+            return PatternMatchesLogFile(item, filename);
         });
         if (matched) {
             matchedFiles.push_back(iterator->path().string());
@@ -307,7 +346,10 @@ void DiagnosisToolModule::CollectLogSources(std::unordered_map<std::string, std:
             if (!extractedSourcePaths.insert(sourcePath).second) {
                 continue;
             }
-            const fs::path outputPath = fs::path(mergedLogDir_) / fs::path(sourcePath).filename();
+            const fs::path sourceFilename = fs::path(sourcePath).filename();
+            const fs::path outputFilename = IsGzipPath(sourceFilename.string()) ? sourceFilename.stem() :
+                                                                                  sourceFilename;
+            const fs::path outputPath = fs::path(mergedLogDir_) / outputFilename;
             outputToSources[outputPath.string()].push_back(sourcePath);
         }
     }
@@ -393,14 +435,14 @@ RackResult DiagnosisToolModule::ExtractLogsByTimeWindow()
 }
 
 void DiagnosisToolModule::WriteExtractedLine(std::ostream &output, std::string_view line, LogKind kind,
-                                             bool useMappedInput, std::vector<std::string_view> &runtimeLines) const
+                                             bool batchRuntimeLines, std::vector<std::string_view> &runtimeLines) const
 {
     output.write(line.data(), static_cast<std::streamsize>(line.size()));
     output.put('\n');
     if (kind == LogKind::ACCESS) {
         engine_->AnalyzeAccessLine(line);
     } else if (kind == LogKind::RUNTIME) {
-        if (useMappedInput) {
+        if (batchRuntimeLines) {
             runtimeLines.push_back(line);
         } else {
             engine_->AnalyzeRuntimeLine(line);
@@ -416,7 +458,7 @@ bool DiagnosisToolModule::ProcessExtractedLine(std::string_view line, LineProces
     const std::string_view timestamp = log_helper::FindTimestampT(line);
     if (timestamp.empty()) {
         if (ctx.inRange) {
-            WriteExtractedLine(ctx.output, line, ctx.kind, ctx.useMappedInput, ctx.runtimeLines);
+            WriteExtractedLine(ctx.output, line, ctx.kind, ctx.batchRuntimeLines, ctx.runtimeLines);
         }
         return true;
     }
@@ -428,16 +470,97 @@ bool DiagnosisToolModule::ProcessExtractedLine(std::string_view line, LineProces
         return true;
     }
     ctx.inRange = true;
-    WriteExtractedLine(ctx.output, line, ctx.kind, ctx.useMappedInput, ctx.runtimeLines);
+    WriteExtractedLine(ctx.output, line, ctx.kind, ctx.batchRuntimeLines, ctx.runtimeLines);
     return true;
+}
+
+bool DiagnosisToolModule::ProcessGzipInput(const std::string &inputPath, LineProcessContext &ctx) const
+{
+    gzFile gzip = gzopen(inputPath.c_str(), "rb");
+    if (gzip == nullptr) {
+        LOG_ERROR << "Cannot open gzip input file: " << inputPath;
+        return false;
+    }
+    if (gzbuffer(gzip, static_cast<unsigned int>(GZIP_INTERNAL_BUFFER_SIZE)) != 0) {
+        LOG_WARN << "Failed to enlarge gzip buffer for: " << inputPath;
+    }
+    std::vector<char> buffer(GZIP_READ_BUFFER_SIZE);
+    std::string pending;
+    pending.reserve(GZIP_READ_BUFFER_SIZE * SIZE_SCALE);
+    const auto analyzeRuntimeBatch = [this, &ctx]() {
+        if (!ctx.runtimeLines.empty()) {
+            engine_->AnalyzeRuntimeLines(ctx.runtimeLines);
+            ctx.runtimeLines.clear();
+        }
+    };
+    bool keepReading = true;
+    int bytesRead = 0;
+    while (keepReading && (bytesRead = gzread(gzip, buffer.data(), static_cast<unsigned int>(buffer.size()))) > 0) {
+        pending.append(buffer.data(), static_cast<std::size_t>(bytesRead));
+        std::size_t offset = 0;
+        while (keepReading) {
+            const std::size_t end = pending.find('\n', offset);
+            if (end == std::string::npos) {
+                break;
+            }
+            keepReading = ProcessExtractedLine(std::string_view(pending).substr(offset, end - offset), ctx);
+            offset = end + 1;
+        }
+        // Runtime string_views point into pending. Analyze them before erase() reuses that storage.
+        analyzeRuntimeBatch();
+        pending.erase(0, offset);
+    }
+    if (keepReading && bytesRead == 0 && !pending.empty()) {
+        keepReading = ProcessExtractedLine(pending, ctx);
+    }
+    analyzeRuntimeBatch();
+    int gzipError = Z_OK;
+    const char *gzipMessage = gzerror(gzip, &gzipError);
+    const bool succeeded = !keepReading || (bytesRead == 0 && (gzipError == Z_OK || gzipError == Z_STREAM_END));
+    if (!succeeded) {
+        LOG_ERROR << "Failed while reading gzip log: " << inputPath
+                  << ", error: " << (gzipMessage == nullptr ? "unknown zlib error" : gzipMessage);
+    }
+    return gzclose(gzip) == Z_OK && succeeded;
+}
+
+bool DiagnosisToolModule::ProcessMappedInput(const MappedReadFile &input, LineProcessContext &ctx) const
+{
+    const std::string_view content = input.Content();
+    std::size_t offset = 0;
+    while (offset < content.size()) {
+        const std::size_t end = content.find('\n', offset);
+        const std::string_view line = end == std::string_view::npos ? content.substr(offset) :
+                                                                      content.substr(offset, end - offset);
+        if (!ProcessExtractedLine(line, ctx) || end == std::string_view::npos) {
+            break;
+        }
+        offset = end + 1;
+    }
+    if (ctx.kind == LogKind::RUNTIME) {
+        engine_->AnalyzeRuntimeLines(ctx.runtimeLines);
+    }
+    return true;
+}
+
+bool DiagnosisToolModule::ProcessStreamInput(std::istream &input, LineProcessContext &ctx) const
+{
+    std::string line;
+    while (std::getline(input, line)) {
+        if (!ProcessExtractedLine(line, ctx)) {
+            break;
+        }
+    }
+    return !input.bad();
 }
 
 bool DiagnosisToolModule::ExtractLogLinesByTimeWindow(const std::string &inputPath, const std::string &outputPath,
                                                       bool append, LogKind kind)
 {
-    MappedReadFile mappedInput(inputPath);
+    const bool gzipInput = IsGzipPath(inputPath);
+    MappedReadFile mappedInput(gzipInput ? std::string() : inputPath);
     std::ifstream fallbackInput;
-    if (!mappedInput.IsOpen()) {
+    if (!gzipInput && !mappedInput.IsOpen()) {
         fallbackInput.open(inputPath);
         if (!fallbackInput.is_open()) {
             LOG_ERROR << "Cannot open input file: " << inputPath;
@@ -445,44 +568,27 @@ bool DiagnosisToolModule::ExtractLogLinesByTimeWindow(const std::string &inputPa
         }
     }
     const std::ios_base::openmode mode = std::ios::out | (append ? std::ios::app : std::ios::trunc);
-    std::ofstream output(outputPath, mode);
+    std::vector<char> outputBuffer(OUTPUT_BUFFER_SIZE);
+    std::ofstream output;
+    output.rdbuf()->pubsetbuf(outputBuffer.data(), static_cast<std::streamsize>(outputBuffer.size()));
+    output.open(outputPath, mode);
     if (!output.is_open()) {
         LOG_ERROR << "Cannot open output file: " << outputPath;
         return false;
     }
     std::vector<std::string_view> runtimeLines;
-    const bool useMappedInput = mappedInput.IsOpen();
-    if (kind == LogKind::RUNTIME && useMappedInput) {
+    const bool batchRuntimeLines = kind == LogKind::RUNTIME && (gzipInput || mappedInput.IsOpen());
+    if (batchRuntimeLines && mappedInput.IsOpen()) {
         runtimeLines.reserve(mappedInput.Content().size() / ESTIMATED_LOG_LINE_LENGTH);
     }
     const std::string startTime = log_helper::ToTimestampTBound(startTimeStr_);
     const std::string endTime = log_helper::ToTimestampTBound(endTimeStr_);
     bool inRange = false;
-    LineProcessContext ctx{startTime, endTime, inRange, output, kind, useMappedInput, runtimeLines};
-    if (useMappedInput) {
-        const std::string_view content = mappedInput.Content();
-        std::size_t offset = 0;
-        while (offset < content.size()) {
-            const std::size_t end = content.find('\n', offset);
-            const std::string_view line = end == std::string_view::npos ? content.substr(offset) :
-                                                                          content.substr(offset, end - offset);
-            if (!ProcessExtractedLine(line, ctx) || end == std::string_view::npos) {
-                break;
-            }
-            offset = end + 1;
-        }
-        if (kind == LogKind::RUNTIME) {
-            engine_->AnalyzeRuntimeLines(runtimeLines);
-        }
-    } else {
-        std::string line;
-        while (std::getline(fallbackInput, line)) {
-            if (!ProcessExtractedLine(line, ctx)) {
-                break;
-            }
-        }
-    }
-    return !fallbackInput.bad() && output.good();
+    LineProcessContext ctx{startTime, endTime, inRange, output, kind, batchRuntimeLines, runtimeLines};
+    const bool inputSucceeded = gzipInput            ? ProcessGzipInput(inputPath, ctx) :
+                                mappedInput.IsOpen() ? ProcessMappedInput(mappedInput, ctx) :
+                                                       ProcessStreamInput(fallbackInput, ctx);
+    return inputSucceeded && output.good();
 }
 
 bool DiagnosisToolModule::FeedExtractedLog(const std::string &path, LogKind kind)

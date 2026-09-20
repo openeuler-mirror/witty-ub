@@ -16,6 +16,26 @@ import type { PropType } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
 import { displayServerTime } from './utils/serverTime'
+import { collectSkippedFileAlerts } from './utils/skipAlerts'
+import {
+  buildTaskLanes,
+  buildTimelineTicks,
+  collectTimelineLegend,
+  formatParseTimingCores,
+  formatParseTimingRows,
+  formatParseTimingSeconds,
+  formatParseTimingShare,
+  formatTaskLaneSegmentTitle,
+  parseTimingHeadlineLabel,
+  parseTimingHeadlineSeconds,
+  resolveParseTimingReport,
+  taskLaneSegmentStyle,
+  taskLaneTickStyle,
+  type ParseTimingReport,
+  type TaskLane,
+  type TaskSpan,
+  type TaskTimeline,
+} from './utils/parseTiming'
 import rawDiagnosisConfig from '../../../config/diagnosis_config.toml'
 
 type LogKnowledge = {
@@ -133,6 +153,12 @@ type LogFileModel = {
   overall_progress?: number
   existed_status: boolean
   created_at: string
+  /** 解析用时（后端在解析任务结束后写入日志列表接口）。 */
+  parse_timing?: ParseTimingReport | null
+  /** 三个任务（解析/故障定界/上下文落库）各自最新一条 [timing] 报告，key = task_type。 */
+  stage_timings?: Record<string, ParseTimingReport> | null
+  /** 三个任务各自的起止时间，用来把三条泳道对齐到同一条时间轴。 */
+  task_spans?: TaskSpan[] | null
 }
 
 type LogFilenamePatternKey =
@@ -2257,9 +2283,18 @@ const isSaving = ref(false)
 const isQuerying = ref(false)
 const errorMessage = ref('')
 const isAssetServiceUnavailable = ref(false)
+const isWriteRestricted = ref(false)
+const writeRestrictedMessage = ref('服务器磁盘空间不足，当前仅开放查询和删除操作')
+let serviceHealthTimer: number | null = null
 const isInitialDataUnavailable = computed(
   () => isAssetServiceUnavailable.value && assets.value.length === 0 && !selectedAsset.value,
 )
+
+type ServiceHealth = {
+  status?: string
+  writable?: boolean
+  message?: string | null
+}
 
 const logSourceInput = ref('')
 type LogType = 'KVCache' | 'UBSocket'
@@ -2640,7 +2675,7 @@ const validateDiagnosisAnalyzerParams = () => {
 }
 
 const saveParseConfig = async () => {
-  if (!selectedAssetId.value || isDiagnosisConfigSaving.value) return
+  if (!selectedAssetId.value || isDiagnosisConfigSaving.value || isWriteRestricted.value) return
   diagnosisConfigError.value = ''
   const analyzerParamsValid = validateDiagnosisAnalyzerParams()
   const emptyPatternType = patternTypeOptions.find(
@@ -3903,27 +3938,36 @@ const deselectAllLatencySeries = () => {
   visibleLatencyKeys.value = new Set<LatencyMetricKey>(firstSeries ? [firstSeries.key] : [])
 }
 
+const totalLatencyAbnormalThresholdMs = 5
+
 const latencyPercentileOptions = computed(() => [
   {
     value: 'p99' as const,
     label: 'P99',
-    abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_p99_threshold_ms ?? 5.0,
+    abnormalThreshold:
+      activeDiagnosisConfig.value.logAnalyzerParams.total_p99_threshold_ms ??
+      totalLatencyAbnormalThresholdMs,
   },
   {
     value: 'p9999' as const,
     label: 'P9999',
     abnormalThreshold:
-      activeDiagnosisConfig.value.logAnalyzerParams.total_p9999_threshold_ms ?? 5.0,
+      activeDiagnosisConfig.value.logAnalyzerParams.total_p9999_threshold_ms ??
+      totalLatencyAbnormalThresholdMs,
   },
   {
     value: 'pmax' as const,
     label: 'Pmax',
-    abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_pmax_threshold_ms ?? 5.0,
+    abnormalThreshold:
+      activeDiagnosisConfig.value.logAnalyzerParams.total_pmax_threshold_ms ??
+      totalLatencyAbnormalThresholdMs,
   },
   {
     value: 'ave' as const,
     label: '均值',
-    abnormalThreshold: activeDiagnosisConfig.value.logAnalyzerParams.total_ave_threshold_ms ?? 5.0,
+    abnormalThreshold:
+      activeDiagnosisConfig.value.logAnalyzerParams.total_ave_threshold_ms ??
+      totalLatencyAbnormalThresholdMs,
   },
 ])
 
@@ -3955,11 +3999,10 @@ const latencyAnomalyHint = computed(
     `红色背景区间 = ${selectedLatencyPercentileConfig.value.label} 总时延 > ${selectedLatencyPercentileConfig.value.abnormalThreshold}ms`,
 )
 
-const detailLatencyAbnormalThreshold = 2
-
 const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | null>) => {
   const totalLatency = values.total_latency
-  const threshold = selectedLatencyPercentileConfig.value.abnormalThreshold ?? 5.0
+  const threshold =
+    selectedLatencyPercentileConfig.value.abnormalThreshold ?? totalLatencyAbnormalThresholdMs
   const abnormal =
     typeof totalLatency === 'number' && Number.isFinite(totalLatency) && totalLatency > threshold
   if (abnormal) {
@@ -3973,10 +4016,12 @@ const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | 
 }
 
 const isDetailP99LatencyAbnormal = (value?: number | null) =>
-  typeof value === 'number' && Number.isFinite(value) && value > detailLatencyAbnormalThreshold
+  typeof value === 'number' &&
+  Number.isFinite(value) &&
+  value > totalLatencyAbnormalThresholdMs
 
 const aggregatedLatencyColumns = [
-  { key: 'total_latency', label: '总时延 (ms)', threshold: 150 },
+  { key: 'total_latency', label: '总时延 (ms)', threshold: totalLatencyAbnormalThresholdMs },
   { key: 'query_meta_latency', label: '查询元数据时延 (ms)', threshold: 150 },
   { key: 'urma_total_latency', label: 'URMA总时延 (ms)', threshold: 150 },
   { key: 'urma_link_latency', label: 'URMA建链时延 (ms)', threshold: 150 },
@@ -4214,7 +4259,13 @@ type TraceDelayKey =
   | 'masterRpcTotal'
 
 const traceDelayColumns = [
-  { key: 'sdkMs', label: '总时延 (ms)', metric: 'total_latency', threshold: 150, unit: 'ms' },
+  {
+    key: 'sdkMs',
+    label: '总时延 (ms)',
+    metric: 'total_latency',
+    threshold: totalLatencyAbnormalThresholdMs,
+    unit: 'ms',
+  },
   {
     key: 'reqDelay',
     label: '查询元数据时延 (ms)',
@@ -4360,8 +4411,11 @@ const formatMetricValue = (value?: number | null) =>
 const formatNullableMetricValue = (value?: number | null) =>
   value === null ? 'null' : formatMetricValue(value)
 
-const formatTraceDelayColumnValue = (value: number | null | undefined, column: TraceDelayColumn) => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
+const formatTraceDelayColumnValue = (
+  value: number | null | undefined,
+  column: TraceDelayColumn,
+) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
   if (value < 0) return '无效值'
   return `${formatMetricValue(value)} ${column.unit}`
 }
@@ -4455,7 +4509,7 @@ const isLatencyMetricAbnormal = (metric: AggregatedLatencyKey, value?: number | 
 }
 
 const anomalyListLatencyThresholds = {
-  total_latency: 2,
+  total_latency: totalLatencyAbnormalThresholdMs,
   query_meta_latency: 1,
   urma_total_latency: 1,
   urma_link_latency: 1,
@@ -4491,14 +4545,6 @@ const isTraceDelayAbnormal = (
   if (typeof value !== 'number' || !Number.isFinite(value)) return false
 
   if ('metric' in column && column.metric) {
-    if (
-      column.metric === 'total_latency' &&
-      trace &&
-      'faultCodes' in trace &&
-      trace.faultCodes.length > 0
-    ) {
-      return true
-    }
     const threshold = anomalyListLatencyThresholds[column.metric] ?? column.threshold ?? 150
     return value > threshold
   }
@@ -4510,8 +4556,8 @@ const getTraceDelayStatusLabel = (
   column: TraceDelayColumn,
 ) => {
   const value = getTraceDelayValue(trace, column)
-  if (typeof value !== 'number' || !Number.isFinite(value)) return '未解析'
-  if (value < 0) return '无效值'
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '日志不存在该时延项目'
+  if (value < 0) return '由总时延被截断引起，该时延值已失真'
   return isTraceDelayAbnormal(trace, column) ? '异常' : '正常'
 }
 
@@ -5850,6 +5896,12 @@ const getTraceRowHeight = (podIpHtml: string) => {
 const getMultiLineCellTitle = (html: string) =>
   html.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '')
 
+const formatPodIps = (value: unknown) => {
+  if (!Array.isArray(value)) return typeof value === 'string' && value.trim() ? value.trim() : '-'
+  const podIps = [...new Set(value.map((item) => String(item ?? '').trim()).filter(Boolean))]
+  return podIps.length > 0 ? podIps.join('<br>') : '-'
+}
+
 const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
   detailParseResults.value.map((result) => {
     const record = result as Record<string, unknown>
@@ -5862,7 +5914,7 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       podIp: (() => {
         const podIps = record['pod_ips']
         if (Array.isArray(podIps)) {
-          return podIps.join('<br>')
+          return formatPodIps(podIps)
         }
         return getRecordString(record, ['pod_ips', 'pod_ip', 'pod_id', 'pod_name', 'podId', 'pod'])
       })(),
@@ -6108,7 +6160,7 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
     podIp: (() => {
       const podIps = record['pod_ips']
       if (Array.isArray(podIps)) {
-        return podIps.join('<br>')
+        return formatPodIps(podIps)
       }
       return getRecordString(record, ['pod_ips', 'pod_ip', 'pod_name', 'pod_id', 'podId', 'pod'])
     })(),
@@ -6335,10 +6387,7 @@ const selectedTraceRelatedChildFailureModeIds = computed(() =>
 )
 
 const selectedTraceSameErrorCodeFailureModeIds = computed(() =>
-  getSameErrorCodeFailureModeIds(
-    selectedTraceFailureMode.value,
-    selectedTraceFailureModeIds.value,
-  ),
+  getSameErrorCodeFailureModeIds(selectedTraceFailureMode.value, selectedTraceFailureModeIds.value),
 )
 
 const selectedFaultTraceRelatedChildFailureModeIds = computed(() =>
@@ -7204,6 +7253,10 @@ const request = async <T,>(path: string, init: RequestInit = {}) => {
   })
 
   const data = (await response.json().catch(() => null)) as ApiResponse<T> | null
+
+  if (data && (data as ApiResponse<T> & { writable?: boolean }).writable === false) {
+    isWriteRestricted.value = true
+  }
 
   if (!response.ok || !data) {
     throw new Error(data?.message || `请求失败：${response.status}`)
@@ -8315,7 +8368,7 @@ const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
     statusReason: getLogDisplayReason(record),
     time: displayLocalTime(result.timestamp ?? result.created_at),
     traceId: result.trace_id ?? '-',
-    podIp: Array.isArray(result.pod_ips) ? result.pod_ips.join('<br>') : (result.pod_ips ?? '-'),
+    podIp: formatPodIps(result.pod_ips),
     operation: normalizeTraceOperation(
       getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
     ),
@@ -8863,6 +8916,16 @@ const loadAssets = async () => {
   }
 }
 
+const loadServiceHealth = async () => {
+  try {
+    const health = await request<ServiceHealth>('/health_check')
+    isWriteRestricted.value = health.writable === false
+    if (health.message) writeRestrictedMessage.value = health.message
+  } catch {
+    // Asset queries remain the source of truth for overall service availability.
+  }
+}
+
 const retryInitialDataLoad = () => {
   void loadAssets()
 }
@@ -8989,6 +9052,7 @@ const viewQueryResult = async (assetId: string) => {
 }
 
 const openCreateDialog = () => {
+  if (isWriteRestricted.value) return
   dialog.mode = 'create'
   dialog.name = ''
   dialog.description = ''
@@ -8997,7 +9061,7 @@ const openCreateDialog = () => {
 }
 
 const openEditDialog = () => {
-  if (!selectedAsset.value) return
+  if (!selectedAsset.value || isWriteRestricted.value) return
 
   dialog.mode = 'edit'
   dialog.name = selectedAsset.value.name
@@ -9012,6 +9076,7 @@ const closeDialog = () => {
 }
 
 const saveDialog = async () => {
+  if (isWriteRestricted.value) return
   const name = dialog.name.trim()
   const description = dialog.description.trim()
 
@@ -9061,7 +9126,9 @@ const saveDialog = async () => {
 }
 
 const deleteAsset = async (asset: LogKnowledge) => {
-  const shouldDelete = window.confirm(`确认删除资产库「${asset.name}」？`)
+  const shouldDelete = window.confirm(
+    `确认删除资产库「${asset.name}」？该资产库下的所有日志解析任务及解析、诊断数据将被永久删除。`,
+  )
   if (!shouldDelete) return
 
   errorMessage.value = ''
@@ -9154,7 +9221,8 @@ const getTaskReportTime = (report: TaskReportModel) => {
   return d ? d.getTime() : 0
 }
 
-const ignoredTaskReportPrefixes = ['[perf]', '[parse_log]', '[TASK]']
+// `[timing]` 是解析用时的结构化报告，由「解析用时」块单独渲染，不当里程碑文案。
+const ignoredTaskReportPrefixes = ['[perf]', '[parse_log]', '[TASK]', '[timing]']
 const logFileTaskMilestoneMessages = new Set([
   'Task initialized',
   'Task reinitialized',
@@ -9185,7 +9253,10 @@ const isLogFileTaskMilestoneReport = (report: TaskReportModel) => {
   const message = report.message?.trim()
   if (!message || isIgnoredTaskReportMessage(message)) return false
   if (logFileTaskMilestoneMessages.has(message)) return true
-  return message.startsWith('Trace context logs stored:') || message.startsWith('任务失败：')
+  return (
+    message.startsWith('Trace context logs stored:') ||
+    /(?:失败|异常停止|error|failed|exception)/i.test(message)
+  )
 }
 
 const getLogFileTaskReports = (file: LogFileModel) =>
@@ -9203,7 +9274,7 @@ const getLatestLogFileTaskReport = (file: LogFileModel) => {
   )
 }
 
-const nonProgressReportPrefixes = ['[perf]', '[parse_log]', '[TASK]']
+const nonProgressReportPrefixes = ['[perf]', '[parse_log]', '[TASK]', '[timing]']
 const isProgressReport = (report: TaskReportModel) => {
   const message = report.message?.trim() ?? ''
   return !nonProgressReportPrefixes.some((prefix) => message.startsWith(prefix))
@@ -9217,6 +9288,32 @@ const getLatestProgressReport = (file: LogFileModel) => {
     null
   )
 }
+
+// 解析用时：优先取后端在日志列表里给出的 `file.parse_timing`；解析任务结束后可见任务会
+// 切成 store/诊断任务（services/log_file.py::_select_visible_task），那时列表接口拿不到解析
+// 任务的报告，就退回当前可见任务里最新的一条 `[timing] {...}`。两者都没有 → null（不渲染）。
+const getParseTimingReport = (file: LogFileModel): ParseTimingReport | null =>
+  resolveParseTimingReport(
+    file.parse_timing ?? null,
+    getLogFileTaskReports(file).map((report) => ({
+      message: report.message,
+      time: getTaskReportTime(report),
+    })),
+  )
+
+// 三条泳道（解析 / 故障定界 / 上下文落库）共用一条时间轴：
+// 时间轴原点 = task_spans 里最早的 start，每个任务的阶段偏移（相对自己 run() 起点）
+// 加上自己的 span 起点，就对齐到同一根轴上了。老接口（没有 stage_timings /
+// task_spans）→ 返回 null，面板退回原来「只有一张阶段表」的样子。
+const getTaskTimeline = (file: LogFileModel): TaskTimeline | null =>
+  buildTaskLanes(file.stage_timings ?? null, file.task_spans ?? null)
+
+// 下面几个只读小函数专供模板用（模板里不写 TS 的 `!` 非空断言）。
+const hasTaskTimeline = (file: LogFileModel): boolean => getTaskTimeline(file) !== null
+const getTaskLanes = (file: LogFileModel): TaskLane[] => getTaskTimeline(file)?.lanes ?? []
+const getTaskAxisTotalS = (file: LogFileModel): number => getTaskTimeline(file)?.totalS ?? 0
+// 图例：三条泳道里出现过的阶段（每种颜色都有说明）
+const getTimelineLegend = (file: LogFileModel) => collectTimelineLegend(getTaskTimeline(file))
 
 const getLogFileProgress = (file: LogFileModel) => {
   const overallProgress = Number(file.overall_progress)
@@ -9302,6 +9399,31 @@ const getLogFileProgressMessage = (file: LogFileModel) => {
   if (milestoneMessage) return humanizeLogFileProgressMessage(milestoneMessage)
   return statusLabel(getLogFileDisplayStatus(file))
 }
+
+const getLogFileFailureReason = (file: LogFileModel) => {
+  const displayStatus = getLogFileDisplayStatus(file)
+  if (!['failed', 'failed_pending_remove', 'retrying', 'cancelled'].includes(displayStatus)) {
+    return ''
+  }
+  const report = [...getLogFileTaskReports(file)]
+    .sort((first, second) => getTaskReportTime(second) - getTaskReportTime(first))
+    .find(({ message }) => /(?:失败|异常停止|error|failed|exception)/i.test(message?.trim() ?? ''))
+  return report?.message ? humanizeLogFileProgressMessage(report.message) : '任务未提供失败原因'
+}
+
+const getLogFileFailureReasonLabel = (file: LogFileModel) => {
+  const taskStatus = getDetailedLogFileTask(file)?.status
+  return getLogFileDisplayStatus(file) === 'retrying' && taskStatus !== 'failed_pending_remove'
+    ? '上次失败原因'
+    : '状态原因'
+}
+
+/** 本次解析被跳过的坏日志文件（后端以 `[skip] ...` 上报）。 */
+const getSkippedFileAlerts = (file: LogFileModel): string[] =>
+  collectSkippedFileAlerts(file.task?.task_reports)
+
+const hasSkippedFileAlerts = (file: LogFileModel): boolean =>
+  getSkippedFileAlerts(file).length > 0
 
 const shouldShowLogFileProgress = (file: LogFileModel) =>
   Boolean(file.task || getLogFileOverallStatus(file))
@@ -9522,6 +9644,7 @@ const deleteLogFile = async (logFileId: string) => {
 }
 
 const submitLogSource = async () => {
+  if (isWriteRestricted.value) return
   const input = logSourceInput.value.trim()
   if (!input) return
   if (!selectedAssetId.value) return
@@ -9567,6 +9690,7 @@ const submitLogSource = async () => {
 }
 
 const triggerFileUpload = () => {
+  if (isWriteRestricted.value) return
   fileInputRef.value?.click()
 }
 
@@ -10883,10 +11007,7 @@ const calcFailureRate = (success: number, failure: number): number => {
   return total > 0 ? (failure / total) * 100 : 0
 }
 
-const getBrpcMetricValue = (
-  row: BrpcProfilingRow | undefined,
-  metric: string,
-): number | null => {
+const getBrpcMetricValue = (row: BrpcProfilingRow | undefined, metric: string): number | null => {
   if (!row) return null
   switch (metric) {
     case 'successRate':
@@ -12193,12 +12314,10 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
       scrollMonitorPageToTop()
       return
     }
-    document
-      .getElementById('brpc-fault-monitor')
-      ?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      })
+    document.getElementById('brpc-fault-monitor')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
     return
   }
 
@@ -12228,6 +12347,10 @@ const handleFileChange = async (event: Event) => {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
   if (!file) return
+  if (isWriteRestricted.value) {
+    target.value = ''
+    return
+  }
   if (!selectedAssetId.value) return
 
   isUploadingLog.value = true
@@ -12445,6 +12568,8 @@ onMounted(() => {
   loadAgentDefaultModel()
   restoreAgentConnection()
   void loadAssets()
+  void loadServiceHealth()
+  serviceHealthTimer = window.setInterval(() => void loadServiceHealth(), 30_000)
   window.addEventListener('resize', resizeLatencyCharts)
   window.addEventListener('resize', updateDetailLatencyLeftOverflow)
   if (typeof ResizeObserver !== 'undefined' && assetDetailRef.value) {
@@ -12463,6 +12588,7 @@ onUpdated(() => {
 })
 
 onBeforeUnmount(() => {
+  if (serviceHealthTimer !== null) window.clearInterval(serviceHealthTimer)
   stopLogFilesPolling()
   stopAgentPanelResize()
   closeAgentEventStream()
@@ -12589,8 +12715,9 @@ onBeforeUnmount(() => {
             <button
               class="icon-btn primary add-btn"
               type="button"
-              title="添加资产库"
+              :title="isWriteRestricted ? writeRestrictedMessage : '添加资产库'"
               aria-label="添加资产库"
+              :disabled="isWriteRestricted"
               @click="openCreateDialog"
             ></button>
             <button
@@ -12913,10 +13040,12 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </section>
-
     </aside>
 
     <main ref="assetDetailRef" class="asset-detail">
+      <div v-if="isWriteRestricted" class="error-banner" role="status">
+        {{ writeRestrictedMessage }}；资产查询、详情查看和删除操作仍可使用。
+      </div>
       <div v-if="errorMessage && !isInitialDataUnavailable" class="error-banner">
         {{ errorMessage }}
       </div>
@@ -13072,7 +13201,8 @@ onBeforeUnmount(() => {
                 </span>
               </div>
               <p class="top-slow-chart-description">
-                按总时延选出最慢请求，再按发生时间排列；柱体展示可解析阶段，红线表示真实总时延。点击柱状图固定悬浮窗，可复制Trace ID。
+                按总时延选出最慢请求，再按发生时间排列；柱体展示可解析阶段，红线表示真实总时延。点击柱状图固定悬浮窗，可复制Trace
+                ID。
               </p>
               <div class="top-slow-chart-panel">
                 <div v-if="isTopSlowChartLoading" class="chart-state top-slow-chart-state">
@@ -13817,7 +13947,9 @@ onBeforeUnmount(() => {
                         <div class="aggregate-cell trace-id">
                           <span class="trace-id-text">{{ row.traceId }}</span>
                         </div>
-                        <div class="aggregate-cell multi-line-pod-cell" v-html="row.podIp"></div>
+                        <div class="aggregate-cell multi-line-pod-cell">
+                          <span v-html="row.podIp"></span>
+                        </div>
                         <div class="aggregate-cell">{{ row.operation }}</div>
                         <div class="aggregate-cell">{{ row.clusterName }}</div>
                         <div class="aggregate-cell">{{ row.host }}</div>
@@ -16268,7 +16400,8 @@ onBeforeUnmount(() => {
                 class="edit-btn icon-btn detail-icon-btn"
                 type="button"
                 aria-label="编辑"
-                title="编辑"
+                :title="isWriteRestricted ? writeRestrictedMessage : '编辑'"
+                :disabled="isWriteRestricted"
                 @click="openEditDialog"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -16315,7 +16448,13 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="parse-config-action">
-              <button type="button" class="parse-config-edit-btn" @click="openParseConfigDrawer">
+              <button
+                type="button"
+                class="parse-config-edit-btn"
+                :disabled="isWriteRestricted"
+                :title="isWriteRestricted ? writeRestrictedMessage : '修改配置'"
+                @click="openParseConfigDrawer"
+              >
                 修改配置
               </button>
             </div>
@@ -16324,11 +16463,21 @@ onBeforeUnmount(() => {
             <div class="log-type-selector">
               <span class="log-type-label">日志类型：</span>
               <label class="log-type-option">
-                <input type="radio" v-model="logType" value="KVCache" :disabled="isUploadingLog" />
+                <input
+                  type="radio"
+                  v-model="logType"
+                  value="KVCache"
+                  :disabled="isUploadingLog || isWriteRestricted"
+                />
                 <span>KVCache</span>
               </label>
               <label class="log-type-option">
-                <input type="radio" v-model="logType" value="UBSocket" :disabled="isUploadingLog" />
+                <input
+                  type="radio"
+                  v-model="logType"
+                  value="UBSocket"
+                  :disabled="isUploadingLog || isWriteRestricted"
+                />
                 <span>UBSocket</span>
               </label>
             </div>
@@ -16337,13 +16486,13 @@ onBeforeUnmount(() => {
               type="text"
               class="log-source-input"
               placeholder="添加日志：输入目录路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）"
-              :disabled="isUploadingLog"
+              :disabled="isUploadingLog || isWriteRestricted"
               @keydown.enter="submitLogSource"
             />
             <button
               class="log-add-btn"
               type="button"
-              :disabled="isUploadingLog || !logSourceInput.trim()"
+              :disabled="isUploadingLog || isWriteRestricted || !logSourceInput.trim()"
               @click="submitLogSource"
             >
               {{ isUploadingLog ? '提交中...' : '添加' }}
@@ -16351,7 +16500,7 @@ onBeforeUnmount(() => {
             <button
               class="log-upload-btn"
               type="button"
-              :disabled="isUploadingLog"
+              :disabled="isUploadingLog || isWriteRestricted"
               @click="triggerFileUpload"
             >
               上传 ZIP 文件
@@ -16425,6 +16574,157 @@ onBeforeUnmount(() => {
                       :style="{ width: `${getLogFileProgress(file)}%` }"
                     ></div>
                   </div>
+                  <div
+                    v-if="getLogFileFailureReason(file)"
+                    class="task-status-reason"
+                    :class="{
+                      'task-status-reason-previous':
+                        getLogFileFailureReasonLabel(file) === '上次失败原因',
+                    }"
+                  >
+                    {{ getLogFileFailureReasonLabel(file) }}：{{ getLogFileFailureReason(file) }}
+                  </div>
+                </div>
+                <div v-if="hasSkippedFileAlerts(file)" class="log-file-skip-alert" role="alert">
+                  <span class="log-file-skip-alert-title">已跳过读不出来的日志文件</span>
+                  <span
+                    v-for="alert in getSkippedFileAlerts(file)"
+                    :key="alert"
+                    class="log-file-skip-alert-line"
+                  >
+                    {{ alert }}
+                  </span>
+                </div>
+                <div v-if="getParseTimingReport(file) || hasTaskTimeline(file)" class="log-file-timing">
+                  <div class="log-file-timing-head">
+                    <span class="log-file-timing-title">解析用时</span>
+                    <span class="log-file-timing-total">{{
+                      formatParseTimingSeconds(
+                        parseTimingHeadlineSeconds(getParseTimingReport(file), getTaskTimeline(file)),
+                      )
+                    }}</span>
+                    <span
+                      class="log-file-timing-rows"
+                      :title="
+                        hasTaskTimeline(file)
+                          ? '三个任务从最早开始到最晚结束的墙钟（不是三者相加）'
+                          : '该解析任务从创建到完成的墙钟：含预处理/调度/收尾'
+                      "
+                      >{{ parseTimingHeadlineLabel(getTaskTimeline(file)) }}</span
+                    >
+                    <span
+                      v-if="getParseTimingReport(file)?.rows"
+                      class="log-file-timing-rows"
+                      >{{ formatParseTimingRows(getParseTimingReport(file)?.rows ?? null) }}</span
+                    >
+                  </div>
+                  <!-- 分阶段表格原样保留：有泳道时收进 <details>（默认展开，可折叠），
+                       老接口渲染成普通 div，外观与改动前一致。 -->
+                  <!-- 泳道图与阶段表都算「解析明细」：默认折叠，点开才看；
+                       老接口（无 new 字段）渲染成 div，外观与改动前一致。 -->
+                  <component
+                    :is="hasTaskTimeline(file) ? 'details' : 'div'"
+                    class="log-file-timing-details"
+                  >
+                    <summary v-if="hasTaskTimeline(file)" class="log-file-timing-summary">
+                      任务时间线与解析阶段明细
+                    </summary>
+                  <!-- 三条泳道：解析 / 故障定界 / 上下文落库，共用一条时间轴。色块之间的
+                       空隙就是「在等」时间；每行还画了该任务自己的跨度条，右边留白 =
+                       这个任务已结束、别的任务还在跑。老接口（无新字段）整块不渲染。 -->
+                  <template v-if="hasTaskTimeline(file)">
+                    <div class="log-file-timing-lanes">
+                      <div class="log-file-timing-lane log-file-timing-lane--ticks">
+                        <span class="log-file-timing-lane-label"></span>
+                        <span class="log-file-timing-ticks-scale">
+                          <span
+                            v-for="(tick, index) in buildTimelineTicks(getTaskAxisTotalS(file))"
+                            :key="`tick-${index}`"
+                            class="log-file-timing-tick"
+                            :style="taskLaneTickStyle(tick, getTaskAxisTotalS(file))"
+                            >{{ tick }}s</span
+                          >
+                        </span>
+                        <span class="log-file-timing-lane-total"></span>
+                      </div>
+                      <div
+                        v-for="lane in getTaskLanes(file)"
+                        :key="lane.taskType"
+                        class="log-file-timing-lane"
+                        :class="`timing-lane-${lane.taskType}`"
+                      >
+                        <span class="log-file-timing-lane-label" :title="lane.taskType">{{
+                          lane.label
+                        }}</span>
+                        <span class="log-file-timing-lane-track">
+                          <span
+                            v-for="(segment, segmentIndex) in lane.segments"
+                            :key="`${segment.stage}-${segmentIndex}`"
+                            class="log-file-timing-seg"
+                            :class="[
+                              `is-stage-${segment.stage}`,
+                              {
+                                'is-waiting': segment.waiting,
+                                'is-unknown': !segment.positionKnown,
+                                'is-tail': segment.tail,
+                                'is-head': segment.head,
+                              },
+                            ]"
+                            :style="taskLaneSegmentStyle(segment, getTaskAxisTotalS(file))"
+                            :title="formatTaskLaneSegmentTitle(segment, getTaskAxisTotalS(file))"
+                          ></span>
+                        </span>
+                        <span class="log-file-timing-lane-total"></span>
+                        <span v-if="lane.note" class="log-file-timing-lane-note">{{ lane.note }}</span>
+                        <span v-if="lane.running" class="log-file-timing-running">进行中</span>
+                      </div>
+                    </div>
+                  </template>
+                    <div v-if="hasTaskTimeline(file)" class="log-file-timing-legend">
+                      <span
+                        v-for="item in getTimelineLegend(file)"
+                        :key="`legend-${item.stage}`"
+                        class="log-file-timing-legend-item"
+                      >
+                        <span
+                          class="log-file-timing-legend-dot"
+                          :class="`is-stage-${item.stage}`"
+                        ></span>
+                        {{ item.label }}
+                      </span>
+                    </div>
+
+                    <table class="log-file-timing-table">
+                      <thead>
+                        <tr>
+                          <th>阶段</th>
+                          <th>用时</th>
+                          <th>占比</th>
+                          <th>核数</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="stage in getParseTimingReport(file)?.stages ?? []" :key="stage.stage">
+                          <td class="log-file-timing-stage">
+                            {{ stage.label }}
+                            <span v-if="stage.detail" class="log-file-timing-detail">{{
+                              stage.detail
+                            }}</span>
+                          </td>
+                          <td>{{ formatParseTimingSeconds(stage.wall_s) }}</td>
+                          <td>
+                            {{
+                              formatParseTimingShare(
+                                stage.wall_s,
+                                getParseTimingReport(file)?.total_s ?? 0,
+                              )
+                            }}
+                          </td>
+                          <td>{{ formatParseTimingCores(stage.cores) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </component>
                 </div>
               </div>
               <div class="log-file-actions">
@@ -17573,8 +17873,9 @@ onBeforeUnmount(() => {
                         <div
                           class="aggregate-cell multi-line-pod-cell"
                           :title="getMultiLineCellTitle(row.podIp)"
-                          v-html="row.podIp"
-                        ></div>
+                        >
+                          <span v-html="row.podIp"></span>
+                        </div>
                         <div class="aggregate-cell" :title="row.clusterName">
                           {{ row.clusterName }}
                         </div>
@@ -19089,7 +19390,7 @@ onBeforeUnmount(() => {
             <button
               class="save-btn"
               type="button"
-              :disabled="isDiagnosisConfigLoading || isDiagnosisConfigSaving"
+              :disabled="isDiagnosisConfigLoading || isDiagnosisConfigSaving || isWriteRestricted"
               @click="saveParseConfig"
             >
               {{ isDiagnosisConfigSaving ? '保存中...' : '保存配置' }}

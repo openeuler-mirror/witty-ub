@@ -2,19 +2,21 @@
 import asyncio
 import concurrent.futures
 import errno
-from typing import Optional
 import logging
-from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
-from latency.task.worker.base import BaseWorker
-from latency.task.process_handle import ProcessHandler
-from latency.database.managers.task import TaskPGManager
+from typing import Optional
+
+from latency.common.disk_space import disk_capacity
 from latency.database.managers.log_file import LogFilePGManager
+from latency.database.managers.task import TaskPGManager
+from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
+from latency.schemas.parse_config import ParseConfig
 from latency.task.log_preprocessor import (
     default_preprocess_dir,
     needs_preprocess,
     preprocess_log_dir,
 )
-from latency.schemas.parse_config import ParseConfig
+from latency.task.process_handle import ProcessHandler
+from latency.task.worker.base import BaseWorker
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,15 @@ class TaskHandler:
     _dispatch_tasks: set["asyncio.Task"] = set()
     # 同一日志文件的多个任务共享同一次预处理，避免并发重复解压。
     _preprocess_inflight: dict[str, "asyncio.Future"] = {}
+    _disk_stopped_task_ids: set[str] = set()
+
+    @staticmethod
+    async def _collect_finished_processes() -> dict[str, int | None]:
+        return await asyncio.to_thread(ProcessHandler.collect_finished_tasks)
+
+    @staticmethod
+    async def _stop_process(task_id: str) -> bool:
+        return await asyncio.to_thread(ProcessHandler.remove_task, task_id)
 
     @staticmethod
     async def init_task_queue():
@@ -38,7 +49,9 @@ class TaskHandler:
         await TaskPGManager.mark_interrupted_running_tasks_for_retry()
 
     @staticmethod
-    async def init_task(task_type: TaskTypeEnum, op_id: str, parse_config: Optional["ParseConfig"] = None) -> str:
+    async def init_task(
+        task_type: TaskTypeEnum, op_id: str, parse_config: Optional["ParseConfig"] = None
+    ) -> str:
         """初始化任务"""
         task_id = None
         try:
@@ -143,7 +156,8 @@ class TaskHandler:
                 TaskHandler._preprocess_inflight.pop(log_file.id, None)
 
         logger.info(
-            "日志预处理完成: task=%s log_file=%s source=%s output=%s extracted=%d copied=%d split=%d reused=%s",
+            "日志预处理完成: task=%s log_file=%s source=%s output=%s "
+            "extracted=%d copied=%d split=%d reused=%s",
             task.id,
             log_file.id,
             result.source_dir,
@@ -158,7 +172,7 @@ class TaskHandler:
         return result.output_dir
 
     @staticmethod
-    async def stop_task(task_id: str) -> Optional[str]:
+    async def stop_task(task_id: str) -> str | None:
         """停止任务"""
         try:
             flag = await BaseWorker.stop(task_id)
@@ -170,7 +184,7 @@ class TaskHandler:
             logger.exception(err)
 
     @staticmethod
-    async def delete_task(task_id: str) -> Optional[str]:
+    async def delete_task(task_id: str) -> str | None:
         """删除任务"""
         try:
             stop_flag = await BaseWorker.stop(task_id)
@@ -194,7 +208,9 @@ class TaskHandler:
             try:
                 await BaseWorker.deinit(task.id)
             except Exception as e:
-                logger.exception(f"[TaskQueueService] 处理成功任务失败，task_id={task.id}, error={e}")
+                logger.exception(
+                    f"[TaskQueueService] 处理成功任务失败，task_id={task.id}, error={e}"
+                )
 
     @staticmethod
     async def handle_failed_tasks():
@@ -267,7 +283,9 @@ class TaskHandler:
                 )
             return flag
         except Exception as e:
-            logger.exception(f"[TaskQueueService] 处理待处理任务失败 {e}")
+            logger.exception(
+                f"[TaskQueueService] 处理待处理任务失败 task_id={task.id}, {e}"
+            )
             if isinstance(e, OSError) and e.errno == errno.ENOSPC:
                 await TaskHandler._fail_preprocess_for_insufficient_space(task)
             else:
@@ -278,6 +296,8 @@ class TaskHandler:
 
     @staticmethod
     async def handle_pending_tasks():
+        if disk_capacity().mode != "normal":
+            return
         handle_pending_task_limit = 128
         single_batch_limit = 10
         pending_tasks = await TaskPGManager.get_oldest_tasks_by_status(
@@ -304,7 +324,46 @@ class TaskHandler:
             dispatch_task.add_done_callback(TaskHandler._dispatch_tasks.discard)
 
     @staticmethod
+    async def reap_finished_processes():
+        """收尸：把异常退出的任务标记为失败。
+
+        独立成一个调度 job —— 它内部要 join 子进程，慢的时候不该拖住
+        派发（``handle_tasks``）的 1 秒节拍。
+        """
+        finished = await TaskHandler._collect_finished_processes()
+        for task_id, exit_code in finished.items():
+            task = await TaskPGManager.get_task_by_task_id(task_id)
+            if task and task.status == TaskStatusEnum.RUNNING:
+                await TaskPGManager.mark_failed_with_report(
+                    task_id,
+                    f"任务异常停止：工作进程意外退出（exit code {exit_code}），系统将自动重试",
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
+                )
+
+    @staticmethod
     async def handle_tasks():
+        # 收尸已拆到 reap_finished_processes（见 fastapi_server 的 job 注册）。
+        # Successful cleanup can release preprocessing files and is safe in all modes.
         await TaskHandler.handle_successed_tasks()
+        capacity = disk_capacity()
+        if capacity.mode == "critical":
+            running_tasks = await TaskPGManager.list_tasks_by_status([TaskStatusEnum.RUNNING])
+            for task in running_tasks:
+                if task.id in TaskHandler._disk_stopped_task_ids:
+                    continue
+                stopped = await TaskHandler._stop_process(task.id)
+                if not stopped:
+                    logger.error("磁盘紧急保护未能停止任务: task_id=%s", task.id)
+                    continue
+                await TaskPGManager.mark_failed_with_report(
+                    task.id,
+                    "任务异常停止：服务器磁盘空间达到紧急阈值；释放空间后将自动重试",
+                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
+                )
+                TaskHandler._disk_stopped_task_ids.add(task.id)
+            return
+        if capacity.mode == "warning":
+            return
+        TaskHandler._disk_stopped_task_ids.clear()
         await TaskHandler.handle_failed_tasks()
         await TaskHandler.handle_pending_tasks()

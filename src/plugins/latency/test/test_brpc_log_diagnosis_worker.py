@@ -97,8 +97,9 @@ def _copy_result_files(output_dir, *, include_schema=True):
         FIXTURES / "valid" / "batch_task-normal.jsonl",
         batch_path,
     )
-    schema_path = output_dir / f"schema_{SCHEMA_ID}.json"
+    schema_path = output_dir.parent / "cache" / f"schema_{SCHEMA_ID}.json"
     if include_schema:
+        schema_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(
             FIXTURES / "valid" / f"schema_{SCHEMA_ID}.json",
             schema_path,
@@ -136,8 +137,19 @@ def _configure_run_dependencies(monkeypatch, log_path):
         reports.append((message, progress))
         return True
 
+    async def mark_failed_with_report(_task_id, message, status):
+        status_updates.append({"status": status.value})
+        task.status = status
+        reports.append((message, 100.0))
+        return True
+
     monkeypatch.setattr(worker_module.TaskPGManager, "get_task_by_task_id", get_task)
     monkeypatch.setattr(worker_module.TaskPGManager, "update_task", update_task)
+    monkeypatch.setattr(
+        worker_module.TaskPGManager,
+        "mark_failed_with_report",
+        mark_failed_with_report,
+    )
     monkeypatch.setattr(
         worker_module.LogFilePGManager,
         "get_log_file_by_log_file_id",
@@ -160,6 +172,21 @@ def _configure_run_dependencies(monkeypatch, log_path):
         lambda _task_id: "2026-08-11 10:20:30",
     )
     return task, status_updates, reports, touch_log_kb
+
+
+def test_cleanup_task_files_keeps_schema_cache_and_other_batches(monkeypatch, tmp_path):
+    witty_dir = tmp_path / "witty"
+    output_dir = witty_dir / "brpc-tmp"
+    schema_path, batch_path = _copy_result_files(output_dir)
+    other_batch = output_dir / "batch_other-task.jsonl"
+    other_batch.write_text("other", encoding="utf-8")
+    monkeypatch.setenv("WITTY_DIR", str(witty_dir))
+
+    BrpcLogDiagnosisWorker._cleanup_task_files("task-normal")
+
+    assert not batch_path.exists()
+    assert schema_path.exists()
+    assert other_batch.exists()
 
 
 def test_worker_type_and_default_patterns_are_defined():
@@ -1072,7 +1099,7 @@ def test_worker_runs_tool_and_imports_only_after_outputs_exist(
     log_path = tmp_path / "logs" / "brpc.log"
     log_path.parent.mkdir()
     log_path.write_text("log", encoding="utf-8")
-    output_dir = tmp_path / "witty" / "brpc-diag"
+    output_dir = tmp_path / "witty" / "brpc-tmp"
     schema_path, batch_path = _copy_result_files(output_dir)
     _, status_updates, reports, touch_log_kb = _configure_run_dependencies(
         monkeypatch,
@@ -1126,7 +1153,7 @@ def test_worker_prefers_preprocessed_log_dir(monkeypatch, tmp_path):
     preprocessed_path = tmp_path / "preprocessed"
     preprocessed_path.mkdir()
     (preprocessed_path / "brpc.log").write_text("log", encoding="utf-8")
-    output_dir = tmp_path / "witty" / "brpc-diag"
+    output_dir = tmp_path / "witty" / "brpc-tmp"
     _copy_result_files(output_dir)
     _configure_run_dependencies(monkeypatch, original_path)
     commands = []
@@ -1163,7 +1190,7 @@ def test_missing_output_marks_task_failed(
     log_path = tmp_path / "logs" / "brpc.log"
     log_path.parent.mkdir()
     log_path.write_text("log", encoding="utf-8")
-    output_dir = tmp_path / "witty" / "brpc-diag"
+    output_dir = tmp_path / "witty" / "brpc-tmp"
     if include_batch:
         _copy_result_files(output_dir, include_schema=include_schema)
     _, status_updates, _, touch_log_kb = _configure_run_dependencies(
@@ -1202,7 +1229,7 @@ def test_import_failure_marks_task_failed_and_preserves_outputs(
     log_path = tmp_path / "logs" / "brpc.log"
     log_path.parent.mkdir()
     log_path.write_text("log", encoding="utf-8")
-    output_dir = tmp_path / "witty" / "brpc-diag"
+    output_dir = tmp_path / "witty" / "brpc-tmp"
     schema_path, batch_path = _copy_result_files(output_dir)
     _, status_updates, _, touch_log_kb = _configure_run_dependencies(
         monkeypatch,

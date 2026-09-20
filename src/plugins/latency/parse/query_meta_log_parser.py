@@ -1,3 +1,4 @@
+# NON-PRODUCTION: reference implementation
 """QueryMeta日志解析器"""
 from typing import Optional
 

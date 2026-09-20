@@ -2,29 +2,27 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import signal
 import subprocess
 import time
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
-from pydantic import ValidationError
-
-from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.config.config import Config
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.task import TaskPGManager
+from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.schemas.brpc_diagnosis import BrpcDiagBatch
 from latency.schemas.task import TaskModel
 from latency.services.brpc_diagnosis_importer import BrpcDiagnosisImporter
 from latency.task.worker.base import BaseWorker
-
+from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +66,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
 
     @staticmethod
     async def reinit(task_id: str) -> bool:
+        BrpcLogDiagnosisWorker._cleanup_task_files(task_id)
         task = await TaskPGManager.get_task_by_task_id(task_id)
         if task is None:
             return False
@@ -85,11 +84,13 @@ class BrpcLogDiagnosisWorker(BaseWorker):
     @staticmethod
     async def deinit(task_id: str) -> str:
         BrpcLogDiagnosisWorker._unregister_process(task_id)
+        BrpcLogDiagnosisWorker._cleanup_task_files(task_id)
         return task_id
 
     @staticmethod
     async def delete(task_id: str) -> str:
         await BrpcLogDiagnosisWorker.stop(task_id)
+        BrpcLogDiagnosisWorker._cleanup_task_files(task_id)
         return task_id
 
     @staticmethod
@@ -108,7 +109,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
 
     @staticmethod
     def _resolve_start_time(task_id: str) -> str | None:
-        from latency.task.task_handler import TaskHandler
+        from latency.task.task_handler import TaskHandler  # 懒加载：仅 start_time 时需要
 
         parse_config = TaskHandler.get_task_config(task_id)
         if parse_config is not None and parse_config.end_time:
@@ -143,7 +144,30 @@ class BrpcLogDiagnosisWorker(BaseWorker):
 
     @staticmethod
     def _output_dir() -> Path:
-        return Path(os.getenv("WITTY_DIR", WITTY_DIR_DEFAULT)) / "brpc-diag"
+        return Path(os.getenv("WITTY_DIR", WITTY_DIR_DEFAULT)) / "brpc-tmp"
+
+    @staticmethod
+    def _schema_dir() -> Path:
+        return Path(os.getenv("WITTY_DIR", WITTY_DIR_DEFAULT)) / "cache"
+
+    @staticmethod
+    def _cleanup_task_files(task_id: str) -> None:
+        """删除一个 BRPC 任务的临时 batch/PID；持久 schema 缓存不动。"""
+        if _TASK_ID_PATTERN.fullmatch(task_id) is None:
+            logger.warning("refusing to clean files for invalid UBSocket task ID: %r", task_id)
+            return
+        output_dir = BrpcLogDiagnosisWorker._output_dir()
+        paths = [
+            output_dir / f"batch_{task_id}.jsonl",
+            output_dir / f".worker_{task_id}.pid",
+        ]
+        paths.extend(output_dir.glob(f".batch_{task_id}.jsonl.tmp.*"))
+        paths.extend(output_dir.glob(f".worker_{task_id}.pid.*.tmp"))
+        for path in paths:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("failed to clean UBSocket task file %s: %s", path, exc)
 
     @staticmethod
     def _pid_path(task_id: str) -> Path:
@@ -345,7 +369,7 @@ class BrpcLogDiagnosisWorker(BaseWorker):
                 f"UBSocket 诊断 batch task_id 不匹配: {batch.task_id!r}"
             )
         schema_path = (
-            BrpcLogDiagnosisWorker._output_dir()
+            BrpcLogDiagnosisWorker._schema_dir()
             / f"schema_{batch.schema_id}.json"
         )
         if not schema_path.is_file():
@@ -357,16 +381,13 @@ class BrpcLogDiagnosisWorker(BaseWorker):
     @staticmethod
     async def _mark_failed(task_id: str, message: str) -> None:
         try:
-            await BaseWorker.report(task_id, f"UBSocket 诊断失败: {message}", 100.0)
-        except Exception:
-            logger.exception("failed to report UBSocket diagnosis failure")
-        try:
-            await TaskPGManager.update_task(
+            await TaskPGManager.mark_failed_with_report(
                 task_id,
-                {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value},
+                f"任务失败：UBSocket 诊断失败，{message}",
+                status=TaskStatusEnum.FAILED_PENDING_REMOVE,
             )
         except Exception:
-            logger.exception("failed to update UBSocket diagnosis task status")
+            logger.exception("failed to persist UBSocket diagnosis failure: task_id=%s", task_id)
 
     @staticmethod
     async def run(
@@ -443,4 +464,5 @@ class BrpcLogDiagnosisWorker(BaseWorker):
             terminated = True
         else:
             terminated = BrpcLogDiagnosisWorker._terminate_pid(task_id)
+        BrpcLogDiagnosisWorker._cleanup_task_files(task_id)
         return task_id if terminated else None

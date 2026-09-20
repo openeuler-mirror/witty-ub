@@ -1,11 +1,13 @@
+# NON-PRODUCTION: reference implementation（逐行 parse()/match_line() 生产零调用；pattern / _keywords / 类身份仍被扫描器使用，见 test/test_layer_boundaries.py 的白名单）
 """Worker运行日志合并解析器 - 一次遍历处理所有 Run-format 日志类型"""
 
 import logging
 import os
 import re
-from typing import Optional
+from collections.abc import Callable
+from datetime import datetime
 
-from latency.common.ds_log_io import parse_timestamp, open_log
+from latency.common.ds_log_io import Progress, open_log, parse_timestamp
 from latency.regex.kvcache_log import (
     URMA_RE, CREATE_META_REQ_RE, URMA_LINK_RE, REMOTE_GET_RE, REMOTE_PULL_RE,
     QUERY_META_RE, SDK_PROCESS_RE, SDK_RPC_RE,
@@ -18,54 +20,47 @@ from latency.regex.kvcache_log_file import WORKER_INFO_LOG_PATTERNS, CLIENT_INFO
 from latency.schemas.ds_log import LogEntry
 from latency.ENUM.ds_log import EntryType
 from latency.schemas.log import LogFileModel
-from latency.schemas.parse_config import ParseConfig
-from latency.parse.base_parser import LogParser, RUN_LOG_MIN_PARTS
+from latency.schemas.request import ParseConfig
+from latency.parse.base_parser import LogParser
+from latency.parse.keywords import (
+    ALL_KEYWORDS,
+    BASE_KEYWORDS,
+    RUN_LOG_MIN_PARTS,
+    TIMED_KEYWORDS,
+)
+from latency.parse.keywords import IP_ENDPOINT_RE as _IP_ENDPOINT_RE
+from latency.parse.labels import (
+    CLIENT_RPC_LABEL,
+    LINK_LABEL,
+    LOCAL_WORKER_COST_LABEL,
+    LOCAL_WORKER_LOCK_LABEL,
+    MASTER_PROCESS_LABEL,
+    MASTER_RPC_LABEL,
+    QUERY_META_LABEL,
+    REMOTE_PULL_LABEL,
+    REMOTE_WORKER_COST_LABEL,
+    REMOTE_WORKER_RPC_LABEL,
+    SDK_PROCESS_LABEL,
+    SDK_RPC_LABEL,
+    TIMED_LABELS,
+    URMA_LABEL,
+)
+
 
 logger = logging.getLogger(__name__)
 
-URMA_LABEL = "Worker urma parse"
-REMOTE_PULL_LABEL = "Worker remote pull parse"
-LINK_LABEL = "Worker link parse"
-QUERY_META_LABEL = "Worker query meta parse"
-SDK_PROCESS_LABEL = "Worker sdk process parse"
-SDK_RPC_LABEL = "Worker sdk rpc parse"
-LOCAL_WORKER_COST_LABEL = "Worker local worker cost parse"
-LOCAL_WORKER_LOCK_LABEL = "Worker local worker lock parse"
-REMOTE_WORKER_COST_LABEL = "Worker remote worker cost parse"
-REMOTE_WORKER_RPC_LABEL = "Worker remote worker rpc parse"
-MASTER_PROCESS_LABEL = "Worker master process parse"
-MASTER_RPC_LABEL = "Worker master rpc parse"
-CLIENT_RPC_LABEL = "Client rpc parse"
+# P1 契约层（2026-09-16）：13 个 label 常量 + TIMED_LABELS 搬到
+# ``parse/labels.py``；BASE/TIMED/ALL_KEYWORDS 搬到 ``parse/keywords.py``。
+# 本文件顶部 import 回来继续导出，既有 ``from latency.parse.worker_info_parser
+# import URMA_LABEL`` 用法一字不改。
 
-TIMED_LABELS = (
-    SDK_PROCESS_LABEL,
-    SDK_RPC_LABEL,
-    LOCAL_WORKER_COST_LABEL,
-    LOCAL_WORKER_LOCK_LABEL,
-    REMOTE_WORKER_COST_LABEL,
-    REMOTE_WORKER_RPC_LABEL,
-    MASTER_PROCESS_LABEL,
-    MASTER_RPC_LABEL,
-)
-
-# 基础关键字（WorkerInfoParser 使用）
-BASE_KEYWORDS = (
-    "URMA_ELAPSED_TOTAL", "Processing CreateMetaReq", "Remote get request", "Processing pull object[",
-    "elapsed ms:", "Master query done",
-)
-
-# 细分耗时关键字（每个关键字对应一个明确的 Worker info label）
-TIMED_KEYWORDS = (
-    "totalCost:", "Worker to master rpc QueryMeta:",
-    "ProcessGetObjectRequest:", "worker SafeObject WLock:",
-    "[Get/RemotePull] finish", "[Get] Remote done",
-    "QueryMeta done", "[ZMQ_RPC_FRAMEWORK_SLOW]",
-)
-
-ALL_KEYWORDS = BASE_KEYWORDS + TIMED_KEYWORDS
 
 _TIMED_RESP_EXCLUDED_FIELDS = frozenset({"cost", "src", "dst"})
-_IP_ENDPOINT_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b")
+# P1：IP_ENDPOINT_RE 的值在 ``parse/keywords.py``（顶部已 import 为
+# ``_IP_ENDPOINT_RE``，本文件内既有用法不变）。
+
+
+_ALL_KEYWORDS_RE = re.compile("|".join(re.escape(kw) for kw in ALL_KEYWORDS))
 
 
 class WorkerInfoParser(LogParser):
@@ -84,14 +79,14 @@ class WorkerInfoParser(LogParser):
     def patterns(self) -> list[str]:
         return getattr(self, "_runtime_patterns", WORKER_INFO_LOG_PATTERNS)
 
-    def __init__(self, parse_config: Optional[ParseConfig] = None):
+    def __init__(self, parse_config: ParseConfig | None = None) -> None:
         super().__init__(parse_config)
         self._scan_scope_enabled = False
         self._target_trace_ids: set[str] = set()
         self._target_pod_trace_keys: set[tuple[str, str]] = set()
         self._target_pod_ips: set[str] = set()
 
-    def set_scan_scope(self, scan_scope: Optional[dict]) -> None:
+    def set_scan_scope(self, scan_scope: dict | None) -> None:
         """Limit INFO parsing to traces/pods that can contribute to final results.
         
         优化策略：主进程预构建集合后直接传递，子进程直接使用，避免重新创建集合。
@@ -127,89 +122,15 @@ class WorkerInfoParser(LogParser):
         else:
             self._target_pod_ips = set(pod_ips or ())
 
-    def scan_file(self, path: str, entry_sink=None, line_filter=None) -> dict[str, list[LogEntry]]:
-        """扫描单个 Run-format 日志文件，返回按原始 label 分组的 entries"""
-        results: dict[str, list[LogEntry]] = {
-            URMA_LABEL: [],
-            REMOTE_PULL_LABEL: [],
-            LINK_LABEL: [],
-            QUERY_META_LABEL: [],
-            SDK_PROCESS_LABEL: [],
-            SDK_RPC_LABEL: [],
-            LOCAL_WORKER_COST_LABEL: [],
-            LOCAL_WORKER_LOCK_LABEL: [],
-            REMOTE_WORKER_COST_LABEL: [],
-            REMOTE_WORKER_RPC_LABEL: [],
-            MASTER_PROCESS_LABEL: [],
-            MASTER_RPC_LABEL: [],
-            CLIENT_RPC_LABEL: [],
-        }
-        if entry_sink is not None:
-            entry_sink.register(results)
-        try:
-            pod_ip = self.extract_pod_ip(path)
-        except Exception as e:
-            logger.warning(f"Failed to extract pod_ip from {path}: {e}")
-            pod_ip = ""
-
-        try:
-            file_size = os.path.getsize(path)
-        except OSError:
-            file_size = 0
-
-        log_file = LogFileModel(file_path=path, file_size=file_size)
-        file_name = os.path.basename(path)
-        line_count = 0
-        match_count = 0
-
-        try:
-            with open_log(path) as f:
-                lines = line_filter(f) if line_filter is not None else f
-                for line in lines:
-                    line_count += 1
-                    if not line or line[0] != "2":
-                        continue
-                    if not self._line_may_match(line):
-                        continue
-
-                    parts = line.split("|")
-                    plen = len(parts)
-                    if plen < RUN_LOG_MIN_PARTS:
-                        continue
-
-                    parsed = self._build_run(parts, plen)
-                    ts = parse_timestamp(parsed["timestamp"])
-                    if not self._filter_by_time(ts):
-                        continue
-
-                    matched = self._parse_first_match(line, parsed, ts, pod_ip)
-                    if not matched:
-                        continue
-
-                    label, entry = matched
-                    entry.log_id = log_file.id
-                    if entry_sink is None:
-                        results[label].append(entry)
-                    else:
-                        entry_sink.append(label, entry)
-                    match_count += 1
-
-        except EOFError:
-            logger.warning(f"Skipping corrupted file {path}")
-        except Exception as e:
-            if entry_sink is not None:
-                from .parallel_scanner.spill import SpillError
-                if isinstance(e, SpillError):
-                    raise
-            logger.warning(f"Error reading {path}: {e}")
-
-        logger.info(
-            f"[Worker info] done {file_name} | "
-            f"lines {line_count:,} | match {match_count:,}"
-        )
-        return results
-
-    def _scan_file(self, path, pod_ip, log_id, entries, progress, file_idx):
+    def _scan_file(
+        self,
+        path: str,
+        pod_ip: str,
+        log_id: str,
+        entries: list[LogEntry],
+        progress: Progress,
+        file_idx: int,
+    ) -> None:
         """兼容基类 parse() 路径：match_line 返回列表。"""
         with open_log(path) as f:
             for line_no, line in enumerate(f, 1):
@@ -282,171 +203,183 @@ class WorkerInfoParser(LogParser):
 
         return True
 
+    # ---- 首个命中分派：一行日志最多产出一个 entry ----
+    # 老实现是一条 159 行的 if/elif 链；现在每个分支一个私有方法，主函数只做分派。
+    # **顺序即语义**：老实现「首个匹配即返回」（命中的分支解析出 None 也不再往下试），
+    # 所以下面 15 个判断的顺序与老代码逐行完全一致，不许调整。
+
     def _parse_first_match(
         self,
         line: str,
-        parsed: dict,
-        ts,
+        parsed: dict[str, str],
+        ts: datetime,
         pod_ip: str,
     ) -> tuple[str, LogEntry] | None:
-        """按固定优先级命中第一个关键字并立即解析；一行最多产出一个 entry。"""
+        """原始行 + 表列字段 → (label, entry)：命中第一个关键字即返回其结果，否则 None。"""
         if "URMA_ELAPSED_TOTAL" in line:
-            return self._parse_label(
-                URMA_LABEL,
-                self._parse_urma,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_urma(line, parsed, ts, pod_ip)
         if "Processing CreateMetaReq" in line:
-            return self._parse_label(
-                URMA_LABEL,
-                self._parse_urma,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_urma(line, parsed, ts, pod_ip)
         if "Remote get request" in line:
-            return self._parse_label(
-                REMOTE_PULL_LABEL,
-                self._parse_remote_get,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_remote_get(line, parsed, ts, pod_ip)
         if "Processing pull object[" in line:
-            return self._parse_label(
-                REMOTE_PULL_LABEL,
-                self._parse_remote_pull,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_remote_pull(line, parsed, ts, pod_ip)
         if "elapsed ms:" in line:
-            return self._parse_label(
-                LINK_LABEL,
-                self._parse_link,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_link(line, parsed, ts, pod_ip)
         if "Master query done" in line:
-            return self._parse_label(
-                QUERY_META_LABEL,
-                self._parse_query_meta,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_query_meta(line, parsed, ts, pod_ip)
         if "totalCost:" in line:
-            return self._parse_label(
-                SDK_PROCESS_LABEL,
-                self._parse_sdk_process,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_sdk_process(line, parsed, ts, pod_ip)
         if "Worker to master rpc QueryMeta:" in line:
-            return self._parse_label(
-                SDK_RPC_LABEL,
-                self._parse_sdk_rpc,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_sdk_rpc(line, parsed, ts, pod_ip)
         if "ProcessGetObjectRequest:" in line:
-            return self._parse_label(
-                LOCAL_WORKER_COST_LABEL,
-                self._parse_local_worker_cost,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_local_worker_cost(line, parsed, ts, pod_ip)
         if "worker SafeObject WLock:" in line:
-            return self._parse_label(
-                LOCAL_WORKER_LOCK_LABEL,
-                self._parse_local_worker_lock,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_local_worker_lock(line, parsed, ts, pod_ip)
         if "[Get/RemotePull] finish" in line:
-            return self._parse_label(
-                REMOTE_WORKER_COST_LABEL,
-                self._parse_remote_worker_cost,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_remote_worker_cost(line, parsed, ts, pod_ip)
         if "[Get] Remote done" in line:
-            return self._parse_label(
-                REMOTE_WORKER_RPC_LABEL,
-                self._parse_remote_worker_rpc,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_remote_worker_rpc(line, parsed, ts, pod_ip)
         if "QueryMeta done" in line:
-            return self._parse_label(
-                MASTER_PROCESS_LABEL,
-                self._parse_master_process,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_master_process(line, parsed, ts, pod_ip)
         if "[ZMQ_RPC_FRAMEWORK_SLOW]" in line:
-            return self._parse_label(
-                MASTER_RPC_LABEL,
-                self._parse_master_rpc,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_master_rpc(line, parsed, ts, pod_ip)
         if "src" in line and "dst" in line:
-            return self._parse_label(
-                REMOTE_PULL_LABEL,
-                self._parse_src_dst_fallback,
-                parsed,
-                ts,
-                pod_ip,
-                allow_trace_fallback=True,
-                trace_source=line,
-            )
+            return self._entry_src_dst_fallback(line, parsed, ts, pod_ip)
         return None
+
+    def _entry_urma(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """`URMA_ELAPSED_TOTAL`/`CreateMetaReq` 行 → (URMA_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            URMA_LABEL, self._parse_urma, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
+    def _entry_remote_get(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """`Remote get request` 行 → (REMOTE_PULL_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            REMOTE_PULL_LABEL, self._parse_remote_get, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
+    def _entry_remote_pull(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """`Processing pull object[` 行 → (REMOTE_PULL_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            REMOTE_PULL_LABEL, self._parse_remote_pull, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
+    def _entry_link(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """`elapsed ms:` 行 → (LINK_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            LINK_LABEL, self._parse_link, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
+    def _entry_query_meta(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """`Master query done` 行 → (QUERY_META_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            QUERY_META_LABEL, self._parse_query_meta, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
+    def _entry_sdk_process(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """`totalCost:` 行 → (SDK_PROCESS_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            SDK_PROCESS_LABEL, self._parse_sdk_process, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
+    def _entry_sdk_rpc(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """`Worker to master rpc QueryMeta:` 行 → (SDK_RPC_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            SDK_RPC_LABEL, self._parse_sdk_rpc, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
+    def _entry_local_worker_cost(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """`ProcessGetObjectRequest:` 行 → (LOCAL_WORKER_COST_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            LOCAL_WORKER_COST_LABEL, self._parse_local_worker_cost, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
+    def _entry_local_worker_lock(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """`worker SafeObject WLock:` 行 → (LOCAL_WORKER_LOCK_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            LOCAL_WORKER_LOCK_LABEL, self._parse_local_worker_lock, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
+    def _entry_remote_worker_cost(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """`[Get/RemotePull] finish` 行 → (REMOTE_WORKER_COST_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            REMOTE_WORKER_COST_LABEL, self._parse_remote_worker_cost, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
+    def _entry_remote_worker_rpc(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """`[Get] Remote done` 行 → (REMOTE_WORKER_RPC_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            REMOTE_WORKER_RPC_LABEL, self._parse_remote_worker_rpc, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
+    def _entry_master_process(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """`QueryMeta done` 行 → (MASTER_PROCESS_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            MASTER_PROCESS_LABEL, self._parse_master_process, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
+    def _entry_master_rpc(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """`[ZMQ_RPC_FRAMEWORK_SLOW]` 行 → (MASTER_RPC_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            MASTER_RPC_LABEL, self._parse_master_rpc, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
+    def _entry_src_dst_fallback(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
+        """行内含 `src`/`dst` 的兜底分支 → (REMOTE_PULL_LABEL, entry)，否则 None。"""
+        return self._parse_label(
+            REMOTE_PULL_LABEL, self._parse_src_dst_fallback, parsed, ts, pod_ip,
+            allow_trace_fallback=True, trace_source=line,
+        )
+
     def _parse_label(
         self,
         label: str,
-        parse_func,
-        parsed: dict,
-        ts,
+        parse_func: Callable[..., LogEntry | None],
+        parsed: dict[str, str],
+        ts: datetime,
         pod_ip: str,
         allow_trace_fallback: bool = False,
         trace_source: str = "",
@@ -468,7 +401,9 @@ class WorkerInfoParser(LogParser):
 
     # ---- 各类型提取逻辑 (从对应 parser 提取) ----
 
-    def _parse_urma(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_urma(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         msg = parsed["msg"]
         m = URMA_RE.search(msg)
         if m:
@@ -503,7 +438,9 @@ class WorkerInfoParser(LogParser):
             )
         return None
 
-    def _parse_remote_get(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_remote_get(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         msg = parsed["msg"]
         trace_id = parsed["trace_id"]
         if not trace_id:
@@ -526,7 +463,9 @@ class WorkerInfoParser(LogParser):
             cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
         )
 
-    def _parse_remote_pull(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_remote_pull(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         msg = parsed["msg"]
         trace_id = parsed["trace_id"]
         if not trace_id:
@@ -549,7 +488,9 @@ class WorkerInfoParser(LogParser):
             cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
         )
 
-    def _parse_src_dst_fallback(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_src_dst_fallback(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         msg = parsed["msg"]
         trace_id = parsed["trace_id"]
         if not trace_id:
@@ -578,7 +519,9 @@ class WorkerInfoParser(LogParser):
             cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
         )
 
-    def _parse_link(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_link(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         msg = parsed["msg"]
         trace_id = parsed["trace_id"]
         if ("WorkerWorkerExchangeUrmaConnectInfo finish" not in msg
@@ -600,7 +543,9 @@ class WorkerInfoParser(LogParser):
             cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
         )
 
-    def _parse_query_meta(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_query_meta(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         msg = parsed["msg"]
         trace_id = parsed["trace_id"]
         if not trace_id:
@@ -619,52 +564,68 @@ class WorkerInfoParser(LogParser):
             cluster_name=parsed["cluster_name"] if parsed["cluster_name"] else None,
         )
 
-    def _parse_sdk_process(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_sdk_process(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         return self._parse_timed_entry(
             parsed, ts, pod_ip, SDK_PROCESS_RE, EntryType.SDK_PROCESS
         )
 
-    def _parse_sdk_rpc(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_sdk_rpc(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         return self._parse_timed_entry(
             parsed, ts, pod_ip, SDK_RPC_RE, EntryType.SDK_RPC
         )
 
-    def _parse_local_worker_cost(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_local_worker_cost(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         return self._parse_timed_entry(
             parsed, ts, pod_ip, LOCAL_WORKER_COST_RE, EntryType.LOCAL_WORKER_COST
         )
 
-    def _parse_local_worker_lock(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_local_worker_lock(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         return self._parse_timed_entry(
             parsed, ts, pod_ip, LOCAL_WORKER_LOCK_RE, EntryType.LOCAL_WORKER_LOCK
         )
 
-    def _parse_remote_worker_cost(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_remote_worker_cost(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         return self._parse_timed_entry(
             parsed, ts, pod_ip, REMOTE_WORKER_COST_RE, EntryType.REMOTE_WORKER_COST
         )
 
-    def _parse_remote_worker_rpc(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_remote_worker_rpc(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         return self._parse_timed_entry(
             parsed, ts, pod_ip, REMOTE_WORKER_RPC_RE, EntryType.REMOTE_WORKER_RPC
         )
 
-    def _parse_master_process(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_master_process(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         return self._parse_timed_entry(
             parsed, ts, pod_ip, MASTER_PROCESS_RE, EntryType.MASTER_PROCESS
         )
 
-    def _parse_master_rpc(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_master_rpc(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         return self._parse_timed_entry(
             parsed, ts, pod_ip, MASTER_RPC_RE, EntryType.MASTER_RPC, multiplier=1
         )
 
     def _parse_timed_entry(
         self,
-        parsed: dict,
-        ts,
+        parsed: dict[str, str],
+        ts: datetime,
         pod_ip: str,
-        regex,
+        regex: re.Pattern[str],
         entry_type: EntryType,
         multiplier: float = 1000,
     ) -> LogEntry | None:
@@ -688,7 +649,9 @@ class WorkerInfoParser(LogParser):
         )
 
     @staticmethod
-    def _elapsed_value_from_match(match, groups: dict[str, str | None]) -> str | None:
+    def _elapsed_value_from_match(
+        match: re.Match[str], groups: dict[str, str | None]
+    ) -> str | None:
         for key in ("cost", "remote_processing_us"):
             value = groups.get(key)
             if value:
@@ -758,8 +721,8 @@ class WorkerInfoParser(LogParser):
 
     @staticmethod
     def _mk_timed_entry(
-        parsed: dict,
-        ts,
+        parsed: dict[str, str],
+        ts: datetime,
         pod_ip: str,
         entry_type: EntryType,
         elapsed_us: float,
@@ -788,21 +751,20 @@ class WorkerInfoParser(LogParser):
 
     @staticmethod
     def _any_keyword_in(line: str) -> bool:
-        for kw in ALL_KEYWORDS:
-            if kw in line:
-                return True
-        return False
+        return bool(_ALL_KEYWORDS_RE.search(line))
 
     @classmethod
     def _line_may_match(cls, line: str) -> bool:
-        return cls._any_keyword_in(line) or ("src" in line and "dst" in line)
+        return bool(_ALL_KEYWORDS_RE.search(line)) or (
+            "src" in line and "dst" in line
+        )
 
     @staticmethod
     def _looks_like_ip_endpoint(value: str) -> bool:
         return bool(_IP_ENDPOINT_RE.search(value))
 
     @staticmethod
-    def _build_run(parts: list[str], plen: int) -> dict:
+    def _build_run(parts: list[str], plen: int) -> dict[str, str]:
         return {
             "timestamp": parts[0].strip() if plen > 0 else "",
             "pod_name": parts[3].strip() if plen > 3 else "",
@@ -822,7 +784,9 @@ class ClientInfoParser(WorkerInfoParser):
     def patterns(self) -> list[str]:
         return getattr(self, "_runtime_patterns", CLIENT_INFO_LOG_PATTERNS)
 
-    def _parse_first_match(self, line: str, parsed: dict, ts, pod_ip: str):
+    def _parse_first_match(
+        self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> tuple[str, LogEntry] | None:
         if "[ZMQ_RPC_FRAMEWORK_SLOW]" not in line:
             return None
         return self._parse_label(
@@ -835,7 +799,9 @@ class ClientInfoParser(WorkerInfoParser):
             trace_source=line,
         )
 
-    def _parse_client_rpc(self, parsed: dict, ts, pod_ip: str) -> LogEntry | None:
+    def _parse_client_rpc(
+        self, parsed: dict[str, str], ts: datetime, pod_ip: str
+    ) -> LogEntry | None:
         return self._parse_timed_entry(
             parsed, ts, pod_ip, MASTER_RPC_RE, EntryType.CLIENT_RPC, multiplier=1
         )

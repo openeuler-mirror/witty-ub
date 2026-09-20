@@ -20,6 +20,7 @@ target_include_directories(diagnosis_tool PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 find_package(jsoncpp QUIET)
 find_package(Threads REQUIRED)
+find_package(ZLIB REQUIRED)
 find_library(RE2_LIBRARY NAMES re2 REQUIRED)
 
 if(jsoncpp_FOUND)
@@ -29,6 +30,7 @@ if(jsoncpp_FOUND)
             ubse_context
             jsoncpp_lib
             Threads::Threads
+            ZLIB::ZLIB
             ${RE2_LIBRARY}
     )
 else()
@@ -40,6 +42,7 @@ else()
             jsoncpp
             stdc++fs
             Threads::Threads
+            ZLIB::ZLIB
             ${RE2_LIBRARY}
     )
 endif()

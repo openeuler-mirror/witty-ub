@@ -34,9 +34,10 @@ public:
                std::unordered_map<std::size_t, std::vector<DiagnosisLog>> directlyHitLogs, std::int64_t startTimestamp,
                std::int64_t endTimestamp);
 
-    // 按 V2.1 格式将 schema（若尚不存在）和任务的最终 batch 原子发布到 outputDirectory。
+    // schema 发布到持久缓存目录，任务 batch 发布到临时目录。
     // 同一 taskId 重试时会原子覆盖原有 batch 文件。
-    bool Dump(const std::filesystem::path &outputDirectory, const std::string &taskId) const;
+    bool Dump(const std::filesystem::path &batchDirectory, const std::filesystem::path &schemaDirectory,
+              const std::string &taskId) const;
 
 private:
     using SchemaNode = FailureModeInfo;

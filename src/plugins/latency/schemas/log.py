@@ -1,7 +1,7 @@
 import uuid
 from dataclasses import dataclass, field as dataclass_field
 from itertools import repeat
-from typing import ClassVar, Optional
+from typing import Any, ClassVar, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from latency.ENUM.general import DiagnosisConfigLogType
 from latency.common.local_time import local_now, utc_now
@@ -66,6 +66,42 @@ class LogFileModel(BaseModel):
         description=(
             "KVCache 日志解析、故障定界和 trace 上下文落库的综合进度；"
             "UBSocket 为日志解析与诊断两个 worker 的平均进度"
+        ),
+    )
+    parse_timing: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "解析任务（kv_cache_log_parse_worker）最新一条 [timing] 报告中的 JSON 对象，"
+            "顶层含 task_type/total_s/rows/stages；无此类报告或内容非法时为 None；"
+            "解析结束、可见任务切到 store/诊断任务后仍然可读。"
+            "等于 stage_timings 里解析任务那一项（向后兼容保留）"
+        ),
+    )
+    stage_timings: dict[str, dict] | None = Field(
+        default=None,
+        description=(
+            "按 task_type 分组、每个任务**各取最新一条** [timing] 报告的 JSON 对象："
+            "键 = TaskTypeEnum 的值（kv_cache_log_parse_worker / "
+            "kv_cache_log_event_diagnosis_worker / store_trace_context_logs_worker）；"
+            "取数按任务分组而不是取全局最新一条 —— 三个任务并发，最后 emit 的落库任务"
+            "不能把解析那条顶掉；没有任何 [timing] 报告时为 None"
+        ),
+    )
+    task_spans: list[dict] | None = Field(
+        default=None,
+        description=(
+            "每个任务在时间轴上的跨度 [{\"task_type\"，\"start\"，\"started_at\"，"
+            "\"end\"，\"duration_s\"，\"registered_delay_s\"}]："
+            "start = 该任务最早一条报告的时间（约等于任务创建）；"
+            "started_at = 报告里 worker 真正开工的时刻（run() 起点），"
+            "与 start 之差 = 等调度派发 + 起进程冷启动，不是任何阶段的耗时，"
+            "前端画阶段块要用它当锚点；老报告没有该键时为 None（前端回退到 start）；"
+            "end = 该任务 [timing] 报告的 finished_at（worker 干完的那一刻），"
+            "老报告没有 finished_at 时退回任务的 completed_at、再退回报告入库时间；"
+            "均为 ISO 字符串（毫秒精度）；时间取不到时 end / duration_s 为 None；"
+            "registered_delay_s = completed_at − finished_at（调度器登记延迟的秒数，"
+            "任务未完成或老报告缺 finished_at 时为 None）；"
+            "有 [timing] 报告的任务才出现（顺序与 stage_timings 的装配顺序一致）"
         ),
     )
     existed_status: bool = Field(

@@ -2792,9 +2792,13 @@ body.agent-panel-resizing-corner {
 }
 
 .aggregate-cell.multi-line-pod-cell {
-  display: block;
   line-height: 20px;
   white-space: nowrap;
+}
+
+.multi-line-pod-cell > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status-code-popover-close {
@@ -6419,6 +6423,28 @@ body.agent-panel-resizing-corner {
   padding: 9px 12px;
 }
 
+/* 坏日志被跳过的告警：与 .upload-log-error 同形，用琥珀色区分「有文件被跳过但解析继续」而不是「整体失败」。 */
+.log-file-skip-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  border: 1px solid #fcd34d;
+  border-radius: 12px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.8rem;
+  padding: 8px 12px;
+}
+
+.log-file-skip-alert-title {
+  font-weight: 600;
+}
+
+.log-file-skip-alert-line {
+  word-break: break-all;
+}
+
 .log-files-section {
   margin-bottom: 28px;
 }
@@ -6549,6 +6575,21 @@ body.agent-panel-resizing-corner {
   max-width: 760px;
 }
 
+.task-status-reason {
+  margin-top: 8px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: var(--danger);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  padding: 7px 9px;
+}
+
+.task-status-reason-previous {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
 .log-file-progress-info {
   display: flex;
   align-items: center;
@@ -6604,6 +6645,417 @@ body.agent-panel-resizing-corner {
 
 .progress-cancelled .log-file-progress-bar {
   background: #94a3b8;
+}
+
+/* 解析用时（总时长 + 分阶段明细），与解析进度同一张卡片内展示。 */
+.log-file-timing {
+  width: 100%;
+  max-width: 760px;
+}
+
+.log-file-timing-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.log-file-timing-title {
+  color: #475569;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.log-file-timing-total {
+  color: #1e3a5f;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.log-file-timing-rows {
+  color: #94a3b8;
+  font-size: 0.72rem;
+}
+
+/* 「阶段合计 x s · 其它 y s」——说明主时长是任务端到端，不是六段之和 */
+.log-file-timing-breakdown {
+  color: #64748b;
+  font-size: 0.72rem;
+  margin: 0.15rem 0 0.35rem;
+}
+
+/* 「解析任务已完成，整体进度 x%（当前在做什么）」——面板只反映解析任务，
+   卡片进度条却是三个任务的平均，这句负责把两者对齐说明 */
+.log-file-timing-scope {
+  color: #94a3b8;
+  font-size: 0.72rem;
+  margin: 0 0 0.35rem;
+}
+
+.log-file-timing-table {
+  width: 100%;
+  max-width: 640px;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+}
+
+.log-file-timing-table th {
+  padding: 2px 12px 2px 0;
+  border-bottom: 1px solid #eef2f6;
+  color: #94a3b8;
+  font-weight: 600;
+  text-align: left;
+}
+
+.log-file-timing-table td {
+  padding: 3px 12px 3px 0;
+  border-bottom: 1px solid #f4f7fb;
+  color: #64748b;
+  vertical-align: top;
+}
+
+.log-file-timing-table tr:last-child td {
+  border-bottom: none;
+}
+
+.log-file-timing-table td.log-file-timing-stage {
+  color: #1e3a5f;
+  font-weight: 600;
+}
+
+.log-file-timing-detail {
+  margin-left: 6px;
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+/* 「端到端 x s」——三个任务里最早的 start → 最晚的 end 的墙钟 */
+.log-file-timing-e2e {
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin: 0.35rem 0 0.3rem;
+}
+
+/* 三条泳道（解析 / 故障定界 / 上下文落库）：每条一行，共用同一条时间轴。
+   左端是任务名，中段是时间轴（色块之间的空隙就是「在等」），右端是该任务总耗时 */
+.log-file-timing-lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 640px;
+  margin-bottom: 0.4rem;
+}
+
+.log-file-timing-lane {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.7rem;
+}
+
+.log-file-timing-lane-label {
+  flex: 0 0 68px;
+  overflow: hidden;
+  color: #475569;
+  font-weight: 600;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-file-timing-lane-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 14px;
+  /* 只留一条基线轴，不画铺满的底槽——铺满会让人误读成"进度条没走满" */
+  border-bottom: 1px solid #e2e8f0;
+}
+
+/* 「收尾」段：最后一段阶段结束 → 任务被标记完成（状态更新 / 下一次调度 tick）。
+   以前这段画成低透明度的跨度条尾巴，像鬼影；现在按正常阶段显示，只是用中性灰。 */
+.log-file-timing-seg.is-tail,
+.log-file-timing-legend-dot.is-stage-_tail {
+  background: #cbd5e1;
+}
+
+/* 时间轴刻度（复用泳道的三列布局，与轨道左端对齐） */
+.log-file-timing-lane--ticks {
+  height: 12px;
+}
+
+.log-file-timing-ticks-scale {
+  position: relative;
+  flex: 1 1 auto;
+  height: 12px;
+}
+
+.log-file-timing-tick {
+  position: absolute;
+  top: 0;
+  color: #94a3b8;
+  font-size: 0.62rem;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.log-file-timing-tick:first-child {
+  transform: none;
+}
+
+.log-file-timing-tick:last-child {
+  transform: translateX(-100%);
+}
+
+.log-file-timing-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  border-radius: 2px;
+  background: #2563eb;
+}
+
+/* 三个任务各用一个既有色：解析=进度条蓝，故障定界=运行的琥珀，落库=成功的绿 */
+.timing-lane-kv_cache_log_event_diagnosis_worker .log-file-timing-seg {
+  background: #f59e0b;
+}
+
+.timing-lane-store_trace_context_logs_worker .log-file-timing-seg {
+  background: #10b981;
+}
+
+/* 每个阶段一种颜色：色块与图例共用同一条规则（省得两处写两遍） */
+.log-file-timing-seg.is-stage-scan,
+.log-file-timing-legend-dot.is-stage-scan {
+  background: #2563eb;
+}
+
+.log-file-timing-seg.is-stage-trace_frame,
+.log-file-timing-legend-dot.is-stage-trace_frame {
+  background: #0ea5e9;
+}
+
+.log-file-timing-seg.is-stage-aggregate,
+.log-file-timing-legend-dot.is-stage-aggregate {
+  background: #8b5cf6;
+}
+
+.log-file-timing-seg.is-stage-detail,
+.log-file-timing-legend-dot.is-stage-detail {
+  background: #ec4899;
+}
+
+.log-file-timing-seg.is-stage-bucket,
+.log-file-timing-legend-dot.is-stage-bucket {
+  background: #14b8a6;
+}
+
+.log-file-timing-seg.is-stage-store,
+.log-file-timing-legend-dot.is-stage-store {
+  background: #64748b;
+}
+
+/* 故障定界三段：同色系深浅区分 */
+.log-file-timing-seg.is-stage-diagnose_prepare,
+.log-file-timing-legend-dot.is-stage-diagnose_prepare {
+  background: #fbbf24;
+}
+
+.log-file-timing-seg.is-stage-diagnose_tool,
+.log-file-timing-legend-dot.is-stage-diagnose_tool {
+  background: #f59e0b;
+}
+
+.log-file-timing-seg.is-stage-diagnose_persist,
+.log-file-timing-legend-dot.is-stage-diagnose_persist {
+  background: #d97706;
+}
+
+/* 上下文落库三段：等诊断=浅灰（没干活），取集合/落库=绿系深浅 */
+.log-file-timing-seg.is-stage-trace_store_wait,
+.log-file-timing-legend-dot.is-stage-trace_store_wait {
+  background: #e2e8f0;
+}
+
+.log-file-timing-seg.is-stage-trace_store_collect,
+.log-file-timing-legend-dot.is-stage-trace_store_collect {
+  background: #34d399;
+}
+
+.log-file-timing-seg.is-stage-trace_store_write,
+.log-file-timing-legend-dot.is-stage-trace_store_write {
+  background: #059669;
+}
+
+/* 「收尾」段：最后一段阶段结束 → 任务被标记完成（状态更新 / 下一次调度 tick）。
+   以前这段画成低透明度的跨度条尾巴，像鬼影；现在按正常阶段显示，只是用中性灰。 */
+.log-file-timing-seg.is-tail {
+  background: #cbd5e1;
+}
+
+/* 时间轴刻度（复用泳道的三列布局，与轨道左端对齐） */
+.log-file-timing-lane--ticks {
+  height: 12px;
+}
+
+.log-file-timing-ticks-scale {
+  position: relative;
+  flex: 1 1 auto;
+  height: 12px;
+}
+
+.log-file-timing-tick {
+  position: absolute;
+  top: 0;
+  color: #94a3b8;
+  font-size: 0.62rem;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.log-file-timing-tick:first-child {
+  transform: none;
+}
+
+.log-file-timing-tick:last-child {
+  transform: translateX(-100%);
+}
+
+.log-file-timing-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  border-radius: 2px;
+  background: #2563eb;
+}
+
+/* 三个任务各用一个既有色：解析=进度条蓝，故障定界=运行的琥珀，落库=成功的绿 */
+.timing-lane-kv_cache_log_event_diagnosis_worker .log-file-timing-seg {
+  background: #f59e0b;
+}
+
+.timing-lane-store_trace_context_logs_worker .log-file-timing-seg {
+  background: #10b981;
+}
+
+/* 解析泳道内部**逐阶段不同色**，一眼分辨"扫描/归并/聚合/明细/分桶/写库" */
+.timing-lane-kv_cache_log_parse_worker .log-file-timing-seg.is-stage-scan {
+  background: #2563eb;
+}
+
+.timing-lane-kv_cache_log_parse_worker .log-file-timing-seg.is-stage-trace_frame {
+  background: #0ea5e9;
+}
+
+.timing-lane-kv_cache_log_parse_worker .log-file-timing-seg.is-stage-aggregate {
+  background: #8b5cf6;
+}
+
+.timing-lane-kv_cache_log_parse_worker .log-file-timing-seg.is-stage-detail {
+  background: #ec4899;
+}
+
+.timing-lane-kv_cache_log_parse_worker .log-file-timing-seg.is-stage-bucket {
+  background: #14b8a6;
+}
+
+.timing-lane-kv_cache_log_parse_worker .log-file-timing-seg.is-stage-store {
+  background: #64748b;
+}
+
+/* 「排队 / 启动」段：泳道起点（任务注册）→ worker 真正进 run()。
+   里面是等调度派发 + 起进程冷启动，发生在扫描**之前** —— 以前它被画到泳道右边
+   冒充「收尾」；现在回到左边，用比收尾更冷的灰单独标出（不是干活的时间）。
+   放在逐阶段配色**之后**，才能盖住上面的泳道底色。 */
+.log-file-timing-seg.is-head,
+.log-file-timing-legend-dot.is-stage-_head {
+  background: #94a3b8;
+}
+
+/* 图例：色块 ↔ 阶段名（与上面逐阶段配色一一对应） */
+.log-file-timing-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0.15rem 0 0.45rem;
+  color: #64748b;
+  font-size: 0.68rem;
+}
+
+.log-file-timing-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.log-file-timing-legend-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: #94a3b8;
+}
+
+.log-file-timing-legend-dot.is-stage-scan {
+  background: #2563eb;
+}
+
+.log-file-timing-legend-dot.is-stage-trace_frame {
+  background: #0ea5e9;
+}
+
+.log-file-timing-legend-dot.is-stage-aggregate {
+  background: #8b5cf6;
+}
+
+.log-file-timing-legend-dot.is-stage-detail {
+  background: #ec4899;
+}
+
+.log-file-timing-legend-dot.is-stage-bucket {
+  background: #14b8a6;
+}
+
+
+/* 等待类阶段（trace_store_wait）：本任务这段时间没干活，画浅灰 */
+.log-file-timing-seg.is-waiting {
+  background: #cbd5e1;
+}
+
+/* 位置未知：老报告没给 start_s/end_s，只能按 wall_s 顺序铺，虚线框提示 */
+.log-file-timing-seg.is-unknown {
+  outline: 1px dashed #94a3b8;
+  outline-offset: -1px;
+}
+
+.log-file-timing-lane-total {
+  flex: 0 0 48px;
+  color: #64748b;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.log-file-timing-lane-note {
+  color: #94a3b8;
+  font-size: 0.66rem;
+  white-space: nowrap;
+}
+
+.log-file-timing-running {
+  color: #c2410c;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+/* 分阶段表格的折叠壳；老接口渲染成普通 div（没有 summary），外观与改动前一致 */
+.log-file-timing-details > .log-file-timing-summary {
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.7rem;
+  margin-bottom: 2px;
 }
 
 .log-file-actions {

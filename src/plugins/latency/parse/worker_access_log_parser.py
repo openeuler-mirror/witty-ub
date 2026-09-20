@@ -1,3 +1,4 @@
+# NON-PRODUCTION: reference implementation（逐行 parse()/match_line() 生产零调用；pattern / _keywords / 类身份仍被扫描器使用，见 test/test_layer_boundaries.py 的白名单）
 """Worker接口日志解析器"""
 
 from datetime import datetime

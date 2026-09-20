@@ -89,6 +89,10 @@ sudo dnf install -y witty-ub-web       # 自动依赖 witty-ub-manager
 sudo witty-ub manager deploy --backend http://<后端IP>:9772
 ```
 
+> 前端由系统单元 `witty-ub-web.service` 托管 Nginx，监听 8080。单元的
+> `RuntimeDirectory=` / `LogsDirectory=` 会预建 `/run/witty-ub-web` 与
+> `/var/log/witty-ub-web`，pid、错误日志、访问日志写在这两个目录下。
+
 配置 OpenCode，然后通过交互菜单启动 Agent：
 
 ```bash
@@ -106,7 +110,7 @@ sudo -E witty-ub manager
 验证：
 
 ```bash
-curl http://127.0.0.1:8080/                 # Web 200
+curl http://127.0.0.1:8080/                 # 前端页面 200
 curl http://127.0.0.1:8080/health_check     # 远端后端经反代 200
 curl http://127.0.0.1:8080/agent-api/doc    # OpenCode 经反代 200
 ```
@@ -264,7 +268,8 @@ SELinux 标签，将 TCP 8080 标记为 `http_port_t`，并开启
 域的 Web 服务。Enforcing 保持启用；Web RPM 在 spec 中声明 SELinux 工具依赖，
 由 dnf/yum 安装时拉齐。`/usr/sbin/semanage` 文件依赖用于适配不同发行版的软件包名称。
 旧版 RPM 缺少工具时可先执行 `sudo dnf install -y /usr/sbin/semanage policycoreutils`
-（使用 yum 的系统将 dnf 替换为 yum），再重新部署。
+（使用 yum 的系统将 dnf 替换为 yum），再重新部署。缺少 `semanage` 时部署也会直接报出
+需要安装 `policycoreutils-python-utils`（旧系统为 `policycoreutils-python`）与 `policycoreutils`。
 升级后执行 `sudo witty-ub manager deploy`，会重新渲染配置并重启 Web 服务。
 
 HTTP 413 表示请求体超过限制；本项目默认配置和模板均设为 `client_max_body_size 20G`，

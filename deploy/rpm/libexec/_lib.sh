@@ -293,6 +293,41 @@ EOF
     _log "SELinux Web 标签、8080 端口和反向代理网络权限已配置"
 }
 
+# 后端 venv 与启动脚本默认落在 var_t 下，systemd init_t 对 var_t:file 无
+# execute_no_trans，会被 SELinux 拦死。给 /var/witty-ub/latency 树打持久标签
+# 让 systemd 能 exec run_backend.sh 与 venv 里的 python/.so。不关闭全局 enforcing。
+# 9772 默认属于 http_port_t，无需重复加端口；5432 由 PG 包管理。
+configure_backend_selinux() {
+    _has_cmd getenforce || return 0
+    [ "$(getenforce)" != "Disabled" ] || return 0
+    local cmd path type pattern
+    for cmd in semanage restorecon; do
+        if ! _has_cmd "$cmd"; then
+            _err "SELinux 已启用但缺少 $cmd；请安装 policycoreutils-python-utils（旧系统为 policycoreutils-python）和 policycoreutils 后重试"
+            return 1
+        fi
+    done
+    [ -d "$WITTY_LATENCY_DIR" ] || {
+        _warn "后端目录不存在: $WITTY_LATENCY_DIR（SELinux 标签跳过）"
+        return 0
+    }
+    # bin_t: 让 init_t 能 execute_no_trans run_backend.sh 和 .venv/bin/python
+    # lib_t: 让 python 进程能 map/load .venv/lib 下的 .so
+    # usr_t: 业务目录可读，避免对 access/、task/ 等模块的 read/open 拒绝
+    while read -r type path; do
+        pattern="$(printf '%s' "$path" | sed 's/[][\.^$*+?(){}|]/\\&/g')(/.*)?"
+        semanage fcontext -a -t "$type" "$pattern" 2>/dev/null ||
+            semanage fcontext -m -t "$type" "$pattern" || return 1
+        restorecon -R "$path" || return 1
+    done <<EOF
+bin_t ${WITTY_LATENCY_DIR}/deploy
+bin_t ${WITTY_LATENCY_DIR}/.venv/bin
+lib_t ${WITTY_LATENCY_DIR}/.venv/lib
+usr_t ${WITTY_LATENCY_DIR}
+EOF
+    _log "SELinux 后端标签已配置 (deploy/venv 标 bin_t/lib_t)"
+}
+
 # 按当前 web env 渲染 nginx（config/deploy 共用）。
 # Agent 提示词保持原文，WITTY_API_BASE/WITTY_NO_PROXY 由 OpenCode 导出。
 render_frontend_configs() {

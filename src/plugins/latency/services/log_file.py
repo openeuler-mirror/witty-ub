@@ -3,10 +3,12 @@ import asyncio
 import aiofiles
 import aiohttp
 import ipaddress
+import json
 import logging
 import re
 import shutil
 import socket
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 from fastapi import UploadFile
@@ -87,6 +89,183 @@ def _is_profiling_log(file_path: str | Path) -> bool:
     except (IOError, OSError):
         return False
     return bool(_PROFILING_TIMESTAMP_RE.match(first_line))
+
+
+_PARSE_TIMING_PREFIX = "[timing] "
+_PARSE_TIMING_TASK_TYPE = TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER.value
+
+
+def _is_timing_report(report) -> bool:
+    """是否是那条 [timing] 报告（前缀严格 '[timing] '，含尾空格）。"""
+    message = getattr(report, "message", None)
+    return isinstance(message, str) and message.startswith(_PARSE_TIMING_PREFIX)
+
+
+def _timing_payload(report) -> dict | None:
+    """[timing] 报告的 JSON 对象本身；JSON 非法 / 顶层不是对象 → None，不抛。"""
+    message = getattr(report, "message", None)
+    try:
+        payload = json.loads(str(message)[len(_PARSE_TIMING_PREFIX):])
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _as_datetime(value):
+    """datetime 原样返回；ISO 字符串解析；其余 → None（不抛）。"""
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except Exception:
+            return None
+    return None
+
+
+def _report_time(report):
+    """报告时间：DB 里是 naive datetime；字符串则尝试 ISO 解析 → datetime | None。"""
+    value = getattr(report, "created_at", None)
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except Exception:
+            return None
+    return None
+
+
+def _newest_report(reports):
+    """按 created_at 取最新的一条；时间取不到时保持查询顺序（倒序）里的第一条。"""
+    try:
+        return max(reports, key=_report_time)
+    except TypeError:  # 有的报告没有可比较的时间 → 保持原顺序
+        return reports[0]
+
+
+def _collect_task_timings(groups):
+    """按任务分组，各组各取一条 [timing] 报告。
+
+    Args:
+        groups: ``[(expected_task_type, reports[, completed_at]), ...]``；
+            ``expected_task_type`` 是该任务应有的 ``TaskTypeEnum`` 值字符串（报告里
+            自带 ``task_type`` 时以报告为准，接改造前发的老报告时回退到它）；
+            ``completed_at`` 是该任务在 DB 里的完成时刻（任务未完成时给 None），
+            只给两项也照旧能跑。
+
+    Returns:
+        ``[(task_type, payload, start, end, completed_at), ...]``：该任务**最新一条**
+        报告的 JSON 对象，以及它在时间轴上的起点（该任务最早一条报告的时间）与终点
+        （那条报告的时间）。组内没有 [timing] 报告、或最新那条 JSON 坏掉 →
+        该组不出现（沿用"只看最新一条，不回退到更旧那条"的老口径）。
+    """
+    entries = []
+    for group in groups or []:
+        expected_task_type, reports = group[0], group[1]
+        completed_at = _as_datetime(group[2]) if len(group) > 2 else None
+        reports = [report for report in (reports or []) if report is not None]
+        matched = [report for report in reports if _is_timing_report(report)]
+        if not matched:
+            continue
+        newest = _newest_report(matched)
+        payload = _timing_payload(newest)
+        if payload is None:
+            continue
+        raw_task_type = payload.get("task_type")
+        task_type = (
+            raw_task_type
+            if isinstance(raw_task_type, str) and raw_task_type
+            else expected_task_type
+        )
+        start = min(
+            (t for t in (_report_time(report) for report in reports) if t is not None),
+            default=None,
+        )
+        entries.append(
+            (task_type, payload, start, _report_time(newest), completed_at)
+        )
+    return entries
+
+
+def _extract_task_timings(groups) -> tuple[dict[str, dict] | None, list[dict] | None]:
+    """三个任务的耗时一站式取数 → ``(stage_timings, task_spans)``。
+
+    **按 task_type 分组各取一条**，不是"取时间最新的那条"：三个任务并发跑，最后
+    emit 的落库任务会把解析那条顶掉。口径见 ``LogFileModel`` 的同名字段。
+
+    ``started_at`` = 报告里 worker **真正开工**的时刻（``run()`` 起点），与 ``start``
+    （任务最早一条报告，约等于任务创建）之差 = 等调度 + 起进程冷启动；老报告没有这个
+    键时为 None，前端要回退到 ``start``。
+
+    跨度右端 ``end`` 三档回退：报告的 ``finished_at``（worker 干完的那一刻）→ 任务的
+    ``completed_at``（调度器下一拍才登记，晚最多 ~1s）→ 报告入库时间（老数据）。
+    ``registered_delay_s`` = ``completed_at - finished_at``，把"登记延迟"从"干活时间"
+    里分出来；缺任一端（任务没完成 / 老报告没有 finished_at）→ null。
+    """
+    stage_timings: dict[str, dict] = {}
+    task_spans: list[dict] = []
+    for task_type, payload, start, report_time, completed_at in _collect_task_timings(
+        groups
+    ):
+        key = task_type if isinstance(task_type, str) and task_type else None
+        if key:
+            stage_timings[key] = payload
+        started_at = _as_datetime(payload.get("started_at"))
+        finished_at = _as_datetime(payload.get("finished_at"))
+        end = finished_at or completed_at or report_time
+        if start is not None and end is not None:
+            duration = round((end - start).total_seconds(), 3)
+        else:  # 报告时间取不到时用报告里的端到端秒数兜底，再不行就 null
+            fallback = payload.get("end_to_end_s")
+            duration = (
+                round(float(fallback), 3)
+                if isinstance(fallback, (int, float))
+                else None
+            )
+        registered_delay = (
+            round((completed_at - finished_at).total_seconds(), 3)
+            if completed_at is not None and finished_at is not None
+            else None
+        )
+        task_spans.append(
+            {
+                "task_type": key,
+                "start": start.isoformat(timespec="milliseconds") if start else None,
+                "started_at": (
+                    started_at.isoformat(timespec="milliseconds")
+                    if started_at
+                    else None
+                ),
+                "end": end.isoformat(timespec="milliseconds") if end else None,
+                "duration_s": duration,
+                "registered_delay_s": registered_delay,
+            }
+        )
+    return (stage_timings or None), (task_spans or None)
+
+
+def _extract_parse_timing(reports) -> dict | None:
+    """解析任务的 [timing] 对象（保留的老入口，取数按任务分组）。"""
+    entries = _collect_task_timings([(_PARSE_TIMING_TASK_TYPE, reports)])
+    return entries[0][1] if entries else None
+
+
+def _display_name(config) -> str:
+    """日志文件的展示名：优先用请求里的 name，缺了（前端旧构建会把它丢）就用来源路径末段。
+
+    上传的文件取 UploadFile 的 ``filename``（前端没给 name 时唯一可读的名字）；
+    只是一个展示字段，不该把整条登记卡成 422 —— 这是 2026-09-14 实测到的真实故障。
+    """
+    name = getattr(config, "name", None)
+    if name:
+        return str(name)
+    source = getattr(config, "source", "")
+    filename = getattr(source, "filename", None)
+    if filename:
+        return str(filename)
+    source = str(source or "")
+    return os.path.basename(source.rstrip("/\\")) or source or "log"
 
 
 class LogFileService:
@@ -250,16 +429,11 @@ class LogFileService:
         log_file_task_types: dict[str, TaskTypeEnum] = {}
         for upload_log_file_config in req.upload_log_file_configs:
             log_type = upload_log_file_config.log_type
-            name = upload_log_file_config.name
-            if not name:
-                source = upload_log_file_config.source
-                if hasattr(source, "filename") and source.filename:
-                    name = source.filename
-                elif isinstance(source, str) and source:
-                    name = os.path.basename(source.rstrip("/")) or source
-                else:
-                    name = "unnamed"
-            log_file_model = LogFileModel(kb_id=kb_id, name=name, log_type=log_type)
+            log_file_model = LogFileModel(
+                kb_id=kb_id,
+                name=_display_name(upload_log_file_config),
+                log_type=log_type,
+            )
             if upload_log_file_config.source_type == SourceType.LOCAL:
                 source_path = upload_log_file_config.source
                 source = os.path.abspath(source_path)
@@ -704,6 +878,58 @@ class LogFileService:
                 *aggregate_tasks,
             )
             LogFileService._mask_counts_until_complete(log_file_model)
+            # 三个任务的耗时：按 task_type 分组各取一条 [timing] 报告，与可见任务
+            # 无关 —— 解析结束、可见任务切到 store/诊断后仍可读，且并发时互不顶替。
+            if log_file_model.log_type == DiagnosisConfigLogType.UBSOCKET:
+                timing_groups = [
+                    (
+                        TaskTypeEnum.BRPC_LOG_PARSE_WORKER.value,
+                        type_task_report_dict.get(brpc_parse_task.id, [])
+                        if brpc_parse_task
+                        else [],
+                        getattr(brpc_parse_task, "completed_at", None)
+                        if brpc_parse_task
+                        else None,
+                    ),
+                    (
+                        TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER.value,
+                        type_task_report_dict.get(diagnosis_task.id, [])
+                        if diagnosis_task
+                        else [],
+                        getattr(diagnosis_task, "completed_at", None)
+                        if diagnosis_task
+                        else None,
+                    ),
+                ]
+            else:
+                timing_groups = [
+                    (
+                        TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER.value,
+                        type_task_report_dict.get(parse_task.id, []) if parse_task else [],
+                        getattr(parse_task, "completed_at", None) if parse_task else None,
+                    ),
+                    (
+                        TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER.value,
+                        type_task_report_dict.get(diagnosis_task.id, [])
+                        if diagnosis_task
+                        else [],
+                        getattr(diagnosis_task, "completed_at", None)
+                        if diagnosis_task
+                        else None,
+                    ),
+                    (
+                        TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER.value,
+                        type_task_report_dict.get(store_task.id, []) if store_task else [],
+                        getattr(store_task, "completed_at", None) if store_task else None,
+                    ),
+                ]
+            log_file_model.stage_timings, log_file_model.task_spans = (
+                _extract_task_timings(timing_groups)
+            )
+            # parse_timing 向后兼容：= stage_timings 里的解析任务那一项
+            log_file_model.parse_timing = (log_file_model.stage_timings or {}).get(
+                _PARSE_TIMING_TASK_TYPE
+            )
             # 和get_log_file_by_log_file_id完全一致：单独查询可见任务的reports并排序
             log_file_model.task = visible_task
             if visible_task:
@@ -753,12 +979,14 @@ class LogFileService:
             )
         if not task_model:
             task_model = await TaskPGManager.get_current_task_by_op_id(log_file_id)
+        parse_reports = (
+            await TaskReportPGManager.list_task_reports_by_task_ids([parse_task.id])
+            if parse_task
+            else []
+        )
+        diagnosis_reports: list = []
+        store_reports: list = []
         if task_model:
-            parse_reports = (
-                await TaskReportPGManager.list_task_reports_by_task_ids([parse_task.id])
-                if parse_task
-                else []
-            )
             diagnosis_reports = (
                 await TaskReportPGManager.list_task_reports_by_task_ids([diagnosis_task.id])
                 if diagnosis_task
@@ -802,4 +1030,47 @@ class LogFileService:
             log_file_model.overall_status = LogFileService._aggregate_task_status()
             LogFileService._mask_counts_until_complete(log_file_model)
         log_file_model.task = task_model
+        # 与 list_log_files 同一口径：按 task_type 分组各取该任务最新一条 [timing]
+        if log_type == DiagnosisConfigLogType.UBSOCKET:
+            timing_groups = [
+                (
+                    TaskTypeEnum.BRPC_LOG_PARSE_WORKER.value,
+                    parse_reports,
+                    getattr(parse_task, "completed_at", None) if parse_task else None,
+                ),
+                (
+                    TaskTypeEnum.BRPC_LOG_DIAGNOSIS_WORKER.value,
+                    diagnosis_reports,
+                    getattr(diagnosis_task, "completed_at", None)
+                    if diagnosis_task
+                    else None,
+                ),
+            ]
+        else:
+            timing_groups = [
+                (
+                    TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER.value,
+                    parse_reports,
+                    getattr(parse_task, "completed_at", None) if parse_task else None,
+                ),
+                (
+                    TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER.value,
+                    diagnosis_reports,
+                    getattr(diagnosis_task, "completed_at", None)
+                    if diagnosis_task
+                    else None,
+                ),
+                (
+                    TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER.value,
+                    store_reports,
+                    getattr(store_task, "completed_at", None) if store_task else None,
+                ),
+            ]
+        log_file_model.stage_timings, log_file_model.task_spans = _extract_task_timings(
+            timing_groups
+        )
+        # parse_timing 向后兼容：= stage_timings 里的解析任务那一项
+        log_file_model.parse_timing = (log_file_model.stage_timings or {}).get(
+            _PARSE_TIMING_TASK_TYPE
+        )
         return GetLogFileMsg(log_file=log_file_model)

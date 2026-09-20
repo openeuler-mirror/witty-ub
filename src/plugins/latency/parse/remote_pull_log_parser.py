@@ -1,3 +1,4 @@
+# NON-PRODUCTION: reference implementation
 """RemotePull日志解析器"""
 from typing import Optional
 

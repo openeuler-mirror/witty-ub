@@ -111,13 +111,15 @@ def parse_pod_ips(value: str | list[str] | None) -> list[str] | None:
     if value is None:
         return None
     if isinstance(value, list):
-        return value if value else None
+        normalized = [str(item).strip() for item in value if item is not None and str(item).strip()]
+        return list(dict.fromkeys(normalized)) or None
     import json
 
     try:
         parsed = json.loads(value)
         if isinstance(parsed, list) and parsed:
-            return [str(v) for v in parsed]
+            normalized = [str(item).strip() for item in parsed if item is not None and str(item).strip()]
+            return list(dict.fromkeys(normalized)) or None
     except (json.JSONDecodeError, TypeError):
         pass
     return None

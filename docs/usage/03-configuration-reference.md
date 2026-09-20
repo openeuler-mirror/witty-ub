@@ -143,16 +143,22 @@ RPM 单机部署：Nginx 8080、FastAPI 9772、OpenCode 4096、PostgreSQL 5432�
 
 - 模板：`packaging/nginx/witty-ub-web.conf.template`
 - 占位符：`${WITTY_BACKEND_URL}`、`${WITTY_AGENT_URL}`
-- 渲染：容器 entrypoint（`envsubst`）、RPM `manager.sh`（`sed`）、源码 `deploy/host/deploy.sh`（`envsubst`）
+- 渲染：容器 entrypoint（`envsubst`）、RPM `manager.sh`（`sed`）、源码 `deploy/host/run_frontend_nginx.sh`（`envsubst`，缺失时 `sed` 兜底；
+  `deploy/host/deploy.sh --role frontend` 也调用它）
+- 源码部署的路径改写：`run_frontend_nginx.sh` 会把模板里的 `pid` / `error_log` / `access_log` / `root`
+  改写为 `<仓库>/.deploy-run/nginx.pid`、`<仓库>/.deploy-logs/web-*.log`、`/var/witty-ub/web`，
+  因为这些路径在原模板里是 RPM（systemd `RuntimeDirectory=`/`LogsDirectory=`）与容器（镜像预建目录）的约定
 
 > 反代路径前缀、上传缓冲与 `/agent-api/` 转发规则以模板为准；改后端地址用
 > `WITTY_BACKEND_URL`（容器/源码）或 `witty-ub manager config --backend <url>`（RPM）。
 
 ### 日志配置
 
-- **错误日志**：`/var/log/witty-ub-web/error.log`（级别：warn）
-- **访问日志**：`/var/log/witty-ub-web/access.log`
-- **PID 文件**：`/run/witty-ub-web/nginx.pid`
+| 配置项 | RPM / 容器 | 源码部署（`deploy/host/run_frontend_nginx.sh`） |
+| -------- | ----------- | -------------------------------------- |
+| 错误日志 | `/var/log/witty-ub-web/error.log`（级别 warn） | `<仓库>/.deploy-logs/web-error.log` |
+| 访问日志 | `/var/log/witty-ub-web/access.log` | `<仓库>/.deploy-logs/web-access.log` |
+| PID 文件 | `/run/witty-ub-web/nginx.pid` | `<仓库>/.deploy-run/nginx.pid` |
 
 ---
 

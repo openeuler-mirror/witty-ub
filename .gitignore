@@ -43,3 +43,9 @@ witty_ub_diagnostician/skills/experience-skill/data/experience.db-shm
 witty_ub_diagnostician/skills/experience-skill/data/experience.db-wal
 witty_ub_diagnostician/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/simple-src/
 witty_ub_diagnostician/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/libsimple
+
+# 日志解析预处理产物（运行时数据，不入库）
+log_preprocessed_*/
+
+# 设计文档渲染测试产物
+docs/design/_render_test.html
