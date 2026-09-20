@@ -329,7 +329,7 @@ class KVCacheLogParseWorker(BaseWorker):
         await TaskReportPGManager.update_task_reports_existed_status_by_task_id(
             task_id, existed_status=TaskStatusEnum.PENDING
         )
-        if task.retry_times > Config().get_config().task.task_retry_times:
+        if task.retry_times >= Config().get_config().task.task_retry_times:
             logger.warning(
                 f"Task {task_id} retry count {task.retry_times} exceeded max retries {Config().get_config().task.task_retry_times}"
             )

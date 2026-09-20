@@ -1114,7 +1114,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
         task = await TaskPGManager.get_task_by_task_id(task_id)
         if not task:
             return False
-        if task.retry_times > Config().get_config().task.task_retry_times:
+        if task.retry_times >= Config().get_config().task.task_retry_times:
             logger.warning(
                 "Task %s retry count %s exceeded max retries %s",
                 task_id,
