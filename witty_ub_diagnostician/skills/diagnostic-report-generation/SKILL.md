@@ -130,6 +130,33 @@ GET/SET 混桶），成功后**只回显 ≤15 行摘要**（输出路径/章节
   证据支撑才可用于根因，未验证的在结论中显式标注；若降级用了 `POST /diagnosis_case/search`
   （旧表、未经人工确认），必须显式标注其未确认属性
 
+## 案例沉淀（报告确认后，三步链路）
+
+报告渲染完成后，若用户认可报告，可把它沉淀为**可检索的历史案例**。契约与字段映射见
+`references/REPORT_SCHEMA.md` §3（**不是**旧的 `DiagnosisCaseModel` 桥接口径）：
+
+1. 把报告路径与一句话摘要交给用户，等用户明确点头；
+2. 用户点头后：`POST /diag_case_library`（建草稿，拿 `case_id`）→
+   `POST /diag_case_library/{case_id}/confirm`（`confirmed_by` = 用户标识）——
+   通过确认闸门后案例才进入可检索集合；
+3. 处置执行 + 复测后：`PATCH /diag_case_library/{case_id}` **只补** `verification_json`
+   （`closed_loop` / `observed_result` / `verified_at`）。
+
+确认闸门（`confirm` 的硬条件，缺一即被拒）：`draft` 态、`evidence_json` ≥1 条带 `kind`
+的可复现锚点、`remediation_json` ≥1 步、**至少一个可匹配信号**（`status_codes` /
+`failure_mode_ids` / `latency_components` / `log_keywords` / `hosts` / `pods` / IP /
+`cluster_name`，`operation` 不计入）、`confirmed_by` 非空。**闸门不要求验证闭环**。
+
+纪律：
+
+- **`verification_json` 报告阶段必须留空。** 处置尚未执行，`observed_result` 只允许在
+  执行 + 复测后经 `PATCH` 回填；臆造验证记录比没有验证更坏。
+- **只写本次报告里真有的事实**：`log_keywords` 用现场日志原文短语，IP / Pod / 错误码
+  必须来自现场观测，`version_json` 无可靠来源就不填。
+- 报告阶段确认的案例 `closed_loop` 为假，检索侧按「待验证处方」处理，
+  `applicability` 上限 `adjust`——不要把它当成已验证的黄金案例。
+- `archived` 案例不可再改；`confirmed` 案例只开放 `verification_json`，内容物已冻结。
+
 ## BRPC 诊断报告差异
 
 `fault_type=brpc` 时：`basic_info` 来自 `brpc_diag_batch`；
@@ -143,4 +170,4 @@ GET/SET 混桶），成功后**只回显 ≤15 行摘要**（输出路径/章节
 | 用户请求 | 前置条件 |
 |---------|---------|
 | "把刚才的诊断写成报告" / "生成一份诊断报告" | 本会话已运行诊断 Skill；未诊断则先回诊断 Skill |
-| "把这个案例沉淀到经验库" | 生成完整报告后，另出 JSON 桥接数据用于写入 DiagnosisCase |
+| "把这个案例沉淀到经验库" | 先生成完整报告并取得用户确认，再按上文「案例沉淀」三步链路写入案例库 |

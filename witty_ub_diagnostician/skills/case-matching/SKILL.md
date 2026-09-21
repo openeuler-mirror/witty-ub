@@ -58,6 +58,10 @@ allowed-tools: >
    检索后一条都没采纳的不回写。
 8. **空结果不等于健康**：`total=0` 只说明库内无同类先例，不说明系统正常，
    也不能据此否定故障存在。
+9. **未闭环案例的上限是 `adjust`**：`verification_json.closed_loop=false` 的案例（含报告阶段
+   刚确认、处置尚未执行就入库的"待验证处方"）**不得给 `direct`**，`applicability` 上限为
+   `adjust`，并在输出里标注"未闭环，方案未经验证"。只有 `closed_loop=true` 且 L1/L2/L3
+   都成立时才允许 `direct`。
 
 ## 检索流程（5 步）
 
@@ -108,10 +112,13 @@ python3 match_cases.py /tmp/case_match/features.json --source legacy   # 仅在 
 
 | applicability | 适用条件 | 输出要求 |
 |---|---|---|
-| `direct` | L1+L2 命中，L3 同构（同 Pod/同集群），时间线形态一致 | 可直接采用其处理方案，注明沿用的证据 |
-| `adjust` | L1 或 L2 命中，但 L3 或环境不同（版本、配置、规模） | 逐条列出"需要调整什么"，调整点必须能在现场验证 |
+| `direct` | L1+L2 命中，L3 同构（同 Pod/同集群），时间线形态一致，**且案例 `closed_loop=true`** | 可直接采用其处理方案，注明沿用的证据 |
+| `adjust` | L1 或 L2 命中，但 L3 或环境不同（版本、配置、规模）；或案例**未闭环** | 逐条列出"需要调整什么"，调整点必须能在现场验证 |
 | `reference` | 仅 L2 同域、或仅 `log_keywords` 相近 | 只作排查方向，不得直接抄其结论 |
 | `not_recommended` | L1 不命中且 L2 不同域 | 明确不建议采用，并说明否定理由（避免后来者重复踩） |
+
+判定前先看案例的 `verification_json`：`closed_loop=false` 或缺失时，该案例是"待验证处方"，
+`applicability` 最高只能到 `adjust`——它的方案还没被任何一次处置验证过（见纪律 9）。
 
 ### 步骤 5 回写命中
 

@@ -89,22 +89,49 @@ type（含 `operation`）。不确定的自定义信号不要指望能匹配，�
 
 ## 四、写入侧最低要求（沉淀案例时）
 
-前五条同时是 `draft → confirmed` **确认闸门**的硬条件，缺一条 `POST /{case_id}/confirm` 就会被拒：
+### 4.1 确认闸门（`POST /{case_id}/confirm` 的硬条件，共 5 条）
+
+闸门只判**「报告可信」**——是否有人看过报告并认可它，而不是「处置是否已验证」：
+
+1. 案例处于 `draft` 态。
+2. `evidence_json` 至少一条可复现锚点（`kind` + `ref`）。
+3. `remediation_json` 至少一步分步处置（`step` + `action`）。
+4. **至少一个可匹配信号**（`status_codes` / `failure_mode_ids` / IP / Pod / 主机 / 集群 /
+   `latency_components` / `log_keywords`）；一条都没有的案例永远检索不到，`operation` 不计入。
+5. `confirmed_by` 非空——这一条就是"人工点头"的留痕。
+
+> **闸门不要求 `verification_json.observed_result`。** 报告出稿时处置尚未执行，此时拿不到实测结果；
+> 把它当准入条件只会迫使 agent 臆造验证记录，比没有验证更坏。处置闭环是**正交维度**，
+> 事后通过 `PATCH /diag_case_library/{case_id}` 补写。
+
+### 4.2 内容物纪律（不全是闸门条件，但必须遵守）
 
 1. `symptom_summary` / `root_cause_summary`（可加 `root_cause_detail`）必须能独立读懂，
    不依赖报告上下文。
-2. **至少一个可匹配信号**（`status_codes` / `failure_mode_ids` / IP / Pod / 主机 / 集群 /
-   `latency_components` / `log_keywords`）；一条都没有的案例永远检索不到，`operation` 不计入。
-3. `evidence_json` 至少一条可复现锚点（`kind` + `ref`）。
-4. `remediation_json` 至少一步分步处置（`step` + `action`），`expected` 写执行后应观察到什么。
-5. `verification_json.observed_result` 必须有实测结果——**没有实测就不算确认过**；
-   是否真正闭环另用 `closed_loop` 标注。
-6. `counter_evidence_json` 如实记录已排除项——它是后来者最快的排除依据。
-7. `scope_limits` 写清不适用场景，防止被跨域误套用。
-8. `confidence` 必须反映验证程度：仅知识库解释支撑的不得给高置信度。
-9. `source_log_ids` 填写来源日志 ID，便于回溯到原始样本。
+2. `remediation_json` 的 `expected` 写清执行后应观察到什么，`risk` 写清步骤风险。
+3. **`verification_json.observed_result` 只允许在处置执行 + 复测后填写，严禁在报告阶段臆造**；
+   未执行就留空，并与 `closed_loop=false` 保持一致。
+4. `counter_evidence_json` 如实记录已排除项——它是后来者最快的排除依据。
+5. `scope_limits` 写清不适用场景，防止被跨域误套用。
+6. `version_json` 只在有可靠来源时填，不得臆造。
+7. `confidence` 必须反映验证程度：仅知识库解释支撑的不得给高置信度。
+8. `source_log_ids` 填写来源日志 ID，便于回溯到原始样本。
 
-legacy（`diagnosis_case`）无确认闸门，上述 2/3/4/5 条都不强制，这也是它只能当线索的原因。
+**两阶段沉淀链路**（对话确认通道，不引入前端页面与审批流）：
+
+1. 报告出稿 → agent 把报告路径与摘要交给用户；
+2. 用户确认"报告 OK"→ `POST /diag_case_library` 建草稿 → `POST /{case_id}/confirm`
+   （`confirmed_by` = 用户标识）→ 案例进入可检索集合；
+3. 处置执行 + 复测后 → `PATCH /diag_case_library/{case_id}` 补 `verification_json`
+   （`closed_loop` / `observed_result` / `verified_at`）。此时案例已是 `confirmed`：
+   内容物冻结，该通道**只放行 `verification_json`**，`revision + 1` 留痕。
+
+> 步骤 2 与 3 之间案例**已可被检索**，但 `closed_loop=false`：检索侧按"待验证处方"处理，
+> `applicability` 上限 `adjust`（见 `case-matching/SKILL.md` 纪律 9）。闭环回填之所以能在
+> 确认后进行，正是因为 PATCH 对 `confirmed` 放行了这一组事后证据字段；若发现报告阶段漏填
+> 了内容物（症状/证据/处置/信号列），只能在确认前补齐——确认后内容物不再接受修改。
+
+legacy（`diagnosis_case`）无确认闸门，上述条目全都不强制，这也是它只能当线索的原因。
 
 ## 五、语义通道接入位（后续 RAG）
 
