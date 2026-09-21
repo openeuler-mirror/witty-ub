@@ -162,7 +162,7 @@ CREATE INDEX IF NOT EXISTS ix_dcl_signal_lookup ON diag_case_library_signal (sig
 |---|---|---|---|
 | POST | `/diag_case_library` | `create_diag_case_draft` | 建草稿，`status=draft`，返回 `case_no` |
 | GET | `/diag_case_library/{case_id}` | `get_diag_case` | 详情 |
-| PATCH | `/diag_case_library/{case_id}` | `update_diag_case_draft` | 更新草稿（补证据/处置/验证），仅 `draft` 可改 |
+| PATCH | `/diag_case_library/{case_id}` | `update_diag_case` | 局部更新：`draft` 改内容物；`confirmed` 只放行 `verification_json`；`archived` 拒绝 |
 | POST | `/diag_case_library/{case_id}/confirm` | `confirm_diag_case` | `draft→confirmed`，校验确认闸门 |
 | POST | `/diag_case_library/{case_id}/archive` | `archive_diag_case` | `draft\|confirmed→archived` |
 | POST | `/diag_case_library/search` | `search_diag_cases` | 默认只返回 `confirmed` |
@@ -211,17 +211,32 @@ CREATE INDEX IF NOT EXISTS ix_dcl_signal_lookup ON diag_case_library_signal (sig
 
 响应 `matches[]`：`{case, match_score, score_norm, matched_signals[]}`。
 
-### 4.4 草稿更新（`PATCH /diag_case_library/{case_id}`）
+### 4.4 案例更新（`PATCH /diag_case_library/{case_id}`）
 
 两阶段沉淀必需的通道：**报告出稿 → 人工确认 → 处置执行 → 复测补 `verification_json`**。
 没有它，草稿建完后无法追加验证信息，闭环链路在接口层面走不通。
 
-- 仅 `status == draft` 可改；`confirmed` / `archived` 返回 409 语义的业务异常。
-- 请求体与 §4.1 建草稿同字段集，**全部可选**（局部更新，未传字段不动）。
-- 更新成功后 `revision += 1`，并**重算 `search_text` 与 `diag_case_library_signal` 行**
-  ——信号列变了必须同步，否则检索口径与内容物不一致。
+请求体与 §4.1 建草稿同字段集，**全部可选**（局部更新，未传字段不动；显式传空数组即清空该字段）。
+接受的字段按当前状态分档：
+
+| 当前状态 | 接受的字段 | 落库行为 | 拒绝 |
+|---|---|---|---|
+| `draft` | 全部内容物列（§4.1 字段集） | 写内容物列，**重算 `search_text` 与 `diag_case_library_signal` 行** | — |
+| `confirmed` | 仅 `verification_json` | 只写这一列，**不重算** `search_text` 与信号行 | 其余字段返回 409 语义业务异常 |
+| `archived` | —（无） | — | 任何字段均返回 409 语义业务异常 |
+
+- 每次成功更新 `revision += 1` 留痕。
+- `confirmed` 放行 `verification_json` 的设计理由：确认闸门（§4.2）只判报告可信，处置闭环是
+  **事后**证据，其填写时点必然晚于确认（§4.5 链路步 3）。若 PATCH 只允许 `draft`，
+  闭环维度永远无法落库。
+- **内容物冻结**：`confirmed` 下症状 / 根因 / 证据 / 处置 / 信号列都不接受修改，
+  防止「确认过的内容被悄悄改写」破坏可信度。
+- **信号行不因事后证据而变**：`verification_json` 不参与检索信号，重建信号行纯属浪费且会
+  放大并发面，故该通道只写一列。
 - `case_no` / `status` / `revision` / `created_by` / `confirmed_by` / `confirmed_at` /
-  `archived_*` 等元信息字段**不在可更新集合内**。
+  `archived_*` / `hit_count` / `search_text` 等元信息字段**不在可更新集合内**（`UPDATABLE_COLUMNS`
+  有单测断言其与模型字段互补）。
+- 空请求体（未传任何字段）返回 400 语义业务异常——避免无意义的 `revision += 1`。
 
 ### 4.5 验证闭环（正交维度，不参与闸门）
 
@@ -233,8 +248,11 @@ CREATE INDEX IF NOT EXISTS ix_dcl_signal_lookup ON diag_case_library_signal (sig
 纪律（同步写入 `case-matching` 与 `diagnostic-report-generation` skill）：
 
 - `observed_result` **只允许在处置执行后填写**，严禁在报告阶段臆造。
-- 检索侧按 `closed_loop` 区分：`true` 标注「已验证」并排序加权；`false` 标注「待验证处方」，
-  `applicability` **上限为 `adjust`**，不得给 `direct`。
+- 回填通道固定为 §4.4 的 `PATCH /diag_case_library/{case_id}`，**在 `confirmed` 态进行**
+  （内容物已冻结，只放行 `verification_json`）。填写时点必然晚于确认，故 PATCH 不能对
+  `confirmed` 关门，否则本维度永远落不了库。
+- 检索侧按 `closed_loop` 区分：`true` 标注「已验证」并排序加权；`false` 或字段缺失均视为
+  「待验证处方」，`applicability` **上限为 `adjust`**，不得给 `direct`。
 - 人工确认的交互通道本轮走**对话确认**（agent 给出报告路径与摘要 → 用户在对话里点头 →
   agent 调 `confirm`），不引入前端页面与审批流。
 
@@ -264,6 +282,9 @@ CREATE INDEX IF NOT EXISTS ix_dcl_signal_lookup ON diag_case_library_signal (sig
 |---|---|
 | `case_id` 不存在 / `existed_status=False` | `NotFoundBizException(resource="诊断案例")` |
 | `confirm` 时状态非 `draft` | 业务异常，提示当前状态 |
+| `PATCH` 时状态为 `archived` | 业务异常：已归档，内容与验证记录均冻结 |
+| `PATCH` 内容物但状态为 `confirmed` | 业务异常：内容物已冻结，只开放 `verification_json`（提示被拒字段名） |
+| `PATCH` 请求体为空 | 业务异常：至少需要一个待更新字段 |
 | `archive` 已归档案例 | 幂等返回当前案例 |
 | `kb_id` 非空但知识库不存在 | `NotFoundBizException`（复用 ResourceIdService） |
 | `source=online` 缺 `source_url` | 422（pydantic 校验） |
@@ -287,10 +308,12 @@ CREATE INDEX IF NOT EXISTS ix_dcl_signal_lookup ON diag_case_library_signal (sig
   `archived → confirm`）被拒。
 - 确认闸门：缺 evidence / 缺 remediation / 无可匹配信号 / 缺 `confirmed_by` 逐项被拒；
   `verification_json` 为空**不**被拒（§4.2 只判报告可信）。
-- 草稿更新（§4.4）：局部更新只改传入字段（显式传空数组才算清空）；`revision + 1`；
+- 案例更新（§4.4 / §4.5）：局部更新只改传入字段（显式传空数组才算清空）；`revision + 1`；
   元信息（`case_no` / `status` / `revision` / 留痕 / 计数）不可改且不在请求模型内；
-  `confirmed` / `archived` 态不可改；`source_url` 按合并结果判定；更新时重建信号行；
-  并发窗口下非 draft 行不被改写（返回 False）。
+  `draft` 态重建信号行、`confirmed` 态只写 `verification_json` 且不动 `search_text` 与信号行；
+  `confirmed` 下改内容物被拒（提示字段名）；`archived` 下连 `verification_json` 也被拒；
+  空请求体被拒；`source_url` 按合并结果判定；并发窗口下非 draft 行不被改写（返回 False）；
+  `VERIFICATION_COLUMNS ⊆ UPDATABLE_COLUMNS`。
 - 检索：默认只返回 `confirmed`（草稿与归档不出现在结果里）；`include_status` 显式放开；
   `operation` 过滤生效（GET 查询不返回 SET 案例）；`kb_id` 为空时能召回其他知识库案例；
   `min_confidence` 生效；`score_norm` 在 0~1 且单调随命中增加。
@@ -310,9 +333,10 @@ CREATE INDEX IF NOT EXISTS ix_dcl_signal_lookup ON diag_case_library_signal (sig
 3. 建一条 `kb_id` 为空的全局案例，验证跨库召回成立（这是既有接口做不到的）。
 4. SQL 复核：`diag_case_library_signal` 的信号值与主表特征一致，无展示名混入。
 5. 回归：`/diagnosis_case/search` 与 `/diagnosis_case/{id}` 响应与改造前逐字段一致。
-6. 两阶段沉淀链路：报告阶段建草稿 → **不带 `verification_json`** 直接 `confirm`（闸门应放行）→
-   `PATCH` 补 `verification_json`（`revision + 1`、`search_text` 与信号行重算）→ 检索命中；
-   同时验证 `confirmed` 态 `PATCH` 被拒。
+6. 两阶段沉淀链路：报告阶段建草稿 → **不带 `verification_json`** 直接 `confirm`（闸门应放行，
+   案例立即进入可检索集合）→ 处置执行 + 复测后 `PATCH` 补 `verification_json`（`confirmed` 态
+   放行、只写一列、`revision + 1`、`search_text` 与信号行不变）→ 检索仍命中且 `closed_loop=true`；
+   同时验证 `confirmed` 态改内容物被拒、`archived` 态连 `verification_json` 也被拒。
 
 ### 8.4 验收记录
 
@@ -332,28 +356,35 @@ $ cd src/plugins && PYTHONPATH=$PWD python3 -m pytest \
 **批次 5 单测**（2026-09-21，同一命令）：
 
 ```
-87 passed
+89 passed
 ```
 
-用例 33 个（+9）：闸门去掉 `observed_result` 硬条件（`verification` 为空 / 只有 `method` 均可确认）、
-草稿更新的局部语义与显式清空、`revision + 1`、非 draft 态拒改、`source_url` 按合并结果判定、
-更新请求字段集 = 建草稿字段集 − `created_by`、`UPDATABLE_COLUMNS` 与模型字段互补、
-信号行重建（DELETE + INSERT）与 UPDATE 语句的 SET 列不含元信息、并发未命中不重建信号。
+用例 36 个（+12）：闸门去掉 `observed_result` 硬条件（`verification` 为空 / 只有 `method` 均可确认）、
+更新的局部语义与显式清空、`revision + 1`、`confirmed` 态只放行 `verification_json` 且走独立通道、
+`confirmed` 下改内容物被拒（提示字段名）、`archived` 下连 `verification_json` 也被拒、空请求体被拒、
+`source_url` 按合并结果判定、更新请求字段集 = 建草稿字段集 − `created_by`、
+`UPDATABLE_COLUMNS` 与模型字段互补且 `VERIFICATION_COLUMNS ⊆ UPDATABLE_COLUMNS`、
+draft 通道信号行重建（DELETE + INSERT）与 UPDATE 语句的 SET 列不含元信息、
+confirmed 通道只写一列且不重建信号、并发未命中不重建信号。
 
 **批次 5 node48 真实 PG 验收**（2026-09-21，库 `witty-ub` @ 127.0.0.1:15432，kb jingpai）：
 
 | # | 检查项 | 实测结果 |
 |---|---|---|
-| 1 | 建草稿 | `case_no=UB-CASE-000006`，`status=draft`、`revision=0` |
+| 1 | 建草稿 | `case_no=UB-CASE-000009`，`status=draft` |
 | 2 | 闸门放宽 | `verification_json=None` 时 `confirm` 通过：`status=confirmed`、`revision=1` |
-| 3 | confirmed 态 PATCH | `ConflictBizException`：当前状态为 confirmed，仅 draft 可修改 |
-| 4 | PATCH 局部更新 | 只传 `verification_json` + `log_keywords`：`title` 未变，`closed_loop=true`，`revision=1` |
-| 5 | `search_text` 重算 | 78 → 93 字符，新关键词 `urma link down` 已入正文 |
-| 6 | 信号行重建 | 5 条信号全部为桶 key / 真实码：`latency_component=set_client`、`log_keyword` ×2、`operation=set`、`status_code=1004`，无 `None` 污染 |
-| 7 | 显式清空 | `status_codes=[]` → `status_code` 信号 0 条 |
-| 8 | 确认后可检索 | `score_norm=1.0`，命中 `log_keyword` + `operation`，返回案例 `closed_loop=true` |
-| 9 | 草稿不可检索 | PATCH 后未确认时，同一查询不返回该草稿（符合 §4.3 默认只返回 confirmed） |
-| 10 | 清理 | 临时行与信号行已删除 |
+| 3 | 确认即可检索 | 确认后同一查询命中，`score_norm=1.0`，`verification=None`（「待验证处方」） |
+| 4 | confirmed 改内容物 | `ConflictBizException`：confirmed 案例只开放 `verification_json`，不接受修改：title |
+| 5 | confirmed 补闭环 | `verification_json` 放行：`revision=2`、`closed_loop=true`、`observed=SET P90 从 12ms 回落到 1.2ms`、`title` 未变 |
+| 6 | 事后证据不动检索态 | `search_text_same=True`、信号行前后完全一致 |
+| 7 | 闭环后可检索 | 同一查询仍命中，返回 `closed_loop=true` |
+| 8 | draft 态内容 PATCH | 只传 `verification_json` + `log_keywords`：`title` 未变、`revision=1`、`closed_loop=true` |
+| 9 | `search_text` 重算 | 80 → 95 字符，新关键词 `urma link down` 已入正文 |
+| 10 | 信号行重建 | 5 条信号全部为桶 key / 真实码：`latency_component=set_client`、`log_keyword` ×2、`operation=set`、`status_code=1004`，无 `None` 污染 |
+| 11 | 草稿不可检索 | PATCH 后未确认时，同一查询不返回该草稿（符合 §4.3 默认只返回 confirmed） |
+| 12 | 显式清空 | `status_codes=[]` → `status_code` 信号 0 条 |
+| 13 | archived 全冻结 | 归档后 `PATCH verification_json` 被拒：诊断案例已归档，不可修改 |
+| 14 | 清理 | 临时行与信号行已删除 |
 
 **node48 真实 PG 验收**（2026-09-20，库 `witty-ub` @ 127.0.0.1:15432，真实 kb
 `3533f5b6-7a8f-48a8-9d84-7007cc9a0663`（jingpai）与 `641f11a3-…`（node48-align））：
@@ -409,7 +440,7 @@ $ cd src/plugins && PYTHONPATH=$PWD python3 -m pytest \
 | 2 | 枚举 + ORM + schemas + manager + service + router + 路由注册 + resource_id key + 索引 | ✅ |
 | 3 | 单测 + 契约测试 + node48 真实数据验收，回填 §8.4 | ✅ |
 | 4 | `case-matching` skill 调整：DB 通道降级、输出标注"来源=未确认"、指向新库 | ✅ |
-| 5 | 闸门改为只判「报告可信」+ 新增 `PATCH` 草稿更新端点 + 单测（§4.4 / §4.5） | ✅ |
+| 5 | 闸门改为只判「报告可信」+ 新增 `PATCH` 更新端点（`draft` 改内容物 / `confirmed` 只回填 `verification_json` / `archived` 拒绝）+ 单测（§4.4 / §4.5） | ✅ |
 | 6 | 案例生成侧对齐：`diagnostic-report-generation` 的桥接数据改为新库草稿契约（§10） | 进行中 |
 | 7 | 重建镜像部署（当前容器无新端点） | 待办 |
 
@@ -440,7 +471,8 @@ $ cd src/plugins && PYTHONPATH=$PWD python3 -m pytest \
 2. 用户确认「报告 OK」→ agent 调 `POST /diag_case_library` 建草稿 → 再调 `/{case_id}/confirm`
    （`confirmed_by` = 用户标识），案例进入可检索集合
 3. 处置执行 + 复测后 → 调 `PATCH /diag_case_library/{case_id}` 补 `verification_json`
-   （`closed_loop` / `observed_result` / `verified_at`）
+   （`closed_loop` / `observed_result` / `verified_at`）。此时案例已是 `confirmed`，
+   内容物冻结、该通道只放行 `verification_json`（§4.4），`revision + 1` 留痕。
 
 > 步骤 2 与 3 之间案例**已可被检索**，但 `closed_loop=false`，检索侧须标注「待验证处方」，
 > `applicability` 上限 `adjust`。
