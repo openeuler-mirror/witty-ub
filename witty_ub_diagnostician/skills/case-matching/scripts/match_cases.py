@@ -126,6 +126,11 @@ def _normalize(value: object) -> str:
     return str(value).strip().lower()
 
 
+def _normalize_operation(value: object) -> str:
+    """operation 归一化：服务端枚举为 GET/SET/N/A，大小写敏感，不能走小写化的 _normalize。"""
+    return str(value).strip().upper()
+
+
 def _http_json(url: str, payload: dict | None, timeout: int) -> dict:
     """请求 API 并返回 JSON；默认绕过代理。"""
     data = None
@@ -172,9 +177,10 @@ def _build_query(features: dict, source: str = SOURCE_LIBRARY) -> tuple[dict, di
         if operation and str(operation).strip():
             # 新库支持 operation 服务端过滤：GET/SET 不再需要靠"分两次查询"隔离，
             # 且 operation 本身也是 1.5 权重的信号，本地归一化分母要对齐。
-            operation_value = _normalize(operation)
+            operation_value = _normalize_operation(operation)
             query["operation"] = operation_value
-            signals[("operation", operation_value)] = SIGNAL_WEIGHT["operation"]
+            # 信号 key 与 _rerank 的查表口径一致（那里统一小写化），请求体则必须保持枚举大小写。
+            signals[("operation", _normalize(operation_value))] = SIGNAL_WEIGHT["operation"]
 
     for feature_field, request_field in FEATURE_TO_REQUEST.items():
         values = [_normalize(item) for item in (features.get(feature_field) or []) if str(item).strip()]
