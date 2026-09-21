@@ -244,7 +244,7 @@ class ProcessHandler:
                     # 收尾等待不能长：这段在调度任务里被 await，等 10s 会把
                     # 1s 的派发节拍整拍吃掉（实测每轮 handle_tasks 跑 ~4s，
                     # 导致后续任务错峰开工）。
-                    process.join(timeout=_GRACEFUL_JOIN_S)
+                    process.join(timeout=ProcessHandler._GRACEFUL_JOIN_S)
                     if process.is_alive():
                         try:
                             pgid = os.getpgid(pid)
@@ -254,7 +254,7 @@ class ProcessHandler:
                                 process.kill()
                         except ProcessLookupError:
                             pass
-                        process.join(timeout=_KILL_JOIN_S)
+                        process.join(timeout=ProcessHandler._KILL_JOIN_S)
                     if process.is_alive():
                         logger.warning(
                             "[ProcessHandler] 任务 %s (PID: %s) 强制终止后仍存活",
