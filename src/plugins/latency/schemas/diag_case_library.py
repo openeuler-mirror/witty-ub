@@ -274,14 +274,16 @@ class CreateDiagCaseDraftRequest(StrictRequestModel):
         return self
 
 
-class UpdateDiagCaseDraftRequest(StrictRequestModel):
-    """局部更新草稿请求（§4.4）；字段集与建草稿一致，**全部可选**。
+class UpdateDiagCaseRequest(StrictRequestModel):
+    """局部更新案例请求（§4.4）；字段集与建草稿一致，**全部可选**。
 
+    接受的字段按当前状态分档：``draft`` 可改全部内容物；``confirmed`` 只放行
+    ``verification_json``（处置闭环的事后证据）；``archived`` 全拒。
     未传字段保持不变（`exclude_unset` 语义），因此显式传空数组/空值才算清空。
     ``case_no`` / ``status`` / ``revision`` / ``created_by`` / ``confirmed_*`` /
     ``archived_*`` 等元信息不在本模型内，服务端不接受修改。
     ``source`` 为 community / online 时 `source_url` 的必填校验放在服务层，
-    按「草稿合并后的结果」判定，避免只改 `source` 时误伤已存在的 `source_url`。
+    按「案例合并后的结果」判定，避免只改 `source` 时误伤已存在的 `source_url`。
     """
 
     log_type: Optional[_LaxLogType] = Field(
@@ -436,8 +438,8 @@ class ConfirmDiagCaseResponse(ResponseBase):
     result: GetDiagCaseMsg = Field(..., description="确认超节点诊断案例响应结果")
 
 
-class UpdateDiagCaseDraftResponse(ResponseBase):
-    result: GetDiagCaseMsg = Field(..., description="更新超节点诊断案例草稿响应结果")
+class UpdateDiagCaseResponse(ResponseBase):
+    result: GetDiagCaseMsg = Field(..., description="更新超节点诊断案例响应结果")
 
 
 class ArchiveDiagCaseResponse(ResponseBase):

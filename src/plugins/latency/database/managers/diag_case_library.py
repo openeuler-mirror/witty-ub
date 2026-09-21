@@ -91,6 +91,9 @@ class DiagCaseLibraryPGManager:
         "source_log_ids",
     )
 
+    # §4.5 处置闭环回填白名单：已确认案例只放行「事后证据」字段，内容物仍冻结。
+    VERIFICATION_COLUMNS: tuple[str, ...] = ("verification_json",)
+
     @staticmethod
     def _format_case_no(seq_value: int) -> str:
         """Render the human readable case number from the sequence value."""
@@ -416,18 +419,19 @@ class DiagCaseLibraryPGManager:
         )
 
     @staticmethod
-    async def update_draft(case_id: str, case: DiagCaseLibraryModel) -> bool:
-        """§4.4 落库局部更新结果：重算 search_text 与信号行，``revision + 1``。
-
-        只在 ``status = draft`` 时生效（并发下确认后的案例不会被改写）。
-        """
+    async def _apply_update(
+        case_id: str,
+        case: DiagCaseLibraryModel,
+        columns: tuple[str, ...],
+        allowed_status: tuple[DiagCaseStatus, ...],
+        rebuild_signals: bool,
+    ) -> bool:
+        """按列白名单与状态白名单落库一次更新，``revision + 1``。"""
         data = case.model_dump(mode="json")
-        values = {
-            column: data.get(column)
-            for column in DiagCaseLibraryPGManager.UPDATABLE_COLUMNS
-        }
-        values["search_text"] = DiagCaseLibraryPGManager._build_search_text(case)
+        values = {column: data.get(column) for column in columns}
         values["updated_at"] = _now()
+        if rebuild_signals:
+            values["search_text"] = DiagCaseLibraryPGManager._build_search_text(case)
 
         async with PGManager.session() as session:
             result = await session.execute(
@@ -435,14 +439,44 @@ class DiagCaseLibraryPGManager:
                 .where(
                     DiagCaseLibrary.id == case_id,
                     DiagCaseLibrary.existed_status.is_(True),
-                    DiagCaseLibrary.status == DiagCaseStatus.DRAFT.value,
+                    DiagCaseLibrary.status.in_([status.value for status in allowed_status]),
                 )
                 .values(revision=DiagCaseLibrary.revision + 1, **values)
             )
             if not (result.rowcount or 0):
                 return False
-            await DiagCaseLibraryPGManager._replace_signals(session, case_id, case)
+            if rebuild_signals:
+                await DiagCaseLibraryPGManager._replace_signals(session, case_id, case)
         return True
+
+    @staticmethod
+    async def update_draft(case_id: str, case: DiagCaseLibraryModel) -> bool:
+        """§4.4 草稿内容物局部更新：重算 search_text 与信号行。
+
+        只在 ``status = draft`` 时生效（并发下确认后的案例不会被改写）。
+        """
+        return await DiagCaseLibraryPGManager._apply_update(
+            case_id,
+            case,
+            columns=DiagCaseLibraryPGManager.UPDATABLE_COLUMNS,
+            allowed_status=(DiagCaseStatus.DRAFT,),
+            rebuild_signals=True,
+        )
+
+    @staticmethod
+    async def update_verification(case_id: str, case: DiagCaseLibraryModel) -> bool:
+        """§4.5 处置闭环回填：``draft`` / ``confirmed`` 均可，只写 verification_json。
+
+        验证闭环不属于检索信号，故不重算 search_text 与信号行（内容是事后证据，
+        不改变案例的可召回性）。
+        """
+        return await DiagCaseLibraryPGManager._apply_update(
+            case_id,
+            case,
+            columns=DiagCaseLibraryPGManager.VERIFICATION_COLUMNS,
+            allowed_status=(DiagCaseStatus.DRAFT, DiagCaseStatus.CONFIRMED),
+            rebuild_signals=False,
+        )
 
     @staticmethod
     async def confirm_case(

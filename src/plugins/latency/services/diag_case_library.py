@@ -18,7 +18,7 @@ from latency.schemas.diag_case_library import (
     GetDiagCaseMsg,
     SearchDiagCaseLibraryRequest,
     SearchDiagCasesMsg,
-    UpdateDiagCaseDraftRequest,
+    UpdateDiagCaseRequest,
 )
 
 RESOURCE_NAME = "诊断案例"
@@ -76,21 +76,43 @@ class DiagCaseLibraryService:
         return GetDiagCaseMsg(case=case)
 
     @staticmethod
-    async def update_draft(
+    async def update_case(
         case_id: str,
-        req: UpdateDiagCaseDraftRequest,
+        req: UpdateDiagCaseRequest,
     ) -> GetDiagCaseMsg:
-        """§4.4 局部更新草稿：报告出稿后补证据，处置执行后补验证闭环。"""
+        """§4.4 / §4.5 局部更新：draft 可改内容物，confirmed 只开放事后验证字段。
+
+        两阶段沉淀链路：报告出稿建草稿 → 人工确认 → 处置执行 + 复测后回填
+        `verification_json`（此时案例已是 confirmed，内容物冻结、只放验证字段）。
+        """
         case = await DiagCaseLibraryPGManager.get_case(case_id)
         if case is None:
             raise NotFoundBizException(resource=RESOURCE_NAME)
-        if case.status != DiagCaseStatus.DRAFT:
+        if case.status == DiagCaseStatus.ARCHIVED:
             raise ConflictBizException(
-                message=f"诊断案例当前状态为 {case.status}，仅 draft 可修改",
-                detail="草稿更新通道只在 draft 态开放；confirmed / archived 案例内容已冻结",
+                message="诊断案例已归档，不可修改",
+                detail="archived 案例内容与验证记录均已冻结",
             )
 
         patch = req.model_dump(mode="json", exclude_unset=True)
+        if not patch:
+            raise BadRequestBizException(
+                message="请求体为空",
+                detail="PATCH 需要至少一个待更新字段（未传字段保持原值）",
+            )
+        if case.status == DiagCaseStatus.CONFIRMED:
+            frozen = sorted(
+                set(patch) - set(DiagCaseLibraryPGManager.VERIFICATION_COLUMNS)
+            )
+            if frozen:
+                raise ConflictBizException(
+                    message="已确认案例的内容物已冻结",
+                    detail=(
+                        "confirmed 案例只开放 verification_json（处置闭环回填）；"
+                        f"不接受修改：{', '.join(frozen)}"
+                    ),
+                )
+
         merged = case.model_dump(mode="json")
         merged.update(patch)
         updated = DiagCaseLibraryModel.model_validate(merged)
@@ -104,7 +126,10 @@ class DiagCaseLibraryService:
                 detail="source 为 community / online 时 source_url 必填",
             )
 
-        await DiagCaseLibraryPGManager.update_draft(case_id, updated)
+        if case.status == DiagCaseStatus.CONFIRMED:
+            await DiagCaseLibraryPGManager.update_verification(case_id, updated)
+        else:
+            await DiagCaseLibraryPGManager.update_draft(case_id, updated)
         refreshed = await DiagCaseLibraryPGManager.get_case(case_id)
         return GetDiagCaseMsg(case=refreshed)
 

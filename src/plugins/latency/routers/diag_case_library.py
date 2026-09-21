@@ -21,8 +21,8 @@ from latency.schemas.diag_case_library import (
     HitDiagCaseResponse,
     SearchDiagCaseLibraryRequest,
     SearchDiagCasesResponse,
-    UpdateDiagCaseDraftRequest,
-    UpdateDiagCaseDraftResponse,
+    UpdateDiagCaseRequest,
+    UpdateDiagCaseResponse,
 )
 from latency.services.diag_case_library import DiagCaseLibraryService
 from latency.services.resource_id import ResourceIdService
@@ -74,27 +74,30 @@ async def get_diag_case(case_id: ResourceIdPath) -> GetDiagCaseResponse:
 
 @router.patch(
     "/{case_id}",
-    response_model=UpdateDiagCaseDraftResponse,
-    operation_id="update_diag_case_draft",
+    response_model=UpdateDiagCaseResponse,
+    operation_id="update_diag_case",
     description=(
-        "Partially update a draft case. Only fields present in the body are "
-        "changed, so the same channel appends new evidence and, after the fix is "
-        "executed and re-tested, the verification closure "
-        "(verification_json.closed_loop / observed_result / verified_at). "
-        "Only drafts can be updated; confirmed or archived cases are frozen. "
-        "revision increments and search_text plus matching signals are "
-        "recomputed. Case metadata (case_no / status / revision / confirmed_by) "
+        "Partially update a supernode diagnosis case; only fields present in the "
+        "body are changed. What is accepted depends on status: a draft accepts "
+        "any content field (symptom / evidence / root cause / remediation / "
+        "signals) and then recomputes search_text plus matching signals; a "
+        "confirmed case has its content frozen and only accepts "
+        "verification_json, the closure evidence appended after the remediation "
+        "has been executed and re-tested "
+        "(verification_json.closed_loop / observed_result / verified_at); an "
+        "archived case is rejected. revision increments on every accepted "
+        "update. Case metadata (case_no / status / revision / confirmed_by) "
         "cannot be changed here. Never fabricate observed_result before the "
         "remediation has actually been executed."
     ),
 )
-async def update_diag_case_draft(
+async def update_diag_case(
     case_id: ResourceIdPath,
-    req: Annotated[UpdateDiagCaseDraftRequest, Body()],
-) -> UpdateDiagCaseDraftResponse:
+    req: Annotated[UpdateDiagCaseRequest, Body()],
+) -> UpdateDiagCaseResponse:
     await _validate_kb_id(req.kb_id)
-    msg = await DiagCaseLibraryService.update_draft(case_id, req)
-    return UpdateDiagCaseDraftResponse(result=msg)
+    msg = await DiagCaseLibraryService.update_case(case_id, req)
+    return UpdateDiagCaseResponse(result=msg)
 
 
 @router.post(
