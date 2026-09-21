@@ -472,6 +472,10 @@ class GetErrCodeMetricsRequest(StrictRequestModel):
         default=1000,
         description="最大返回数据点数，用于控制数据量，默认1000",
     )
+    bucket_seconds: Optional[int] = Field(
+        default=None,
+        description="时间桶粒度(秒):10/60/600/3600 对应 10s/1min/10min/1h;为空时按1秒粒度聚合后抽稀",
+    )
 
 
 class CreateDiagnosisCaseRequest(StrictRequestModel):

@@ -47,12 +47,16 @@ class LogFailureEventResultService:
     @staticmethod
     async def list_log_failure_event_result(req: ListLogFailureEventResultRequest) -> ListLogFailureEventResultMsg:
         total, results = await LogFailureEventPGManager.list_log_failure_events(req)
-        # Diagnosis rows may already exist for a trace while its raw Run-format
-        # context has not been collected.  Treat an unclassified context row as
-        # the backfill marker; checking only ``total`` caused access failures to
-        # suppress the runtime-log backfill entirely.
-        has_trace_context = any(not result.failure_mode for result in results)
-        if not has_trace_context:
+        # Backfill raw Run-format context only when no log_failure_event rows
+        # exist for the trace. The parse worker (store_trace_context_logs_worker)
+        # already collects both access and runtime log lines for traces in its
+        # scope, so total > 0 means the context was already collected. Re-running
+        # the backfill when rows already exist would (a) waste time re-scanning
+        # the entire KB directory and (b) insert duplicate rows: the parse worker
+        # uses random uuid4 ids while the backfill uses deterministic
+        # uuid5(log_id:trace_id:raw_text) ids, so on_conflict_do_nothing never
+        # collides and the same raw_text lands twice.
+        if total == 0:
             backfilled = await LogFailureEventResultService._backfill_trace_context_logs(req)
             if backfilled:
                 total, results = await LogFailureEventPGManager.list_log_failure_events(req)

@@ -6423,27 +6423,6 @@ body.agent-panel-resizing-corner {
   padding: 9px 12px;
 }
 
-/* 坏日志被跳过的告警：与 .upload-log-error 同形，用琥珀色区分「有文件被跳过但解析继续」而不是「整体失败」。 */
-.log-file-skip-alert {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 10px;
-  border: 1px solid #fcd34d;
-  border-radius: 12px;
-  background: #fffbeb;
-  color: #92400e;
-  font-size: 0.8rem;
-  padding: 8px 12px;
-}
-
-.log-file-skip-alert-title {
-  font-weight: 600;
-}
-
-.log-file-skip-alert-line {
-  word-break: break-all;
-}
 
 .log-files-section {
   margin-bottom: 28px;

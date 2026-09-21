@@ -760,6 +760,26 @@ class LogFailureEventPGManager:
                         failure_mode=failure_mode_list,
                     )
                 )
+            # Deduplicate by raw_text, preferring classified rows. The parse
+            # worker inserts log_failure_event rows with random uuid4 ids while
+            # the trace-context backfill (trace_context.py) uses deterministic
+            # uuid5(log_id:trace_id:raw_text) ids. The two never collide on the
+            # primary key, so the same raw log line can appear twice with
+            # different ids — once classified by diagnosis, once unclassified
+            # from a redundant backfill. Collapse them so the UI shows one row
+            # per raw log line, keeping the classified version.
+            if events:
+                events.sort(key=lambda e: (not bool(e.failure_mode), e.timestamp or ""))
+                seen_texts: set[str] = set()
+                deduped: list[LogFailureEventModel] = []
+                for event in events:
+                    key = event.raw_text or ""
+                    if key in seen_texts:
+                        continue
+                    seen_texts.add(key)
+                    deduped.append(event)
+                deduped.sort(key=lambda e: e.timestamp or "")
+                events = deduped
             return len(events), events
         except Exception as e:
             print(f"查询日志故障事件失败，错误信息: {str(e)}")
@@ -908,19 +928,35 @@ class LogFailureEventPGManager:
                 all_selected_indices = peak_indices | selected_non_peak
                 return [non_zero_points[i] for i in sorted(all_selected_indices)]
 
+            # Determine bucket size: use bucket_seconds if provided, else 1-second
+            # resolution (backward compat with the 0.5s-window scheme).
+            bucket_seconds = req.bucket_seconds if req.bucket_seconds and req.bucket_seconds > 0 else 1
+            epoch = datetime(1970, 1, 1)
+
             result: dict[str, list[dict]] = {}
             total_points = 0
             for err_code, event_times_sorted in err_code_events.items():
                 time_count_map: dict[datetime, int] = defaultdict(int)
-                for event_time in event_times_sorted:
-                    base_second = event_time.replace(microsecond=0)
-                    for offset in (-1, 0, 1):
-                        check_time = base_second + timedelta(seconds=offset)
-                        if min_time <= check_time <= max_time:
-                            window_start = check_time - timedelta(seconds=0.5)
-                            window_end = check_time + timedelta(seconds=0.5)
-                            if window_start <= event_time <= window_end:
-                                time_count_map[check_time] += 1
+                if bucket_seconds > 1:
+                    # Coarse-grained bucketing: floor each event to its bucket start.
+                    for event_time in event_times_sorted:
+                        seconds_since_epoch = (event_time - epoch).total_seconds()
+                        bucket_start_epoch = (
+                            int(seconds_since_epoch // bucket_seconds) * bucket_seconds
+                        )
+                        bucket_start = epoch + timedelta(seconds=bucket_start_epoch)
+                        time_count_map[bucket_start] += 1
+                else:
+                    # Original 1-second resolution with 0.5s overlap windows.
+                    for event_time in event_times_sorted:
+                        base_second = event_time.replace(microsecond=0)
+                        for offset in (-1, 0, 1):
+                            check_time = base_second + timedelta(seconds=offset)
+                            if min_time <= check_time <= max_time:
+                                window_start = check_time - timedelta(seconds=0.5)
+                                window_end = check_time + timedelta(seconds=0.5)
+                                if window_start <= event_time <= window_end:
+                                    time_count_map[check_time] += 1
                 curve_data = [
                     {
                         "time": time_point.strftime("%Y-%m-%d %H:%M:%S"),

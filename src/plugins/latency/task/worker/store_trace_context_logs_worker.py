@@ -409,13 +409,21 @@ class StoreTraceContextLogsWorker(BaseWorker):
         )
 
     @staticmethod
-    def _context_source_queries(log_files: list[tuple[str, str]]) -> Iterator[Any]:
+    def _context_source_queries(
+        log_files: list[tuple[str, str]]
+    ) -> Iterator[tuple[Any, list[str], bytes | None]]:
         """Bound native reader input bytes, including expanded gzip input.
 
         A streaming sink alone can still read ahead through a whole large file.
         Small plain files share a native scan; large files and gzip streams are
         presented as newline-aligned blocks. One exceptionally long log line is
         necessarily kept intact even when it exceeds the target block size.
+
+        Yields ``(source_lazyframe, [paths], block_bytes)``. For the gz/large-file
+        branch ``block_bytes`` is the raw chunk just read, so the caller can
+        sanitize it in-place if ``collect()`` fails on invalid UTF-8 — no file
+        re-read. For the small-files batch branch ``block_bytes`` is ``None``;
+        the caller falls back to re-reading the listed paths.
         """
         import polars as pl
 
@@ -430,25 +438,29 @@ class StoreTraceContextLogsWorker(BaseWorker):
             compressed = path.lower().endswith(".gz")
             if compressed or size > _CONTEXT_INPUT_BYTES:
                 if pending:
-                    yield pl.scan_lines(pending, include_file_paths="_path")
+                    yield (pl.scan_lines(pending, include_file_paths="_path"),
+                           pending, None)
                     pending, pending_bytes = [], 0
                 opener = gzip.open if compressed else open
                 with opener(path, "rb") as stream:
                     while block := stream.read(_CONTEXT_INPUT_BYTES):
                         if not block.endswith(b"\n"):
                             block += stream.readline()
-                        source = pl.scan_lines(block).with_columns(pl.lit(path).alias("_path"))
-                        del block
-                        yield source
-                        del source
+                        source = pl.scan_lines(block).with_columns(
+                            pl.lit(path).alias("_path")
+                        )
+                        yield source, [path], block
+                        del block, source
             else:
                 if pending and pending_bytes + size > _CONTEXT_INPUT_BYTES:
-                    yield pl.scan_lines(pending, include_file_paths="_path")
+                    yield (pl.scan_lines(pending, include_file_paths="_path"),
+                           pending, None)
                     pending, pending_bytes = [], 0
                 pending.append(path)
                 pending_bytes += size
         if pending:
-            yield pl.scan_lines(pending, include_file_paths="_path")
+            yield (pl.scan_lines(pending, include_file_paths="_path"),
+                   pending, None)
 
     @staticmethod
     def _context_scan_batches(
@@ -456,8 +468,13 @@ class StoreTraceContextLogsWorker(BaseWorker):
         trace_id_set: set,
         worker_access_patterns: list[str],
         client_access_patterns: list[str],
+        utf8_flag: list[bool] | None = None,
     ) -> Iterator[Any]:
-        """Overlap one bounded native scan with row conversion and COPY."""
+        """Overlap one bounded native scan with row conversion and COPY.
+
+        ``utf8_flag``: optional mutable ``[bool]`` container; set to ``True``
+        when any batch fell back to sanitized read due to invalid UTF-8.
+        """
         import polars as pl
 
         if not trace_id_set:
@@ -472,12 +489,65 @@ class StoreTraceContextLogsWorker(BaseWorker):
             trace_ids = trace_ids.sort()
         sources = StoreTraceContextLogsWorker._context_source_queries(log_files)
 
+        def _mark_utf8():
+            if utf8_flag is not None:
+                utf8_flag[0] = True
+
+        def _sanitized_collect(paths: list[str]) -> Any:
+            """Fallback: re-read files with UTF-8 sanitization, collect frames."""
+            frames = []
+            for path in paths:
+                opener = gzip.open if path.lower().endswith(".gz") else open
+                with opener(path, "rb") as stream:
+                    while block := stream.read(_CONTEXT_INPUT_BYTES):
+                        if not block.endswith(b"\n"):
+                            block += stream.readline()
+                        sanitized = block.decode("utf-8", errors="replace").encode("utf-8")
+                        src = pl.scan_lines(sanitized).with_columns(pl.lit(path).alias("_path"))
+                        plan = StoreTraceContextLogsWorker._context_projection(
+                            src, trace_ids, access_names
+                        )
+                        frame = plan.collect(engine="streaming")
+                        if frame.height > 0:
+                            frames.append(frame)
+                        del block, sanitized, src, plan, frame
+            if not frames:
+                return pl.DataFrame({name: [] for name in _CONTEXT_COLUMNS})
+            return pl.concat(frames) if len(frames) > 1 else frames[0]
+
         def scan_next():
-            source = next(sources, None)
-            if source is None:
+            item = next(sources, None)
+            if item is None:
                 return None
-            plan = StoreTraceContextLogsWorker._context_projection(source, trace_ids, access_names)
-            return plan.collect(engine="streaming")
+            source, paths, block = item
+            plan = StoreTraceContextLogsWorker._context_projection(
+                source, trace_ids, access_names
+            )
+            try:
+                return plan.collect(engine="streaming")
+            except Exception as exc:
+                if "invalid utf8" not in str(exc).lower():
+                    raise
+                logger.warning(
+                    "[utf8] Context scan failed (invalid utf8) for files: %s. "
+                    "Falling back to sanitized read.",
+                    paths,
+                )
+                _mark_utf8()
+                if block is not None:
+                    # Sanitize the in-memory block we already read — no file
+                    # re-read. This is the gz/large-file branch where one
+                    # 64 MiB block is held between yield and collect.
+                    sanitized = block.decode("utf-8", errors="replace").encode("utf-8")
+                    src = pl.scan_lines(sanitized).with_columns(
+                        pl.lit(paths[0]).alias("_path")
+                    )
+                    new_plan = StoreTraceContextLogsWorker._context_projection(
+                        src, trace_ids, access_names
+                    )
+                    return new_plan.collect(engine="streaming")
+                # Small-files batch path: no single block held, re-read files.
+                return _sanitized_collect(paths)
 
         # Polars releases the GIL while scanning. A single pending scan hides
         # native reader time behind Python conversion and database I/O, without
@@ -621,18 +691,25 @@ class StoreTraceContextLogsWorker(BaseWorker):
         trace_id_set: set[str],
         worker_access_patterns: list[str],
         client_access_patterns: list[str],
-    ) -> tuple[int, bool, Any]:
-        """Return a single-pass reader; the total becomes known at EOF."""
+    ) -> tuple[int, bool, Any, list[bool]]:
+        """Return a single-pass reader; the total becomes known at EOF.
+
+        Returns ``(0, use_polars, batches, utf8_flag)`` where ``utf8_flag`` is a
+        mutable ``[bool]`` container set to ``True`` if any batch fell back to
+        sanitized read due to invalid UTF-8.
+        """
+        utf8_flag = [False]
         use_polars = store_polars_enabled()
         if use_polars:
             batches = StoreTraceContextLogsWorker._context_scan_batches(
-                log_files, trace_id_set, worker_access_patterns, client_access_patterns
+                log_files, trace_id_set, worker_access_patterns, client_access_patterns,
+                utf8_flag,
             )
         else:
             batches = StoreTraceContextLogsWorker._legacy_row_batches(
                 log_files, trace_id_set, worker_access_patterns, client_access_patterns
             )
-        return 0, use_polars, batches
+        return 0, use_polars, batches, utf8_flag
 
     @staticmethod
     def _prepare_context_batch(
@@ -1037,6 +1114,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 total_log_failure_events,
                 use_polars,
                 frame,
+                utf8_flag,
             ) = StoreTraceContextLogsWorker._scan_context_rows(
                 log_files, trace_id_set, worker_access_patterns, client_access_patterns
             )
@@ -1065,6 +1143,11 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 worker_access_patterns=worker_access_patterns,
                 client_access_patterns=client_access_patterns,
             )
+
+            if utf8_flag[0]:
+                logger.warning(
+                    "[utf8] 部分日志文件存在二进制字节，可能导致故障解析产生异常"
+                )
 
             await StoreTraceContextLogsWorker._write_trace_failure_events(
                 trace_failure_events_map=trace_failure_events_map,
@@ -1114,7 +1197,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
         task = await TaskPGManager.get_task_by_task_id(task_id)
         if not task:
             return False
-        if task.retry_times > Config().get_config().task.task_retry_times:
+        if task.retry_times >= Config().get_config().task.task_retry_times:
             logger.warning(
                 "Task %s retry count %s exceeded max retries %s",
                 task_id,

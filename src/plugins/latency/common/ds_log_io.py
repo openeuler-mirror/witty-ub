@@ -70,7 +70,7 @@ def parse_timestamp(ts: str) -> datetime:
 def open_log(path: str):
     if path.endswith(".gz"):
         try:
-            return gzip.open(path, "rt", encoding="utf-8")
+            return gzip.open(path, "rt", encoding="utf-8", errors="replace")
         except OSError as e:
             print(f"Warning: Corrupted gzip file {path} - {e}", file=sys.stderr)
             return io.StringIO("")

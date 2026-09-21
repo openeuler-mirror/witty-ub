@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 #: scan_all 结果里"被跳过的坏文件"键：[(路径, 原因)]
 SKIPPED_FILES_KEY = "skipped_files"
 
+#: scan_all 结果里"被清洗非 UTF-8 字节的文件"键：[原路径]
+SANITIZED_FILES_KEY = "sanitized_files"
+
 #: scan_all 结果里"轻列扫描现场"键（light=True 时才有）：ScanContext
 SCAN_CTX_KEY = "scan_ctx"
 
@@ -108,7 +111,7 @@ class ParallelFileScanner:
 
         scan_start = time.perf_counter()
         if progress_cb is None:
-            frame, skipped_files, scan_ctx = scan_frame(
+            frame, skipped_files, scan_ctx, sanitized_files = scan_frame(
                 files, parsers, parse_config, scan_scope, light=light
             )
         else:
@@ -133,7 +136,7 @@ class ParallelFileScanner:
                 def _with_light(*args):
                     return scan_frame(*args, light=light)
 
-                frame, skipped_files, scan_ctx = await asyncio.to_thread(
+                frame, skipped_files, scan_ctx, sanitized_files = await asyncio.to_thread(
                     _with_light, files, parsers, parse_config, scan_scope, _on_progress
                 )
             finally:
@@ -151,6 +154,13 @@ class ParallelFileScanner:
         result = {COLUMNS_KEY: frame}
         if light:
             result[SCAN_CTX_KEY] = scan_ctx
+        if sanitized_files:
+            result[SANITIZED_FILES_KEY] = sanitized_files
+            logger.info(
+                "[sanitized] %d file(s) non-UTF-8 bytes sanitized: %s",
+                len(sanitized_files),
+                ", ".join(sanitized_files),
+            )
         if skipped_files:
             # 坏文件不静默：交给 worker 告警 + 前端展示
             result[SKIPPED_FILES_KEY] = skipped_files

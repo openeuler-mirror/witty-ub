@@ -202,6 +202,58 @@ def test_context_input_chunks_preserve_long_lines_and_order(tmp_path, monkeypatc
     assert pl.concat(batches)['raw_text'].to_list() == lines
 
 
+@pytest.mark.parametrize('compressed', [False, True])
+def test_context_invalid_utf8_falls_back_to_in_memory_block(tmp_path, monkeypatch, compressed):
+    """A gz/large-file block with invalid UTF-8 must be sanitized in-memory.
+
+    Verified by counting how often the file is opened: the in-memory path
+    opens it once (in _context_source_queries); the file-based fallback would
+    open it a second time after the failed collect().
+    """
+    import builtins
+    import gzip
+    import polars as pl
+    monkeypatch.setattr(module, '_CONTEXT_INPUT_BYTES', 96)
+    monkeypatch.setattr(module, '_CONTEXT_BATCH_ROWS', 3)
+    line = '2026-09-18T00:00:00 | I | file | pod | 1:2 | t | c | payload\n'
+    data = (line * 5).encode() + b'\xff\xff\xff non-utf8 \xff\n' + (line * 5).encode()
+    path = tmp_path / ('runtime.log.gz' if compressed else 'runtime.log')
+    path.write_bytes(gzip.compress(data) if compressed else data)
+
+    opens = []
+    if compressed:
+        # Count only gzip.open; its internal builtins.open would double count.
+        real_gzip_open = gzip.open
+
+        def counting_gzip_open(target, *args, **kwargs):
+            opens.append(str(target))
+            return real_gzip_open(target, *args, **kwargs)
+
+        monkeypatch.setattr(gzip, 'open', counting_gzip_open)
+    else:
+        real_open = builtins.open
+
+        def counting_open(target, *args, **kwargs):
+            if str(target) == str(path):
+                opens.append(str(target))
+            return real_open(target, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, 'open', counting_open)
+
+    flag = [False]
+    batches = list(module.StoreTraceContextLogsWorker._context_scan_batches(
+        [(path.name, str(path))], {'t'}, [], [], flag))
+    assert flag[0] is True, 'invalid utf8 was not detected'
+    assert batches, 'in-memory sanitization produced no batches'
+    out = pl.concat(batches)
+    # All 10 valid lines recovered; the non-UTF-8 line is filtered by the
+    # projection (it has no '|' fields) but must not have crashed the scan.
+    assert out.height == 10, out['raw_text'].to_list()
+    assert set(out['trace_id'].to_list()) == {'t'}
+    # Opened once; a file-based fallback would open it a second time.
+    assert opens.count(str(path)) == 1, f'file re-read: {opens}'
+
+
 def test_context_prefetch_stops_and_closes_source_when_consumer_fails(monkeypatch):
     import polars as pl
     scanned = []
@@ -211,7 +263,7 @@ def test_context_prefetch_stops_and_closes_source_when_consumer_fails(monkeypatc
         try:
             for index in range(100):
                 scanned.append(index)
-                yield pl.DataFrame({'index': [index]}).lazy()
+                yield pl.DataFrame({'index': [index]}).lazy(), [f'file_{index}'], None
         finally:
             closed.append(True)
 
