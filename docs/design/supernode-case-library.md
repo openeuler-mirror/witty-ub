@@ -429,8 +429,35 @@ confirmed 通道只写一列且不重建信号、并发未命中不重建信号�
 - `--source legacy` 指向 `/diagnosis_case/search`，`kb_id` 缺失即报错退出码 2，输出打印
   `警告: 来源=diagnosis_case（未经人工确认）`；`--json` 落盘含 `source` / `source_confirmed` / `source_label`。
 - 实测 legacy 通道对现场 jingpai 特征仍可命中既有案例（`score_norm=0.7647`），验证降级通道未坏。
-- 新库端点尚未部署进运行中的 witty-ub 容器，故容器内 `--source library` 目前返回 404；
-  重建镜像后即生效（表与索引已就绪）。
+- 新库端点已随批次 7 镜像重建进入运行中的 witty-ub 容器，容器内 `--source library` 已可用。
+- **批次 7 部署复验发现并修复脚本缺陷**：`_normalize` 会把 `operation` 小写化，而服务端枚举是
+  大小写敏感的 `GET/SET/N/A`，导致带 `operation` 的 library 检索恒返回 422；且本地权重表的 key
+  被写成大写、与 `_rerank` 的小写查表口径不一致，使 operation 的 1.5 权重漏算。现已拆出
+  `_normalize_operation`（请求体保持大写），信号 key 仍走小写化以对齐打分。
+  容器内实测：SET 查询 `total=1`、`score_norm=1.0`、`raw=3.0`；GET 查询 `total=0`（operation 隔离生效）。
+
+**容器内运行时端到端**（2026-09-21，镜像 `witty-ub:latest` = `bcdd2c4fec07`，容器内直连
+`http://127.0.0.1:9772`，即 agent 的 `WITTY_API_BASE` 默认值；23 项全通过）：
+
+| 调用 | 结果 |
+|---|---|
+| `GET /openapi.json` | 7 个 `diag_case_library` 端点全部注册，含 `update_diag_case`（PATCH） |
+| `POST /diag_case_library` | 200，`case_no=UB-CASE-000014`，`status=draft`、`revision=0` |
+| `POST /search`（草稿期） | 草稿不出现在结果中 |
+| `POST /{id}/confirm` | 200，`status=confirmed`、`revision=1`，`verification_json` 仍为空、`search_text` 199 字符 |
+| `POST /search`（确认后） | 命中，`score_norm=1.0`、`match_score=6.0`、`matched_signals=3` |
+| `PATCH /{id}`（改 `title`） | 409 `已确认案例的内容物已冻结`（`不接受修改：title`），标题未被改动 |
+| `PATCH /{id}`（补 `verification_json`） | 200，`revision=2`、`closed_loop=true`、`search_text` 与信号行不变 |
+| `POST /search`（回填后） | 仍命中，`score_norm` 保持 1.0（信号行未重建） |
+| `POST /{id}/hit` | 200，`hit_count=1` |
+| `POST /{id}/archive` | 200，`status=archived`；归档后 `PATCH` 连 `verification_json` 也 409，检索不再召回 |
+
+验收用临时行（`UB-CASE-000013` / `UB-CASE-000014`）已清理。
+
+> 部署缺口（已修复）：前端 Nginx 反代白名单 `packaging/nginx/witty-ub-web.conf.template`
+> 原先只放行 `diagnosis_case`，经 8080 访问新端点返回 405；已补上 `diag_case_library`
+> （与既有 `diagnosis_case` 并列），容器内热加载后宿主机 `POST /diag_case_library/search`
+> 经 32412 返回 200。当前 agent 本就直连 9772，此改动只影响浏览器/分离部署侧。
 
 ## 9. 实施批次
 
@@ -441,10 +468,11 @@ confirmed 通道只写一列且不重建信号、并发未命中不重建信号�
 | 3 | 单测 + 契约测试 + node48 真实数据验收，回填 §8.4 | ✅ |
 | 4 | `case-matching` skill 调整：DB 通道降级、输出标注"来源=未确认"、指向新库 | ✅ |
 | 5 | 闸门改为只判「报告可信」+ 新增 `PATCH` 更新端点（`draft` 改内容物 / `confirmed` 只回填 `verification_json` / `archived` 拒绝）+ 单测（§4.4 / §4.5） | ✅ |
-| 6 | 案例生成侧对齐：`diagnostic-report-generation` 的桥接数据改为新库草稿契约（§10） | 进行中 |
-| 7 | 重建镜像部署（当前容器无新端点） | 待办 |
+| 6 | 案例生成侧对齐：`diagnostic-report-generation` 的桥接数据改为新库草稿契约（§10） | ✅ |
+| 7 | 重建镜像并部署，容器内运行时复验检索与闭环回填（§8.4） | ✅ |
 
-（批次 2/3 提交：`06895217` / `92c43f95`；批次 4：`aa4e9ac4`；批次 5 见 §8.4 验收记录。）
+（批次 2/3 提交：`06895217` / `92c43f95`；批次 4：`aa4e9ac4`；批次 5：`e10e2c9e` + `d576b78b`；
+批次 6：`34ea5766` + `32cf10e1`；批次 5/7 验收记录见 §8.4。）
 
 ## 10. 案例生成侧对齐（批次 6）
 
