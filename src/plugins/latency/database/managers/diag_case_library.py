@@ -16,7 +16,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Iterable
 
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
 from latency.ENUM.case_library import DiagCaseStatus
@@ -52,6 +52,44 @@ class DiagCaseLibraryPGManager:
 
     # signal_type -> weight, mirroring §3.3 of the design document.
     OPERATION_SIGNAL = "operation"
+
+    # §4.4 草稿可局部更新的列；case_no / status / revision / 留痕与命中计数等
+    # 元信息不在其中，PATCH 无法触达。
+    UPDATABLE_COLUMNS: tuple[str, ...] = (
+        "source",
+        "source_url",
+        "title",
+        "log_type",
+        "kb_id",
+        "kb_name",
+        "cluster_name",
+        "hosts",
+        "pods",
+        "src_ips",
+        "dst_ips",
+        "node_type",
+        "version_json",
+        "scope_limits",
+        "operation",
+        "fault_type",
+        "status_codes",
+        "failure_mode_ids",
+        "latency_components",
+        "log_keywords",
+        "stage_features_json",
+        "fault_shape",
+        "time_window_json",
+        "confidence",
+        "symptom_summary",
+        "evidence_json",
+        "root_cause_summary",
+        "root_cause_detail",
+        "counter_evidence_json",
+        "remediation_json",
+        "verification_json",
+        "relations_json",
+        "source_log_ids",
+    )
 
     @staticmethod
     def _format_case_no(seq_value: int) -> str:
@@ -334,22 +372,7 @@ class DiagCaseLibraryPGManager:
             case_no = DiagCaseLibraryPGManager._format_case_no(seq_value)
             data["case_no"] = case_no
             await session.execute(insert(DiagCaseLibrary).values(data))
-
-            signals = DiagCaseLibraryPGManager._signals_for_case(case)
-            if signals:
-                await session.execute(
-                    insert(DiagCaseLibrarySignal).values(
-                        [
-                            {
-                                "case_id": signal.case_id,
-                                "signal_type": signal.signal_type,
-                                "signal_value": signal.signal_value,
-                                "weight": signal.weight,
-                            }
-                            for signal in signals
-                        ]
-                    )
-                )
+            await DiagCaseLibraryPGManager._replace_signals(session, case.id, case)
         case.case_no = case_no
         case.search_text = data["search_text"]
         return case.id
@@ -361,6 +384,65 @@ class DiagCaseLibraryPGManager:
         if row is None or not row.existed_status:
             return None
         return DiagCaseLibraryPGManager._orm_to_case(row)
+
+    @staticmethod
+    async def _replace_signals(
+        session: Any, case_id: str, case: DiagCaseLibraryModel
+    ) -> None:
+        """Rebuild ``diag_case_library_signal`` rows for one case.
+
+        信号列必须与主表特征同步，否则检索口径与内容物不一致。
+        """
+        await session.execute(
+            delete(DiagCaseLibrarySignal).where(
+                DiagCaseLibrarySignal.case_id == case_id
+            )
+        )
+        signals = DiagCaseLibraryPGManager._signals_for_case(case)
+        if not signals:
+            return
+        await session.execute(
+            insert(DiagCaseLibrarySignal).values(
+                [
+                    {
+                        "case_id": signal.case_id,
+                        "signal_type": signal.signal_type,
+                        "signal_value": signal.signal_value,
+                        "weight": signal.weight,
+                    }
+                    for signal in signals
+                ]
+            )
+        )
+
+    @staticmethod
+    async def update_draft(case_id: str, case: DiagCaseLibraryModel) -> bool:
+        """§4.4 落库局部更新结果：重算 search_text 与信号行，``revision + 1``。
+
+        只在 ``status = draft`` 时生效（并发下确认后的案例不会被改写）。
+        """
+        data = case.model_dump(mode="json")
+        values = {
+            column: data.get(column)
+            for column in DiagCaseLibraryPGManager.UPDATABLE_COLUMNS
+        }
+        values["search_text"] = DiagCaseLibraryPGManager._build_search_text(case)
+        values["updated_at"] = _now()
+
+        async with PGManager.session() as session:
+            result = await session.execute(
+                update(DiagCaseLibrary)
+                .where(
+                    DiagCaseLibrary.id == case_id,
+                    DiagCaseLibrary.existed_status.is_(True),
+                    DiagCaseLibrary.status == DiagCaseStatus.DRAFT.value,
+                )
+                .values(revision=DiagCaseLibrary.revision + 1, **values)
+            )
+            if not (result.rowcount or 0):
+                return False
+            await DiagCaseLibraryPGManager._replace_signals(session, case_id, case)
+        return True
 
     @staticmethod
     async def confirm_case(

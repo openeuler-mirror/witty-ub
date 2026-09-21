@@ -2,7 +2,7 @@
 """Service layer for the supernode diagnosis case library."""
 from __future__ import annotations
 
-from latency.ENUM.case_library import DiagCaseStatus
+from latency.ENUM.case_library import DiagCaseSource, DiagCaseStatus
 from latency.database.managers.diag_case_library import DiagCaseLibraryPGManager
 from latency.exceptions import (
     BadRequestBizException,
@@ -18,6 +18,7 @@ from latency.schemas.diag_case_library import (
     GetDiagCaseMsg,
     SearchDiagCaseLibraryRequest,
     SearchDiagCasesMsg,
+    UpdateDiagCaseDraftRequest,
 )
 
 RESOURCE_NAME = "诊断案例"
@@ -31,7 +32,12 @@ class DiagCaseLibraryService:
         case: DiagCaseLibraryModel,
         confirmed_by: str | None = None,
     ) -> list[str]:
-        """§4.2 确认闸门：返回所有未满足项（空列表表示可确认）。"""
+        """§4.2 确认闸门：返回所有未满足项（空列表表示可确认）。
+
+        闸门只判「报告可信」（人看过并认可），**不判处置是否已闭环**：
+        报告出稿时处置尚未执行，要求 `verification_json.observed_result` 非空
+        只会迫使 agent 臆造验证记录。验证闭环是正交维度，见 §4.5。
+        """
         errors: list[str] = []
         if case.status != DiagCaseStatus.DRAFT:
             errors.append(f"当前状态为 {case.status}，仅 draft 可确认")
@@ -39,9 +45,6 @@ class DiagCaseLibraryService:
             errors.append("缺少 evidence_json（证据锚点）")
         if not case.remediation_json:
             errors.append("缺少 remediation_json（分步处置）")
-        verification = case.verification_json
-        if verification is None or not (verification.observed_result or "").strip():
-            errors.append("缺少 verification_json.observed_result（验证闭环）")
         matchable = [
             signal
             for signal in DiagCaseLibraryPGManager._signals_for_case(case)
@@ -71,6 +74,39 @@ class DiagCaseLibraryService:
         if case is None:
             raise NotFoundBizException(resource=RESOURCE_NAME)
         return GetDiagCaseMsg(case=case)
+
+    @staticmethod
+    async def update_draft(
+        case_id: str,
+        req: UpdateDiagCaseDraftRequest,
+    ) -> GetDiagCaseMsg:
+        """§4.4 局部更新草稿：报告出稿后补证据，处置执行后补验证闭环。"""
+        case = await DiagCaseLibraryPGManager.get_case(case_id)
+        if case is None:
+            raise NotFoundBizException(resource=RESOURCE_NAME)
+        if case.status != DiagCaseStatus.DRAFT:
+            raise ConflictBizException(
+                message=f"诊断案例当前状态为 {case.status}，仅 draft 可修改",
+                detail="草稿更新通道只在 draft 态开放；confirmed / archived 案例内容已冻结",
+            )
+
+        patch = req.model_dump(mode="json", exclude_unset=True)
+        merged = case.model_dump(mode="json")
+        merged.update(patch)
+        updated = DiagCaseLibraryModel.model_validate(merged)
+
+        if updated.source in (
+            DiagCaseSource.COMMUNITY,
+            DiagCaseSource.ONLINE,
+        ) and not (updated.source_url or "").strip():
+            raise BadRequestBizException(
+                message="缺少 source_url",
+                detail="source 为 community / online 时 source_url 必填",
+            )
+
+        await DiagCaseLibraryPGManager.update_draft(case_id, updated)
+        refreshed = await DiagCaseLibraryPGManager.get_case(case_id)
+        return GetDiagCaseMsg(case=refreshed)
 
     @staticmethod
     async def confirm_case(

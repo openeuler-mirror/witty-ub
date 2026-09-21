@@ -15,6 +15,7 @@ from latency.ENUM.case_library import (
     DiagCaseSource,
     DiagCaseStatus,
 )
+from latency.database.engine import PGManager
 from latency.database.managers.diag_case_library import (
     DiagCaseLibraryPGManager as Manager,
 )
@@ -29,6 +30,7 @@ from latency.schemas.diag_case_library import (
     CreateDiagCaseDraftRequest,
     DiagCaseLibraryModel,
     SearchDiagCaseLibraryRequest,
+    UpdateDiagCaseDraftRequest,
 )
 from latency.services.diag_case_library import DiagCaseLibraryService
 
@@ -173,17 +175,22 @@ def test_confirm_gate_accepts_complete_draft():
     [
         ({"evidence_json": []}, "evidence_json"),
         ({"remediation_json": []}, "remediation_json"),
-        ({"verification_json": None}, "observed_result"),
-        (
-            {"verification_json": {"method": "m", "observed_result": "   "}},
-            "observed_result",
-        ),
         ({"status_codes": []}, "可匹配信号"),
     ],
 )
 def test_confirm_gate_rejects_each_missing_item(overrides, fragment):
     errors = DiagCaseLibraryService._confirm_gate_errors(_draft(**overrides), "alice")
     assert any(fragment in error for error in errors)
+
+
+def test_confirm_gate_does_not_require_verification_closure():
+    """闸门只判「报告可信」：处置未执行时 verification_json 为空也可确认。"""
+    assert DiagCaseLibraryService._confirm_gate_errors(
+        _draft(verification_json=None), "alice"
+    ) == []
+    assert DiagCaseLibraryService._confirm_gate_errors(
+        _draft(verification_json={"method": "重新压测", "closed_loop": False}), "alice"
+    ) == []
 
 
 def test_confirm_gate_requires_confirmed_by():
@@ -298,6 +305,12 @@ def test_missing_case_id_has_not_found_semantics(monkeypatch):
         run(DiagCaseLibraryService.get_case("missing-case"))
     with pytest.raises(NotFoundBizException):
         run(
+            DiagCaseLibraryService.update_draft(
+                "missing-case", UpdateDiagCaseDraftRequest(title="x")
+            )
+        )
+    with pytest.raises(NotFoundBizException):
+        run(
             DiagCaseLibraryService.confirm_case(
                 "missing-case", ConfirmDiagCaseRequest(confirmed_by="alice")
             )
@@ -310,6 +323,234 @@ def test_missing_case_id_has_not_found_semantics(monkeypatch):
         )
     with pytest.raises(NotFoundBizException):
         run(DiagCaseLibraryService.mark_hit("missing-case"))
+
+
+# ------------------------------------------------------------
+# §4.4 草稿更新（draft 可改，confirmed / archived 冻结）
+# ------------------------------------------------------------
+def _install_update_store(monkeypatch, cases):
+    """内存替身：记录合并后的写入结果，并模拟 revision + 1。"""
+    captured: dict[str, DiagCaseLibraryModel] = {}
+    store = {case.id: case for case in cases}
+
+    async def get_case(case_id):
+        return store.get(case_id)
+
+    async def update_draft(case_id, case):
+        captured[case_id] = case
+        snapshot = case.model_dump()
+        snapshot["revision"] = store[case_id].revision + 1
+        store[case_id] = DiagCaseLibraryModel.model_validate(snapshot)
+        return True
+
+    monkeypatch.setattr(Manager, "get_case", get_case)
+    monkeypatch.setattr(Manager, "update_draft", update_draft)
+    return store, captured
+
+
+def test_update_draft_is_partial_and_bumps_revision(monkeypatch):
+    draft = _draft(verification_json=None)
+    _, captured = _install_update_store(monkeypatch, [draft])
+
+    msg = run(
+        DiagCaseLibraryService.update_draft(
+            draft.id,
+            UpdateDiagCaseDraftRequest(
+                verification_json={
+                    "method": "复测 SET 时延",
+                    "observed_result": "SET 恢复正常",
+                    "closed_loop": True,
+                    "verified_at": "2026-09-21 10:00:00",
+                }
+            ),
+        )
+    )
+
+    written = captured[draft.id]
+    # 未传字段原样保留
+    assert written.title == "SET 通断失败"
+    assert written.status_codes == ["1004"]
+    assert written.evidence_json[0].kind == "log"
+    # 元信息不受 PATCH 影响
+    assert written.case_no == "UB-CASE-000001"
+    assert written.status == DiagCaseStatus.DRAFT
+    # 传了的字段才更新，且 revision + 1
+    assert written.verification_json.observed_result == "SET 恢复正常"
+    assert written.verification_json.closed_loop is True
+    assert msg.case.revision == 1
+
+
+def test_update_draft_explicit_empty_list_clears_the_field(monkeypatch):
+    draft = _draft()
+    _, captured = _install_update_store(monkeypatch, [draft])
+
+    run(
+        DiagCaseLibraryService.update_draft(
+            draft.id, UpdateDiagCaseDraftRequest(status_codes=[])
+        )
+    )
+
+    assert captured[draft.id].status_codes == []
+    assert captured[draft.id].log_keywords == []  # 未传字段不动
+
+
+@pytest.mark.parametrize("status", [DiagCaseStatus.CONFIRMED, DiagCaseStatus.ARCHIVED])
+def test_update_draft_rejects_non_draft_status(monkeypatch, status):
+    frozen = _confirmed("frozen-case", status=status)
+    _, captured = _install_update_store(monkeypatch, [frozen])
+
+    with pytest.raises(ConflictBizException):
+        run(
+            DiagCaseLibraryService.update_draft(
+                frozen.id, UpdateDiagCaseDraftRequest(title="新标题")
+            )
+        )
+    assert captured == {}
+
+
+def test_update_draft_requires_source_url_for_external_source_on_merged_result(monkeypatch):
+    """`source_url` 按「合并后」判定，只改 source 不会被既有 source_url 误伤。"""
+    draft = _draft()
+    _, captured = _install_update_store(monkeypatch, [draft])
+
+    with pytest.raises(BadRequestBizException):
+        run(
+            DiagCaseLibraryService.update_draft(
+                draft.id, UpdateDiagCaseDraftRequest(source="community")
+            )
+        )
+    assert captured == {}
+
+    run(
+        DiagCaseLibraryService.update_draft(
+            draft.id,
+            UpdateDiagCaseDraftRequest(
+                source="community", source_url="https://example.com/case/9"
+            ),
+        )
+    )
+    assert captured[draft.id].source == DiagCaseSource.COMMUNITY
+
+    # 已带 source_url 的 community 草稿，只改标题不应被拦。
+    _, captured = _install_update_store(monkeypatch, [captured[draft.id]])
+    run(
+        DiagCaseLibraryService.update_draft(
+            draft.id, UpdateDiagCaseDraftRequest(title="标题订正")
+        )
+    )
+    assert captured[draft.id].title == "标题订正"
+
+
+def test_update_request_has_same_field_set_as_create_without_metadata():
+    update_fields = set(UpdateDiagCaseDraftRequest.model_fields)
+    assert update_fields == set(CreateDiagCaseDraftRequest.model_fields) - {"created_by"}
+    assert not update_fields & {
+        "id",
+        "case_no",
+        "status",
+        "revision",
+        "confirmed_by",
+        "confirmed_at",
+        "archived_by",
+        "archived_at",
+        "archive_reason",
+        "hit_count",
+        "search_text",
+    }
+
+
+def test_updatable_columns_cover_content_but_no_metadata():
+    """UPDATABLE_COLUMNS 与模型字段互补：漏列会静默丢更新。"""
+    metadata = {
+        "id",
+        "case_no",
+        "status",
+        "revision",
+        "created_by",
+        "confirmed_by",
+        "confirmed_at",
+        "archived_by",
+        "archived_at",
+        "archive_reason",
+        "search_text",
+        "embedding_model",
+        "embedded_at",
+        "hit_count",
+        "existed_status",
+        "created_at",
+        "updated_at",
+    }
+    assert set(Manager.UPDATABLE_COLUMNS) == set(
+        DiagCaseLibraryModel.model_fields
+    ) - metadata
+
+
+class _FakeSession:
+    """记录 execute 语句的替身，用于断言 UPDATE / 信号重建的 SQL 形状。"""
+
+    def __init__(self):
+        self.statements = []
+
+    async def execute(self, statement):
+        self.statements.append(statement)
+        return type("_Result", (), {"rowcount": 1})()
+
+
+class _FakeSessionContext:
+    def __init__(self, session):
+        self.session = session
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, *args):
+        return False
+
+
+def test_replace_signals_deletes_then_reinserts_derived_rows():
+    case = _draft(failure_mode_ids=["FM-URMA"], operation=DiagCaseOperation.SET)
+    session = _FakeSession()
+
+    run(Manager._replace_signals(session, case.id, case))
+
+    assert len(session.statements) == 2
+    assert "DELETE FROM diag_case_library_signal" in str(session.statements[0])
+    assert "INSERT INTO diag_case_library_signal" in str(session.statements[1])
+
+
+def test_update_draft_writes_content_columns_and_recomputes_signals(monkeypatch):
+    case = _draft(latency_components=["set_client"])
+    session = _FakeSession()
+    monkeypatch.setattr(PGManager, "session", lambda: _FakeSessionContext(session))
+
+    assert run(Manager.update_draft(case.id, case)) is True
+
+    sql = str(session.statements[0])
+    assert sql.startswith("UPDATE diag_case_library")
+    values = dict(session.statements[0].compile().params)
+    assert "search_text" in values
+    assert {"source", "verification_json", "latency_components"} <= set(values)
+    # 元信息列不得出现在 SET 子句中
+    assert not {"case_no", "revision", "created_at", "hit_count"} & set(values)
+    # 信号行按新特征重建（DELETE + INSERT）
+    assert "DELETE FROM diag_case_library_signal" in str(session.statements[1])
+    assert "diag_case_library_signal" in str(session.statements[2])
+
+
+def test_update_draft_returns_false_when_row_is_no_longer_draft(monkeypatch):
+    """并发窗口：确认后 revision 不再被 PATCH 改写。"""
+    case = _draft()
+    session = _FakeSession()
+
+    async def execute(statement):
+        session.statements.append(statement)
+        return type("_Result", (), {"rowcount": 0})()
+
+    session.execute = execute
+    monkeypatch.setattr(PGManager, "session", lambda: _FakeSessionContext(session))
+
+    assert run(Manager.update_draft(case.id, case)) is False
+    assert len(session.statements) == 1  # 未命中即不再重建信号
 
 
 # ------------------------------------------------------------

@@ -68,6 +68,7 @@ EXPECTED_DIAGNOSIS_OPERATIONS = {
     # 超节点诊断案例库（/diag_case_library）：与既有 /diagnosis_case 并存，只增不改。
     "create_diag_case_draft": ("POST", "/diag_case_library"),
     "get_diag_case": ("GET", "/diag_case_library/{case_id}"),
+    "update_diag_case_draft": ("PATCH", "/diag_case_library/{case_id}"),
     "confirm_diag_case": ("POST", "/diag_case_library/{case_id}/confirm"),
     "archive_diag_case": ("POST", "/diag_case_library/{case_id}/archive"),
     "search_diag_cases": ("POST", "/diag_case_library/search"),

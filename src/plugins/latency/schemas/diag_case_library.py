@@ -274,6 +274,91 @@ class CreateDiagCaseDraftRequest(StrictRequestModel):
         return self
 
 
+class UpdateDiagCaseDraftRequest(StrictRequestModel):
+    """局部更新草稿请求（§4.4）；字段集与建草稿一致，**全部可选**。
+
+    未传字段保持不变（`exclude_unset` 语义），因此显式传空数组/空值才算清空。
+    ``case_no`` / ``status`` / ``revision`` / ``created_by`` / ``confirmed_*`` /
+    ``archived_*`` 等元信息不在本模型内，服务端不接受修改。
+    ``source`` 为 community / online 时 `source_url` 的必填校验放在服务层，
+    按「草稿合并后的结果」判定，避免只改 `source` 时误伤已存在的 `source_url`。
+    """
+
+    log_type: Optional[_LaxLogType] = Field(
+        default=None, description="日志类型：KVCache 或 UBSocket"
+    )
+    source: Optional[DiagCaseSource] = Field(
+        default=None, strict=False, description="案例来源：internal / community / online"
+    )
+    source_url: Optional[str] = Field(default=None, description="来源链接")
+    title: Optional[str] = Field(default=None, min_length=1, description="案例标题")
+    symptom_summary: Optional[str] = Field(
+        default=None, min_length=1, description="故障现象摘要，需可独立阅读"
+    )
+    root_cause_summary: Optional[str] = Field(
+        default=None, min_length=1, description="一句话根因"
+    )
+    root_cause_detail: Optional[str] = Field(default=None, description="根因机理长文")
+    kb_id: Optional[str] = Field(
+        default=None, description="来源知识库ID，可空表示全局案例（跨库可召回）"
+    )
+    kb_name: Optional[str] = Field(default=None, description="来源知识库名称")
+    cluster_name: Optional[str] = Field(default=None, description="集群名称")
+    hosts: Optional[list[str]] = Field(default=None, description="主机名")
+    pods: Optional[list[str]] = Field(default=None, description="Pod 名")
+    src_ips: Optional[list[str]] = Field(default=None, description="源 IP")
+    dst_ips: Optional[list[str]] = Field(default=None, description="目的 IP")
+    node_type: Optional[str] = Field(default=None, description="超节点形态")
+    version_json: Optional[VersionModel] = Field(default=None, description="版本快照")
+    scope_limits: Optional[str] = Field(default=None, description="不适用场景，防误套用")
+    operation: Optional[_LaxOperation] = Field(
+        default=None, description="操作类型：GET / SET / N/A"
+    )
+    fault_type: Optional[FaultType] = Field(
+        default=None, description="故障类型：latency / connectivity / mixed / unknown"
+    )
+    status_codes: Optional[list[str]] = Field(default=None, description="关联状态码")
+    failure_mode_ids: Optional[list[str]] = Field(
+        default=None, description="关联故障模式ID"
+    )
+    latency_components: Optional[list[str]] = Field(
+        default=None, description="异常时延组件桶 key"
+    )
+    log_keywords: Optional[list[str]] = Field(
+        default=None, description="现场关键日志原文短语"
+    )
+    stage_features_json: Optional[StageFeaturesModel] = Field(
+        default=None, description="L2 阶段桶分布快照"
+    )
+    fault_shape: Optional[str] = Field(default=None, description="故障时间形状")
+    time_window_json: Optional[TimeWindowModel] = Field(
+        default=None, description="故障时间窗口"
+    )
+    confidence: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0, description="结论验证强度，0~1"
+    )
+    evidence_json: Optional[list[EvidenceModel]] = Field(
+        default=None, description="证据锚点"
+    )
+    counter_evidence_json: Optional[list[dict[str, Any]]] = Field(
+        default=None, description="已排除项"
+    )
+    remediation_json: Optional[list[RemediationStepModel]] = Field(
+        default=None, description="分步处置"
+    )
+    verification_json: Optional[VerificationModel] = Field(
+        default=None,
+        description=(
+            "验证闭环；报告阶段留空，处置执行 + 复测后才可回填 "
+            "observed_result / closed_loop / verified_at，严禁臆造"
+        ),
+    )
+    relations_json: Optional[list[RelationModel]] = Field(
+        default=None, description="关联案例"
+    )
+    source_log_ids: Optional[list[str]] = Field(default=None, description="来源日志ID")
+
+
 class ConfirmDiagCaseRequest(StrictRequestModel):
     """确认请求；``draft → confirmed`` 需通过 §4.2 确认闸门。"""
 
@@ -349,6 +434,10 @@ class GetDiagCaseResponse(ResponseBase):
 
 class ConfirmDiagCaseResponse(ResponseBase):
     result: GetDiagCaseMsg = Field(..., description="确认超节点诊断案例响应结果")
+
+
+class UpdateDiagCaseDraftResponse(ResponseBase):
+    result: GetDiagCaseMsg = Field(..., description="更新超节点诊断案例草稿响应结果")
 
 
 class ArchiveDiagCaseResponse(ResponseBase):

@@ -21,6 +21,8 @@ from latency.schemas.diag_case_library import (
     HitDiagCaseResponse,
     SearchDiagCaseLibraryRequest,
     SearchDiagCasesResponse,
+    UpdateDiagCaseDraftRequest,
+    UpdateDiagCaseDraftResponse,
 )
 from latency.services.diag_case_library import DiagCaseLibraryService
 from latency.services.resource_id import ResourceIdService
@@ -70,15 +72,44 @@ async def get_diag_case(case_id: ResourceIdPath) -> GetDiagCaseResponse:
     return GetDiagCaseResponse(result=msg)
 
 
+@router.patch(
+    "/{case_id}",
+    response_model=UpdateDiagCaseDraftResponse,
+    operation_id="update_diag_case_draft",
+    description=(
+        "Partially update a draft case. Only fields present in the body are "
+        "changed, so the same channel appends new evidence and, after the fix is "
+        "executed and re-tested, the verification closure "
+        "(verification_json.closed_loop / observed_result / verified_at). "
+        "Only drafts can be updated; confirmed or archived cases are frozen. "
+        "revision increments and search_text plus matching signals are "
+        "recomputed. Case metadata (case_no / status / revision / confirmed_by) "
+        "cannot be changed here. Never fabricate observed_result before the "
+        "remediation has actually been executed."
+    ),
+)
+async def update_diag_case_draft(
+    case_id: ResourceIdPath,
+    req: Annotated[UpdateDiagCaseDraftRequest, Body()],
+) -> UpdateDiagCaseDraftResponse:
+    await _validate_kb_id(req.kb_id)
+    msg = await DiagCaseLibraryService.update_draft(case_id, req)
+    return UpdateDiagCaseDraftResponse(result=msg)
+
+
 @router.post(
     "/{case_id}/confirm",
     response_model=ConfirmDiagCaseResponse,
     operation_id="confirm_diag_case",
     description=(
         "Confirm a draft case (draft -> confirmed) so it becomes searchable. "
-        "The confirm gate rejects the request unless evidence, remediation, "
-        "verification.observed_result, at least one matchable signal and "
-        "confirmed_by are all present. Only drafts can be confirmed."
+        "The confirm gate only judges whether the report is trustworthy: it "
+        "rejects the request unless evidence, remediation, at least one "
+        "matchable signal and confirmed_by are all present. It does NOT require "
+        "verification_json.observed_result, because remediation has not been "
+        "executed yet at report time; remediation closure is a separate "
+        "dimension appended later through the PATCH endpoint. Only drafts can "
+        "be confirmed."
     ),
 )
 async def confirm_diag_case(
