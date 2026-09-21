@@ -162,6 +162,7 @@ CREATE INDEX IF NOT EXISTS ix_dcl_signal_lookup ON diag_case_library_signal (sig
 |---|---|---|---|
 | POST | `/diag_case_library` | `create_diag_case_draft` | 建草稿，`status=draft`，返回 `case_no` |
 | GET | `/diag_case_library/{case_id}` | `get_diag_case` | 详情 |
+| PATCH | `/diag_case_library/{case_id}` | `update_diag_case_draft` | 更新草稿（补证据/处置/验证），仅 `draft` 可改 |
 | POST | `/diag_case_library/{case_id}/confirm` | `confirm_diag_case` | `draft→confirmed`，校验确认闸门 |
 | POST | `/diag_case_library/{case_id}/archive` | `archive_diag_case` | `draft\|confirmed→archived` |
 | POST | `/diag_case_library/search` | `search_diag_cases` | 默认只返回 `confirmed` |
@@ -174,19 +175,25 @@ CREATE INDEX IF NOT EXISTS ix_dcl_signal_lookup ON diag_case_library_signal (sig
 `search_text` 与 `case_no` 由服务端生成，不接受外部传入。
 `kb_id` 非空时才走 `ResourceIdService` 存在性校验；为空表示全局案例。
 
-### 4.2 确认闸门（`confirm`）
+### 4.2 确认闸门（`confirm`）—— 只判「报告可信」
+
+**设计前提**：`confirmed` 的语义是**「人看过报告并认可其可信度」**，不是「处置已验证」。
+处置是否真正闭环是**另一个正交维度**（见 §4.5），不参与本闸门。
 
 `confirm` 必须校验下列条件，任一不满足返回业务异常并说明缺什么：
 
 1. 当前 `status == draft`（否则 409 语义的业务异常）。
-2. `evidence_json` 非空。
-3. `remediation_json` 非空。
-4. `verification_json` 存在且 `observed_result` 非空。
-5. 至少一个可匹配信号（`status_codes` / `failure_mode_ids` / `latency_components` /
+2. `evidence_json` 非空（≥1 条可复现锚点）。
+3. `remediation_json` 非空（≥1 步分步处置）。
+4. 至少一个可匹配信号（`status_codes` / `failure_mode_ids` / `latency_components` /
    `log_keywords` / `hosts` / `pods` / IP / `cluster_name` 至少有一项非空），否则该案例永远检索不到。
-6. `confirmed_by` 非空。
+5. `confirmed_by` 非空 —— **这一条即「人工点头」的留痕**。
 
 通过后置 `status=confirmed`、`confirmed_by/at`、`revision += 1`、`confidence` 取请求值（缺省沿用草稿值）。
+
+> **闸门不要求 `verification_json.observed_result`**（早期版本曾把它列为硬条件，现已移出）。
+> 报告出稿时处置尚未执行，此时不可能有实测结果；把实测结果作为准入条件只会迫使 agent
+> 臆造验证记录，比没有验证更坏。验证的定位见 §4.5。
 
 ### 4.3 检索
 
@@ -203,6 +210,33 @@ CREATE INDEX IF NOT EXISTS ix_dcl_signal_lookup ON diag_case_library_signal (sig
 - 零信号查询时返回该状态下的全部案例，`match_score = score_norm = 0`。
 
 响应 `matches[]`：`{case, match_score, score_norm, matched_signals[]}`。
+
+### 4.4 草稿更新（`PATCH /diag_case_library/{case_id}`）
+
+两阶段沉淀必需的通道：**报告出稿 → 人工确认 → 处置执行 → 复测补 `verification_json`**。
+没有它，草稿建完后无法追加验证信息，闭环链路在接口层面走不通。
+
+- 仅 `status == draft` 可改；`confirmed` / `archived` 返回 409 语义的业务异常。
+- 请求体与 §4.1 建草稿同字段集，**全部可选**（局部更新，未传字段不动）。
+- 更新成功后 `revision += 1`，并**重算 `search_text` 与 `diag_case_library_signal` 行**
+  ——信号列变了必须同步，否则检索口径与内容物不一致。
+- `case_no` / `status` / `revision` / `created_by` / `confirmed_by` / `confirmed_at` /
+  `archived_*` 等元信息字段**不在可更新集合内**。
+
+### 4.5 验证闭环（正交维度，不参与闸门）
+
+| 维度 | 字段 | 谁填 | 何时 | 作用 |
+|---|---|---|---|---|
+| 报告可信确认 | `status: draft→confirmed` + `confirmed_by/at` | **人**（看完报告点头） | 报告出稿后 | 决定能否被检索召回 |
+| 处置闭环验证 | `verification_json.closed_loop` / `verified_at` / `observed_result` | 人或 agent，**事后** | 处置执行 + 复测后 | 决定是否为「已被证实」的黄金案例 |
+
+纪律（同步写入 `case-matching` 与 `diagnostic-report-generation` skill）：
+
+- `observed_result` **只允许在处置执行后填写**，严禁在报告阶段臆造。
+- 检索侧按 `closed_loop` 区分：`true` 标注「已验证」并排序加权；`false` 标注「待验证处方」，
+  `applicability` **上限为 `adjust`**，不得给 `direct`。
+- 人工确认的交互通道本轮走**对话确认**（agent 给出报告路径与摘要 → 用户在对话里点头 →
+  agent 调 `confirm`），不引入前端页面与审批流。
 
 ## 5. 与现有 `/diagnosis_case` 的关系
 
@@ -251,8 +285,12 @@ CREATE INDEX IF NOT EXISTS ix_dcl_signal_lookup ON diag_case_library_signal (sig
 
 - 状态机：`draft → confirmed → archived` 全路径；非法迁移（`confirmed → confirm`、
   `archived → confirm`）被拒。
-- 确认闸门：缺 evidence / 缺 remediation / 缺 verification.observed_result / 无可匹配信号 /
-  缺 `confirmed_by` 逐项被拒。
+- 确认闸门：缺 evidence / 缺 remediation / 无可匹配信号 / 缺 `confirmed_by` 逐项被拒；
+  `verification_json` 为空**不**被拒（§4.2 只判报告可信）。
+- 草稿更新（§4.4）：局部更新只改传入字段（显式传空数组才算清空）；`revision + 1`；
+  元信息（`case_no` / `status` / `revision` / 留痕 / 计数）不可改且不在请求模型内；
+  `confirmed` / `archived` 态不可改；`source_url` 按合并结果判定；更新时重建信号行；
+  并发窗口下非 draft 行不被改写（返回 False）。
 - 检索：默认只返回 `confirmed`（草稿与归档不出现在结果里）；`include_status` 显式放开；
   `operation` 过滤生效（GET 查询不返回 SET 案例）；`kb_id` 为空时能召回其他知识库案例；
   `min_confidence` 生效；`score_norm` 在 0~1 且单调随命中增加。
@@ -261,7 +299,7 @@ CREATE INDEX IF NOT EXISTS ix_dcl_signal_lookup ON diag_case_library_signal (sig
 
 ### 8.2 契约测试（`test/test_diagnosis_api_contract.py`）
 
-`EXPECTED_DIAGNOSIS_OPERATIONS` 追加 6 个新 operationId（见 §4 表格），并断言既有
+`EXPECTED_DIAGNOSIS_OPERATIONS` 追加 7 个新 operationId（见 §4 表格，含 `PATCH`），并断言既有
 `/diagnosis_case*` 条目**保持不变**。
 
 ### 8.3 node48 真实数据验收
@@ -272,6 +310,9 @@ CREATE INDEX IF NOT EXISTS ix_dcl_signal_lookup ON diag_case_library_signal (sig
 3. 建一条 `kb_id` 为空的全局案例，验证跨库召回成立（这是既有接口做不到的）。
 4. SQL 复核：`diag_case_library_signal` 的信号值与主表特征一致，无展示名混入。
 5. 回归：`/diagnosis_case/search` 与 `/diagnosis_case/{id}` 响应与改造前逐字段一致。
+6. 两阶段沉淀链路：报告阶段建草稿 → **不带 `verification_json`** 直接 `confirm`（闸门应放行）→
+   `PATCH` 补 `verification_json`（`revision + 1`、`search_text` 与信号行重算）→ 检索命中；
+   同时验证 `confirmed` 态 `PATCH` 被拒。
 
 ### 8.4 验收记录
 
@@ -287,6 +328,32 @@ $ cd src/plugins && PYTHONPATH=$PWD python3 -m pytest \
 
 新增 24 个用例覆盖信号权重/归一化、`search_text` 噪声剔除、确认闸门 6 项、状态机全路径与非法迁移、
 检索默认范围、`operation` 隔离、跨库召回、`min_confidence`、分页越界、来源链接校验。
+
+**批次 5 单测**（2026-09-21，同一命令）：
+
+```
+87 passed
+```
+
+用例 33 个（+9）：闸门去掉 `observed_result` 硬条件（`verification` 为空 / 只有 `method` 均可确认）、
+草稿更新的局部语义与显式清空、`revision + 1`、非 draft 态拒改、`source_url` 按合并结果判定、
+更新请求字段集 = 建草稿字段集 − `created_by`、`UPDATABLE_COLUMNS` 与模型字段互补、
+信号行重建（DELETE + INSERT）与 UPDATE 语句的 SET 列不含元信息、并发未命中不重建信号。
+
+**批次 5 node48 真实 PG 验收**（2026-09-21，库 `witty-ub` @ 127.0.0.1:15432，kb jingpai）：
+
+| # | 检查项 | 实测结果 |
+|---|---|---|
+| 1 | 建草稿 | `case_no=UB-CASE-000006`，`status=draft`、`revision=0` |
+| 2 | 闸门放宽 | `verification_json=None` 时 `confirm` 通过：`status=confirmed`、`revision=1` |
+| 3 | confirmed 态 PATCH | `ConflictBizException`：当前状态为 confirmed，仅 draft 可修改 |
+| 4 | PATCH 局部更新 | 只传 `verification_json` + `log_keywords`：`title` 未变，`closed_loop=true`，`revision=1` |
+| 5 | `search_text` 重算 | 78 → 93 字符，新关键词 `urma link down` 已入正文 |
+| 6 | 信号行重建 | 5 条信号全部为桶 key / 真实码：`latency_component=set_client`、`log_keyword` ×2、`operation=set`、`status_code=1004`，无 `None` 污染 |
+| 7 | 显式清空 | `status_codes=[]` → `status_code` 信号 0 条 |
+| 8 | 确认后可检索 | `score_norm=1.0`，命中 `log_keyword` + `operation`，返回案例 `closed_loop=true` |
+| 9 | 草稿不可检索 | PATCH 后未确认时，同一查询不返回该草稿（符合 §4.3 默认只返回 confirmed） |
+| 10 | 清理 | 临时行与信号行已删除 |
 
 **node48 真实 PG 验收**（2026-09-20，库 `witty-ub` @ 127.0.0.1:15432，真实 kb
 `3533f5b6-7a8f-48a8-9d84-7007cc9a0663`（jingpai）与 `641f11a3-…`（node48-align））：
@@ -336,9 +403,44 @@ $ cd src/plugins && PYTHONPATH=$PWD python3 -m pytest \
 
 ## 9. 实施批次
 
-| 批次 | 内容 |
-|---|---|
-| 1 | 本设计文档冻结 |
-| 2 | 枚举 + ORM + schemas + manager + service + router + 路由注册 + resource_id key + 索引 |
-| 3 | 单测 + 契约测试 + node48 真实数据验收，回填 §8.4 |
-| 4 | `case-matching` skill 调整：DB 通道降级、输出标注"来源=未确认"、指向新库 |
+| 批次 | 内容 | 状态 |
+|---|---|---|
+| 1 | 本设计文档冻结 | ✅ |
+| 2 | 枚举 + ORM + schemas + manager + service + router + 路由注册 + resource_id key + 索引 | ✅ |
+| 3 | 单测 + 契约测试 + node48 真实数据验收，回填 §8.4 | ✅ |
+| 4 | `case-matching` skill 调整：DB 通道降级、输出标注"来源=未确认"、指向新库 | ✅ |
+| 5 | 闸门改为只判「报告可信」+ 新增 `PATCH` 草稿更新端点 + 单测（§4.4 / §4.5） | ✅ |
+| 6 | 案例生成侧对齐：`diagnostic-report-generation` 的桥接数据改为新库草稿契约（§10） | 进行中 |
+| 7 | 重建镜像部署（当前容器无新端点） | 待办 |
+
+（批次 2/3 提交：`06895217` / `92c43f95`；批次 4：`aa4e9ac4`；批次 5 见 §8.4 验收记录。）
+
+## 10. 案例生成侧对齐（批次 6）
+
+`diagnostic-report-generation` 目前产出的 `diagnosis_case_bridge` 仍**一一映射旧表**
+`DiagnosisCaseModel`（`root_cause` / `recommendation` / `fingerprint_json` /
+`evidence_refs_json`），**过不了 §4.2 闸门**——没有 `evidence_json`（带 `kind` 的锚点）、
+没有 `remediation_json`（分步处置）。对齐要求：
+
+| 旧字段 | 新库字段 | 说明 |
+|---|---|---|
+| `root_cause`（拼接长文） | `root_cause_summary` + `root_cause_detail` | 一句话根因与机理长文拆开 |
+| `recommendation`（自由文本） | `remediation_json[]` | 必须拆成 `{step, action, expected, risk}` 分步 |
+| `evidence_refs_json[]` | `evidence_json[]` | 补 `kind`（api/trace/log/sql）与 `params` |
+| `fingerprint_json.*` | 各独立信号列 | `hosts` / `pods` / `src_ips` / `dst_ips` / `cluster_name` / `latency_components` / `log_keywords` |
+| —（无） | `operation` / `stage_features_json` | 由 `/stats/stages` 快照提供 |
+| —（无） | `scope_limits` | 报告须声明不适用场景，防跨域误套用 |
+| —（无） | `version_json` | 有可靠来源才填，不得臆造 |
+| —（无） | `verification_json` | **报告阶段留空**，事后经 §4.4 `PATCH` 补 |
+| `confidence` | `confidence` | 沿用（`≥0` 且 `≤1`） |
+
+沉淀链路（对话确认通道）：
+
+1. 诊断完成 → 渲染报告 → agent 把报告路径与摘要交给用户
+2. 用户确认「报告 OK」→ agent 调 `POST /diag_case_library` 建草稿 → 再调 `/{case_id}/confirm`
+   （`confirmed_by` = 用户标识），案例进入可检索集合
+3. 处置执行 + 复测后 → 调 `PATCH /diag_case_library/{case_id}` 补 `verification_json`
+   （`closed_loop` / `observed_result` / `verified_at`）
+
+> 步骤 2 与 3 之间案例**已可被检索**，但 `closed_loop=false`，检索侧须标注「待验证处方」，
+> `applicability` 上限 `adjust`。
