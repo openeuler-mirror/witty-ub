@@ -21,7 +21,7 @@
       "permission": {
         "edit": "allow",
         "webfetch": "deny",
-        "bash": "allow"
+        "bash": "ask"
       }
     }
   }
