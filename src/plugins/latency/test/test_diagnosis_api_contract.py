@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import FastAPI
 
 from latency.routers import (
+    diag_case_library,
     diagnosis_case,
     failure_mode_knowledge,
     log_failure_event_result,
@@ -64,6 +65,14 @@ EXPECTED_DIAGNOSIS_OPERATIONS = {
         "/aggregated_event/list_time_window",
     ),
     "list_latency_traces": ("POST", "/log_parse_result/list"),
+    # 超节点诊断案例库（/diag_case_library）：与既有 /diagnosis_case 并存，只增不改。
+    "create_diag_case_draft": ("POST", "/diag_case_library"),
+    "get_diag_case": ("GET", "/diag_case_library/{case_id}"),
+    "update_diag_case": ("PATCH", "/diag_case_library/{case_id}"),
+    "confirm_diag_case": ("POST", "/diag_case_library/{case_id}/confirm"),
+    "archive_diag_case": ("POST", "/diag_case_library/{case_id}/archive"),
+    "search_diag_cases": ("POST", "/diag_case_library/search"),
+    "hit_diag_case": ("POST", "/diag_case_library/{case_id}/hit"),
 }
 
 
@@ -78,6 +87,7 @@ def _openapi_schema() -> dict[str, Any]:
         failure_mode_knowledge.router,
         log_failure_event_result.router,
         diagnosis_case.router,
+        diag_case_library.router,
     ):
         app.include_router(api_router)
     return app.openapi()

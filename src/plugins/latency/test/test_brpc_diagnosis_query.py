@@ -508,11 +508,13 @@ def test_query_routes_are_registered_for_batch_and_knowledge_scopes():
         "/brpc-diagnosis/batch/{batch_id}/thread-events/{event_id}",
         "/brpc-diagnosis/batch/{batch_id}/abnormal-threads",
         "/brpc-diagnosis/batch/{batch_id}/abnormal-threads/{thread_key}",
+        "/brpc-diagnosis/batch/{batch_id}/summary",
         "/brpc-diagnosis/knowledge/{kb_id}/scope",
         "/brpc-diagnosis/knowledge/{kb_id}/interface-timeline",
         "/brpc-diagnosis/knowledge/{kb_id}/pod-events",
         "/brpc-diagnosis/knowledge/{kb_id}/thread-events",
         "/brpc-diagnosis/knowledge/{kb_id}/abnormal-threads",
+        "/brpc-diagnosis/knowledge/{kb_id}/summary",
     }
     timeline_parameters = paths[
         "/brpc-diagnosis/batch/{batch_id}/interface-timeline"

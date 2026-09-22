@@ -11,6 +11,7 @@ from latency.database.models import (
     AnomalousEvent,
     BrpcDiagBatch,
     BrpcDiagNode,
+    DiagCaseLibrary,
     DiagnosisCase,
     FailureModeKnowledge,
     LogFailureEvent,
@@ -51,6 +52,10 @@ class ResourceIdPGManager:
         "diagnosis_case": (
             DiagnosisCase.id,
             (DiagnosisCase.existed_status.is_(True),),
+        ),
+        "diag_case": (
+            DiagCaseLibrary.id,
+            (DiagCaseLibrary.existed_status.is_(True),),
         ),
     }
 

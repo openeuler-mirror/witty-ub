@@ -320,6 +320,22 @@ BRPC_DIAG_INDEX_DDL = (
 )
 
 
+# DDL for the supernode diagnosis case library.  The sequence backs the human
+# readable ``case_no`` (UB-CASE-000123); ``nextval`` keeps concurrent drafts
+# unique without an extra round-trip or race.
+DIAG_CASE_LIBRARY_DDL = (
+    "CREATE SEQUENCE IF NOT EXISTS diag_case_library_case_no_seq",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_dcl_case_no "
+    "ON diag_case_library (case_no)",
+    "CREATE INDEX IF NOT EXISTS ix_dcl_status "
+    "ON diag_case_library (status) WHERE existed_status = TRUE",
+    "CREATE INDEX IF NOT EXISTS ix_dcl_op_ft "
+    "ON diag_case_library (operation, fault_type) WHERE existed_status = TRUE",
+    "CREATE INDEX IF NOT EXISTS ix_dcl_signal_lookup "
+    "ON diag_case_library_signal (signal_type, signal_value)",
+)
+
+
 async def create_latency_bucket_partitions() -> None:
     """Create 32 HASH partitions for each latency_bucket_* table."""
     async with PGManager.engine().begin() as conn:
@@ -538,6 +554,7 @@ async def create_manual_indexes() -> None:
         for table in LATENCY_BUCKET_TABLES
     ]
     indexes += BRPC_DIAG_INDEX_DDL
+    indexes += DIAG_CASE_LIBRARY_DDL
     async with PGManager.engine().begin() as conn:
         for idx_sql in indexes:
             await conn.execute(text(idx_sql))

@@ -5,14 +5,15 @@
     "failure-code-analysis": "./skills/failure-code-analysis",
     "diagnostic-report-generation": "./skills/diagnostic-report-generation",
     "experience-skill": "./skills/experience-skill",
-    "brpc-diagnosis": "./skills/brpc-diagnosis"
+    "brpc-diagnosis": "./skills/brpc-diagnosis",
+    "case-matching": "./skills/case-matching"
   },
   "agent": {
     "witty-ub-diagnostician": {
       "description": "Witty-UB diagnostician agent: 分析分布式缓存的时延和通断故障，支持按任务需要编辑文件和执行 Bash 命令",
       "mode": "primary",
       "temperature": 0.25,
-      "maxSteps": 30,
+      "maxSteps": 60,
       "prompt": "{file:./agents/witty-ub-diagnostician.md}",
       "tools": {
         "bash": true

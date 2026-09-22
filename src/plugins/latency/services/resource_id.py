@@ -20,6 +20,7 @@ class ResourceIdService:
         "anomalous_event": "异常事件",
         "log_parse_result": "日志解析结果",
         "diagnosis_case": "诊断案例",
+        "diag_case": "诊断案例",
         "failure_mode": "故障模式",
         "trace": "Trace",
     }

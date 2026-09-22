@@ -35,8 +35,11 @@ from latency.routers import (
     failure_mode_knowledge,
     log_failure_event_result,
     diagnosis_case,
+    diag_case_library,
     diagnosis_config,
     brpc_profiling,
+    stats,
+    trace,
 )
 
 from latency.database.engine import PGManager
@@ -165,8 +168,11 @@ async def configure():
     app.include_router(failure_mode_knowledge.router)
     app.include_router(log_failure_event_result.router)
     app.include_router(diagnosis_case.router)
+    app.include_router(diag_case_library.router)
     app.include_router(diagnosis_config.router)
     app.include_router(brpc_profiling.router)
+    app.include_router(stats.router)
+    app.include_router(trace.router)
 
     web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
     if os.path.isdir(web_dir):
