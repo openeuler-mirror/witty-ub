@@ -1,0 +1,18 @@
+[Unit]
+Description=Witty-UB experimental frontend (exp: nginx 8081, fallback vite 5174)
+After=network.target
+
+[Service]
+Type=simple
+# 持久化配置（后端/Agent 地址、端口），由 deploy_frontend_exp.sh 写入
+EnvironmentFile=-__PROJECT_DIR__/.deploy-run/frontend-exp.env
+ExecStart=__PROJECT_DIR__/deploy/host/run_frontend_exp.sh
+Restart=always
+RestartSec=5
+# SIGTERM 停止 (128+15) 视为正常退出, 避免 systemctl stop 后显示 failed
+SuccessExitStatus=143
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
