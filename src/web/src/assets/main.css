@@ -6721,6 +6721,14 @@ body.agent-panel-resizing-corner {
   color: #64748b;
 }
 
+/* 诊断报告库页面（全局入口，不依赖已选资产库） */
+.reports-page {
+  width: 100%;
+  min-width: 0;
+  min-height: calc(100vh - 56px);
+  padding: 4px 4px 40px;
+}
+
 .status-badge {
   padding: 2px 10px;
   border-radius: 20px;

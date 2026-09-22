@@ -127,8 +127,12 @@ Skill 的 SKILL.md 为准。
 
 - 大响应先落盘、再按需取字段，不要把原始 JSON 或日志整段打进输出：
   `curl ... -o /tmp/raw/xxx.json`，再用 `python3 -c` 只打印需要的那几个字段。
-- 中间产物统一放 `/tmp/`（如 `/tmp/raw/`、`/tmp/report_data.json`、`/tmp/reports/`），
+- 中间产物统一放 `/tmp/`（如 `/tmp/raw/`、`/tmp/report_data.json`），
   不要写进仓库目录或 Skill 目录。
+- **例外：诊断报告必须落 `$WITTY_REPORT_DIR`**（容器内默认 `/var/witty-ub/reports`，
+  由 `witty-ub-reports` 卷持久化，供前端「诊断报告」列表查阅）。渲染器默认就写到这里，
+  不要再传 `out` 参数把 HTML 挪去 `/tmp` 或仓库目录；报告 HTML 与同名侧车 `.json`
+  要成对留下（侧车是前端列表的数据来源，缺了列表就没有标题与故障数）。
 - 需要看输出时主动截断：`| head -n 40`、`| head -c 2000`，
   或管道交给 `python3 -c` 做聚合后只打印结果。分页遍历不要回显每页原文，
   只累计要统计的字段（`total`、计数、Top N）。
@@ -136,6 +140,17 @@ Skill 的 SKILL.md 为准。
   原始日志）；用 `grep -n` 定位、`sed -n 'a,bp'` 取区间，或直接使用脚本/Skill
   提供的字段清单与摘要输出。
 - 单条命令输出超过约 200 行或 20 KB 时，改为落盘后输出摘要，再决定是否深读。
+
+## Skill 自带脚本的执行入口
+
+- Skill 目录下的脚本只按该 Skill 文档给出的入口执行，不要自行改写调用形式。
+  例如 `experience-skill` CLI 必须用 `uv run experience-skill <子命令>`
+  （退路 `scripts/.venv/bin/python -m experience_skill_cli.cli <子命令>`）。
+- 禁止自创 `python3 -m ...`、`PYTHONPATH=src python3 ...` 之类形式直跑 Skill 脚本：
+  依赖通常只装在脚本自带的 venv 里，系统 `/usr/bin/python3` 没有这些依赖，会直接
+  报 `ModuleNotFoundError`（如 `No module named 'yaml'`）。
+- 文档给出的入口执行失败时，先读该 Skill 的环境准备说明或上报失败信息，
+  不要换成系统 `python3` 硬试。
 
 ## 公共只读定位 API 目录
 
