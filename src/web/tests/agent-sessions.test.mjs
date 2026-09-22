@@ -117,8 +117,12 @@ function setup() {
     `${js}\nreturn {
     connectAgent, closeAgentEventStream, loadAgentSessions, newAgentConversation, openAgentSession,
     showAgentSessionDialog, submitAgentSessionDialog, toAgentChatMessages, handleOpenCodeEvent,
+    answerAgentPermission, submitAgentQuestion,
+    abortAgentSession,
     agentSessionId, agentSessions, agentChatMessages, agentSessionAssetIndex, agentSessionTitleInput,
     agentChatInput, isAgentSending, isAgentHistoryLoading, isAgentHistoryFailed, agentSessionDialogError,
+    agentConnectionError,
+    agentPendingPermissions, agentPendingQuestions, agentQuestionAnswers,
     filteredAgentSessions, sendAgentMessage,
   }`,
   )
@@ -346,6 +350,186 @@ test('streamed deltas captured during history loading do not duplicate fetched t
       delta: '!',
     })
     assert.equal(api.agentChatMessages.value[0].content, 'Hello world!')
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
+test('permission and structured question events can be answered without aborting the session', async () => {
+  const { api, histories, requests } = setup()
+  try {
+    await api.connectAgent('')
+    await api.openAgentSession({ id: 'a' })
+    api.handleOpenCodeEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'permission.asked',
+          properties: {
+            id: 'per_1',
+            sessionID: 'a',
+            permission: 'bash',
+            patterns: ['git status'],
+            metadata: {},
+            always: ['git status'],
+          },
+        }),
+      }),
+    )
+    assert.equal(api.agentPendingPermissions.value.length, 1)
+    api.handleOpenCodeEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'permission.asked',
+          properties: {
+            id: 'per_duplicate',
+            sessionID: 'a',
+            permission: 'bash',
+            patterns: ['git status'],
+            metadata: {},
+            always: ['git status'],
+          },
+        }),
+      }),
+    )
+    assert.equal(api.agentPendingPermissions.value.length, 1)
+    await api.answerAgentPermission(api.agentPendingPermissions.value[0], 'once')
+    assert.deepEqual(
+      requests.find((item) => item.path === '/session/a/permissions/per_1')?.body,
+      { response: 'once' },
+    )
+    assert.equal(api.agentPendingPermissions.value.length, 0)
+
+    api.handleOpenCodeEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'permission.asked',
+          properties: {
+            id: 'per_session_always',
+            sessionID: 'a',
+            permission: 'external_directory',
+            patterns: ['/logs/current/app.log'],
+            metadata: {},
+            always: ['/logs/current/*'],
+          },
+        }),
+      }),
+    )
+    await api.answerAgentPermission(api.agentPendingPermissions.value[0], 'always')
+    assert.deepEqual(
+      requests.find((item) => item.path === '/session/a/permissions/per_session_always')?.body,
+      { response: 'once' },
+    )
+    api.handleOpenCodeEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'permission.asked',
+          properties: {
+            id: 'per_auto_once',
+            sessionID: 'a',
+            permission: 'external_directory',
+            patterns: ['/logs/current/worker.log'],
+            metadata: {},
+            always: ['/logs/current/*'],
+          },
+        }),
+      }),
+    )
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(
+      requests.find((item) => item.path === '/session/a/permissions/per_auto_once')?.body,
+      { response: 'once' },
+    )
+
+    api.handleOpenCodeEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'question.asked',
+          properties: {
+            id: 'que_1',
+            sessionID: 'a',
+            questions: [
+              {
+                header: '处理方式',
+                question: '下一步怎么做？',
+                options: [{ label: '继续', description: '继续执行' }],
+              },
+            ],
+          },
+        }),
+      }),
+    )
+    assert.equal(api.agentPendingQuestions.value.length, 1)
+    api.agentQuestionAnswers.value.que_1 = [['继续']]
+    await api.submitAgentQuestion(api.agentPendingQuestions.value[0])
+    assert.deepEqual(requests.find((item) => item.path === '/question/que_1/reply')?.body, {
+      answers: [['继续']],
+    })
+    assert.equal(api.agentPendingQuestions.value.length, 0)
+    assert.equal(api.agentChatMessages.value.at(-1).role, 'user')
+    assert.equal(api.agentChatMessages.value.at(-1).content, '# 问题\n\n下一步怎么做？\n继续')
+    assert.deepEqual(api.agentChatMessages.value.at(-1).questionReply, [
+      { question: '下一步怎么做？', answer: '继续' },
+    ])
+    histories.a.push({
+      info: { id: 'u-later', role: 'user' },
+      parts: [{ type: 'text', text: '后续普通对话' }],
+    })
+    api.handleOpenCodeEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({ type: 'session.idle', properties: { sessionID: 'a' } }),
+      }),
+    )
+    await new Promise((resolve) => setImmediate(resolve))
+    const replyIndex = api.agentChatMessages.value.findIndex(
+      (message) => message.id === 'agent-question-reply-que_1',
+    )
+    const laterIndex = api.agentChatMessages.value.findIndex((message) => message.id === 'u-later')
+    assert.ok(replyIndex >= 0)
+    assert.ok(replyIndex < laterIndex)
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
+test('an active abort is rendered as a user stop instead of a session error', async () => {
+  const { api } = setup()
+  try {
+    const messages = api.toAgentChatMessages([
+      {
+        info: {
+          id: 'assistant-aborted',
+          role: 'assistant',
+          error: { name: 'MessageAbortedError', data: { message: 'The operation was aborted' } },
+        },
+        parts: [],
+      },
+    ])
+    assert.equal(messages[0].status, 'done')
+    assert.equal(messages[0].content, '用户终止响应')
+
+    await api.connectAgent('')
+    await api.openAgentSession({ id: 'a' })
+    api.isAgentSending.value = true
+    await api.abortAgentSession()
+    api.handleOpenCodeEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'message.updated',
+          properties: {
+            sessionID: 'a',
+            info: {
+              id: 'assistant-aborted',
+              sessionID: 'a',
+              role: 'assistant',
+              error: { name: 'MessageAbortedError', data: { message: 'aborted' } },
+            },
+          },
+        }),
+      }),
+    )
+    assert.equal(api.agentConnectionError.value, '')
+    assert.equal(api.agentChatMessages.value.at(-1).content, '用户终止响应')
+    assert.equal(api.agentChatMessages.value.at(-1).status, 'done')
   } finally {
     api.closeAgentEventStream()
   }
