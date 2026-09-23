@@ -34,6 +34,12 @@ const {
   messages,
   input,
   isSending,
+  pendingPermissions,
+  pendingQuestions,
+  questionAnswers,
+  questionCustomAnswers,
+  interactionSubmitting,
+  interactionError,
   sessionDialog,
   sessionTitleInput,
   sessionDialogError,
@@ -54,6 +60,11 @@ const {
   showSessionDialog,
   submitSessionDialog,
   abortAgentSession,
+  answerPermission,
+  toggleQuestionOption,
+  setQuestionCustomAnswer,
+  submitQuestion,
+  rejectQuestion,
   suspend,
   sendMessage,
   scrollToBottom,
@@ -751,9 +762,23 @@ const onInputKeydown = (event: KeyboardEvent) => {
               <div v-if="message.role === 'assistant'" class="agent-chat-avatar" aria-hidden="true">
                 AI
               </div>
-              <div class="agent-chat-bubble">
+              <div
+                class="agent-chat-bubble"
+                :class="{ 'agent-question-reply-bubble': !!message.questionReply?.length }"
+              >
                 <!-- 用户消息为纯文本，继承气泡白字 -->
-                <template v-if="message.role === 'user'">
+                <template v-if="message.role === 'user' && message.questionReply?.length">
+                  <section
+                    v-for="(reply, replyIndex) in message.questionReply"
+                    :key="replyIndex"
+                    class="agent-user-question-reply"
+                  >
+                    <h4 v-if="replyIndex === 0"># 问题</h4>
+                    <p class="agent-user-question-text">{{ reply.question }}</p>
+                    <p class="agent-user-answer-text">{{ reply.answer }}</p>
+                  </section>
+                </template>
+                <template v-else-if="message.role === 'user'">
                   <p v-for="part in displayPartsOf(message)" :key="part.id">{{ part.text }}</p>
                 </template>
                 <template v-else>
@@ -789,6 +814,127 @@ const onInputKeydown = (event: KeyboardEvent) => {
               </div>
             </article>
           </template>
+
+          <section
+            v-for="request in pendingPermissions"
+            :key="request.id"
+            class="agent-interaction-card agent-permission-card"
+            role="group"
+            aria-label="Agent 权限请求"
+          >
+            <div class="agent-interaction-heading">
+              <span class="agent-interaction-icon" aria-hidden="true">!</span>
+              <div>
+                <strong>需要你的授权</strong>
+                <p>Agent 请求执行 {{ request.permission }}</p>
+              </div>
+            </div>
+            <ul v-if="request.patterns.length" class="agent-interaction-details">
+              <li v-for="pattern in request.patterns" :key="pattern">
+                <code>{{ pattern }}</code>
+              </li>
+            </ul>
+            <details v-if="request.metadata && Object.keys(request.metadata).length">
+              <summary>查看操作详情</summary>
+              <pre>{{ JSON.stringify(request.metadata, null, 2) }}</pre>
+            </details>
+            <div class="agent-interaction-actions">
+              <button
+                type="button"
+                class="danger"
+                :disabled="!!interactionSubmitting"
+                @click="answerPermission(request, 'reject')"
+              >
+                拒绝
+              </button>
+              <button
+                type="button"
+                :disabled="!!interactionSubmitting"
+                @click="answerPermission(request, 'once')"
+              >
+                仅允许本次
+              </button>
+              <button
+                v-if="request.always?.length"
+                type="button"
+                class="primary"
+                :disabled="!!interactionSubmitting"
+                @click="answerPermission(request, 'always')"
+              >
+                本会话始终允许
+              </button>
+            </div>
+          </section>
+
+          <form
+            v-for="request in pendingQuestions"
+            :key="request.id"
+            class="agent-interaction-card agent-question-card"
+            @submit.prevent="submitQuestion(request)"
+          >
+            <div class="agent-interaction-heading">
+              <span class="agent-interaction-icon question" aria-hidden="true">?</span>
+              <div>
+                <strong>Agent 需要你的选择</strong>
+                <p>回答后将继续当前任务</p>
+              </div>
+            </div>
+            <fieldset v-for="(question, questionIndex) in request.questions" :key="questionIndex">
+              <legend>
+                <span>{{ question.header }}</span>
+                {{ question.question }}
+                <small>{{ question.multiple ? '可多选' : '单选' }}</small>
+              </legend>
+              <button
+                v-for="option in question.options"
+                :key="option.label"
+                type="button"
+                class="agent-question-option"
+                :class="{
+                  selected: questionAnswers[request.id]?.[questionIndex]?.includes(option.label),
+                }"
+                @click="toggleQuestionOption(request, questionIndex, option.label)"
+              >
+                <span class="agent-question-control" aria-hidden="true"></span>
+                <span>
+                  <strong>{{ option.label }}</strong>
+                  <small>{{ option.description }}</small>
+                </span>
+              </button>
+              <input
+                v-if="question.custom !== false"
+                :value="questionCustomAnswers[request.id]?.[questionIndex] || ''"
+                class="agent-question-custom"
+                type="text"
+                placeholder="其他答案（可选）"
+                :disabled="!!interactionSubmitting"
+                @input="
+                  setQuestionCustomAnswer(
+                    request,
+                    questionIndex,
+                    ($event.target as HTMLInputElement).value,
+                  )
+                "
+              />
+            </fieldset>
+            <div class="agent-interaction-actions">
+              <button
+                type="button"
+                class="danger"
+                :disabled="!!interactionSubmitting"
+                @click="rejectQuestion(request)"
+              >
+                取消
+              </button>
+              <button type="submit" class="primary" :disabled="!!interactionSubmitting">
+                {{ interactionSubmitting === request.id ? '提交中…' : '提交选择' }}
+              </button>
+            </div>
+          </form>
+
+          <p v-if="interactionError" class="agent-interaction-error" role="alert">
+            {{ interactionError }}
+          </p>
         </div>
 
         <div v-if="connectionError" class="agent-chat-error" role="alert">
@@ -1747,6 +1893,221 @@ const onInputKeydown = (event: KeyboardEvent) => {
   margin-top: 4px;
   color: #dc2626;
   font-size: 0.75rem;
+}
+
+/* ===== 问询答复气泡（本地生成，重载后按锚点插回） ===== */
+.agent-chat-message.user .agent-question-reply-bubble {
+  min-width: min(360px, calc(100% - 20px));
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 7px 16px rgba(15, 23, 42, 0.08);
+}
+.agent-user-question-reply + .agent-user-question-reply {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #dbe3ee;
+}
+.agent-user-question-reply h4 {
+  margin: 0 0 12px;
+  color: #334155;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+.agent-user-question-reply .agent-user-question-text {
+  color: #94a3b8;
+}
+.agent-user-question-reply .agent-user-answer-text {
+  margin-top: 5px;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+/* ===== 授权卡与问询卡：Agent 挂起等待，必须显式答复 ===== */
+.agent-interaction-card {
+  border: 1px solid #c7d2fe;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(79, 70, 229, 0.09);
+  color: #334155;
+  font-size: 0.8rem;
+  padding: 14px;
+}
+.agent-permission-card {
+  border-color: #fde68a;
+  background: linear-gradient(180deg, #fffbeb, #fff);
+}
+.agent-interaction-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.agent-interaction-heading p {
+  margin: 3px 0 0;
+  color: #64748b;
+  overflow-wrap: anywhere;
+}
+.agent-interaction-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border-radius: 10px;
+  background: #fef3c7;
+  color: #b45309;
+  font-weight: 800;
+}
+.agent-interaction-icon.question {
+  background: #eef2ff;
+  color: #4338ca;
+}
+.agent-interaction-details {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #475569;
+}
+.agent-interaction-details code {
+  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+}
+.agent-interaction-card details {
+  margin-top: 10px;
+}
+.agent-interaction-card summary {
+  cursor: pointer;
+  color: #4338ca;
+  font-size: 0.75rem;
+}
+.agent-interaction-card pre {
+  max-height: 180px;
+  margin: 8px 0 0;
+  overflow: auto;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.7rem;
+  padding: 9px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-interaction-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.agent-interaction-actions button {
+  cursor: pointer;
+  border: 1px solid #dbe3ee;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.78rem;
+  padding: 7px 12px;
+}
+.agent-interaction-actions button.primary {
+  border-color: #4f46e5;
+  background: #4f46e5;
+  color: #fff;
+}
+.agent-interaction-actions button.danger {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #b91c1c;
+}
+.agent-interaction-actions button:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+.agent-interaction-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.agent-question-card fieldset {
+  margin: 12px 0 0;
+  border: 0;
+  padding: 0;
+}
+.agent-question-card legend {
+  width: 100%;
+  color: #334155;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  padding: 0;
+}
+.agent-question-card legend > span,
+.agent-question-card legend > small {
+  display: inline-block;
+  margin-right: 6px;
+  border-radius: 5px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 0.66rem;
+  padding: 2px 5px;
+}
+.agent-question-card legend > small {
+  float: right;
+  margin: 0;
+  background: #f1f5f9;
+  color: #64748b;
+}
+.agent-question-option {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 7px;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  background: #fff;
+  color: #334155;
+  padding: 8px;
+  text-align: left;
+}
+.agent-question-option.selected {
+  border-color: #818cf8;
+  background: #eef2ff;
+}
+.agent-question-control {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  margin-top: 2px;
+  border: 2px solid #cbd5e1;
+  border-radius: 50%;
+}
+.agent-question-option.selected .agent-question-control {
+  border: 4px solid #4f46e5;
+}
+.agent-question-option strong,
+.agent-question-option small {
+  display: block;
+}
+.agent-question-option small {
+  margin-top: 2px;
+  color: #64748b;
+}
+.agent-question-custom {
+  width: 100%;
+  margin-top: 7px;
+  border: 1px solid #dbe3ee;
+  border-radius: 9px;
+  outline: none;
+  padding: 8px 9px;
+}
+.agent-question-custom:focus {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+.agent-interaction-error {
+  margin: 0;
+  border-radius: 9px;
+  background: #fff1f2;
+  color: #b91c1c;
+  font-size: 0.75rem;
+  padding: 8px 10px;
 }
 
 /* ===== 错误条与输入区 ===== */
