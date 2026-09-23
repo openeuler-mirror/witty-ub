@@ -71,7 +71,6 @@ const {
   taskLanesOf,
   taskAxisTotalSOf,
   timelineLegendOf,
-  skippedAlertsOf,
   hasTaskDetailOf,
   statusLabel,
   statusBadgeClass,
@@ -490,13 +489,6 @@ onBeforeUnmount(() => {
                       >
                         {{ taskRowHint(file) }}
                       </div>
-                      <div
-                        v-if="skippedAlertsOf(file).length"
-                        class="task-skip-chip"
-                        :title="skippedAlertsOf(file).join('\n')"
-                      >
-                        ⚠ {{ skippedAlertsOf(file)[0] }}
-                      </div>
                     </div>
                   </td>
                   <td>
@@ -546,17 +538,6 @@ onBeforeUnmount(() => {
                 </tr>
                 <tr v-if="isTaskDetailOpen(file)" class="task-detail-row">
                   <td colspan="8">
-                    <div v-if="skippedAlertsOf(file).length" class="task-detail-skip" role="alert">
-                      <span class="task-detail-skip-title">已跳过读不出来的日志文件</span>
-                      <span
-                        v-for="alert in skippedAlertsOf(file)"
-                        :key="alert"
-                        class="task-detail-skip-line"
-                      >
-                        {{ alert }}
-                      </span>
-                    </div>
-
                     <div
                       v-if="parseTimingOf(file) || taskLanesOf(file).length"
                       class="task-detail-timing"

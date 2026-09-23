@@ -414,15 +414,6 @@ tr:hover td {
   color: var(--danger);
 }
 
-/* 坏日志跳过告警（折叠态）：琥珀色摘要，全文与逐条文案走 title / 明细行 */
-.task-skip-chip {
-  overflow: hidden;
-  color: #b45309;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* 名称列的展开箭头：无明细时留同宽占位，保证多行名称对齐 */
 .task-name-row {
   display: flex;
@@ -468,27 +459,6 @@ tr:hover td {
   padding: 12px 16px;
   background: var(--bg);
   box-shadow: none;
-}
-
-.task-detail-skip {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 12px;
-  padding: 8px 12px;
-  border: 1px solid #fcd34d;
-  border-radius: var(--radius-md);
-  background: #fffbeb;
-  color: #92400e;
-  font-size: 12px;
-}
-
-.task-detail-skip-title {
-  font-weight: 600;
-}
-
-.task-detail-skip-line {
-  word-break: break-all;
 }
 
 .task-detail-timing-head {

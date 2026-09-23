@@ -9,7 +9,6 @@ import {
   type TaskLane,
   type TaskTimeline,
 } from '../utils/parseTiming'
-import { collectSkippedFileAlerts } from '../utils/skipAlerts'
 import { latestTaskReport, taskProgressMessage } from '../utils/taskProgress'
 import { splitUnsupportedUploadFiles, uploadHintText } from '../utils/uploadFiles'
 import { useToast } from './useToast'
@@ -49,7 +48,7 @@ function createTasksState() {
   const statusOf = (file: LogFileModel) => file.overall_status || 'unknown'
 
   const progressOf = (file: LogFileModel) => {
-    // 兜底报告要跳过内部噪声（[perf]/[timing]/[skip] 这类 progress=0.0 的报告），
+    // 兜底报告要跳过内部噪声（[perf]/[timing] 这类 progress=0.0 的报告），
     // 否则后端没给 overall_progress 时进度条会被它们打到 0。
     const progress = file.overall_progress ?? latestTaskReport(file, true)?.progress ?? 0
     return clampProgress(progress)
@@ -57,7 +56,7 @@ function createTasksState() {
 
   const progressMessageOf = (file: LogFileModel) => taskProgressMessage(file)
 
-  // 任务行明细（解析用时 / 三任务泳道 / 坏文件跳过告警）：默认收起，点行首箭头展开
+  // 任务行明细（解析用时 / 三任务泳道）：默认收起，点行首箭头展开
   const expandedTaskIds = ref<Set<string>>(new Set())
   const isTaskDetailOpen = (file: LogFileModel) => expandedTaskIds.value.has(file.id)
   const toggleTaskDetail = (file: LogFileModel) => {
@@ -83,13 +82,8 @@ function createTasksState() {
   const taskLanesOf = (file: LogFileModel): TaskLane[] => taskTimelineOf(file)?.lanes ?? []
   const taskAxisTotalSOf = (file: LogFileModel): number => taskTimelineOf(file)?.totalS ?? 0
   const timelineLegendOf = (file: LogFileModel) => collectTimelineLegend(taskTimelineOf(file))
-  // 解析进行中时可见任务自己就带 `[skip]`；任务切走后改用 /task/list 取回的解析任务告警。
-  const skippedAlertsOf = (file: LogFileModel): string[] => {
-    const live = collectSkippedFileAlerts(file.task?.task_reports)
-    return live.length ? live : (skipAlertsByFile.value[file.id] ?? [])
-  }
   const hasTaskDetailOf = (file: LogFileModel): boolean =>
-    Boolean(parseTimingOf(file) || taskTimelineOf(file) || skippedAlertsOf(file).length)
+    Boolean(parseTimingOf(file) || taskTimelineOf(file))
 
   const statusLabel = (status: string) => {
     const labels: Record<string, string> = {
@@ -134,39 +128,6 @@ function createTasksState() {
 
   const brpcDiagStatusByFile = ref<Record<string, string>>({})
 
-  // 坏文件跳过告警由解析任务上报；任务切到落库/诊断后 /log_file/list 只返回可见任务的
-  // 报告，告警会跟着消失 —— 所以额外从 /task/list 按 op_id 取解析任务的报告。
-  const skipAlertsByFile = ref<Record<string, string[]>>({})
-
-  const loadSkipAlerts = async (files: LogFileModel[]) => {
-    const asset = assets.selectedAsset.value
-    if (!asset) return
-    const targets = files.filter((file) => file.log_type !== 'UBSocket')
-    if (targets.length === 0) {
-      skipAlertsByFile.value = {}
-      return
-    }
-    try {
-      const result = await listTasks({
-        kb_id: asset.id,
-        task_type: 'kv_cache_log_parse_worker',
-        created_sorted_desc: true,
-        page_cnt: Math.min(100, Math.max(20, files.length)),
-        page_num: 1,
-      })
-      const next: Record<string, string[]> = {}
-      // 降序取数：同一个日志文件重跑多次时，先到的是最新一次，别被旧告警顶掉。
-      for (const task of result.tasks ?? []) {
-        if (!task.op_id || next[task.op_id]) continue
-        const alerts = collectSkippedFileAlerts(task.task_reports)
-        if (alerts.length) next[task.op_id] = alerts
-      }
-      skipAlertsByFile.value = next
-    } catch {
-      // 跳过告警不是关键路径：取不到就沿用上一次结果，不打断任务列表。
-    }
-  }
-
   const loadBrpcDiagnosisStatuses = async () => {
     const asset = assets.selectedAsset.value
     if (!asset) return
@@ -201,7 +162,6 @@ function createTasksState() {
       logFilesTotal.value = 0
       brpcDiagStatusByFile.value = {}
       expandedTaskIds.value = new Set()
-      skipAlertsByFile.value = {}
     }
     if (!silent) logFilesLoading.value = true
     logFilesError.value = ''
@@ -210,7 +170,7 @@ function createTasksState() {
       if (logFilesAssetId.value !== kbId) return
       logFiles.value = files
       logFilesTotal.value = files.length
-      await Promise.all([loadSkipAlerts(files), loadBrpcDiagnosisStatuses()])
+      await loadBrpcDiagnosisStatuses()
     } catch (error) {
       if (logFilesAssetId.value !== kbId) return
       logFilesError.value = errorText(error)
@@ -491,7 +451,6 @@ function createTasksState() {
     taskLanesOf,
     taskAxisTotalSOf,
     timelineLegendOf,
-    skippedAlertsOf,
     hasTaskDetailOf,
     statusLabel,
     statusBadgeClass,
