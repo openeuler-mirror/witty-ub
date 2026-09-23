@@ -21,7 +21,7 @@ CONFIG_KEYS=(
     PG_HOST PG_PORT PG_DATABASE PG_USER PG_PASSWORD PG_SECRET_FILE
     PG_HOST_IN_CONTAINER PG_PORT_IN_CONTAINER PG_CONTAINER_NAME PG_NETWORK PG_VOLUME
     OPENCODE_CONFIG_DIR
-    WITTY_RAG_MCP_URL WITTY_RAG_NETWORK RAG_CONFIG_FILE RAG_DB_SECRET_FILE
+    WITTY_RAG_MCP_URL WITTY_RAG_NETWORK RAG_CONFIG_FILE RAG_DB_SECRET_FILE RAG_DB_PASSWORD
     OPENGAUSS_RAG_IMAGE WITTY_RAG_CORE_IMAGE
 )
 ENV_OVERRIDES=""
@@ -214,21 +214,66 @@ do_install_all() {
 configure_rag_inputs() {
     local default_config="${RAG_CONFIG_FILE:-${DEPLOY_DIR}/../rag-core.toml}"
     local default_secret="${RAG_DB_SECRET_FILE:-/etc/witty-ub/rag-opengauss.passwd}"
+    local rag_password="${RAG_DB_PASSWORD:-}" confirm_password="" password_classes=0
+    local secret_dir secret_tmp
 
     noninteractive_hint
     ask "  RAG config file [${default_config}]: " input_config
     RAG_CONFIG_FILE="${input_config:-${default_config}}"
-    ask "  openGauss password file [${default_secret}]: " input_secret
-    RAG_DB_SECRET_FILE="${input_secret:-${default_secret}}"
+    RAG_DB_SECRET_FILE="$default_secret"
 
     if [ ! -f "$RAG_CONFIG_FILE" ]; then
         log_error "RAG config file does not exist: ${RAG_CONFIG_FILE}"
         return 1
     fi
     if [ ! -s "$RAG_DB_SECRET_FILE" ]; then
-        log_error "openGauss password file does not exist or is empty: ${RAG_DB_SECRET_FILE}"
-        log_error "Create a password-only file and set its mode to 0600"
-        return 1
+        echo "  openGauss password file will be created at: ${RAG_DB_SECRET_FILE}"
+        if [ -t 0 ]; then
+            read -r -s -p "  Enter a new openGauss password: " rag_password
+            echo ""
+            read -r -s -p "  Confirm the openGauss password: " confirm_password
+            echo ""
+            if [ "$rag_password" != "$confirm_password" ]; then
+                log_error "The two passwords do not match"
+                return 1
+            fi
+        elif [ -z "$rag_password" ]; then
+            log_error "Password file is missing in non-interactive mode: ${RAG_DB_SECRET_FILE}"
+            log_error "Set RAG_DB_PASSWORD or create the password file first"
+            return 1
+        fi
+
+        [ ${#rag_password} -ge 8 ] || {
+            log_error "The openGauss password must contain at least 8 characters"
+            return 1
+        }
+        if [[ "$rag_password" =~ [a-z] ]]; then password_classes=$((password_classes + 1)); fi
+        if [[ "$rag_password" =~ [A-Z] ]]; then password_classes=$((password_classes + 1)); fi
+        if [[ "$rag_password" =~ [0-9] ]]; then password_classes=$((password_classes + 1)); fi
+        if [[ "$rag_password" =~ [^a-zA-Z0-9] ]]; then password_classes=$((password_classes + 1)); fi
+        [ "$password_classes" -ge 3 ] || {
+            log_error "Use at least three character classes: uppercase, lowercase, digit, special"
+            return 1
+        }
+
+        secret_dir="$(dirname "$RAG_DB_SECRET_FILE")"
+        secret_tmp="$(mktemp)"
+        chmod 0600 "$secret_tmp"
+        printf '%s' "$rag_password" >"$secret_tmp"
+        if mkdir -p "$secret_dir" 2>/dev/null && install -m 600 "$secret_tmp" "$RAG_DB_SECRET_FILE" 2>/dev/null; then
+            :
+        elif command -v sudo >/dev/null 2>&1 &&
+            sudo install -d -m 700 "$secret_dir" &&
+            sudo install -m 600 "$secret_tmp" "$RAG_DB_SECRET_FILE"; then
+            :
+        else
+            rm -f "$secret_tmp"
+            log_error "Cannot create password file: ${RAG_DB_SECRET_FILE}"
+            return 1
+        fi
+        rm -f "$secret_tmp"
+        unset rag_password confirm_password RAG_DB_PASSWORD
+        log_ok "Created protected openGauss password file: ${RAG_DB_SECRET_FILE}"
     fi
     chmod 0600 "$RAG_DB_SECRET_FILE" 2>/dev/null || true
     export RAG_CONFIG_FILE RAG_DB_SECRET_FILE
