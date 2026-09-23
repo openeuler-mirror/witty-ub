@@ -16,7 +16,12 @@ Witty-UB/OpenCode -> http://witty-rag-core:12312/sse
 准备以下文件和变量：
 
 ```bash
-export OPENGAUSS_RAG_IMAGE="hub-harbor.oepkgs.net/neocopilot/opengauss:latest"
+case "$(uname -m)" in
+  x86_64|amd64)
+    export OPENGAUSS_RAG_IMAGE="hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:4fd44608ca3571d3ceb5bc2bc5cbcde131dde2ed2b8068ff3f58effc8c60d885" ;;
+  aarch64|arm64)
+    export OPENGAUSS_RAG_IMAGE="hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:38a63d58b2b41e3668cde9f9588a74cb4e8aee76b301f7feb86d6a49d871f10c" ;;
+esac
 export WITTY_RAG_CORE_IMAGE="hub-harbor.oepkgs.net/neocopilot/witty-rag-core:0.10.2-release-arm"
 export RAG_SOURCE_DIR="/home/euler-copilot-rag"
 export RAG_CONFIG_FILE="$(pwd)/deploy/rag-core.toml"

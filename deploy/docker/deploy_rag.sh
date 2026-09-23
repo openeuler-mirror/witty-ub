@@ -33,7 +33,20 @@ unset _ENV_RAG_CONFIG_FILE _ENV_RAG_DB_SECRET_FILE _ENV_OPENGAUSS_RAG_IMAGE \
 
 WITTY_NETWORK="${WITTY_NETWORK:-${PG_NETWORK:-witty-ub-network}}"
 OPENGAUSS_RAG_CONTAINER="${OPENGAUSS_RAG_CONTAINER:-opengauss-rag}"
-OPENGAUSS_RAG_IMAGE="${OPENGAUSS_RAG_IMAGE:-hub-harbor.oepkgs.net/neocopilot/opengauss:latest}"
+if [ -z "${OPENGAUSS_RAG_IMAGE:-}" ]; then
+    case "$(uname -m)" in
+        x86_64|amd64)
+            OPENGAUSS_RAG_IMAGE="hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:4fd44608ca3571d3ceb5bc2bc5cbcde131dde2ed2b8068ff3f58effc8c60d885"
+            ;;
+        aarch64|arm64)
+            OPENGAUSS_RAG_IMAGE="hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:38a63d58b2b41e3668cde9f9588a74cb4e8aee76b301f7feb86d6a49d871f10c"
+            ;;
+        *)
+            log_error "不支持的宿主机架构: $(uname -m)；请在 deploy.conf 中显式设置 OPENGAUSS_RAG_IMAGE"
+            exit 1
+            ;;
+    esac
+fi
 OPENGAUSS_RAG_HOST_PORT="${OPENGAUSS_RAG_HOST_PORT:-5440}"
 OPENGAUSS_RAG_VOLUME="${OPENGAUSS_RAG_VOLUME:-opengauss-rag-data}"
 RAG_DB_USER="${RAG_DB_USER:-gaussdb}"
