@@ -9,7 +9,7 @@ const apiJs = ts.transpileModule(apiController.replaceAll('export ', ''), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
 }).outputText
 const apiExports = new Function(
-  `${apiJs}\nreturn { AgentApi, buildBasicAuthHeader, extractAgentError, isSecureRemoteAgentAddress, normalizeAgentServerAddress }`,
+  `${apiJs}\nreturn { AgentApi, buildBasicAuthHeader, extractAgentError, isAgentAbortError, isSecureRemoteAgentAddress, normalizeAgentServerAddress }`,
 )()
 
 const chatSource = readFileSync(
@@ -32,6 +32,7 @@ const createAgentChatState = new Function(
   'buildBasicAuthHeader',
   'defaultAgentApiBase',
   'extractAgentError',
+  'isAgentAbortError',
   'isSecureRemoteAgentAddress',
   'normalizeAgentServerAddress',
   `${chatJs}\nreturn createAgentChatState`,
@@ -60,6 +61,7 @@ const createAgentChatState = new Function(
   apiExports.buildBasicAuthHeader,
   () => '/agent-api',
   apiExports.extractAgentError,
+  apiExports.isAgentAbortError,
   apiExports.isSecureRemoteAgentAddress,
   apiExports.normalizeAgentServerAddress,
 )
@@ -84,6 +86,11 @@ function setup() {
       child: [],
     },
     statuses: {},
+    // 服务端挂起的受限操作与问询（打开会话时按它们补齐界面）
+    permissions: [],
+    questions: [],
+    permissionReplies: [],
+    questionReplies: [],
   })
   const servers = { local: makeServer(), remote: makeServer() }
   const storage = new Map()
@@ -160,6 +167,26 @@ function setup() {
       server.sessions.push(session)
       server.histories[session.id] = []
       return json(session)
+    }
+    if (path === '/permission' && method === 'GET') return json(server.permissions)
+    if (path === '/question' && method === 'GET') return json(server.questions)
+    const permissionReply = path.match(/^\/session\/([^/]+)\/permissions\/([^/]+)$/)
+    if (permissionReply && method === 'POST') {
+      server.permissionReplies.push({
+        sessionID: permissionReply[1],
+        requestID: permissionReply[2],
+        response: body.response,
+      })
+      server.permissions = server.permissions.filter((item) => item.id !== permissionReply[2])
+      return json(true)
+    }
+    const questionAction = path.match(/^\/question\/([^/]+)\/(reply|reject)$/)
+    if (questionAction && method === 'POST') {
+      server.questions = server.questions.filter((item) => item.id !== questionAction[1])
+      if (questionAction[2] === 'reply') {
+        server.questionReplies.push({ requestID: questionAction[1], answers: body.answers })
+      }
+      return json(true)
     }
     const [, id, action] = path.match(/^\/session\/([^/]+)(?:\/(.*))?$/) ?? []
     if (action === 'message') return json(server.histories[id] ?? [])
@@ -463,6 +490,195 @@ test('stream deltas queued during history loading do not duplicate fetched text'
       delta: '!',
     })
     assert.equal(state.messages.value[0].content, 'Hello world!')
+  } finally {
+    await cleanup()
+  }
+})
+
+test('受限操作请求按会话去重，答复后放行；「本会话始终允许」后同类请求自动放行', async () => {
+  const { state, servers, storage, requests, emit, cleanup } = setup()
+  try {
+    await state.loginLocalAgent()
+    await state.openConversation('a')
+    await emit('local', 'permission.asked', {
+      id: 'per_1',
+      sessionID: 'a',
+      permission: 'bash',
+      patterns: ['git status'],
+      always: ['git status'],
+    })
+    assert.equal(state.pendingPermissions.value.length, 1)
+    // 同一请求重复推送（重连 / 多页签）不重复占用界面
+    await emit('local', 'permission.asked', {
+      id: 'per_dup',
+      sessionID: 'a',
+      permission: 'bash',
+      patterns: ['git status'],
+      always: ['git status'],
+    })
+    assert.equal(state.pendingPermissions.value.length, 1)
+
+    await state.answerPermission(state.pendingPermissions.value[0], 'once')
+    assert.deepEqual(
+      servers.local.permissionReplies.find((item) => item.requestID === 'per_1'),
+      { sessionID: 'a', requestID: 'per_1', response: 'once' },
+      '「仅允许本次」要按 once 答复服务端',
+    )
+    assert.equal(state.pendingPermissions.value.length, 0)
+
+    // 「本会话始终允许」：记录规则后不再打断用户，后续命中规则的请求自动按 once 放行
+    await emit('local', 'permission.asked', {
+      id: 'per_2',
+      sessionID: 'a',
+      permission: 'external_directory',
+      patterns: ['/logs/current/app.log'],
+      always: ['/logs/current/*'],
+    })
+    await state.answerPermission(state.pendingPermissions.value[0], 'always')
+    await emit('local', 'permission.asked', {
+      id: 'per_3',
+      sessionID: 'a',
+      permission: 'external_directory',
+      patterns: ['/logs/current/worker.log'],
+      always: ['/logs/current/*'],
+    })
+    await flush()
+    assert.deepEqual(
+      servers.local.permissionReplies.find((item) => item.requestID === 'per_3'),
+      { sessionID: 'a', requestID: 'per_3', response: 'once' },
+      '命中会话规则的请求应由前端直接放行',
+    )
+    assert.equal(state.pendingPermissions.value.length, 0)
+    assert.ok(
+      JSON.parse(storage.get('witty-ub.agent-session-permissions:/agent-api')).a.length === 1,
+      '会话级授权规则要持久化到本地存储',
+    )
+
+    // 别的会话的请求不入当前界面；切过去后按服务端挂起列表补齐
+    servers.local.permissions.push({
+      id: 'per_b1',
+      sessionID: 'b',
+      permission: 'bash',
+      patterns: ['rm -rf /tmp/cache'],
+      always: ['rm -rf /tmp/cache'],
+    })
+    await emit('local', 'permission.asked', {
+      id: 'per_b1',
+      sessionID: 'b',
+      permission: 'bash',
+      patterns: ['rm -rf /tmp/cache'],
+    })
+    assert.equal(state.pendingPermissions.value.length, 0)
+    await state.openConversation('b')
+    assert.deepEqual(
+      state.pendingPermissions.value.map((item) => item.id),
+      ['per_b1'],
+    )
+    assert.ok(
+      !requests.some((request) => request.path === '/session/b/permissions/per_b1'),
+      '未答复前不能自动放行',
+    )
+  } finally {
+    await cleanup()
+  }
+})
+
+test('问询答复以「问题 / 答案」气泡入会话，重载历史后按锚点归位', async () => {
+  const { state, servers, emit, cleanup } = setup()
+  try {
+    await state.loginLocalAgent()
+    await state.openConversation('a')
+    await emit('local', 'question.asked', {
+      id: 'que_1',
+      sessionID: 'a',
+      questions: [
+        {
+          header: '处理方式',
+          question: '下一步怎么做？',
+          options: [{ label: '继续', description: '继续执行' }],
+        },
+      ],
+    })
+    assert.equal(state.pendingQuestions.value.length, 1)
+
+    // 每个问题都要作答，否则只提示不提交
+    await state.submitQuestion(state.pendingQuestions.value[0])
+    assert.equal(state.interactionError.value, '请回答每一个问题后再提交。')
+    assert.equal(servers.local.questionReplies.length, 0)
+
+    state.toggleQuestionOption(state.pendingQuestions.value[0], 0, '继续')
+    state.setQuestionCustomAnswer(state.pendingQuestions.value[0], 0, '顺便保留日志')
+    await state.submitQuestion(state.pendingQuestions.value[0])
+    assert.deepEqual(servers.local.questionReplies, [
+      { requestID: 'que_1', answers: [['继续', '顺便保留日志']] },
+    ])
+    assert.equal(state.pendingQuestions.value.length, 0)
+
+    const reply = state.messages.value.at(-1)
+    assert.equal(reply.id, 'agent-question-reply-que_1')
+    assert.equal(reply.role, 'user')
+    assert.deepEqual(reply.questionReply, [
+      { question: '下一步怎么做？', answer: '继续、顺便保留日志' },
+    ])
+
+    // 服务端历史里没有这条本地气泡：重载后要按锚点插回原位
+    servers.local.histories.a.push({
+      info: { id: 'u-later', role: 'user' },
+      parts: [{ type: 'text', text: '后续提问' }],
+    })
+    await state.openConversation('a')
+    const ids = state.messages.value.map((message) => message.id)
+    assert.ok(ids.includes('agent-question-reply-que_1'), '重载历史后答复气泡不能丢')
+    assert.ok(
+      ids.indexOf('agent-question-reply-que_1') < ids.indexOf('u-later'),
+      '答复要落在提交当时的锚点之后',
+    )
+    assert.equal(state.messages.value.at(-1).id, 'u-later')
+  } finally {
+    await cleanup()
+  }
+})
+
+test('中止按「用户终止响应」渲染：历史消息、流式消息与 session.error 都不算失败', async () => {
+  const { state, servers, emit, cleanup } = setup()
+  try {
+    await state.loginLocalAgent()
+    servers.local.histories.a.push({
+      info: {
+        id: 'm-aborted',
+        role: 'assistant',
+        error: { name: 'MessageAbortedError', data: { message: 'The operation was aborted' } },
+      },
+      parts: [{ id: 'p', type: 'text', text: '半截回答' }],
+    })
+    await state.openConversation('a')
+    const historyMessage = state.messages.value.find((message) => message.id === 'm-aborted')
+    assert.equal(historyMessage.status, 'done')
+    assert.equal(historyMessage.content, '用户终止响应')
+
+    state.input.value = '提问'
+    await state.sendMessage()
+    await emit('local', 'message.updated', {
+      sessionID: 'a',
+      info: {
+        id: 'm-live-aborted',
+        sessionID: 'a',
+        role: 'assistant',
+        error: { name: 'AbortError' },
+      },
+    })
+    await flush()
+    assert.equal(state.connectionError.value, '')
+    assert.equal(state.messages.value.at(-1).status, 'done')
+    assert.equal(state.messages.value.at(-1).content, '用户终止响应')
+
+    await emit('local', 'session.error', {
+      sessionID: 'a',
+      error: { name: 'MessageAbortedError', data: { message: 'aborted' } },
+    })
+    await flush()
+    assert.equal(state.connectionError.value, '', '中止不该弹错误条')
+    assert.equal(state.isSending.value, false)
   } finally {
     await cleanup()
   }
