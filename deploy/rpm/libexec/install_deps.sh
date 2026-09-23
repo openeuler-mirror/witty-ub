@@ -36,6 +36,10 @@ WITTY_SKILL_DIR="${WITTY_AGENT_BUNDLE_DIR}/skills/experience-skill"
 WITTY_SKILL_SCRIPTS="${WITTY_SKILL_DIR}/scripts"
 WITTY_TOKENIZER_DIR="${WITTY_SKILL_SCRIPTS}/src/experience_skill_cli/tokenizer"
 
+# pip 镜像源（统一环境变量 PYPI_INDEX_URL，默认华为云；与 spec %post backend 约定一致。
+# 注意: experience-skill 的 uv sync 不走此变量，源由 bundle 内 pyproject.toml 指定）
+PIP_INDEX="${PYPI_INDEX_URL:-https://repo.huaweicloud.com/repository/pypi/simple/}"
+
 # RPM 子包检查（非 RPM 系统（Ubuntu）无子包概念，跳过）
 _pkg_installed() {
     _has_cmd rpm || return 0
@@ -217,7 +221,7 @@ install_python_deps() {
 
     $SUDO mkdir -p "$(dirname "$LOG_FILE")"
     _info "按 requirements.txt 安装/更新 Python 依赖..."
-    if ! $SUDO "$VENV_DIR/bin/pip" install -U -r "$REQUIREMENTS_FILE" 2>&1 | \
+    if ! $SUDO "$VENV_DIR/bin/pip" install -U -i "$PIP_INDEX" -r "$REQUIREMENTS_FILE" 2>&1 | \
         $SUDO tee "$LOG_FILE"; then
         _err "Python 依赖安装失败，最近日志:"
         tail -30 "$LOG_FILE" 2>/dev/null || true
@@ -233,9 +237,7 @@ install_python_deps() {
 # OpenCode，整体跳过。
 
 install_uv_if_missing() {
-    # openEuler 24.03 无 uv 的 dnf 包 → 走 pip。镜像源:
-    # WITTY_PIP_INDEX(宿主机脚本约定) > PYPI_INDEX_URL(spec %post 约定) > 华为云
-    local pip_index="${WITTY_PIP_INDEX:-${PYPI_INDEX_URL:-https://repo.huaweicloud.com/repository/pypi/simple/}}"
+    # openEuler 24.03 无 uv 的 dnf 包 → 走 pip（镜像源见顶部 PIP_INDEX）
 
     if _has_cmd uv; then
         _log "uv 已就绪: $(command -v uv) ($(uv --version 2>/dev/null | head -n1))"
@@ -248,14 +250,14 @@ install_uv_if_missing() {
     _is_root || SUDO="sudo"
 
     # openEuler 24.03 需 --break-system-packages；老 pip 不认该参数则回退
-    $SUDO python3 -m pip install -U -i "$pip_index" uv --break-system-packages >/dev/null 2>&1 ||
-        $SUDO python3 -m pip install -U -i "$pip_index" uv ||
+    $SUDO python3 -m pip install -U -i "$PIP_INDEX" uv --break-system-packages >/dev/null 2>&1 ||
+        $SUDO python3 -m pip install -U -i "$PIP_INDEX" uv ||
         true
 
     # pip 认为依赖已满足时不会补回丢失的 console script → 强制重装
     if ! _has_cmd uv; then
-        $SUDO python3 -m pip install --force-reinstall --no-deps -i "$pip_index" uv --break-system-packages >/dev/null 2>&1 ||
-            $SUDO python3 -m pip install --force-reinstall --no-deps -i "$pip_index" uv >/dev/null 2>&1 ||
+        $SUDO python3 -m pip install --force-reinstall --no-deps -i "$PIP_INDEX" uv --break-system-packages >/dev/null 2>&1 ||
+            $SUDO python3 -m pip install --force-reinstall --no-deps -i "$PIP_INDEX" uv >/dev/null 2>&1 ||
             true
     fi
 
@@ -279,7 +281,7 @@ install_uv_if_missing() {
 
     if ! _has_cmd uv; then
         _err "uv 安装失败。Agent 技能会报 'uv: command not found'，请手动安装:"
-        echo "  sudo python3 -m pip install -i $pip_index uv --break-system-packages"
+        echo "  sudo python3 -m pip install -i $PIP_INDEX uv --break-system-packages"
         return 1
     fi
     _log "uv 安装完成: $(command -v uv)"
