@@ -112,6 +112,7 @@ class ListFailureCodeStatsRequest(StrictRequestModel):
     cluster_names: Optional[list[str]] = Field(default=None, description="集群名列表，用于过滤")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，用于过滤")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，用于过滤")
+    endpoint_ip: Optional[str] = Field(default=None, description="端点IP精确过滤，语义为 src_ip = endpoint_ip OR dst_ip = endpoint_ip")
     status_codes: Optional[list[str]] = Field(
         default=None, description="故障码过滤（数组重叠，返回挂有任一指定故障码的 trace）"
     )

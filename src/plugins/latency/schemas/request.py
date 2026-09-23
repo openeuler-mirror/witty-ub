@@ -1,17 +1,11 @@
-from datetime import datetime
 import os
+from datetime import datetime
+from typing import Annotated, Any, List, Optional, Union
 
-from pydantic import (
-    AfterValidator,
-    Field,
-    ValidationInfo,
-    field_validator,
-)
-from typing import Annotated, Optional, Any, List, Union
 from fastapi import UploadFile
 from latency.ENUM.general import DiagnosisConfigLogType, SourceType
-from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.ENUM.sampling import SampleMode
+from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 
 # Re-export the parse-side config classes (no FastAPI dependency) so that
 # existing ``from latency.schemas.request import ParseConfig`` imports keep
@@ -22,6 +16,12 @@ from latency.schemas.parse_config import (  # noqa: F401
     SortField,
     StrictRequestModel,
     TimeStr,
+)
+from pydantic import (
+    AfterValidator,
+    Field,
+    ValidationInfo,
+    field_validator,
 )
 
 
@@ -201,6 +201,7 @@ class ListLogParseResultRequest(StrictRequestModel):
     trace_ids: Optional[list[str]] = Field(default=None, description="Trace ID列表，用于批量查询多个链路的解析结果")
     src_ip: Optional[str] = Field(default=None, description="源IP地址，支持模糊查询")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，支持模糊查询")
+    endpoint_ip: Optional[str] = Field(default=None, description="端点IP精确过滤，语义为 src_ip = endpoint_ip OR dst_ip = endpoint_ip")
     pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
     host: Optional[str] = Field(default=None, description="主机名称，支持模糊查询")
     cluster_name: Optional[str] = Field(default=None, description="集群名称，支持模糊查询")
@@ -239,6 +240,7 @@ class ListLogFailureEventResultRequest(StrictRequestModel):
 
 class ListTraceFailureEventResultRequest(StrictRequestModel):
     kb_id: str = Field(..., description="日志知识库ID，用于过滤指定知识库的结果")
+    log_id: Optional[str] = Field(default=None, description="日志文件路径ID，用于过滤指定日志文件路径的结果")
     trace_ids: Optional[list[str]] = Field(default=None, description="Trace ID列表，用于批量查询多个链路的故障事件")
     pod_names: Optional[list[str]] = Field(
         default_factory=list, description="日志中包含的pod_id"
@@ -254,6 +256,7 @@ class ListTraceFailureEventResultRequest(StrictRequestModel):
     )
     src_ip: Optional[str] = Field(default=None, description="源IP地址，用于过滤指定源IP的故障事件")
     dst_ip: Optional[str] = Field(default=None, description="目的IP地址，用于过滤指定目的IP的故障事件")
+    endpoint_ip: Optional[str] = Field(default=None, description="端点IP精确过滤，语义为 src_ip = endpoint_ip OR dst_ip = endpoint_ip")
     is_anomalous: Optional[bool] = Field(
         default=None,
         description="是否为异常解析结果，True表示异常，False表示正常，None表示不区分",
@@ -538,11 +541,28 @@ class CreateTaskRequest(StrictRequestModel):
 
 
 class ListTimeWindowAggregatedEventRequest(StrictRequestModel):
-    """时间窗口聚合事件查询请求"""
+    """时间窗口聚合事件查询请求
+
+    ``log_id`` 是引擎侧契约：不传时按 kb_id 返回资产内全部日志的聚合桶，
+    传了就收窄到单个日志文件（见 TimeWindowAggregatedEventPGManager）。
+
+    ``cluster_name`` / ``host`` / ``pod_ip`` 仅作兼容保留：物化表没有
+    这三列，引擎不做这三个维度的过滤，保留字段是为了不让旧请求变成
+    校验错误。
+    """
     kb_id: str = Field(..., description="知识库ID，用于过滤")
-    cluster_name: Optional[str] = Field(default=None, description="集群名称，用于精确过滤")
-    host: Optional[str] = Field(default=None, description="主机名称，用于精确过滤")
-    pod_ip: Optional[str] = Field(default=None, description="Pod IP 或 Pod 名称，用于精确过滤")
+    log_id: Optional[str] = Field(
+        default=None, description="日志文件ID，未提供时返回资产内全部日志的聚合桶"
+    )
+    cluster_name: Optional[str] = Field(
+        default=None, description="[兼容保留，引擎不过滤] 集群名称"
+    )
+    host: Optional[str] = Field(
+        default=None, description="[兼容保留，引擎不过滤] 主机名称"
+    )
+    pod_ip: Optional[str] = Field(
+        default=None, description="[兼容保留，引擎不过滤] Pod IP 或 Pod 名称"
+    )
     start_time: Optional[TimeStr] = Field(
         default=None,
         description="开始时间，格式为YYYY-MM-DD HH:MM:SS",

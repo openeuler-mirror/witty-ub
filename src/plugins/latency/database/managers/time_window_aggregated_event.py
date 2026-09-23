@@ -251,7 +251,7 @@ class TimeWindowAggregatedEventPGManager:
         if start_time:
             filters.append(LogParseResult.timestamp >= parse_timestamp(start_time))
         if end_time:
-            filters.append(LogParseResult.timestamp <= parse_timestamp(end_time))
+            filters.append(LogParseResult.timestamp < parse_timestamp(end_time))
         if src_ip is not None:
             filters.append(LogParseResult.src_ip == parse_ip(src_ip))
         if dst_ip is not None:
@@ -515,10 +515,12 @@ class TimeWindowAggregatedEventPGManager:
         if req.kb_id:
             kb_subq = select(LogFile.id).where(LogFile.kb_id == req.kb_id).subquery()
             filters.append(LogParseResult.log_id.in_(select(kb_subq.c.id)))
+        if req.log_id:
+            filters.append(LogParseResult.log_id == req.log_id)
         if req.start_time:
             filters.append(LogParseResult.timestamp >= parse_timestamp(req.start_time))
         if req.end_time:
-            filters.append(LogParseResult.timestamp <= parse_timestamp(req.end_time))
+            filters.append(LogParseResult.timestamp < parse_timestamp(req.end_time))
         if req.src_ip:
             filters.append(
                 func.host(LogParseResult.src_ip).like(
@@ -531,12 +533,6 @@ class TimeWindowAggregatedEventPGManager:
                     f"%{escape_like(req.dst_ip)}%", escape="\\"
                 )
             )
-        if req.cluster_name:
-            filters.append(LogParseResult.cluster_name == req.cluster_name)
-        if req.host:
-            filters.append(LogParseResult.host == req.host)
-        if req.pod_ip:
-            filters.append(LogParseResult.pod_ips.contains([req.pod_ip]))
         if req.operation:
             if req.operation.upper() == "GET":
                 filters.append(LogParseResult.operation.ilike("%GET%"))
@@ -631,13 +627,15 @@ class TimeWindowAggregatedEventPGManager:
         filters = [TimeWindowAggregated.existed_status.is_(True)]
         if req.kb_id:
             filters.append(TimeWindowAggregated.kb_id == req.kb_id)
+        if req.log_id:
+            filters.append(TimeWindowAggregated.log_id == req.log_id)
         if req.start_time:
             filters.append(
                 TimeWindowAggregated.time_bucket >= parse_timestamp(req.start_time)
             )
         if req.end_time:
             filters.append(
-                TimeWindowAggregated.time_bucket <= parse_timestamp(req.end_time)
+                TimeWindowAggregated.time_bucket < parse_timestamp(req.end_time)
             )
         if req.src_ip:
             filters.append(func.host(TimeWindowAggregated.src_ip).like(f"%{req.src_ip}%"))

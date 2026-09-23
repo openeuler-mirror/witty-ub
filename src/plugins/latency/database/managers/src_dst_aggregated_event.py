@@ -158,7 +158,7 @@ class SrcDstAggregatedEventPGManager:
         if req.start_time:
             filters.append(LogParseResult.timestamp >= parse_timestamp(req.start_time))
         if req.end_time:
-            filters.append(LogParseResult.timestamp <= parse_timestamp(req.end_time))
+            filters.append(LogParseResult.timestamp < parse_timestamp(req.end_time))
         if req.src_ip:
             filters.append(
                 func.host(LogParseResult.src_ip).like(f"%{req.src_ip}%")
