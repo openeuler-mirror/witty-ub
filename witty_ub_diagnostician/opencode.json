@@ -1,12 +1,20 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "witty-rag": {
+      "type": "remote",
+      "url": "{env:WITTY_RAG_MCP_URL}",
+      "enabled": true
+    }
+  },
   "skills": {
     "latency-analysis": "./skills/latency-analysis",
     "failure-code-analysis": "./skills/failure-code-analysis",
     "diagnostic-report-generation": "./skills/diagnostic-report-generation",
     "experience-skill": "./skills/experience-skill",
     "brpc-diagnosis": "./skills/brpc-diagnosis",
-    "case-matching": "./skills/case-matching"
+    "case-matching": "./skills/case-matching",
+    "rag-service": "./skills/rag-service"
   },
   "agent": {
     "witty-ub-diagnostician": {

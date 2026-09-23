@@ -21,6 +21,8 @@ CONFIG_KEYS=(
     PG_HOST PG_PORT PG_DATABASE PG_USER PG_PASSWORD PG_SECRET_FILE
     PG_HOST_IN_CONTAINER PG_PORT_IN_CONTAINER PG_CONTAINER_NAME PG_NETWORK PG_VOLUME
     OPENCODE_CONFIG_DIR
+    WITTY_RAG_MCP_URL WITTY_RAG_NETWORK RAG_CONFIG_FILE RAG_DB_SECRET_FILE
+    OPENGAUSS_RAG_IMAGE WITTY_RAG_CORE_IMAGE
 )
 ENV_OVERRIDES=""
 for _key in "${CONFIG_KEYS[@]}"; do
@@ -49,6 +51,9 @@ WITTY_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}"
 WITTY_BACKEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-backend"
 WITTY_FRONTEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-frontend"
 PG_VOLUME="${PG_VOLUME:-pg15-data}"
+RAG_DB_CONTAINER="${OPENGAUSS_RAG_CONTAINER:-opengauss-rag}"
+RAG_CORE_CONTAINER="${WITTY_RAG_CORE_CONTAINER:-witty-rag-core}"
+RAG_DB_VOLUME="${OPENGAUSS_RAG_VOLUME:-opengauss-rag-data}"
 
 # ---------- 全局选项：-y / --yes 跳过确认（卸载类命令在非交互环境下必需） ----------
 ASSUME_YES=0
@@ -183,12 +188,17 @@ noninteractive_hint() {
 # ============================================================
 do_install_all() {
     sep
-    echo "One-shot install: PostgreSQL + witty-ub (Docker)"
+    echo "One-shot install: PostgreSQL + openGauss + RAG Core + witty-ub"
     sep
     check_docker || return 1
     echo ""
     if ! bash "${DEPLOY_DIR}/../deploy_pg.sh" --docker; then
         log_error "PostgreSQL deployment failed; aborting the one-shot install (witty-ub will not be deployed)"
+        return 1
+    fi
+    echo ""
+    if ! do_install_rag; then
+        log_error "RAG deployment failed; aborting the one-shot install"
         return 1
     fi
     echo ""
@@ -199,6 +209,38 @@ do_install_all() {
     sep
     log_ok "One-shot install completed!"
     show_status
+}
+
+configure_rag_inputs() {
+    local default_config="${RAG_CONFIG_FILE:-${DEPLOY_DIR}/../rag-core.toml}"
+    local default_secret="${RAG_DB_SECRET_FILE:-/etc/witty-ub/rag-opengauss.passwd}"
+
+    noninteractive_hint
+    ask "  RAG config file [${default_config}]: " input_config
+    RAG_CONFIG_FILE="${input_config:-${default_config}}"
+    ask "  openGauss password file [${default_secret}]: " input_secret
+    RAG_DB_SECRET_FILE="${input_secret:-${default_secret}}"
+
+    if [ ! -f "$RAG_CONFIG_FILE" ]; then
+        log_error "RAG config file does not exist: ${RAG_CONFIG_FILE}"
+        return 1
+    fi
+    if [ ! -s "$RAG_DB_SECRET_FILE" ]; then
+        log_error "openGauss password file does not exist or is empty: ${RAG_DB_SECRET_FILE}"
+        log_error "Create a password-only file and set its mode to 0600"
+        return 1
+    fi
+    chmod 0600 "$RAG_DB_SECRET_FILE" 2>/dev/null || true
+    export RAG_CONFIG_FILE RAG_DB_SECRET_FILE
+}
+
+do_install_rag() {
+    sep
+    echo "Install: openGauss + RAG Core"
+    sep
+    check_docker || return 1
+    configure_rag_inputs || return 1
+    bash "${DEPLOY_DIR}/deploy_rag.sh"
 }
 
 do_install_pg() {
@@ -387,8 +429,8 @@ do_uninstall_all() {
 
     echo ""
     log_warn "About to delete:"
-    echo "  - Containers: ${WITTY_CONTAINER}, ${WITTY_BACKEND_CONTAINER} (split), ${WITTY_FRONTEND_CONTAINER} (split), ${PG_CONTAINER}"
-    echo "  - Volumes: witty-ub-data, witty-ub-logs, witty-ub-uploads, witty-ub-results, witty-ub-experience-data, ${PG_VOLUME}"
+    echo "  - Containers: ${WITTY_CONTAINER}, ${WITTY_BACKEND_CONTAINER} (split), ${WITTY_FRONTEND_CONTAINER} (split), ${RAG_CORE_CONTAINER}, ${RAG_DB_CONTAINER}, ${PG_CONTAINER}"
+    echo "  - Volumes: witty-ub-data, witty-ub-logs, witty-ub-uploads, witty-ub-results, witty-ub-experience-data, ${RAG_DB_VOLUME}, ${PG_VOLUME}"
     if [ "$scope" = "2" ]; then
         echo "  - Images: images used by the containers above"
     fi
@@ -402,7 +444,7 @@ do_uninstall_all() {
     # 用并列数组保存 容器名/镜像名，避免关联数组（bash 3.2 不支持）。
     local -a _doomed_names=() _doomed_images=()
     local _idx
-    for c in "$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER" "$PG_CONTAINER"; do
+    for c in "$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER" "$RAG_CORE_CONTAINER" "$RAG_DB_CONTAINER" "$PG_CONTAINER"; do
         if container_exists "$c"; then
             _doomed_names+=("$c")
             _doomed_images+=("$(get_container_image "$c")")
@@ -410,7 +452,7 @@ do_uninstall_all() {
     done
 
     # 先停 witty（含分离角色容器）再停 pg（优雅关闭）
-    for c in "$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER" "$PG_CONTAINER"; do
+    for c in "$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER" "$RAG_CORE_CONTAINER" "$RAG_DB_CONTAINER" "$PG_CONTAINER"; do
         if container_exists "$c"; then
             log_info "Removing container: $c"
             docker rm -f "$c" &>/dev/null
@@ -419,7 +461,7 @@ do_uninstall_all() {
     done
 
     # 删除所有数据卷
-    for v in witty-ub-data witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-experience-data "$PG_VOLUME"; do
+    for v in witty-ub-data witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-experience-data "$RAG_DB_VOLUME" "$PG_VOLUME"; do
         if volume_exists "$v"; then
             log_info "Removing volume: $v"
             docker volume rm "$v" &>/dev/null
@@ -571,7 +613,7 @@ do_uninstall_pg() {
 # ============================================================
 do_start() {
     check_docker || return 1
-    local -a start_targets=("$PG_CONTAINER" "$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER")
+    local -a start_targets=("$PG_CONTAINER" "$RAG_DB_CONTAINER" "$RAG_CORE_CONTAINER" "$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER")
     local c
     for c in "${start_targets[@]}"; do
         if container_exists "$c"; then
@@ -590,7 +632,7 @@ do_start() {
 
 do_stop() {
     check_docker || return 1
-    local -a stop_targets=("$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER")
+    local -a stop_targets=("$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER" "$RAG_CORE_CONTAINER" "$RAG_DB_CONTAINER")
     local c
     for c in "${stop_targets[@]}"; do
         if container_running "$c"; then
@@ -612,7 +654,7 @@ do_stop() {
 
 do_restart() {
     check_docker || return 1
-    local -a restart_targets=("$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER" "$PG_CONTAINER")
+    local -a restart_targets=("$PG_CONTAINER" "$RAG_DB_CONTAINER" "$RAG_CORE_CONTAINER" "$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER")
     local c
     for c in "${restart_targets[@]}"; do
         if container_exists "$c"; then
@@ -630,7 +672,7 @@ show_status() {
     sep
     printf "%-15s %-10s %-12s %s\n" "CONTAINER" "STATUS" "HEALTH" "PORTS"
     sep
-    for c in "$PG_CONTAINER" "$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER"; do
+    for c in "$PG_CONTAINER" "$RAG_DB_CONTAINER" "$RAG_CORE_CONTAINER" "$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER"; do
         # 分离角色容器仅在已创建时显示
         if { [ "$c" = "$WITTY_BACKEND_CONTAINER" ] || [ "$c" = "$WITTY_FRONTEND_CONTAINER" ]; } && ! container_exists "$c"; then
             continue
@@ -664,6 +706,7 @@ show_status() {
     echo "  Web UI:   http://localhost:${actual_port}"
     echo "  API:      http://localhost:${actual_port}/health_check"
     echo "  Agent API: http://localhost:${actual_port}/agent-api/ (OpenCode via Nginx)"
+    echo "  RAG Core: http://localhost:${WITTY_RAG_CORE_HOST_PORT:-9990}/health_check"
     if container_running "$WITTY_FRONTEND_CONTAINER"; then
         local fe_port
         fe_port=$(docker port "$WITTY_FRONTEND_CONTAINER" 2>/dev/null | grep '8080' | sed 's/.*://' | head -1 || true)
@@ -683,6 +726,8 @@ do_logs() {
     if container_exists "$WITTY_FRONTEND_CONTAINER"; then
         echo "  4) witty-ub-frontend (split frontend)"
     fi
+    echo "  5) openGauss (RAG)"
+    echo "  6) RAG Core"
     echo ""
     ask "Select [default 2]: " choice
     choice="${choice:-2}"
@@ -691,6 +736,8 @@ do_logs() {
     2) container="$WITTY_CONTAINER" ;;
     3) container="$WITTY_BACKEND_CONTAINER" ;;
     4) container="$WITTY_FRONTEND_CONTAINER" ;;
+    5) container="$RAG_DB_CONTAINER" ;;
+    6) container="$RAG_CORE_CONTAINER" ;;
     *)
         log_error "Invalid option"
         return 1
@@ -721,12 +768,16 @@ do_shell() {
     echo "Select the container to enter:"
     echo "  1) PostgreSQL"
     echo "  2) witty-ub"
+    echo "  3) openGauss (RAG)"
+    echo "  4) RAG Core"
     echo ""
-    ask "Select [1-2, default 2]: " choice
+    ask "Select [1-4, default 2]: " choice
     choice="${choice:-2}"
     case "$choice" in
     1) container="$PG_CONTAINER" ;;
     2) container="$WITTY_CONTAINER" ;;
+    3) container="$RAG_DB_CONTAINER" ;;
+    4) container="$RAG_CORE_CONTAINER" ;;
     *)
         log_error "Invalid option"
         return 1
@@ -751,7 +802,7 @@ show_menu() {
     echo "========================================"
     echo ""
     echo "  📦  Install"
-    echo "    1) One-shot install: PG + witty-ub (Docker)"
+    echo "    1) One-shot install: PG + openGauss + RAG Core + witty-ub"
     echo "    2) Install PostgreSQL only"
     echo "    3) Install witty-ub only"
     echo ""
@@ -774,6 +825,7 @@ show_menu() {
     echo "  🔀  Split frontend/backend deployment"
     echo "   14) Install the witty-ub backend only (role=backend)"
     echo "   15) Install the witty-ub frontend only (role=frontend)"
+    echo "   16) Install openGauss + RAG Core only"
     echo ""
     echo "    0) Quit"
     echo ""
@@ -783,7 +835,7 @@ show_menu() {
 main() {
     while true; do
         show_menu
-        ask "Select an action [0-15]: " choice
+        ask "Select an action [0-16]: " choice
         echo ""
         case "$choice" in
         1) do_install_all ;;
@@ -801,6 +853,7 @@ main() {
         13) do_shell ;;
         14) do_install_witty_role backend ;;
         15) do_install_witty_role frontend ;;
+        16) do_install_rag ;;
         0)
             echo "Bye!"
             exit 0
@@ -819,6 +872,7 @@ if [ $# -gt 0 ]; then
     case "$1" in
     install | install-all) do_install_all ;;
     install-pg) do_install_pg ;;
+    install-rag) do_install_rag ;;
     install-witty) do_install_witty ;;
     install-backend) do_install_witty_role backend ;;
     install-frontend) do_install_witty_role frontend ;;
@@ -842,8 +896,9 @@ Usage:
   bash deploy/docker/manage.sh uninstall --yes   # non-interactive uninstall
 
 Commands:
-  install           One-shot install: PG + witty-ub (Docker)
+  install           One-shot install: PG + openGauss + RAG Core + witty-ub
   install-pg        Install PostgreSQL only
+  install-rag       Install openGauss + RAG Core only
   install-witty     Install witty-ub only (All-in-One)
   install-backend   Install witty-ub backend only (split, role=backend)
   install-frontend  Install witty-ub frontend only (split, role=frontend)
