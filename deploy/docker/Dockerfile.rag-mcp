@@ -1,5 +1,19 @@
 ARG RAG_BASE_IMAGE
+
+FROM alpine/git:latest AS rag-mcp-source
+
+ARG RAG_MCP_SOURCE_REF=ffe465d93efbad266bf8b7eda0ae9a17aaec66b9
+RUN git init /src \
+    && cd /src \
+    && git remote add origin https://atomgit.com/openeuler/euler-copilot-rag.git \
+    && git fetch --depth 1 origin "${RAG_MCP_SOURCE_REF}" \
+    && git checkout --detach FETCH_HEAD
+
 FROM ${RAG_BASE_IMAGE}
+
+COPY --from=rag-mcp-source \
+    /src/rag_core/agent/rag_core_mcp/ \
+    /rag-service/rag_core/agent/rag_core_mcp/
 
 RUN python3 -m pip install --no-cache-dir \
     'mcp<2' \
