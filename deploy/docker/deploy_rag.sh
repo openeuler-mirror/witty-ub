@@ -16,6 +16,7 @@ _ENV_RAG_CONFIG_FILE="${RAG_CONFIG_FILE:-}"
 _ENV_RAG_DB_SECRET_FILE="${RAG_DB_SECRET_FILE:-}"
 _ENV_OPENGAUSS_RAG_IMAGE="${OPENGAUSS_RAG_IMAGE:-}"
 _ENV_WITTY_RAG_CORE_IMAGE="${WITTY_RAG_CORE_IMAGE:-}"
+_ENV_WITTY_RAG_MCP_IMAGE="${WITTY_RAG_MCP_IMAGE:-}"
 _ENV_WITTY_NETWORK="${WITTY_NETWORK:-}"
 
 if [ -f "$CONF_FILE" ]; then
@@ -27,9 +28,10 @@ fi
 [ -n "$_ENV_RAG_DB_SECRET_FILE" ] && RAG_DB_SECRET_FILE="$_ENV_RAG_DB_SECRET_FILE"
 [ -n "$_ENV_OPENGAUSS_RAG_IMAGE" ] && OPENGAUSS_RAG_IMAGE="$_ENV_OPENGAUSS_RAG_IMAGE"
 [ -n "$_ENV_WITTY_RAG_CORE_IMAGE" ] && WITTY_RAG_CORE_IMAGE="$_ENV_WITTY_RAG_CORE_IMAGE"
+[ -n "$_ENV_WITTY_RAG_MCP_IMAGE" ] && WITTY_RAG_MCP_IMAGE="$_ENV_WITTY_RAG_MCP_IMAGE"
 [ -n "$_ENV_WITTY_NETWORK" ] && WITTY_NETWORK="$_ENV_WITTY_NETWORK"
 unset _ENV_RAG_CONFIG_FILE _ENV_RAG_DB_SECRET_FILE _ENV_OPENGAUSS_RAG_IMAGE \
-    _ENV_WITTY_RAG_CORE_IMAGE _ENV_WITTY_NETWORK
+    _ENV_WITTY_RAG_CORE_IMAGE _ENV_WITTY_RAG_MCP_IMAGE _ENV_WITTY_NETWORK
 
 WITTY_NETWORK="${WITTY_NETWORK:-${PG_NETWORK:-witty-ub-network}}"
 OPENGAUSS_RAG_CONTAINER="${OPENGAUSS_RAG_CONTAINER:-opengauss-rag}"
@@ -62,6 +64,7 @@ RAG_DB_SECRET_FILE="${RAG_DB_SECRET_FILE:-/etc/witty-ub/rag-opengauss.passwd}"
 
 WITTY_RAG_CORE_CONTAINER="${WITTY_RAG_CORE_CONTAINER:-witty-rag-core}"
 WITTY_RAG_CORE_IMAGE="${WITTY_RAG_CORE_IMAGE:-hub-harbor.oepkgs.net/neocopilot/witty-rag-core:0.10.2-release-arm}"
+WITTY_RAG_MCP_IMAGE="${WITTY_RAG_MCP_IMAGE:-witty-rag-core:mcp}"
 WITTY_RAG_CORE_HOST_PORT="${WITTY_RAG_CORE_HOST_PORT:-9990}"
 RAG_WORKERS="${RAG_WORKERS:-4}"
 RAG_CONFIG_FILE="${RAG_CONFIG_FILE:-${SCRIPT_DIR}/../rag-core.toml}"
@@ -209,6 +212,14 @@ chmod 0600 "$RAG_RUNTIME_CONFIG"
 log_ok "已生成 openGauss 专用 RAG 配置 ${RAG_RUNTIME_CONFIG}"
 
 ensure_image "$WITTY_RAG_CORE_IMAGE"
+log_info "构建包含 MCP 的 RAG Core 镜像 ${WITTY_RAG_MCP_IMAGE}"
+docker build \
+    --build-arg "RAG_BASE_IMAGE=${WITTY_RAG_CORE_IMAGE}" \
+    -t "$WITTY_RAG_MCP_IMAGE" \
+    -f "${SCRIPT_DIR}/Dockerfile.rag-mcp" \
+    "$SCRIPT_DIR" >/dev/null
+log_ok "RAG MCP 镜像已就绪"
+
 start_rag_core_container() {
     docker run -d \
         --name "$WITTY_RAG_CORE_CONTAINER" \
@@ -219,14 +230,16 @@ start_rag_core_container() {
         -e RAG_WORKERS="$RAG_WORKERS" \
         -v "${RAG_RUNTIME_CONFIG}:/rag-service/rag_core/config.toml:ro" \
         -v "${RAG_LOG_DIR}:/rag-service/logs" \
-        "$WITTY_RAG_CORE_IMAGE" >/dev/null
+        "$WITTY_RAG_MCP_IMAGE" >/dev/null
     log_ok "已启动 ${WITTY_RAG_CORE_CONTAINER}"
 }
 
 if docker container inspect "$WITTY_RAG_CORE_CONTAINER" >/dev/null 2>&1; then
     if [ "$(docker inspect -f '{{.State.Running}}' "$WITTY_RAG_CORE_CONTAINER")" = "true" ] &&
         docker exec "$WITTY_RAG_CORE_CONTAINER" \
-            curl -fsS --max-time 3 http://127.0.0.1:9988/health_check >/dev/null 2>&1; then
+            curl -fsS --max-time 3 http://127.0.0.1:9988/health_check >/dev/null 2>&1 &&
+        docker exec "$WITTY_RAG_CORE_CONTAINER" sh -lc \
+            'status=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:12312/sse || true); [ "$status" = 200 ]'; then
         log_warn "复用正在运行的容器 ${WITTY_RAG_CORE_CONTAINER}，不会中断现有 RAG 服务"
         connect_network "$WITTY_RAG_CORE_CONTAINER"
     else
@@ -267,6 +280,14 @@ if [ "$rag_ready" != true ]; then
 fi
 
 log_ok "RAG Core 已连接 openGauss 并通过健康检查"
+if docker exec "$WITTY_RAG_CORE_CONTAINER" sh -lc \
+    'status=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:12312/sse || true); [ "$status" = 200 ]'; then
+    log_ok "RAG MCP SSE 已就绪: http://${WITTY_RAG_CORE_CONTAINER}:12312/sse"
+else
+    log_error "RAG MCP SSE 未就绪"
+    [ ! -f "${RAG_LOG_DIR}/rag-mcp.log" ] || tail -n 80 "${RAG_LOG_DIR}/rag-mcp.log" >&2
+    exit 1
+fi
 echo "  openGauss: ${OPENGAUSS_RAG_CONTAINER}:5432 (host ${OPENGAUSS_RAG_HOST_PORT})"
 echo "  RAG Core:  http://localhost:${WITTY_RAG_CORE_HOST_PORT}"
 echo "  Network:   ${WITTY_NETWORK}"

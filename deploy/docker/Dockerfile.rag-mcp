@@ -1,0 +1,14 @@
+ARG RAG_BASE_IMAGE
+FROM ${RAG_BASE_IMAGE}
+
+RUN python3 -m pip install --no-cache-dir \
+    'mcp<2' \
+    'fastapi>=0.115.0' \
+    'starlette>=0.49.1' \
+    APScheduler \
+    pyyaml
+
+COPY rag-with-mcp-entrypoint.sh /usr/local/bin/rag-with-mcp-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/rag-with-mcp-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/rag-with-mcp-entrypoint.sh"]
