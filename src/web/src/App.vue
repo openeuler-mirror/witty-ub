@@ -15,6 +15,13 @@ import {
 import type { PropType } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
+import {
+  ASSET_REPORT_DIALOG_PAGE_SIZE,
+  assetReportButtonTitle,
+  buildAssetReportListNotice,
+  isAssetReportButtonDisabled,
+  resolveAssetReportButtonState,
+} from './utils/assetReport'
 import { displayServerTime } from './utils/serverTime'
 import {
   buildTaskLanes,
@@ -9492,6 +9499,10 @@ const loadAssetDetail = async (assetId: string) => {
   isDetailLoading.value = true
   errorMessage.value = ''
 
+  // 切库时清空上一库的报告入口状态（含关闭弹层），再探测本库报告数
+  resetAssetReportEntry()
+  void probeAssetReports(assetId)
+
   try {
     const result = await request<{ kb: LogKnowledge | null }>(`/log_kb/${assetId}`)
     if (requestSequence !== assetSelectionRequestSequence || selectedAssetId.value !== assetId) {
@@ -10183,6 +10194,108 @@ const openDiagnosticReport = (reportId: string) => {
     '_blank',
     'noopener',
   )
+}
+
+// 资产库内报告入口（docs/design/asset-report-entry.md）：进详情页时用 page_cnt=1
+// 轻量探测该库报告总数决定按钮三态，≥2 份时才拉列表弹层。
+const assetReportTotal = ref(0)
+const assetReportFirstReport = ref<DiagnosticReportModel | null>(null)
+const isAssetReportProbing = ref(false)
+const assetReportDialogOpen = ref(false)
+const assetReports = ref<DiagnosticReportModel[]>([])
+const isAssetReportsLoading = ref(false)
+const assetReportsError = ref('')
+
+const assetReportButtonState = computed(() =>
+  resolveAssetReportButtonState(assetReportTotal.value, isAssetReportProbing.value),
+)
+const assetReportButtonDisabled = computed(() =>
+  isAssetReportButtonDisabled(assetReportButtonState.value),
+)
+const assetReportButtonHint = computed(() => assetReportButtonTitle(assetReportButtonState.value))
+const assetReportListNotice = computed(() => buildAssetReportListNotice(assetReportTotal.value))
+const assetReportDialogTitle = computed(
+  () => `诊断报告 · ${selectedAsset.value?.name || selectedAssetId.value || ''}`,
+)
+
+const resetAssetReportEntry = () => {
+  assetReportTotal.value = 0
+  assetReportFirstReport.value = null
+  isAssetReportProbing.value = false
+  assetReportDialogOpen.value = false
+  assetReports.value = []
+  isAssetReportsLoading.value = false
+  assetReportsError.value = ''
+}
+
+// 探测：只取 total 决定按钮三态；同时留下首条，供「恰好 1 份」时直接打开
+const probeAssetReports = async (kbId: string) => {
+  isAssetReportProbing.value = true
+  try {
+    const result = await request<{ total: number; items: DiagnosticReportModel[] }>(
+      '/diagnostic_report/list',
+      {
+        method: 'POST',
+        body: JSON.stringify({ kb_id: kbId, page_num: 1, page_cnt: 1 }),
+      },
+    )
+    if (selectedAssetId.value !== kbId) return
+    assetReportTotal.value = result.total ?? 0
+    assetReportFirstReport.value = result.items?.[0] ?? null
+  } catch {
+    // 探测失败按「暂无报告」降级：按钮置灰，不打断详情页主流程
+    if (selectedAssetId.value !== kbId) return
+    assetReportTotal.value = 0
+    assetReportFirstReport.value = null
+  } finally {
+    if (selectedAssetId.value === kbId) isAssetReportProbing.value = false
+  }
+}
+
+const loadAssetReports = async () => {
+  const kbId = selectedAssetId.value
+  if (!kbId) return
+  isAssetReportsLoading.value = true
+  assetReportsError.value = ''
+  try {
+    const result = await request<{ total: number; items: DiagnosticReportModel[] }>(
+      '/diagnostic_report/list',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          kb_id: kbId,
+          page_num: 1,
+          page_cnt: ASSET_REPORT_DIALOG_PAGE_SIZE,
+        }),
+      },
+    )
+    if (selectedAssetId.value !== kbId) return
+    assetReports.value = result.items ?? []
+    assetReportTotal.value = result.total ?? 0
+  } catch (error) {
+    if (selectedAssetId.value !== kbId) return
+    assetReports.value = []
+    assetReportsError.value = error instanceof Error ? error.message : '诊断报告加载失败'
+  } finally {
+    if (selectedAssetId.value === kbId) isAssetReportsLoading.value = false
+  }
+}
+
+const closeAssetReportDialog = () => {
+  assetReportDialogOpen.value = false
+}
+
+const handleAssetReportClick = () => {
+  if (assetReportButtonDisabled.value) return
+  const onlyReport = assetReportFirstReport.value
+  if (assetReportButtonState.value === 'single' && onlyReport) {
+    openDiagnosticReport(onlyReport.report_id)
+    return
+  }
+  assetReportDialogOpen.value = true
+  // 0 份时不再打接口：弹层直接给出「暂无相关诊断报告，可通过 Agent 生成」的提示
+  if (assetReportButtonState.value === 'empty') return
+  void loadAssetReports()
 }
 
 const refreshLogFile = async (fileId: string) => {
@@ -17137,6 +17250,16 @@ onBeforeUnmount(() => {
           </div>
           <div class="detail-actions">
             <div class="detail-actions-bottom">
+              <!-- 资产库内诊断报告入口：0 份置灰 / 1 份直开 / ≥2 份弹层（docs/design/asset-report-entry.md） -->
+              <button
+                class="ghost-btn asset-report-entry-btn"
+                type="button"
+                :title="assetReportButtonHint"
+                :disabled="assetReportButtonDisabled"
+                @click="handleAssetReportClick"
+              >
+                查看诊断报告
+              </button>
               <button
                 class="edit-btn icon-btn detail-icon-btn"
                 type="button"
@@ -18042,6 +18165,94 @@ onBeforeUnmount(() => {
           </button>
         </footer>
       </form>
+    </div>
+
+    <!-- 资产库内诊断报告弹层：只列当前资产库的报告，查看仍在新窗口打开（保持弹层便于连看） -->
+    <div
+      v-if="assetReportDialogOpen"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="assetReportDialogTitle"
+      @click.self="closeAssetReportDialog"
+    >
+      <section class="modal-content asset-report-modal">
+        <header class="modal-header">
+          <h2>{{ assetReportDialogTitle }}</h2>
+          <button class="close-modal" type="button" title="关闭" @click="closeAssetReportDialog">
+            x
+          </button>
+        </header>
+        <div class="modal-body asset-report-body">
+          <div v-if="isAssetReportsLoading" class="state-text">正在加载诊断报告...</div>
+          <div v-else-if="assetReportsError" class="state-text">{{ assetReportsError }}</div>
+          <div v-else-if="assetReports.length === 0" class="state-text asset-report-empty">
+            暂无相关诊断报告，可通过 Agent 生成
+          </div>
+          <div v-else class="log-file-list asset-report-list">
+            <div v-for="report in assetReports" :key="report.report_id" class="log-file-item">
+              <div class="log-file-info">
+                <div class="log-file-summary">
+                  <span class="log-file-path" :title="report.report_id">
+                    📄
+                    {{
+                      report.has_sidecar === false
+                        ? '—'
+                        : diagnosticReportDisplayText(report.title || report.file_name)
+                    }}
+                  </span>
+                  <span class="log-file-meta">
+                    <span class="log-file-time">
+                      生成时间：{{ diagnosticReportDisplayText(report.generated_at) }}
+                    </span>
+                    <span class="log-file-time">
+                      故障数：{{
+                        report.has_sidecar === false
+                          ? '—'
+                          : diagnosticReportDisplayText(report.fault_count)
+                      }}
+                    </span>
+                    <span class="log-file-time">
+                      操作类型：{{ diagnosticReportDisplayText(report.operation) }}
+                    </span>
+                    <span class="log-file-time">
+                      时间范围：{{ diagnosticReportDisplayText(report.time_range_start) }} ~
+                      {{ diagnosticReportDisplayText(report.time_range_end) }}
+                    </span>
+                    <span
+                      v-if="report.has_sidecar === false"
+                      class="status-badge anomaly-danger"
+                      title="侧车 JSON 缺失，标题与故障数等信息不可用"
+                      >无侧车数据</span
+                    >
+                    <button
+                      class="ghost-btn"
+                      type="button"
+                      @click="openDiagnosticReport(report.report_id)"
+                    >
+                      查看
+                    </button>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <p v-if="assetReportListNotice" class="asset-report-notice">
+              {{ assetReportListNotice }}
+            </p>
+          </div>
+        </div>
+        <footer class="modal-actions">
+          <button
+            class="ghost-btn"
+            type="button"
+            :disabled="isAssetReportsLoading"
+            @click="loadAssetReports"
+          >
+            刷新
+          </button>
+          <button class="ghost-btn" type="button" @click="closeAssetReportDialog">关闭</button>
+        </footer>
+      </section>
     </div>
 
     <div v-if="traceFilterDialog.open" class="modal" role="dialog" aria-modal="true">
