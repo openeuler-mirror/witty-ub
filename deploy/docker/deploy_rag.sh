@@ -200,12 +200,7 @@ chmod 0600 "$RAG_RUNTIME_CONFIG"
 log_ok "已生成 openGauss 专用 RAG 配置 ${RAG_RUNTIME_CONFIG}"
 
 ensure_image "$WITTY_RAG_CORE_IMAGE"
-if docker container inspect "$WITTY_RAG_CORE_CONTAINER" >/dev/null 2>&1; then
-    log_warn "复用已有容器 ${WITTY_RAG_CORE_CONTAINER}；如需应用新配置，请先显式删除该容器"
-    connect_network "$WITTY_RAG_CORE_CONTAINER"
-    [ "$(docker inspect -f '{{.State.Running}}' "$WITTY_RAG_CORE_CONTAINER")" = "true" ] || \
-        docker start "$WITTY_RAG_CORE_CONTAINER" >/dev/null
-else
+start_rag_core_container() {
     docker run -d \
         --name "$WITTY_RAG_CORE_CONTAINER" \
         --restart unless-stopped \
@@ -217,6 +212,28 @@ else
         -v "${RAG_LOG_DIR}:/rag-service/logs" \
         "$WITTY_RAG_CORE_IMAGE" >/dev/null
     log_ok "已启动 ${WITTY_RAG_CORE_CONTAINER}"
+}
+
+if docker container inspect "$WITTY_RAG_CORE_CONTAINER" >/dev/null 2>&1; then
+    if [ "$(docker inspect -f '{{.State.Running}}' "$WITTY_RAG_CORE_CONTAINER")" = "true" ]; then
+        log_warn "复用正在运行的容器 ${WITTY_RAG_CORE_CONTAINER}，不会中断现有 RAG 服务"
+        connect_network "$WITTY_RAG_CORE_CONTAINER"
+    else
+        OLD_RAG_CONFIG_SOURCE="$(docker inspect "$WITTY_RAG_CORE_CONTAINER" \
+            --format '{{range .Mounts}}{{if eq .Destination "/rag-service/rag_core/config.toml"}}{{.Source}}{{end}}{{end}}' \
+            2>/dev/null || true)"
+        log_warn "检测到已停止的旧 RAG Core 容器，将重建容器以应用当前配置"
+        if [ -n "$OLD_RAG_CONFIG_SOURCE" ]; then
+            log_warn "旧配置挂载: ${OLD_RAG_CONFIG_SOURCE}"
+        fi
+        # RAG 业务数据保存在 openGauss；这里只删除已停止的无状态服务容器，
+        # 不删除 openGauss 容器、数据卷或日志目录。
+        docker rm "$WITTY_RAG_CORE_CONTAINER" >/dev/null
+        unset OLD_RAG_CONFIG_SOURCE
+        start_rag_core_container
+    fi
+else
+    start_rag_core_container
 fi
 
 log_info "等待 RAG Core 就绪"
