@@ -55,17 +55,42 @@ bash deploy/docker/manage.sh install-all
 
 → [架构概览](./deployment/01-overview.md)
 
+## 试验性前端（可选）
+
+试验性前端（exp）是同一平台的重构界面，与既有前端并行演进：独立端口（源码/RPM `8081`、
+容器 `32414`）、独立镜像标签（`frontend-exp-<日期>`）与独立 RPM 子包（`witty-ub-web-exp`），
+默认不安装、不启动，既有前端与后端不受影响。
+
+```bash
+# 容器：用当日 nightly 镜像作为独立前端节点
+bash deploy/docker/deploy_witty.sh --role frontend \
+  --image hub-harbor.oepkgs.net/neocopilot/witty-ub:frontend-exp-<YYYYMMDD>
+
+# 源码：前端节点安装（默认端口 8081）
+WITTY_BACKEND_URL=http://<后端IP>:9772 bash deploy/host/deploy_frontend_exp.sh install
+
+# RPM：前端节点安装并启用（先配置 Witty-Builder 仓库，见打包文档）
+sudo dnf install -y witty-ub-web-exp
+sudo witty-ub-web-exp-ctl enable --backend http://<后端IP>:9772
+```
+
+→ [试验性前端打包](./package/04-experimental-frontend-build.md) |
+[试验性前端部署](./deployment/09-experimental-frontend.md) |
+[试验性前端使用](./usage/04-experimental-frontend.md)
+
 ## 打包构建
 
 - [Docker 镜像构建](./package/01-docker-build.md) — 分层镜像架构，构建应用镜像用于容器部署
 - [基于 RPM 仓库构建镜像](./package/02-rpm-build.md) — 从 RPM 仓库构建单机全量镜像，与生产 RPM 版本一致
 - [镜像分发](./package/03-distribution.md) — 镜像推送、导出 tar 包、离线加载
+- [试验性前端打包](./package/04-experimental-frontend-build.md) — exp 前端 nightly 镜像与 RPM 子包
 
 ## 使用文档
 
 - [平台操作指南](./usage/01-platform-guide.md)
 - [数据采集工具](./usage/02-data-collection-guide.md)
 - [配置参考](./usage/03-configuration-reference.md)
+- [试验性前端使用](./usage/04-experimental-frontend.md)
 
 ## 故障排查
 
@@ -79,3 +104,4 @@ bash deploy/docker/manage.sh install-all
 - 宿主机脚本 / RPM 部署：`http://<前端IP>:8080`
 - 容器部署：单机 `http://<IP>:32412`，分离部署 `http://<前端IP>:32413`
 - 源码开发模式：`http://localhost:5173`
+- 试验性前端（并行部署时）：源码/RPM `http://<前端IP>:8081`，容器 `http://<前端IP>:32414`

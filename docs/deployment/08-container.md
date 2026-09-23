@@ -308,7 +308,12 @@ docker run -d \
 | `witty-ub-results` | `/var/witty-ub/latency/file/file_parse_result` | backend | 解析结果 |
 | `~/.config/opencode` | `/root/.config/opencode` | frontend | LLM key 等配置 |
 | `witty-ub-experience-data` | `.../experience-skill/data` | frontend | Agent 经验库（experience.db） |
+| `witty-ub-reports` | `/var/witty-ub/reports` | backend / frontend | 诊断报告（HTML + 侧车 JSON），前端「诊断报告」列表读取 |
 | `witty-ub-logs` | `/var/log/witty-ub` | 通用 | 应用日志 |
+
+> 报告目录由 `WITTY_REPORT_DIR` 指定（容器内默认 `/var/witty-ub/reports`，与
+> `witty-ub-reports` 卷同路径）。跨机分离部署时前端与后端不共享该卷，前端只能看到
+> 本节点 agent 生成的报告。
 
 ---
 
@@ -348,6 +353,7 @@ docker run --rm -v witty-ub-data:/data -v $(pwd):/backup alpine tar czf /backup/
 | `PG_USER` | `witty-ub` | PG 用户名 |
 | `PG_PASSWORD` | （见密钥文件） | 一般无需设置：容器入口从 `/run/secrets/pg_password`（挂载自 `/etc/witty-ub/pg.passwd`，0440 root:root）读取并注入后端进程；仅在 PG 已另行配置口令且不使用密钥文件时才需要显式传入 |
 | `LOG_LEVEL` | `info` | 日志级别 |
+| `WITTY_REPORT_DIR` | `/var/witty-ub/reports` | 诊断报告落盘根目录（`witty-ub-reports` 卷）；agent 写入，后端 `/diagnostic_report` 列表与下发读取 |
 
 ---
 

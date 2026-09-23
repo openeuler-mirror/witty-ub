@@ -60,6 +60,8 @@ services:
       # Optional: Mount uploaded files
       - witty-ub-uploads:/var/witty-ub/latency/file/file_upload
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
+      # 诊断报告（agent 生成，前端「诊断报告」列表读取）
+      - witty-ub-reports:/var/witty-ub/reports
       # opencode
       - ~/.config/opencode:/root/.config/opencode
       # experience-skill persistent data (experience.db)
@@ -102,6 +104,8 @@ services:
       - witty-ub-logs:/var/log/witty-ub
       - witty-ub-uploads:/var/witty-ub/latency/file/file_upload
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
+      # 诊断报告：后端读卷提供 /diagnostic_report 列表与报告下发
+      - witty-ub-reports:/var/witty-ub/reports
     secrets:
       - pg_password
     environment:
@@ -139,6 +143,8 @@ services:
       - witty-ub-logs:/var/log/witty-ub
       # experience-skill persistent data (experience.db)
       - witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data
+      # 诊断报告：本节点 agent 生成报告落此卷（跨机分离部署不共享，见设计文档）
+      - witty-ub-reports:/var/witty-ub/reports
     environment:
       - WITTY_ROLE=frontend
       # 容器网络内经服务名访问后端
@@ -165,6 +171,9 @@ volumes:
   witty-ub-experience-data:
     driver: local
     name: witty-ub-experience-data
+  witty-ub-reports:
+    driver: local
+    name: witty-ub-reports
 
 networks:
   witty-ub-network:

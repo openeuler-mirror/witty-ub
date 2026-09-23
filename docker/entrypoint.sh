@@ -22,6 +22,8 @@ export WITTY_API_BASE="${WITTY_API_BASE:-$WITTY_BACKEND_URL}"
 export WITTY_NO_PROXY="${WITTY_NO_PROXY:-127.0.0.1}"
 # OpenCode 绑定地址（兜底落位 B 需改为 0.0.0.0）
 export OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
+# 诊断报告落盘根目录（由 witty-ub-reports 卷持久化；agent 子进程继承此变量）
+export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-${WITTY_DIR}/reports}"
 
 echo "Role: ${WITTY_ROLE}  Backend: ${WITTY_BACKEND_URL}  Agent: ${WITTY_AGENT_URL}"
 
@@ -152,6 +154,8 @@ start_opencode() {
     # Standard .opencode layout dir for agents/skills/commands discovery;
     # a user-provided OPENCODE_CONFIG_DIR always wins.
     export OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$(cd "$(dirname "${AGENT_OPENCODE_CONFIG}")" && pwd)}"
+    # 卷首次挂载为空目录，这里先建好报告根目录，保证 agent 渲染时可直接写盘。
+    mkdir -p "${WITTY_REPORT_DIR}"
     nohup /usr/bin/opencode serve --hostname "${OPENCODE_HOST}" --port 4096 \
         >/var/log/witty-ub/opencode_server.log 2>&1 &
     OPENCODE_PID=$!

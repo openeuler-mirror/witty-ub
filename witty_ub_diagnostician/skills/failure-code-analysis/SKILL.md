@@ -33,20 +33,17 @@ allowed-tools: >
 ## 阶段 0：经验库预检索（诊断前）
 
 **在调用任何诊断接口之前**，先用 `experience-skill` 基于用户提供的
-初始关键词检索本地经验，作为**先验假设**输入（不能替代现场证据）。
+初始关键词检索本地经验，作为**先验假设**输入（不能替代现场证据）：
 
 ```bash
 cd witty_ub_diagnostician/.opencode/skills/experience-skill/scripts
-
-# 故障码/通断相关关键词（用户提什么就换什么，如 ERR_xxx、连接失败、状态码 -1002）
+# 关键词随用户问题替换（如 ERR_xxx、连接失败、状态码 -1002）
 uv run experience-skill search-experiences \
     --query "连接失败 ERR_UNAVAILABLE status_code" --type SKILL --top-k 5
-uv run experience-skill search-experiences \
-    --query "KVC 错误码 通断故障 基线" --type WIKI --top-k 5
 ```
 
-**对每条命中结果**（无论是否最终采用），按文末"经验引用标注模板"记录
-基础信息，填入 `used_in_stage = "stage_0_pre_search"`。
+**对每条命中结果**（无论是否最终采用），按文末附录 A 记录，
+填入 `used_in_stage = "stage_0_pre_search"`。
 
 ---
 
@@ -68,23 +65,15 @@ uv run experience-skill search-experiences \
 
 ### 核心工具：`POST /log_failure_event_result/list_time_aggregated_failure_events`（通断诊断首步查询）
 
-```
-kb_id:      <ID>
-operation:  "GET"            （默认；"GET" 或 "SET"，详见下方说明）
-interval:   "minute"         （默认；长时故障→"hour"；尖峰→"second"）
-sort_by:    "timestamp"
-sort_desc:  false            （asc，便于画时间线）
-page_cnt:   100              （长时段增大）
-start_time / end_time:       （可选，用户给了时间就传）
-```
+按时间窗口聚合所有故障码计数。关键决策：`interval` 默认 `minute`
+（长时故障→`hour`；尖峰→`second`）；按 `timestamp` 升序便于画时间线；
+`page_cnt` 100（长时段增大）。完整参数表见 `references/TOOL_REFERENCE.md`。
 
-  **operation 参数说明（GET vs SET）：**
-  - `"GET"`（默认）— 查询/读取类操作的故障。典型场景：客户端请求缓存数据未命中、
-    读取超时、连接查询失败等。**大多数诊断场景使用 GET。**
-  - `"SET"` — 写入/更新类操作的故障。典型场景：缓存写入失败、数据更新超时、
-    元数据同步异常等。
-  - 当用户未明确区分时，默认使用 `"GET"`；若用户明确提到"写入失败""更新异常"
-    等写操作相关描述，改用 `"SET"`。也可分别调用两次（GET 和 SET）对比分析。
+**operation 参数说明（GET vs SET）：**
+- `"GET"`（默认）— 查询/读取类操作的故障（缓存未命中、读取超时、连接查询失败等）。**大多数诊断场景使用 GET。**
+- `"SET"` — 写入/更新类操作的故障（缓存写入失败、数据更新超时、元数据同步异常等）。
+- 用户未明确区分时默认 `"GET"`；明确提到"写入失败""更新异常"等写操作描述时改用
+  `"SET"`。也可分别调用两次（GET 和 SET）对比分析。
 
 **诊断要点：**
 1. 找错误码显著高于相邻窗口的**尖峰时段**或**持续多窗口高值期**
@@ -100,20 +89,12 @@ start_time / end_time:       （可选，用户给了时间就传）
 
 ### 核心工具：`POST /log_failure_event_result/list_pod_aggregated_failure_events`
 
-以阶段二识别的故障窗口（或用户给的明确时段）为时间范围：
+以阶段二识别的故障窗口（或用户给的明确时段）为时间范围：`sort_by`
+用 `"all"`（综合；也可传具体错误码，如 1004、1009），`sort_desc=true`
+取 Top N（`page_cnt` 30~50）。完整参数表见 `references/TOOL_REFERENCE.md`。
 
-```
-kb_id:        <ID>
-operation:    "GET"           （默认；"GET" 或 "SET"，详见阶段二说明）
-start/end:    <阶段二的故障窗口>
-sort_by:      "all"           （综合；也可传具体错误码，如 1004、1009）
-sort_desc:    true            （取 Top N，降序）
-page_cnt:     30~50
-```
-
-**返回重点字段：**
-- `pod_name`, `host_name`, `cluster_name` — 故障域三元组
-- 每类错误码的计数 / 占比
+**返回重点字段**：`pod_name`/`host_name`/`cluster_name`（故障域三元组）、
+每类错误码的计数与占比。
 
 **故障扩散模式判断：**
 | 模式 | 特征 | 可能根因层级 |
@@ -129,18 +110,9 @@ page_cnt:     30~50
 
 ### 4.1 错误码频次与趋势：`POST /log_failure_event_result/metrics/err_code`
 
-对阶段三中可疑的 Pod / Host / Cluster 调用：
-
-```
-kb_id:          <ID>
-operation:      "GET"         （默认；"GET" 或 "SET"，详见阶段二说明）
-err_codes:      <阶段三识别的 Top N 高频错误码列表，空=全量>
-cluster_names:  <可空>
-host_names:     <可空>
-pod_names:      <可空>
-start/end:      <阶段二的故障窗口>
-max_points:     1000（默认；高分辨率≤5000）
-```
+对阶段三中可疑的 Pod / Host / Cluster 调用：`err_codes` 传阶段三识别的
+Top N 高频错误码（空=全量），时间范围用阶段二的故障窗口。
+完整参数表见 `references/TOOL_REFERENCE.md`。
 
 **返回分析要点：**
 - 多错误码对比**爆发起点 / 峰值 / 回落时间**
@@ -151,38 +123,21 @@ max_points:     1000（默认；高分辨率≤5000）
 
 ### 4.2 Trace 级故障详情：`POST /log_failure_event_result/list_trace_events`
 
-以阶段二/三识别的时间范围与故障域筛选：
-
-```
-kb_id:         <ID>
-operation:     "GET"       （默认；"GET" 或 "SET"，详见阶段二说明）
-status_codes:  <具体错误码列表，可空=全量>
-cluster/host/pod_names:  <阶段三的故障域>
-start/end:     <阶段二窗口>
-is_anomalous:  true        （只看异常；结果不足→null 放宽）
-sort_desc:     true        （最新/最严重优先）
-page_cnt:      50~100
-```
+以阶段二/三识别的时间范围与故障域筛选：`is_anomalous=true`（结果不足→
+`null` 放宽）、`sort_desc=true`（最新/最严重优先）、`page_cnt` 50~100。
+完整参数表见 `references/TOOL_REFERENCE.md`。
 
 **返回重点字段（向下游传递的关键）：**
-| 字段 | 传递给 | 用途 |
-|------|-------|------|
-| `trace_id` | `POST /log_failure_event_result/list_log_events` | 下钻原始日志 |
-| `status_code` | `GET /failure_mode/status_code/{status_code}` | 查 curated 状态码解释 |
-| `failure_mode_id` | `GET /failure_mode/{failure_mode_id}` | 查完整症状/根因/方案 |
-| `src_ip`, `dst_ip`, `host`, `pod`, `cluster` | — | 故障两端证据 |
-| `timestamp`, `is_anomalous`, `anomaly_score` | — | 异常判定依据 |
+- `trace_id` → `POST /log_failure_event_result/list_log_events`（下钻原始日志）
+- `status_code` → `GET /failure_mode/status_code/{status_code}`（查 curated 状态码解释）
+- `failure_mode_id` → `GET /failure_mode/{failure_mode_id}`（查完整症状/根因/方案）
+- `src_ip` / `dst_ip` / `host` / `pod` / `cluster` — 故障两端证据
+- `timestamp` / `is_anomalous` / `anomaly_score` — 异常判定依据
 
 ### 4.3 原始日志证据：`POST /log_failure_event_result/list_log_events`
 
 对阶段 4.2 中最具代表性的 trace（Top 错误码 × Top Pod 组合），
-批量传入 `trace_ids`，**一次 ≤ 100 条**：
-
-```
-trace_ids: [list of str]     （必填，≤100）
-kb_id:     <ID>              （必填）
-log_id:    <该日志文件的 id> （可选，当前调查对应某日志文件时传）
-```
+批量传入 `trace_ids`，**一次 ≤ 100 条**（`kb_id` 必填，`log_id` 可选）。
 
 **原始日志使用原则：**
 - 重点看日志原文中的 `src=xxx, dst=xxx` 对（若结构化返回中没解析，
@@ -230,14 +185,8 @@ log_id:    <该日志文件的 id> （可选，当前调查对应某日志文件
 
 ```bash
 cd witty_ub_diagnostician/.opencode/skills/experience-skill/scripts
-
-# 示例：用发现的状态码 -1002 和 failure_mode FM-7 作精确检索
 uv run experience-skill search-experiences \
     --query "status_code -1002 K_RPC_UNAVAILABLE" --type SKILL --top-k 5
-uv run experience-skill search-experiences \
-    --query "failure_mode FM-7 级联故障" --type SKILL --top-k 5
-uv run experience-skill search-experiences \
-    --query "连接拒绝 ETCD 30s 超时" --type WIKI --top-k 5
 ```
 
 **关键规则**：
@@ -260,8 +209,9 @@ uv run experience-skill search-experiences \
 
 | 接口 | 何时用 | 注意点 |
 |------|--------|--------|
-| `POST /diagnosis_case/search` | 有初略信号时查历史案例 | 传 `fault_type="connectivity"`；结果是假设，必须现场验证 |
-| `GET /diagnosis_case/{case_id}` | 搜索命中高相关案例做完整复核 | |
+| `POST /diag_case_library/search` | 有初略信号时查历史案例 | 只返回已人工确认的案例；传 `fault_type="connectivity"`；结果是假设，必须现场验证 |
+| `GET /diag_case_library/{case_id}` | 搜索命中高相关案例做完整复核 | |
+| `POST /diagnosis_case/search`（降级） | 确认案例库无结果时的兜底 | 旧表**未经人工确认**、内容物薄，引用必须标注来源 |
 
 ---
 
@@ -272,37 +222,32 @@ uv run experience-skill search-experiences \
 | "最近好多 ERR_xxx 错误" | `POST /log_failure_event_result/list_time_aggregated_failure_events` | 窗口定位 → `POST /log_failure_event_result/list_pod_aggregated_failure_events` → `POST /log_failure_event_result/metrics/err_code` → `POST /log_failure_event_result/list_trace_events` → `GET /failure_mode/status_code/{ERR_xxx}`。**operation 参数**：默认用 `"GET"`；若用户明确提到"写入失败""更新异常"等写操作问题，改用 `"SET"` |
 | "返回码 -5 是什么意思" | `GET /failure_mode/status_code/-5` | 若 404 → 查 `POST /log_failure_event_result/list_trace_events(status_codes=["-5"])` 用现场数据推断 |
 | "pod-abc-123 报错很多" | `GET /log_parse_result/options` 确认真实 pod 名 → `POST /log_failure_event_result/list_pod_aggregated_failure_events` | → `POST /log_failure_event_result/list_trace_events(pod_names=)` → `POST /log_failure_event_result/list_log_events` → `GET /failure_mode/{id}` |
-| "failure_mode_id=FM-7 是什么" | `GET /failure_mode/FM-7` | 拿完整症状/根因/方案 → `POST /diagnosis_case/search(failure_mode_ids=["FM-7"])` 查历史案例 |
+| "failure_mode_id=FM-7 是什么" | `GET /failure_mode/FM-7` | 拿完整症状/根因/方案 → `POST /diag_case_library/search(failure_mode_ids=["FM-7"])` 查已确认的历史案例 |
 | "trace_id=t-abc 失败了" | `POST /log_failure_event_result/list_log_events(trace_ids=["t-abc"])` | 直接拿原始日志证据（比先查 traces 更快） |
 
-**GET/SET 操作区分说明：**
-- **`operation="GET"`（默认）**：用于查询/读取类操作故障诊断。典型场景包括缓存未命中、读取超时、连接查询失败等。适用于大多数诊断场景。
-- **`operation="SET"`**：用于写入/更新类操作故障诊断。典型场景包括缓存写入失败、数据更新超时、元数据同步异常等。
-- **使用建议**：当用户未明确区分操作类型时，默认使用 `"GET"`。若用户明确提到"写入失败""更新异常""数据同步失败"等写操作相关描述，改用 `"SET"`。也可分别调用两次（GET 和 SET）对比分析，识别故障是否仅影响特定操作类型。
+> GET/SET 取值规则见阶段二的 operation 参数说明。
 
 ---
 
 ## 通断 API 输入规则
 
 以下约束必须遵守，即使 OpenAPI schema 将参数标为可选，也按此显式传参。
+完整参数表见 `references/TOOL_REFERENCE.md`。
 
 - 所有 `sort_fields` 元素的 `field` 必须是非空字符串，`order` 只能是 `asc` 或 `desc`。
-- `POST /log_failure_event_result/list_time_aggregated_failure_events`
-  - `kb_id` 必填；`interval` 只能是 `second`、`minute` 或 `hour`。
-  - `operation` 只能是 `GET` 或 `SET`。
+- `POST /log_failure_event_result/list_time_aggregated_failure_events`：
+  `kb_id` 必填；`interval` 限 `second/minute/hour`；`operation` 只能 GET/SET。
 - `POST /log_failure_event_result/list_pod_aggregated_failure_events` 和
-  `POST /log_failure_event_result/list_src_dst_aggregated_failure_events`
-  - `kb_id` 必填；`operation` 只能是 `GET` 或 `SET`。
-- `POST /log_failure_event_result/list_trace_events`
-  - `kb_id` 必填；`operation` 只能是 `GET` 或 `SET`。
-  - 未指定 `is_anomalous` 时显式传 `true`。
-- `POST /log_failure_event_result/metrics/err_code`
-  - `kb_id` 必填；`operation` 只能是 `GET` 或 `SET`。
-  - `max_points` 必须是 1 到 5000 的整数。
-- `POST /log_failure_event_result/list_log_events`
-  - `trace_ids` 必填，且必须包含 1 到 100 个 trace ID。
-  - `kb_id` 必填；`log_id` 可选，建议传以加速。
-- `POST /diagnosis_case/search` 的 `fault_type` 只能是 `latency`、`connectivity`、`mixed` 或 `unknown`。
+  `POST /log_failure_event_result/list_src_dst_aggregated_failure_events`：
+  `kb_id` 必填；`operation` 只能 GET/SET。
+- `POST /log_failure_event_result/list_trace_events`：`kb_id` 必填；
+  `operation` 只能 GET/SET；未指定 `is_anomalous` 时显式传 `true`。
+- `POST /log_failure_event_result/metrics/err_code`：`kb_id` 必填；
+  `operation` 只能 GET/SET；`max_points` 必须是 1 到 5000 的整数。
+- `POST /log_failure_event_result/list_log_events`：`trace_ids` 必填且
+  包含 1 到 100 个 trace ID；`kb_id` 必填；`log_id` 可选，建议传以加速。
+- `POST /diag_case_library/search`（及降级的 `POST /diagnosis_case/search`）的 `fault_type`
+  只能是 `latency`、`connectivity`、`mixed` 或 `unknown`。
 
 ## 通断标准流程补充
 
@@ -311,7 +256,7 @@ uv run experience-skill search-experiences \
 1. **`log_id` 传递**：阶段一记录每个相关日志文件的 `id`。`POST /log_failure_event_result/list_log_events` 支持 `log_id`，当调查范围是某日志文件时把该 `id` 作为 `log_id` 传入；不要把 `task_id` 与 `log_id` 混淆。
 2. **Trace 直查优先**：用户提供 trace ID 或明确想查满足条件的具体 trace 时，跳过聚合定位，直接调用 `POST /log_failure_event_result/list_trace_events`，并用 `POST /log_failure_event_result/list_log_events` 取原始日志。即使聚合查询为零，仍应执行 trace 直查。
 3. **通断分支顺序**：先用 `POST /log_failure_event_result/list_time_aggregated_failure_events` 定位故障集中时段，再用 `POST /log_failure_event_result/list_src_dst_aggregated_failure_events` 识别主要源/目的 IP 故障路径。只有问题明确要求按 Pod 汇总时，才补充 `POST /log_failure_event_result/list_pod_aggregated_failure_events`。用 `POST /log_failure_event_result/metrics/err_code` 按错误码和 IP 对量化频次及时间趋势，再用 `POST /log_failure_event_result/list_trace_events` 按时间、IP 对、状态码或 trace ID 获取故障事件和故障模式 ID，最后用 `POST /log_failure_event_result/list_log_events` 获取原始现场证据。
-4. **历史案例检索**：获得现场状态码、IP、host、pod、cluster 等信号后，调用 `POST /diagnosis_case/search` 查历史案例。命中的案例只能作为待验证假设，不能替代现场证据；必要时 `GET /diagnosis_case/{case_id}` 查看完整案例。
+4. **历史案例检索**：获得现场状态码、IP、host、pod、cluster 等信号后，调用 `POST /diag_case_library/search` 查**已人工确认**的历史案例（`kb_id` 可省略 = 跨知识库召回）。命中的案例只能作为待验证假设，不能替代现场证据；必要时 `GET /diag_case_library/{case_id}` 查看完整案例（含证据锚点与验证闭环）。确认库无结果时才降级查 `POST /diagnosis_case/search`，并标注其未经确认。
 5. **Curated 知识解读**：对发现的状态码调用 `GET /failure_mode/status_code/{status_code}`；对故障模式 ID 调用 `GET /failure_mode/{failure_mode_id}`。curated 内容是解释依据，不是现场已经命中的独立证明。
 6. **原始日志证据**：优先用 `POST /log_failure_event_result/list_log_events` 取得原始现场证据；不直接读取本地文件。API 未暴露所需内容时，如实说明证据缺口。
 7. **时延/通断交叉验证**：对通断记录返回的 trace ID，调用 `POST /log_parse_result/list`（body 传 `trace_ids`）检查是否同时存在时延异常。不能因两现象时间接近就认定属于同一请求或存在因果关系。
@@ -319,71 +264,20 @@ uv run experience-skill search-experiences \
 
 ---
 
-## 附录 A：experience-skill 引用标注模板（强制）
+## 附录 A：experience-skill 引用标注（强制）
 
-**任何时候**引用了 `experience-skill` 知识库（SKILL 或 WIKI）的内容，
-无论是用于根因假设、处理建议、错误码含义辅助判断、还是参考了阈值，
-都必须按以下 JSON 模板记录**每条**引用。该记录将被
-`diagnostic-report-generation` Skill 直接采集并写入报告的
-`chapter_0_experience_refs` 章节。
+凡引用 `experience-skill`（SKILL/WIKI）的内容——根因假设、处理建议、
+错误码含义辅助判断、阈值参考——**每条**都必须按统一 JSON 模板逐条记录
+（含 `conflict_with_curated_knowledge` / `conflict_detail` 字段）；记录将被
+`diagnostic-report-generation` 采集写入报告 `chapter_0_experience_refs` 章节。
 
-### JSON 模板（每条引用一个对象，汇总为数组）
+**完整 JSON 模板、字段说明与铁律见
+`experience-skill/references/CITATION_TEMPLATE.md`**。铁律要点：用了必记且
+可追溯；经验 ≠ 证据，更 ≠ curated 官方知识——与
+`GET /failure_mode/status_code/{status_code}` / `GET /failure_mode/{failure_mode_id}`
+冲突时 **curated 优先**并标记 `considered_not_adopted`；检索命中但未采用也要
+记录原因；curated 内容本身不需过 experience-skill 标注（在报告
+chapter_6_relations 中记录）。
 
-```json
-{
-  "experience_refs": [
-    {
-      "experience_id": "<来自 Experience.id 的 UUID，必填>",
-      "experience_type": "SKILL | WIKI",
-      "name": "<来自 Experience.name>",
-      "source_path": "<来自 Experience.source，如 data/skill_hub/ds-worker-error-patterns/skill_def.md>",
-      "keywords_matched": ["<检索该条经验时用的关键词，用于可追溯>"],
-      "search_query_used": "<完整的 search-experiences --query 值>",
-      "used_in_stage": "stage_0_pre_search | stage_6_post_search | stage_4_trace_drill | stage_5_knowledge | recommendation",
-      "adoption_status": "adopted_as_evidence | adopted_as_suggestion | considered_not_adopted",
-      "conflict_with_curated_knowledge": true | false,
-      "conflict_detail": "<当 conflict_with_curated_knowledge=true 时必填，说明与 `GET /failure_mode/status_code/{status_code}` / `GET /failure_mode/{failure_mode_id}` 的哪条内容冲突、最终如何取舍>",
-      "content_quoted": "<直接引用经验中的原文片段，≤200字；严禁超长粘贴>",
-      "how_used_in_diagnosis": "<一句话说明：用在根因排序/处理方案/错误码辅助判断……，如 采用该经验的 ETCD 续约失败周期=5min 特征匹配本次尖峰周期>",
-      "confidence_on_reference": 0.0 ~ 1.0,
-      "confidence_reason": "<为何信任此条：与现场证据相符 / 与 curated failure_mode 一致 / 有历史案例佐证>"
-    }
-  ]
-}
-```
-
-### 字段说明（基于 `Experience` schema）
-
-| 字段 | 来源（Experience / search 结果） | 约束 |
-|------|---------------------------------|------|
-| `experience_id` | `Experience.id` | 必填，UUID |
-| `experience_type` | `Experience.type` | 必填，枚举 SKILL/WIKI |
-| `name` | `Experience.name` | 必填，非空 |
-| `source_path` | `Experience.source` | 必填，可追溯到 `data/skill_hub/.../skill_def.md` 或 `data/wiki_hub/...md` |
-| `keywords_matched` | 人工记录 + `Experience.keywords` 交集 | 非空数组 |
-| `search_query_used` | 执行 search-experiences 的 --query | 必填，可完全复现检索 |
-| `used_in_stage` | 人工标记诊断阶段 | 严格按枚举值（新增 recommendation 阶段用于处理建议） |
-| `adoption_status` | — | adopted_as_evidence = 影响了根因结论；adopted_as_suggestion = 仅用于建议；considered_not_adopted = 考虑过但未采用（必须填原因） |
-| `conflict_with_curated_knowledge` | 人工判断 | 与 `GET /failure_mode/status_code/{status_code}` / `GET /failure_mode/{failure_mode_id}` 返回的 curated 内容冲突时 = true；否则 = false |
-| `conflict_detail` | 人工描述 | conflict=true 时必填，≤200字 |
-| `content_quoted` | 原文摘录 | ≤200字；不允许用"省略号"/"大意如下"，必须是原文片段 |
-| `how_used_in_diagnosis` | 人工描述 | ≤100字，说清楚引用 → 诊断结论的因果链 |
-| `confidence_on_reference` | 人工打分 | 0.0~1.0，精度 0.01 |
-| `confidence_reason` | 人工描述 | ≤100字 |
-
-### 四条铁律（故障码专属额外一条）
-
-1. **用了必记，记必可追溯**：只要引用了经验（哪怕一句话），必须记录；
-   `experience_id` + `source_path` 必须能唯一定位到源文件。
-2. **经验 ≠ 证据，更 ≠ Curated 官方知识**：
-   `adopted_as_evidence` 需极度谨慎。经验库内容只有在被 HTTP API 返回的
-   **现场事实**（trace / metrics / logs）验证后，才能升格为"证据"。
-   与 `GET /failure_mode/status_code/{status_code}` / `GET /failure_mode/{failure_mode_id}` 的 curated 内容
-   冲突时，**curated 优先**，本条经验必须标记 `considered_not_adopted`
-   并填写冲突详情。
-3. **不采用也要说明原因**：检索命中但最终没用的，也要记录
-   `considered_not_adopted` + 排除理由（特别是与 curated 冲突的情况）。
-4. **Curated 内容不需要过 experience-skill 标注**：
-   `GET /failure_mode/status_code/{status_code}` 和 `GET /failure_mode/{failure_mode_id}` 是后端自带的 curated 知识库，
-   不属于 experience-skill，**不要**在本章节标注。二者的使用和引用
-   在 chapter_6_relations 中记录。
+本 Skill 的 `used_in_stage` 枚举：`stage_0_pre_search` / `stage_6_post_search` /
+`stage_4_trace_drill` / `stage_5_knowledge` / `recommendation`。

@@ -1,7 +1,11 @@
 # 诊断报告 JSON Schema 参考
 
-本文件为 `diagnostic-report-generation` Skill 输出的报告提供字段级校验规则。
-所有字段与 `schemas/diagnosis_case.py` 中 `DiagnosisCaseModel` 对齐。
+本文件为 `diagnostic-report-generation` Skill 提供字段级契约：
+
+- §1 / §2 为**旧版报告正文结构**，仅供追溯；报告正文的权威契约现由
+  `scripts/render_report.py --spec <板块>` 与 `references/REPORT_BLOCKS.md` 承载。
+- §3 为**案例沉淀契约**，已对齐超节点诊断案例库
+  （`latency/schemas/diag_case_library.py::CreateDiagCaseDraftRequest`）。
 
 ---
 
@@ -12,17 +16,20 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Witty-UB Diagnostic Report",
   "type": "object",
-  "required": ["report", "diagnosis_case_bridge"],
+  "required": ["report", "case_draft"],
   "properties": {
     "report": { "$ref": "#/$defs/ReportBody" },
-    "diagnosis_case_bridge": { "$ref": "#/$defs/DiagnosisCaseBridge" }
+    "case_draft": { "$ref": "#/$defs/CaseDraft" }
   }
 }
 ```
 
 ---
 
-## 2. ReportBody（八章节）
+## 2. ReportBody（八章节，旧版，仅追溯）
+
+> 报告正文契约已迁至 `render_report.py --spec` + `REPORT_BLOCKS.md`（九板块）；
+> 本节保留旧版章节字段供历史报告追溯，**新报告不要按本节组织数据**。
 
 ### 2.0 chapter_0_experience_refs（经验库引用标注，强制章节）
 
@@ -221,43 +228,113 @@
 
 ---
 
-## 3. DiagnosisCaseBridge（映射至 DiagnosisCaseModel）
+## 3. CaseDraft 案例沉淀契约（映射至 `CreateDiagCaseDraftRequest`）
 
-本对象的字段一一对应 `schemas/diagnosis_case.py` 中 `DiagnosisCaseModel`，
-可直接 `DiagnosisCaseModel.model_validate(bridge)` 无转换写入。
+本对象字段与 `latency/schemas/diag_case_library.py::CreateDiagCaseDraftRequest`
+一一对应，可直接 `CreateDiagCaseDraftRequest.model_validate(case_draft)` 建草稿。
 
-> ⚠️ **经验引用注入规则**：由于 `DiagnosisCaseModel` 没有单独的经验引用
-> 字段，chapter_0 的内容通过**三个现有字段**以带前缀的子对象形式注入，
-> 既不破坏 model_validate，又保证经验追溯链完整。
+> ⚠️ **旧桥接（`DiagnosisCaseModel` 口径：`root_cause` / `recommendation` /
+> `fingerprint_json` / `evidence_refs_json`）已废弃**：它没有带 `kind` 的证据锚点、
+> 没有分步处置、也没有独立信号列，**过不了 `/diag_case_library/{case_id}/confirm`
+> 的确认闸门**。不要再按旧口径组织写入数据。
 
-| 字段 | 类型 | DiagnosisCaseModel 字段 | 映射来源（含经验引用注入规则） |
-|------|------|------------------------|---------|
-| `kb_id` | string/null | kb_id | chapter_1.kb_id |
-| `fault_type` | string | fault_type | chapter_1.fault_type |
-| `title` | string/null | title | chapter_1.title |
-| `symptom_summary` | string | symptom_summary | chapter_3.symptom_detailed |
-| `root_cause` | string | root_cause | chapter_4 final + 各cause拼接；若根因采用了经验库内容，在文末追加一行 `[参考经验：EID-<experience_id> (<name>)]` |
-| `recommendation` | string | recommendation | chapter_5 short_term + long_term；建议来自经验库的条目末尾追加 `[来源：EID-<experience_id>]` |
-| `confidence` | number | confidence | chapter_4 root_causes[0].confidence；若采用 adopted_as_evidence 经验，对 confidence ≤ 0.05 修正并注明 |
-| `failure_mode_ids` | string[] | failure_mode_ids | chapter_3 structured_signals |
-| `status_codes` | string[] | status_codes | chapter_3 structured_signals |
-| `fingerprint_json` | object | fingerprint_json | chapter_3 structured_signals **原样保留**；在对象顶层新增 `_experience_refs_summary` 键 = chapter_0.summary（不影响 FTS5 检索，带下划线前缀作保留字段） |
-| `evidence_refs_json` | array | evidence_refs_json | chapter_4 所有 primary_evidence（HTTP API 现场证据）保持原样；**追加** chapter_0 中 adopted_as_evidence 的条目，每条加 `_ref_type="experience_skill"` 前缀和 `eid="<experience_id>"` 字段 |
-| `counter_evidence_json` | array | counter_evidence_json | chapter_4 所有 counter_checks（HTTP API 现场反证）保持原样；**追加** chapter_0 中 considered_not_adopted 的条目，每条加 `_ref_type="experience_skill_rejected"` 前缀、`eid`、`rejection_reason`（=how_used_in_diagnosis 或 conflict_detail） |
-| `source_log_ids` | string[] | source_log_ids | chapter_6 source_log_ids |
+### 3.1 三步链路（对话确认，不引入前端页面与审批流）
 
-### 经验引用字段注入示例（evidence_refs_json）
+1. 报告渲染完成 → Agent 把报告路径与摘要交给用户；
+2. 用户点头「报告 OK」→ `POST /diag_case_library`（本对象）取 `case_id` →
+   `POST /diag_case_library/{case_id}/confirm`（`confirmed_by` = 用户标识）→
+   案例进入可检索集合；
+3. 处置执行 + 复测后 → `PATCH /diag_case_library/{case_id}` **只补** `verification_json`。
+
+> 步骤 2 与 3 之间案例已可检索，但 `closed_loop` 为假：检索侧按「待验证处方」处理，
+> `applicability` 上限 `adjust`（见 `case-matching/SKILL.md` 纪律 9）。
+
+### 3.2 字段映射
+
+| 字段 | 类型 | Required | 映射来源 |
+|------|------|----------|---------|
+| `log_type` | string | ✅ | 板块 1 `kb_id` 对应的日志类型：`KVCache` / `UBSocket` |
+| `source` | string | ✅ | `internal`（本系统现场）/ `community` / `online` |
+| `source_url` | string | community/online 必填 | 外部来源链接 |
+| `title` | string | ✅ | 报告标题 |
+| `symptom_summary` | string | ✅ | 板块 2 `one_line_conclusion` + `key_findings`；**须能独立读懂**，不依赖报告上下文 |
+| `root_cause_summary` | string | ✅ | 板块 4 `confirmed_root_cause`（一句话根因） |
+| `root_cause_detail` | string | ❌ | 板块 4 `reasoning_chain[]` 逐级拼接（机理长文） |
+| `operation` | `GET`/`SET` | ❌ | 板块 1 `operation`；GET 与 SET 不许混写一条案例 |
+| `fault_type` | string | ✅ | 报告 `fault_type`：`latency` / `connectivity` / `mixed` / `unknown` |
+| `confidence` | number | ❌ | 板块 2 `confidence` 转 0~1 数值（如 `"高 92%"` → `0.92`）；仅知识库解释支撑的不得给高值 |
+| `status_codes[]` | string[] | ❌ | 板块 6 `top_error_codes[].code`（**原始码**，不是 `name`），信号权重 3.0 |
+| `failure_mode_ids[]` | string[] | ❌ | 板块 7 `knowledge_matches[].id`（故障模式 ID），信号权重 3.0 |
+| `latency_components[]` | string[] | ❌ | **必须取 `/stats/stages` 的桶 key**（`set_client` / `urma`）；**禁止**照抄板块 6 的阶段展示名（`URMA 网络`），否则 L2 信号全部打空（见 `CASE_FEATURE_CONTRACT.md` §三） |
+| `log_keywords[]` | string[] | ❌ | 现场日志**原文短语**（保留大小写与下划线），禁意译、禁套用历史案例的短语 |
+| `hosts[]` | string[] | ❌ | 板块 6 `top_hosts[].host` |
+| `pods[]` | string[] | ❌ | 板块 6 `top_pods[].pod` |
+| `src_ips[]` / `dst_ips[]` | string[] | ❌ | 现场接口返回（`/stats/links`、`/log_parse_result/options`），逐字保留 |
+| `cluster_name` | string | ❌ | 现场接口返回的集群名 |
+| `version_json` | object | ❌ | `{kernel, os, urma, umq, ubsocket}`；**有可靠来源才填** |
+| `stage_features_json` | object | ❌ | `/stats/stages` 原始响应整理为 `{operation, buckets[], sample_cnt, truncated}`，`buckets[].key` 用桶 key |
+| `fault_shape` | string | ❌ | 板块 6 `time_heatmap` 体现的时间形状 |
+| `time_window_json` | object | ❌ | 板块 1 `time_range_start` / `time_range_end`（或板块 6 的尖峰窗） |
+| `scope_limits` | string | ❌ | 报告须新写：本方案不适用的场景（防跨域误套用） |
+| `node_type` | string | ❌ | 超节点形态（现场有才填） |
+| `kb_id` / `kb_name` | string | ❌ | 板块 1 `kb_id` / `kb_name`；留空 = 全局案例（可跨库召回） |
+| `evidence_json[]` | array | ✅ 闸门要求 ≥1 | `{kind: api\|trace\|log\|sql, ref, params, excerpt, note}`。板块 4 的 `reasoning_chain[].evidence` 是自由文本，**需由 Agent 按实际调用补成结构化锚点**：`kind` 取证据通道，`ref` 取可复现引用（接口路径 / trace_id / `文件:行号`） |
+| `counter_evidence_json[]` | array | ❌ | 板块 4 `reasoning_chain[]` 中 `excluded=true` 的步骤（已排除项 + 排除依据） |
+| `remediation_json[]` | array | ✅ 闸门要求 ≥1 | 板块 3 `short_term` + `long_term` **拆成分步**：`{step, action, expected, risk}`，`expected` 可用 `verification[]` |
+| `relations_json[]` | array | ❌ | 本次报告关联的其他案例 `case_no`（无则留空，不要编） |
+| `source_log_ids[]` | string[] | ❌ | 现场取到的来源日志 ID（板块 1 只有文件名，ID 需另取自日志列表接口） |
+| `created_by` | string | ❌ | 报告生成者标识 |
+
+**不提供的字段**（服务端生成或事后回填）：`case_no` / `search_text` / `status` /
+`revision` / `verification_json`。
+
+**BRPC 报告**：板块 6 的对应来源换成 `GET /brpc-diagnosis/batch/{batch_id}/summary`
+（`top_pods` / `top_failure_modes` / `peak_window`），其余字段映射不变。
+注意案例库的 `fault_type` 只接受 `latency` / `connectivity` / `mixed` / `unknown`
+（报告的 `fault_type=brpc` **不能**直接写入），按故障语义选其中之一。
+
+### 3.3 纪律（与确认闸门一致）
+
+1. **`verification_json` 报告阶段留空**：处置尚未执行，`observed_result` 只允许在
+   执行 + 复测后经 `PATCH` 回填；臆造验证记录比没有验证更坏。
+2. `evidence_json[].ref` 必须可复现（trace_id / `文件:行号` / 接口+参数），
+   不接受「某处日志显示」这类不可复核的写法。
+3. `remediation_json` 每步都要写 `expected`（执行后应观察到什么）与 `risk`。
+4. **至少一个可匹配信号**（`status_codes` / `failure_mode_ids` / `latency_components` /
+   `log_keywords` / `hosts` / `pods` / IP / `cluster_name`）非空，否则案例永远检索不到；
+   `operation` 不计入。
+5. 特征只能来自现场观测，不得为凑匹配填入未观测到的 IP / Pod / 错误码；
+   `log_keywords` 必须是本次现场日志的原文短语。
+
+### 3.4 示例
 
 ```json
-[
-  { "ref": "E-01", "description": "host-101 P99=1200ms（基线150ms）", "source_tool": "POST /aggregated_event/list", ... },
-  {
-    "_ref_type": "experience_skill",
-    "eid": "a1b2c3d4-5678-...",
-    "name": "ds-kv-cache-diagnosis",
-    "adoption_status": "adopted_as_evidence",
-    "how_used_in_diagnosis": "其 Worker 磁盘阈值=90% 判断 host-101 为瓶颈",
-    "confidence_on_reference": 0.8
-  }
-]
+{
+  "log_type": "KVCache",
+  "source": "internal",
+  "created_by": "witty-ub-diagnostician",
+  "title": "SET 通断失败：umq 建链队列拥塞",
+  "symptom_summary": "SET 请求大面积超时，客户端返回 kvcache_conn_fault_020，故障窗 19:02~19:11",
+  "root_cause_summary": "umq 建链队列拥塞导致 SET 首包超时",
+  "root_cause_detail": "set_client 桶堆积……（推理链逐级证据）",
+  "operation": "SET",
+  "fault_type": "latency",
+  "confidence": 0.8,
+  "status_codes": ["1004"],
+  "failure_mode_ids": ["kvcache_conn_fault_020"],
+  "latency_components": ["set_client", "set_worker"],
+  "log_keywords": ["Connect Timeout"],
+  "pods": ["kvcache-worker-3"],
+  "version_json": {"kernel": "5.10", "urma": "2.4"},
+  "scope_limits": "仅适用于 KVCache SET 场景",
+  "time_window_json": {"start": "2026-09-21 19:02:00", "end": "2026-09-21 19:11:00"},
+  "evidence_json": [
+    {"kind": "api", "ref": "POST /stats/stages", "params": {"operation": "SET"},
+     "excerpt": "set_client P90=12ms", "note": "定位到 set_client 桶"}
+  ],
+  "counter_evidence_json": [{"item": "worker 磁盘写满", "why_excluded": "磁盘水位 42%"}],
+  "remediation_json": [
+    {"step": 1, "action": "重启 umq 服务", "expected": "建链队列清空，SET P90 回落", "risk": "瞬断"}
+  ]
+}
 ```

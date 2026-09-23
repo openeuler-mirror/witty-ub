@@ -35,6 +35,12 @@ from latency.schemas.brpc_diagnosis import (
     BrpcMetricSortField,
     BrpcPodAggregatedEvent,
     BrpcSortOrder,
+    BrpcSummaryComponentItem,
+    BrpcSummaryFailureModeItem,
+    BrpcSummaryMsg,
+    BrpcSummaryPeakWindow,
+    BrpcSummaryPodItem,
+    BrpcSummaryTimeRange,
     BrpcThreadAggregatedEvent,
     BrpcWindowSize,
     GetBrpcAbnormalThreadDetailMsg,
@@ -1365,3 +1371,175 @@ class BrpcDiagnosisService:
                 )
             )
         return series
+
+    # --- Summary one-pager (docs/design/trace-light-api.md §11.2) ---
+    # 响应规模只与 top_n 绑定：聚合/排序/LIMIT 全部 DB 侧下推，
+    # peak 只取峰值单窗（不拉时间序列），failure_modes 为知识库节点级
+    # 小基数集合（复用既有聚合后 Python 侧过滤排序截断）。
+
+    @staticmethod
+    def _summary_peak_window_size(span_us: int) -> BrpcWindowSize:
+        """峰值窗口自动选窗：跨度 ≤10min→10s、≤2h→1m、否则 1h。"""
+        if span_us <= 10 * 60 * 1_000_000:
+            return "10s"
+        if span_us <= 2 * 3_600 * 1_000_000:
+            return "1m"
+        return "1h"
+
+    @staticmethod
+    async def get_summary(
+        *,
+        batch_id: str,
+        start_timestamp: int | None = None,
+        end_timestamp: int | None = None,
+        component: BrpcComponent | None = None,
+        top_n: int = 10,
+        _batch_rows: list | None = None,
+    ) -> BrpcSummaryMsg:
+        if start_timestamp is not None and end_timestamp is not None:
+            BrpcDiagnosisService._validate_timestamp_range(
+                start_timestamp,
+                end_timestamp,
+            )
+        async with PGManager.session() as session:
+            if _batch_rows is None:
+                batch = await BrpcDiagnosisPGManager.get_batch(session, batch_id)
+                if batch is None:
+                    raise NotFoundBizException(resource="UBSocket 诊断 batch")
+                _batch_rows = [batch]
+            start = (
+                start_timestamp
+                if start_timestamp is not None
+                else min(row.start_timestamp for row in _batch_rows)
+            )
+            end = (
+                end_timestamp
+                if end_timestamp is not None
+                else max(row.end_timestamp for row in _batch_rows)
+            )
+            if end <= start:
+                raise BadRequestBizException(
+                    message="end_time 必须晚于 start_time"
+                )
+            hit_batch_ids = [row.batch_id for row in _batch_rows]
+            component_rows = (
+                await BrpcDiagnosisPGManager.get_summary_component_counts(
+                    session,
+                    batch_id=hit_batch_ids,
+                    start_timestamp=start,
+                    end_timestamp=end,
+                    component=component,
+                )
+            )
+            hit_count = sum(int(row["hit_count"]) for row in component_rows)
+            top_pod_rows: list[dict] = []
+            failure_mode_rows: list[dict] = []
+            peak_row: dict | None = None
+            window_size: BrpcWindowSize = "1m"
+            if hit_count > 0:
+                top_pod_rows = (
+                    await BrpcDiagnosisPGManager.get_summary_pod_top(
+                        session,
+                        batch_id=hit_batch_ids,
+                        start_timestamp=start,
+                        end_timestamp=end,
+                        top_n=top_n,
+                        component=component,
+                    )
+                )
+                failure_mode_rows = (
+                    await BrpcDiagnosisPGManager.get_failure_mode_hit_counts(
+                        session,
+                        batch_id=hit_batch_ids,
+                        start_timestamp=start,
+                        end_timestamp=end,
+                    )
+                )
+                window_size = (
+                    BrpcDiagnosisService._summary_peak_window_size(end - start)
+                )
+                peak_row = await BrpcDiagnosisPGManager.get_summary_peak_window(
+                    session,
+                    batch_id=hit_batch_ids,
+                    start_timestamp=start,
+                    end_timestamp=end,
+                    window_us=WINDOW_SIZE_US[window_size],
+                    component=component,
+                )
+
+        components = [
+            BrpcSummaryComponentItem(
+                component=row["component"],
+                hit_count=int(row["hit_count"]),
+                pct=round(int(row["hit_count"]) / hit_count * 100, 1),
+            )
+            for row in component_rows
+        ]
+        top_pods = [
+            BrpcSummaryPodItem(
+                pod_ip=row["pod_ip"],
+                pod_name=row["pod_name"],
+                hit_count=int(row["hit_count"]),
+            )
+            for row in top_pod_rows
+        ]
+        top_failure_modes = [
+            BrpcSummaryFailureModeItem(
+                failure_mode_id=row["failure_mode_id"],
+                name=row["failure_mode_name"],
+                hit_count=int(row["hit_count"]),
+            )
+            for row in sorted(
+                (
+                    row
+                    for row in failure_mode_rows
+                    if component is None or row["component"] == component
+                ),
+                key=lambda row: (
+                    -int(row["hit_count"]),
+                    str(row["failure_mode_id"]),
+                ),
+            )[:top_n]
+        ]
+        peak_window = None
+        if peak_row is not None:
+            bucket = int(peak_row["window_start_timestamp"])
+            peak_window = BrpcSummaryPeakWindow(
+                start_time=bucket,
+                end_time=bucket + WINDOW_SIZE_US[window_size],
+                hit_count=int(peak_row["hit_count"]),
+                window_size=window_size,
+            )
+        return BrpcSummaryMsg(
+            hit_count=hit_count,
+            time_range=BrpcSummaryTimeRange(start_time=start, end_time=end),
+            components=components,
+            top_pods=top_pods,
+            top_failure_modes=top_failure_modes,
+            peak_window=peak_window,
+        )
+
+    @staticmethod
+    async def get_knowledge_summary(
+        *,
+        kb_id: str,
+        start_timestamp: int | None = None,
+        end_timestamp: int | None = None,
+        component: BrpcComponent | None = None,
+        top_n: int = 10,
+    ) -> BrpcSummaryMsg:
+        async with PGManager.session() as session:
+            batches = await BrpcDiagnosisPGManager.list_batches_by_kb_id(
+                session,
+                kb_id,
+            )
+        if not batches:
+            raise NotFoundBizException(resource="资产库 UBSocket 诊断数据")
+        return await BrpcDiagnosisService.get_summary(
+            batch_id=kb_id,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
+            component=component,
+            top_n=top_n,
+            _batch_rows=batches,
+        )

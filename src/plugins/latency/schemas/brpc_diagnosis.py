@@ -514,3 +514,52 @@ class GetBrpcAbnormalThreadDetailMsg(BaseModel):
 
 class GetBrpcAbnormalThreadDetailResponse(ResponseBase):
     result: GetBrpcAbnormalThreadDetailMsg
+
+
+# --- Summary one-pager (funnel level 1, see docs/design/trace-light-api.md §11.2) ---
+# 响应形状固定：各字段基数有界（components ≤ 组件枚举、top_* ≤ top_n、
+# peak_window 单窗），响应规模只与 top_n 绑定，与 hit 行数解耦。
+
+class BrpcSummaryTimeRange(_StrictProtocolModel):
+    start_time: BrpcApiTime
+    end_time: BrpcApiTime
+
+
+class BrpcSummaryComponentItem(_StrictProtocolModel):
+    component: BrpcInterfaceComponent
+    hit_count: int = Field(ge=0)
+    pct: float = Field(ge=0, le=100)
+
+
+class BrpcSummaryPodItem(_StrictProtocolModel):
+    pod_ip: str
+    pod_name: str | None
+    hit_count: int = Field(ge=0)
+
+
+class BrpcSummaryFailureModeItem(_StrictProtocolModel):
+    failure_mode_id: str
+    name: str
+    hit_count: int = Field(ge=0)
+
+
+class BrpcSummaryPeakWindow(_StrictProtocolModel):
+    start_time: BrpcApiTime
+    end_time: BrpcApiTime
+    hit_count: int = Field(ge=0)
+    window_size: BrpcWindowSize
+
+
+class BrpcSummaryMsg(_StrictProtocolModel):
+    hit_count: int = Field(ge=0)
+    time_range: BrpcSummaryTimeRange
+    components: list[BrpcSummaryComponentItem] = Field(default_factory=list)
+    top_pods: list[BrpcSummaryPodItem] = Field(default_factory=list)
+    top_failure_modes: list[BrpcSummaryFailureModeItem] = Field(
+        default_factory=list
+    )
+    peak_window: BrpcSummaryPeakWindow | None = None
+
+
+class GetBrpcSummaryResponse(ResponseBase):
+    result: BrpcSummaryMsg

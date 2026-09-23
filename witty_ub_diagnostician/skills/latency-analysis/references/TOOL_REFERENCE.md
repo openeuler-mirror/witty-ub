@@ -45,6 +45,129 @@
 
 ---
 
+## 定位定界漏斗（轻量三接口，Agent 首选路径）
+
+**组件定位 → 节点定界 → 证据下钻** 的标准漏斗；响应字段最小化，
+按需 include，面向 LLM Agent 低 token 消耗设计。
+
+### 第 1 层：`POST /stats/stages`（组件定位入口）
+
+一次调用返回**该 operation 的互斥主导问题分类**（每条 trace 按
+winner-take-all 归入唯一桶，Σ各桶 trace_cnt = sample_cnt），回答"哪个组件
+出了问题"。GET 与 SET 是**两套独立口径**（读路径 8 桶 / 写路径 5 桶，key 不
+重叠）：需分别调用两次，禁止跨 operation 混合归桶。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `kb_id` | str | — | 必填 |
+| `log_id` | str \| None | None | 精确到单个日志文件 |
+| `operation` | `"GET"` \| `"SET"` | `"GET"` | GET→8 桶；SET→5 桶；其他值返回空 items + note |
+| `start_time` / `end_time` | str \| None | None | `YYYY-MM-DD HH:MM:SS` |
+| `sample_cap` | int | 1000 | 采样上限：异常 trace 全量 + top 慢正常合并去重（50~5000） |
+
+**返回 `result` 关键字段**：
+
+- `sample_cnt` / `truncated`：实际采样数与是否截断
+- `items[]`（固定顺序，零计数桶照常返回；GET 8 个 / SET 5 个）：
+  `{key, name, trace_cnt, success_cnt, fail_cnt, p50_ms, p90_ms, max_ms, client_p50_ms, client_p90_ms, metric_name, action, note, top_traces[]}`
+  - GET 桶 key：`rpc_network` / `rpc_queue` / `query_meta` / `urma` /
+    `data_worker` / `cross_window` / `residual` / `urma_timeout`
+  - SET 桶 key：`set_urma_timeout` / `set_no_evidence` / `set_residual` /
+    `set_client` / `set_worker`（判定顺序即优先级：超时文本 → 数据面未观测 →
+    未解释残差 → SDK 段 / Worker 端比大小）
+  - **双口径读法**：`fail_cnt` 为异常 trace 数（`is_anomalous=true`，判定
+    通断/失败面）；`success_cnt` 为正常但落入该桶的慢 trace 数（判定时延面）。
+    通断问题看 fail_cnt 高的桶，时延问题看 trace_cnt/p90 高的桶
+  - `p50_ms`/`p90_ms`/`max_ms` 为该桶**主阶段证据耗时**分位（`metric_name`
+    标注口径：普通瓶颈=winner 维度耗时；URMA 超时=日志 elapsedMs 近似；
+    SET·数据面未观测=Client 总时延）；`client_*` 为桶内 trace Client 总时延对照
+  - `action`：该类问题的治理指引文案（可直接进报告建议段）
+  - **`top_traces[]` 桥接**：`{trace_id, evidence_ms, client_ms}`，桶内证据
+    耗时 Top-5，trace_id 直接用于 `/trace/list` 批查或 `GET /trace/{id}` 下钻
+- `note`：样本集/口径说明；SET 侧额外列出**被剔除维度及原因**（实测口径）
+
+**SET 侧口径与剔除维度**（node48 实测 3638 条写路径行）：
+
+- 可用：`sdk_processing_us`（客户端 SDK 段，含等待数据面返回）与
+  `local_worker_internal_us`（Worker 端写处理），二者之和 ≡ `total_latency_us`；
+  另有 `worker_access_latency_us` 用于判断数据面是否被观测
+- 剔除：`urma_processing_us` / `create_latency` / `publish_latency` /
+  `w2w_urma_latency` 在当前解析路径恒为空；`c2w_urma_latency` 恒 ≈ 总时延，
+  无额外信息量；RPC 细分列在 SET 侧几乎全空
+- 实测分布（`set_client` 2467 / `set_no_evidence` 1164 / `set_worker` 6 /
+  `set_residual` 1 / `set_urma_timeout` 0），故 SET 侧**不做** CREATE/PUBLISH
+  分段归因；`urma_link_latency` 仅作附注，不参与归桶
+
+**分诊规则**：先看 fail_cnt 最大桶（通断优先）；无异常再按 trace_cnt × p90_ms
+排序看时延主导桶；`urma_timeout` / `set_urma_timeout` 桶非零时优先（已观测
+URMA_WAIT_TIMEOUT）。归因子集为空（note 说明）时降级走 `/trace/list` 按总时延粗筛。
+
+### 第 2 层：`POST /trace/list`（trace 粗筛 / 节点定界）
+
+**默认最小响应**：每条仅 4 基础字段
+`{trace_id, total_latency_ms, is_anomalous, operation}`；附加块按 `include`
+显式请求，未指定的块不出现在响应里（非 null 占位）。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `kb_id` | str | — | 必填 |
+| `log_id` | str \| None | None | 精确到单个日志文件 |
+| `trace_ids` | list[str] \| None | None | 批量查询（承接 `/stats/stages` 的 top_traces） |
+| `operation` | `"GET"` \| `"SET"` \| None | None | 操作类型过滤 |
+| `is_anomalous` | bool \| None | None | **时延侧口径**：True 仅异常，False 仅正常 |
+| `status_codes` | list[str] \| None | None | **故障侧语义**：返回挂有任一指定故障码的 trace（触发故障主源路径） |
+| `start_time` / `end_time` | str \| None | None | `YYYY-MM-DD HH:MM:SS` |
+| `pod_ip` / `host` / `cluster_name` / `src_ip` / `dst_ip` | str \| None | None | 过滤（pod_ip/host/cluster 为时延侧；src/dst 双源） |
+| `sort_by` | `"total_latency"` \| `"failure_cnt"` \| `"timestamp"` | `"total_latency"` | `failure_cnt` 走故障主源（DB 侧聚合下推） |
+| `sort_order` | `"desc"` \| `"asc"` | `"desc"` | 排序方向 |
+| `page_cnt` | int | 20 | 每页条数 ≤500 |
+| `page_num` | int | 1 | 页码 |
+| `include` | list | `[]` | `"failure_codes"`=故障码聚合块；`"topology"`=拓扑块（pod_ips/host/src_ip/dst_ip） |
+
+**响应条目字段**（按请求组合）：
+
+- 基础：`trace_id` / `total_latency_ms` / `is_anomalous` / `operation`
+- include=failure_codes：`failure_codes: [{code, cnt}]` + 故障主源路径另有
+  `failure_cnt`（无故障记录的 trace 得 `[]`，不丢条；纯故障 trace 时延侧字段为 null）
+- include=topology：`pod_ips`（**去重集合，无跳序**；逐跳顺序数据层未保留）/
+  `host` / `src_ip` / `dst_ip`（链路首末锚点，节点定界用）
+
+**sort_by 路径选择**：时延粗筛用默认 `total_latency`（单查询最快路径）；
+"哪些 trace 挂了故障码" 用 `sort_by=failure_cnt` 或传 `status_codes`
+（unnest → GROUP BY → 排序分页全部 DB 侧完成，10W~50W 行规模安全）。
+
+> ⚠️ **`total > 500` 使用纪律**：`total` 为命中 trace 总数；当 `total > 500`
+> 时**禁止翻页遍历**，必须收窄过滤（时间窗 / is_anomalous / status_codes /
+> pod_ip）或只取 Top（默认第一页即按排序键 Top-N），或回到 `/stats/stages`
+> 看聚合视图。
+
+### 第 3 层：`GET /trace/{trace_id}`（代表 trace 证据下钻）
+
+单 trace 完整画像（时延 + 拓扑 + 故障码 + 时间戳），用于确认代表 trace 的
+证据链。查询参数：`kb_id`（必填）、`log_id`（可选）、`include`（可选，
+同上）。返回 `result`：基础 4 字段 + `failure_codes` + 拓扑 4 字段 +
+`timestamp`（取故障侧最早日志时间，无故障记录回退解析侧时间）。
+trace 不存在时 404。
+
+### 单维度统计：`POST /stats/error_codes|pods|links|heatmap`
+
+四个统计端点共用请求骨架（`kb_id` 必填；`log_id`/`operation`/`start_time`/
+`end_time` 可选；`top_n` 默认 20 上限 100），DB 侧全量精确聚合，响应统一
+`{total, items, note}`，不受 `/trace/list` 分页截断影响：
+
+| 端点 | `items[]` 字段 | 排序 | 联动下钻 |
+|------|--------------|------|---------|
+| `/stats/error_codes` | `status_code`、`trace_cnt`、`event_cnt`（日志级事件数，双源缺一为 `null`） | `trace_cnt` 降序 | Top 码 → `/trace/list {status_codes}` |
+| `/stats/pods` | `pod_ip`、`host`、`trace_cnt`、`fault_trace_cnt` | `fault_trace_cnt` 降序 | Top Pod → `/trace/list {pod_ip}` |
+| `/stats/links` | `src_ip`、`dst_ip`、`trace_cnt`、`fault_trace_cnt` | `fault_trace_cnt` 降序 | 源目对 → `/trace/list {src_ip}/{dst_ip}`；两侧 IP 多为空时 `total=0` 属数据事实 |
+| `/stats/heatmap` | `window_start`、`fault_trace_cnt`（另含 `window_size`） | 时间升序 | 峰值窗口 → 各接口 `start_time`/`end_time` |
+
+heatmap `window_size` 可选 `1m`/`10m`/`1h`，缺省自动选窗（跨度 ≤2h→1m、
+≤48h→10m、否则 1h；自动模式槽位数 >240 逐级放大，显式指定不放大仅 note
+提示）。`note` 字段说明口径（如 `event_cnt` 双源口径、pods 各 Pod 计数一次）。
+
+---
+
 ## IP 对聚合
 
 ### `POST /aggregated_event/list`
@@ -143,24 +266,33 @@
 
 ## 历史案例
 
-### `POST /diagnosis_case/search`
+### `POST /diag_case_library/search`（默认通道）
 
-从历史沉淀的诊断案例库中检索相似指纹，用于提出候选根因假设。
+从**已人工确认**的超节点诊断案例库中检索相似指纹，用于提出候选根因假设。
 
 > ⚠️ 结果仅作**参考假设**，必须用当前现场数据验证。
+> 只返回 `status=confirmed` 的案例；未经确认的旧表案例见下方降级通道。
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `fault_type` | `"latency"` \| `"connectivity"` \| `"mixed"` \| `"unknown"` | None | 本 Skill 用 `latency` |
-| `kb_id` | str | — | 必填，限定知识库 |
+| `operation` | `"GET"` \| `"SET"` \| `"N/A"` | None | 服务端过滤，GET/SET 一提交即隔离 |
+| `log_type` | `"KVCache"` \| `"UBSocket"` | None | 日志类型过滤 |
+| `kb_id` | str | — | **可空**；留空 = 跨知识库召回（`kb_id` 仅作来源标注） |
 | `status_codes` / `failure_mode_ids` | list[str] \| None | [] | 信号量 |
 | `src_ips` / `dst_ips` / `hosts` / `pods` / `clusters` | list[str] \| None | [] | 故障域 |
-| `latency_components` | list[str] \| None | [] | 如 `["worker_query_meta_latency"]` |
+| `latency_components` | list[str] \| None | [] | 桶 key，如 `set_client`（见 FEATURE_SPEC 的桶表） |
 | `log_keywords` | list[str] \| None | [] | 关键日志短语 |
 | `min_confidence` | float \| None | None | 置信度阈值 0~1 |
+| `include_status` | list[str] | `["confirmed"]` | 纳入检索的状态集合，一般不改 |
 | `page_num` / `page_cnt` | int | 1 / 10 | — |
 
-### `GET /diagnosis_case/{case_id}`
+### `GET /diag_case_library/{case_id}`
 
-按 ID 获取完整历史案例详情（含证据、根因、解决方案）。`case_id` 来自
-`POST /diagnosis_case/search` 的结果。
+按 ID 获取完整案例详情（含证据锚点、根因机理、分步处置、验证闭环）。`case_id` 来自
+`POST /diag_case_library/search` 的结果。
+
+### 降级通道：`POST /diagnosis_case/search` / `GET /diagnosis_case/{case_id}`
+
+旧表，**无人工确认关卡**、内容物只有现象/根因/建议三段，且 `kb_id` 必填。
+仅在确认案例库无结果时兜底使用；引用时必须标注"来源=diagnosis_case（未经人工确认）"。

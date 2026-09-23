@@ -15,6 +15,13 @@ import {
 import type { PropType } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
+import {
+  ASSET_REPORT_DIALOG_PAGE_SIZE,
+  assetReportButtonTitle,
+  buildAssetReportListNotice,
+  isAssetReportButtonDisabled,
+  resolveAssetReportButtonState,
+} from './utils/assetReport'
 import { displayServerTime } from './utils/serverTime'
 import {
   buildTaskLanes,
@@ -58,6 +65,8 @@ type AgentChatMessage = {
   content: string
   status: 'thinking' | 'done' | 'error'
   messageId?: string
+  questionReply?: Array<{ question: string; answer: string }>
+  questionReplyAfterMessageId?: string
 }
 
 type AgentChatPart = {
@@ -86,6 +95,36 @@ type OpenCodeMessage = {
     type?: string
     text?: string
   }>
+}
+
+type OpenCodePermissionRequest = {
+  id: string
+  sessionID: string
+  permission: string
+  patterns: string[]
+  metadata?: Record<string, unknown>
+  always?: string[]
+  tool?: { messageID: string; callID: string }
+}
+
+type OpenCodeQuestion = {
+  question: string
+  header: string
+  options: Array<{ label: string; description: string }>
+  multiple?: boolean
+  custom?: boolean
+}
+
+type OpenCodeQuestionRequest = {
+  id: string
+  sessionID: string
+  questions: OpenCodeQuestion[]
+  tool?: { messageID: string; callID: string }
+}
+
+type AgentSessionPermissionRule = {
+  permission: string
+  patterns: string[]
 }
 
 type OpenCodeEvent = {
@@ -117,6 +156,18 @@ type OpenCodeEvent = {
     error?: unknown
     message?: string
     data?: unknown
+    id?: string
+    requestID?: string
+    permission?: string
+    type?: string
+    patterns?: string[]
+    pattern?: string | string[]
+    title?: string
+    metadata?: Record<string, unknown>
+    always?: string[]
+    tool?: { messageID: string; callID: string }
+    questions?: OpenCodeQuestion[]
+    reply?: 'once' | 'always' | 'reject'
   }
 }
 
@@ -950,6 +1001,12 @@ const agentConnectionError = ref('')
 const agentConnectionState = ref<'connected' | 'connecting' | 'disconnected'>('connecting')
 const isAgentLoggingIn = ref(false)
 const agentChatMessages = ref<AgentChatMessage[]>([])
+const agentPendingPermissions = ref<OpenCodePermissionRequest[]>([])
+const agentPendingQuestions = ref<OpenCodeQuestionRequest[]>([])
+const agentQuestionAnswers = ref<Record<string, string[][]>>({})
+const agentQuestionCustomAnswers = ref<Record<string, string[]>>({})
+const agentInteractionSubmitting = ref('')
+const agentInteractionError = ref('')
 const agentChatMessagesRef = ref<HTMLElement | null>(null)
 const agentChatPanelRef = ref<HTMLElement | null>(null)
 const agentPanelSize = reactive<{ width: number | null; height: number | null }>({
@@ -969,6 +1026,10 @@ const isAgentSessionCreating = ref(false)
 const isAgentSubmitting = ref(false)
 const agentSessionStatuses = ref<Record<string, { type: string }>>({})
 const agentSessionDrafts = ref<Record<string, string>>({})
+const agentSessionPermissionRules = ref<Record<string, AgentSessionPermissionRule[]>>({})
+const agentSessionPermissionStorageKey = 'witty-ub.agent-session-permissions'
+const agentQuestionReplyMessages = ref<Record<string, AgentChatMessage[]>>({})
+const agentQuestionReplyStorageKey = 'witty-ub.agent-question-replies'
 const agentSessionDialog = ref<{ kind: 'rename' | 'delete'; session: OpenCodeSession } | null>(null)
 const agentSessionTitleInput = ref('')
 const isAgentSessionSaving = ref(false)
@@ -1320,6 +1381,13 @@ const extractOpenCodeError = (payload: unknown, fallback: string): string => {
   )
 }
 
+const isOpenCodeAbortError = (payload: unknown): boolean => {
+  if (!payload || typeof payload !== 'object') return false
+  const value = payload as Record<string, unknown>
+  if (value.name === 'MessageAbortedError' || value.name === 'AbortError') return true
+  return isOpenCodeAbortError(value.error) || isOpenCodeAbortError(value.data)
+}
+
 const requestAgentApi = async <T,>(path: string, init: RequestInit = {}) => {
   const response = await fetch(`${agentApiBase.value}${path}`, {
     ...init,
@@ -1402,6 +1470,70 @@ const saveAgentSessionAssetIndex = () => {
   }
 }
 
+const loadAgentQuestionReplyMessages = () => {
+  try {
+    const stored = JSON.parse(
+      window.localStorage.getItem(agentStorageKey(agentQuestionReplyStorageKey)) || '{}',
+    ) as Record<string, AgentChatMessage[]>
+    agentQuestionReplyMessages.value =
+      stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {}
+  } catch {
+    agentQuestionReplyMessages.value = {}
+  }
+}
+
+const saveAgentQuestionReplyMessages = () => {
+  try {
+    window.localStorage.setItem(
+      agentStorageKey(agentQuestionReplyStorageKey),
+      JSON.stringify(agentQuestionReplyMessages.value),
+    )
+  } catch {
+    // The replies remain available until this page is unloaded.
+  }
+}
+
+const loadAgentSessionPermissionRules = () => {
+  try {
+    const stored = JSON.parse(
+      window.localStorage.getItem(agentStorageKey(agentSessionPermissionStorageKey)) || '{}',
+    ) as Record<string, AgentSessionPermissionRule[]>
+    agentSessionPermissionRules.value =
+      stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {}
+  } catch {
+    agentSessionPermissionRules.value = {}
+  }
+}
+
+const saveAgentSessionPermissionRules = () => {
+  try {
+    window.localStorage.setItem(
+      agentStorageKey(agentSessionPermissionStorageKey),
+      JSON.stringify(agentSessionPermissionRules.value),
+    )
+  } catch {
+    // Session-scoped approvals remain available until this page is unloaded.
+  }
+}
+
+const withAgentQuestionReplies = (
+  sessionId: string,
+  messages: AgentChatMessage[],
+): AgentChatMessage[] => {
+  const result = [...messages]
+  const ids = new Set(result.map((message) => message.id))
+  for (const reply of agentQuestionReplyMessages.value[sessionId] || []) {
+    if (ids.has(reply.id)) continue
+    const anchor = reply.questionReplyAfterMessageId
+    const anchorIndex = anchor
+      ? result.findIndex((message) => message.id === anchor || message.messageId === anchor)
+      : -1
+    result.splice(anchorIndex >= 0 ? anchorIndex + 1 : result.length, 0, reply)
+    ids.add(reply.id)
+  }
+  return result
+}
+
 const indexAgentSession = (sessionId: string) => {
   if (!selectedAssetId.value) return
   agentSessionAssetIndex.value = {
@@ -1449,6 +1581,12 @@ const resetAgentConversation = () => {
   agentSessionId.value = ''
   agentChatInput.value = ''
   agentChatMessages.value = []
+  agentPendingPermissions.value = []
+  agentPendingQuestions.value = []
+  agentQuestionAnswers.value = {}
+  agentQuestionCustomAnswers.value = {}
+  agentInteractionSubmitting.value = ''
+  agentInteractionError.value = ''
   assistantMessageIds.clear()
   isAgentSending.value = false
   isAgentAborting.value = false
@@ -1526,7 +1664,15 @@ const toAgentChatMessages = (messages: OpenCodeMessage[]): AgentChatMessage[] =>
       if (role === 'user') {
         text = text.replace(/^当前(?:页面选中|会话对应)的知识库 ID 是 [^。]+。\n\n/, '')
       }
-      if (message.info.error) {
+      const wasAborted = isOpenCodeAbortError(message.info.error)
+      if (wasAborted) {
+        parts.splice(0, parts.length, {
+          id: 'aborted',
+          type: 'text',
+          text: agentUserAbortMessage,
+        })
+        text = agentUserAbortMessage
+      } else if (message.info.error) {
         const error = extractOpenCodeError(message.info.error, '模型响应失败。')
         parts.push({ id: 'error', type: 'text', text: error })
         text = [text, error].filter(Boolean).join('\n\n')
@@ -1541,7 +1687,7 @@ const toAgentChatMessages = (messages: OpenCodeMessage[]): AgentChatMessage[] =>
         parts: role === 'assistant' ? parts : undefined,
         reasoningCollapsed: true,
         content: text,
-        status: message.info.error ? 'error' : 'done',
+        status: message.info.error && !wasAborted ? 'error' : 'done',
         messageId: message.info.id,
       }
     })
@@ -1564,7 +1710,7 @@ const openAgentSession = async (session: OpenCodeSession) => {
     )
     if (sequence !== agentRequestSequence) return
     agentSessionStatuses.value = statuses
-    agentChatMessages.value = toAgentChatMessages(messages)
+    agentChatMessages.value = withAgentQuestionReplies(session.id, toAgentChatMessages(messages))
     const context = messages
       .find((message) => message.info.role === 'user')
       ?.parts?.find((part) => part.type === 'text')?.text
@@ -1599,6 +1745,7 @@ const openAgentSession = async (session: OpenCodeSession) => {
           status: 'thinking',
         })
     }
+    await loadAgentPendingInteractions(session.id)
     isAgentHistoryLoading.value = false
     replayAgentHistoryEvents()
     await scrollAgentChatToBottom()
@@ -1666,6 +1813,10 @@ const submitAgentSessionDialog = async () => {
     }
     delete agentSessionDrafts.value[session.id]
     delete agentSessionStatuses.value[session.id]
+    delete agentQuestionReplyMessages.value[session.id]
+    saveAgentQuestionReplyMessages()
+    delete agentSessionPermissionRules.value[session.id]
+    saveAgentSessionPermissionRules()
     agentSessionDialog.value = null
   } catch (error) {
     agentSessionDialogError.value = error instanceof Error ? error.message : '保存会话失败。'
@@ -1728,6 +1879,8 @@ const connectAgent = async (serverAddress: string, authHeader = '') => {
   agentSessions.value = []
   agentSessionDrafts.value = {}
   loadAgentSessionAssetIndex()
+  loadAgentQuestionReplyMessages()
+  loadAgentSessionPermissionRules()
   try {
     const health = await requestAgentApi<OpenCodeHealthResult>('/global/health')
     if (!health?.healthy) throw new Error('OpenCode Server 健康检查未通过。')
@@ -1827,6 +1980,266 @@ const markAgentResponseAborted = () => {
   void scrollAgentChatToBottom()
 }
 
+const getAgentPermissionRequestKey = (request: OpenCodePermissionRequest) =>
+  JSON.stringify([
+    request.sessionID,
+    request.permission,
+    [...request.patterns].sort(),
+    request.metadata || {},
+  ])
+
+const matchesAgentPermissionPattern = (value: string, pattern: string) => {
+  const expression = pattern
+    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+  return new RegExp(`^${expression}$`).test(value)
+}
+
+const isAgentSessionPermissionApproved = (request: OpenCodePermissionRequest) =>
+  (agentSessionPermissionRules.value[request.sessionID] || []).some(
+    (rule) =>
+      rule.permission === request.permission &&
+      request.patterns.every((pattern) =>
+        rule.patterns.some((allowed) => matchesAgentPermissionPattern(pattern, allowed)),
+      ),
+  )
+
+const replyAgentPermissionRequest = (
+  request: OpenCodePermissionRequest,
+  response: 'once' | 'reject',
+) =>
+  requestAgentApi<boolean>(
+    `/session/${encodeURIComponent(request.sessionID)}/permissions/${encodeURIComponent(request.id)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ response }),
+    },
+  )
+
+const dedupeAgentPermissionRequests = (requests: OpenCodePermissionRequest[]) => {
+  const keys = new Set<string>()
+  return requests.filter((request) => {
+    const key = getAgentPermissionRequestKey(request)
+    if (keys.has(key)) return false
+    keys.add(key)
+    return true
+  })
+}
+
+const addAgentPermissionRequest = (request: OpenCodePermissionRequest) => {
+  if (!request.id || !request.sessionID) return
+  if (isAgentSessionPermissionApproved(request)) {
+    void replyAgentPermissionRequest(request, 'once').catch(() => {
+      agentPendingPermissions.value = [
+        ...agentPendingPermissions.value.filter((item) => item.id !== request.id),
+        request,
+      ]
+      agentInteractionError.value = '本会话自动授权失败，请手动确认。'
+    })
+    return
+  }
+  const existing = agentPendingPermissions.value.find(
+    (item) => getAgentPermissionRequestKey(item) === getAgentPermissionRequestKey(request),
+  )
+  if (existing && existing.id !== request.id) return
+  agentPendingPermissions.value = dedupeAgentPermissionRequests([
+    ...agentPendingPermissions.value.filter((item) => item.id !== request.id),
+    request,
+  ])
+  agentInteractionError.value = ''
+  void scrollAgentChatToBottom()
+}
+
+const normalizeAgentPermissionRequest = (
+  value: Partial<OpenCodePermissionRequest> & {
+    type?: string
+    title?: string
+    pattern?: string | string[]
+  },
+): OpenCodePermissionRequest | undefined => {
+  if (!value.id || !value.sessionID) return
+  const pattern = value.pattern
+  return {
+    id: value.id,
+    sessionID: value.sessionID,
+    permission: value.permission || value.type || value.title || '受限操作',
+    patterns: value.patterns || (Array.isArray(pattern) ? pattern : pattern ? [pattern] : []),
+    metadata: value.metadata,
+    always: value.always,
+    tool: value.tool,
+  }
+}
+
+const addAgentQuestionRequest = (request: OpenCodeQuestionRequest) => {
+  if (!request.id || !request.sessionID) return
+  agentPendingQuestions.value = [
+    ...agentPendingQuestions.value.filter((item) => item.id !== request.id),
+    request,
+  ]
+  agentQuestionAnswers.value[request.id] ||= request.questions.map(() => [])
+  agentQuestionCustomAnswers.value[request.id] ||= request.questions.map(() => '')
+  agentInteractionError.value = ''
+  void scrollAgentChatToBottom()
+}
+
+const loadAgentPendingInteractions = async (sessionId: string) => {
+  const [permissionResult, questionResult] = await Promise.all([
+    requestAgentApi<OpenCodePermissionRequest[]>('/permission').catch(() => []),
+    requestAgentApi<OpenCodeQuestionRequest[]>('/question').catch(() => []),
+  ])
+  if (sessionId !== agentSessionId.value) return
+  const permissions = Array.isArray(permissionResult)
+    ? permissionResult
+        .map((item) => normalizeAgentPermissionRequest(item))
+        .filter((item): item is OpenCodePermissionRequest => !!item)
+    : []
+  const questions = Array.isArray(questionResult) ? questionResult : []
+  agentPendingPermissions.value = []
+  dedupeAgentPermissionRequests(permissions.filter((item) => item.sessionID === sessionId)).forEach(
+    addAgentPermissionRequest,
+  )
+  agentPendingQuestions.value = questions.filter((item) => item.sessionID === sessionId)
+  agentPendingQuestions.value.forEach(addAgentQuestionRequest)
+}
+
+const answerAgentPermission = async (
+  request: OpenCodePermissionRequest,
+  reply: 'once' | 'always' | 'reject',
+) => {
+  if (agentInteractionSubmitting.value) return
+  agentInteractionSubmitting.value = request.id
+  agentInteractionError.value = ''
+  try {
+    await replyAgentPermissionRequest(request, reply === 'reject' ? 'reject' : 'once')
+    if (reply === 'always') {
+      const rules = agentSessionPermissionRules.value[request.sessionID] || []
+      agentSessionPermissionRules.value[request.sessionID] = [
+        ...rules,
+        {
+          permission: request.permission,
+          patterns: request.always?.length ? request.always : request.patterns,
+        },
+      ]
+      saveAgentSessionPermissionRules()
+    }
+    agentPendingPermissions.value = agentPendingPermissions.value.filter(
+      (item) => item.id !== request.id,
+    )
+    await loadAgentPendingInteractions(agentSessionId.value)
+  } catch (error) {
+    agentInteractionError.value = error instanceof Error ? error.message : '权限答复失败。'
+    await loadAgentPendingInteractions(agentSessionId.value)
+  } finally {
+    agentInteractionSubmitting.value = ''
+  }
+}
+
+const toggleAgentQuestionOption = (
+  request: OpenCodeQuestionRequest,
+  questionIndex: number,
+  label: string,
+) => {
+  const question = request.questions[questionIndex]
+  if (!question) return
+  const answers = agentQuestionAnswers.value[request.id] || request.questions.map(() => [])
+  const selected = answers[questionIndex] || []
+  answers[questionIndex] = question.multiple
+    ? selected.includes(label)
+      ? selected.filter((item) => item !== label)
+      : [...selected, label]
+    : [label]
+  agentQuestionAnswers.value[request.id] = [...answers]
+}
+
+const setAgentQuestionCustomAnswer = (
+  request: OpenCodeQuestionRequest,
+  questionIndex: number,
+  value: string,
+) => {
+  const answers = agentQuestionCustomAnswers.value[request.id] || request.questions.map(() => '')
+  answers[questionIndex] = value
+  agentQuestionCustomAnswers.value[request.id] = [...answers]
+}
+
+const submitAgentQuestion = async (request: OpenCodeQuestionRequest) => {
+  if (agentInteractionSubmitting.value) return
+  const selected = agentQuestionAnswers.value[request.id] || request.questions.map(() => [])
+  const custom = agentQuestionCustomAnswers.value[request.id] || request.questions.map(() => '')
+  const answers = request.questions.map((_, index) => [
+    ...(selected[index] || []),
+    ...(custom[index]?.trim() ? [custom[index].trim()] : []),
+  ])
+  if (answers.some((answer) => answer.length === 0)) {
+    agentInteractionError.value = '请回答每一个问题后再提交。'
+    return
+  }
+  agentInteractionSubmitting.value = request.id
+  agentInteractionError.value = ''
+  try {
+    await requestAgentApi<boolean>(`/question/${encodeURIComponent(request.id)}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ answers }),
+    })
+    const questionReply = request.questions.map((question, index) => ({
+      question: question.question,
+      answer: answers[index]?.join('、') || '',
+    }))
+    const answerText = questionReply
+      .map(
+        (item, index) =>
+          `${index === 0 ? '# 问题\n\n' : ''}${item.question}\n${item.answer}`,
+      )
+      .join('\n\n---\n\n')
+    const previousMessage = agentChatMessages.value.at(-1)
+    const replyMessage: AgentChatMessage = {
+      id: `agent-question-reply-${request.id}`,
+      role: 'user',
+      reasoning: '',
+      reasoningCollapsed: true,
+      content: answerText,
+      status: 'done',
+      questionReply,
+      questionReplyAfterMessageId: previousMessage?.messageId || previousMessage?.id,
+    }
+    agentChatMessages.value.push(replyMessage)
+    if (agentSessionId.value) {
+      agentQuestionReplyMessages.value[agentSessionId.value] = [
+        ...(agentQuestionReplyMessages.value[agentSessionId.value] || []),
+        replyMessage,
+      ]
+      saveAgentQuestionReplyMessages()
+    }
+    agentPendingQuestions.value = agentPendingQuestions.value.filter(
+      (item) => item.id !== request.id,
+    )
+    void scrollAgentChatToBottom()
+  } catch (error) {
+    agentInteractionError.value = error instanceof Error ? error.message : '操作选择提交失败。'
+    await loadAgentPendingInteractions(agentSessionId.value)
+  } finally {
+    agentInteractionSubmitting.value = ''
+  }
+}
+
+const rejectAgentQuestion = async (request: OpenCodeQuestionRequest) => {
+  if (agentInteractionSubmitting.value) return
+  agentInteractionSubmitting.value = request.id
+  agentInteractionError.value = ''
+  try {
+    await requestAgentApi<boolean>(`/question/${encodeURIComponent(request.id)}/reject`, {
+      method: 'POST',
+    })
+    agentPendingQuestions.value = agentPendingQuestions.value.filter(
+      (item) => item.id !== request.id,
+    )
+  } catch (error) {
+    agentInteractionError.value = error instanceof Error ? error.message : '取消问询失败。'
+    await loadAgentPendingInteractions(agentSessionId.value)
+  } finally {
+    agentInteractionSubmitting.value = ''
+  }
+}
+
 const handleOpenCodeEvent = (event: MessageEvent<string>) => {
   let payload: OpenCodeEvent
   try {
@@ -1850,6 +2263,30 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
   if (!eventSessionId || eventSessionId !== agentSessionId.value) return
   if (isAgentHistoryLoading.value) {
     agentHistoryEvents.push(event)
+    return
+  }
+  if (payload.type === 'permission.asked' && properties?.id) {
+    const request = normalizeAgentPermissionRequest(properties)
+    if (request) addAgentPermissionRequest(request)
+    return
+  }
+  if (payload.type === 'permission.replied' && properties?.requestID) {
+    agentPendingPermissions.value = agentPendingPermissions.value.filter(
+      (item) => item.id !== properties.requestID,
+    )
+    return
+  }
+  if (payload.type === 'question.asked' && properties?.id && properties.questions) {
+    addAgentQuestionRequest(properties as OpenCodeQuestionRequest)
+    return
+  }
+  if (
+    (payload.type === 'question.replied' || payload.type === 'question.rejected') &&
+    properties?.requestID
+  ) {
+    agentPendingQuestions.value = agentPendingQuestions.value.filter(
+      (item) => item.id !== properties.requestID,
+    )
     return
   }
   if (
@@ -1882,8 +2319,14 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
       }
       if (pending && !pending.messageId) pending.messageId = messageId
     }
-    if (properties.info.error)
-      markAgentResponseFailed(extractOpenCodeError(properties.info.error, '模型响应失败。'))
+    if (properties.info.error) {
+      if (isOpenCodeAbortError(properties.info.error) || shouldIgnoreNextAgentAbortError) {
+        shouldIgnoreNextAgentAbortError = false
+        markAgentResponseAborted()
+      } else {
+        markAgentResponseFailed(extractOpenCodeError(properties.info.error, '模型响应失败。'))
+      }
+    }
     return
   }
 
@@ -1941,7 +2384,10 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
       )
         .then((messages) => {
           if (sequence === agentRequestSequence && !isAgentSending.value) {
-            agentChatMessages.value = toAgentChatMessages(messages)
+            agentChatMessages.value = withAgentQuestionReplies(
+              agentSessionId.value,
+              toAgentChatMessages(messages),
+            )
           }
         })
         .catch(() => {
@@ -1953,7 +2399,7 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
   }
 
   if (payload.type === 'session.error') {
-    if (shouldIgnoreNextAgentAbortError) {
+    if (shouldIgnoreNextAgentAbortError || isOpenCodeAbortError(properties?.error ?? properties)) {
       shouldIgnoreNextAgentAbortError = false
       isAgentSending.value = false
       isAgentAborting.value = false
@@ -2265,7 +2711,7 @@ watch(selectedAssetId, (nextAssetId, previousAssetId) => {
   saveActiveAgentSession()
   agentSessionSearch.value = ''
 })
-const activePage = ref<'asset' | 'abnormal'>('asset')
+const activePage = ref<'asset' | 'abnormal' | 'reports'>('asset')
 type MonitorSection = 'latency' | 'fault' | 'brpc' | 'brpc-fault'
 type MonitorProduct = 'KVCache' | 'UBSocket'
 const activeMonitorSection = ref<MonitorSection>('latency')
@@ -9053,6 +9499,10 @@ const loadAssetDetail = async (assetId: string) => {
   isDetailLoading.value = true
   errorMessage.value = ''
 
+  // 切库时清空上一库的报告入口状态（含关闭弹层），再探测本库报告数
+  resetAssetReportEntry()
+  void probeAssetReports(assetId)
+
   try {
     const result = await request<{ kb: LogKnowledge | null }>(`/log_kb/${assetId}`)
     if (requestSequence !== assetSelectionRequestSequence || selectedAssetId.value !== assetId) {
@@ -9645,6 +10095,207 @@ const jumpLogFilesPage = () => {
   if (nextPage === null) return
   logFilesPageInput.value = ''
   goLogFilesPage(nextPage)
+}
+
+// 诊断报告列表（数据来自后端 /diagnostic_report，报告文件落 witty-ub-reports 卷）
+type DiagnosticReportModel = {
+  report_id: string
+  kb_id?: string | null
+  kb_name?: string | null
+  title?: string | null
+  generated_at?: string | null
+  operation?: string | null
+  time_range_start?: string | null
+  time_range_end?: string | null
+  fault_count?: number | null
+  file_name?: string | null
+  file_size?: number | null
+  has_sidecar?: boolean
+}
+
+const diagnosticReportsPageSize = 10
+const diagnosticReports = ref<DiagnosticReportModel[]>([])
+const diagnosticReportsTotal = ref(0)
+const diagnosticReportsPage = ref(1)
+const diagnosticReportsPageInput = ref('')
+const isDiagnosticReportsLoading = ref(false)
+const diagnosticReportsError = ref('')
+
+const diagnosticReportsPageCount = computed(() =>
+  Math.max(1, Math.ceil(diagnosticReportsTotal.value / diagnosticReportsPageSize)),
+)
+const diagnosticReportsPageWindow = computed(() =>
+  getPageWindow(diagnosticReportsPage.value, diagnosticReportsPageCount.value),
+)
+const diagnosticReportDisplayText = (value?: string | number | null) =>
+  value === undefined || value === null || value === '' ? '—' : String(value)
+
+const loadDiagnosticReports = async (pageNum = diagnosticReportsPage.value) => {
+  isDiagnosticReportsLoading.value = true
+  diagnosticReportsError.value = ''
+  try {
+    const result = await request<{ total: number; items: DiagnosticReportModel[] }>(
+      '/diagnostic_report/list',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          page_cnt: diagnosticReportsPageSize,
+          page_num: pageNum,
+        }),
+      },
+    )
+    const nextTotal = result.total ?? 0
+    const nextPageCount = Math.max(1, Math.ceil(nextTotal / diagnosticReportsPageSize))
+    if (pageNum > nextPageCount) {
+      isDiagnosticReportsLoading.value = false
+      await loadDiagnosticReports(nextPageCount)
+      return
+    }
+    diagnosticReports.value = result.items ?? []
+    diagnosticReportsTotal.value = nextTotal
+    diagnosticReportsPage.value = pageNum
+  } catch (error) {
+    diagnosticReports.value = []
+    diagnosticReportsTotal.value = 0
+    diagnosticReportsPage.value = 1
+    diagnosticReportsError.value = error instanceof Error ? error.message : '诊断报告加载失败'
+  } finally {
+    isDiagnosticReportsLoading.value = false
+  }
+}
+
+const openDiagnosticReportsPage = () => {
+  activePage.value = 'reports'
+  if (diagnosticReports.value.length === 0 && !isDiagnosticReportsLoading.value) {
+    void loadDiagnosticReports(1)
+  }
+}
+
+const goDiagnosticReportsPage = (pageNum: number) => {
+  const nextPage = Math.min(Math.max(1, pageNum), diagnosticReportsPageCount.value)
+  if (nextPage === diagnosticReportsPage.value || isDiagnosticReportsLoading.value) return
+  void loadDiagnosticReports(nextPage)
+}
+
+const jumpDiagnosticReportsPage = () => {
+  const nextPage = normalizePageInput(
+    diagnosticReportsPageInput.value,
+    diagnosticReportsPageCount.value,
+  )
+  if (nextPage === null) return
+  diagnosticReportsPageInput.value = ''
+  goDiagnosticReportsPage(nextPage)
+}
+
+// 报告为自包含 HTML，走 nginx 白名单直开新窗口（不用 Blob，地址可分享）
+const openDiagnosticReport = (reportId: string) => {
+  window.open(
+    `${apiBase}/diagnostic_report/${encodeURIComponent(reportId)}/html`,
+    '_blank',
+    'noopener',
+  )
+}
+
+// 资产库内报告入口（docs/design/asset-report-entry.md）：进详情页时用 page_cnt=1
+// 轻量探测该库报告总数决定按钮三态，≥2 份时才拉列表弹层。
+const assetReportTotal = ref(0)
+const assetReportFirstReport = ref<DiagnosticReportModel | null>(null)
+const isAssetReportProbing = ref(false)
+const assetReportDialogOpen = ref(false)
+const assetReports = ref<DiagnosticReportModel[]>([])
+const isAssetReportsLoading = ref(false)
+const assetReportsError = ref('')
+
+const assetReportButtonState = computed(() =>
+  resolveAssetReportButtonState(assetReportTotal.value, isAssetReportProbing.value),
+)
+const assetReportButtonDisabled = computed(() =>
+  isAssetReportButtonDisabled(assetReportButtonState.value),
+)
+const assetReportButtonHint = computed(() => assetReportButtonTitle(assetReportButtonState.value))
+const assetReportListNotice = computed(() => buildAssetReportListNotice(assetReportTotal.value))
+const assetReportDialogTitle = computed(
+  () => `诊断报告 · ${selectedAsset.value?.name || selectedAssetId.value || ''}`,
+)
+
+const resetAssetReportEntry = () => {
+  assetReportTotal.value = 0
+  assetReportFirstReport.value = null
+  isAssetReportProbing.value = false
+  assetReportDialogOpen.value = false
+  assetReports.value = []
+  isAssetReportsLoading.value = false
+  assetReportsError.value = ''
+}
+
+// 探测：只取 total 决定按钮三态；同时留下首条，供「恰好 1 份」时直接打开
+const probeAssetReports = async (kbId: string) => {
+  isAssetReportProbing.value = true
+  try {
+    const result = await request<{ total: number; items: DiagnosticReportModel[] }>(
+      '/diagnostic_report/list',
+      {
+        method: 'POST',
+        body: JSON.stringify({ kb_id: kbId, page_num: 1, page_cnt: 1 }),
+      },
+    )
+    if (selectedAssetId.value !== kbId) return
+    assetReportTotal.value = result.total ?? 0
+    assetReportFirstReport.value = result.items?.[0] ?? null
+  } catch {
+    // 探测失败按「暂无报告」降级：按钮置灰，不打断详情页主流程
+    if (selectedAssetId.value !== kbId) return
+    assetReportTotal.value = 0
+    assetReportFirstReport.value = null
+  } finally {
+    if (selectedAssetId.value === kbId) isAssetReportProbing.value = false
+  }
+}
+
+const loadAssetReports = async () => {
+  const kbId = selectedAssetId.value
+  if (!kbId) return
+  isAssetReportsLoading.value = true
+  assetReportsError.value = ''
+  try {
+    const result = await request<{ total: number; items: DiagnosticReportModel[] }>(
+      '/diagnostic_report/list',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          kb_id: kbId,
+          page_num: 1,
+          page_cnt: ASSET_REPORT_DIALOG_PAGE_SIZE,
+        }),
+      },
+    )
+    if (selectedAssetId.value !== kbId) return
+    assetReports.value = result.items ?? []
+    assetReportTotal.value = result.total ?? 0
+  } catch (error) {
+    if (selectedAssetId.value !== kbId) return
+    assetReports.value = []
+    assetReportsError.value = error instanceof Error ? error.message : '诊断报告加载失败'
+  } finally {
+    if (selectedAssetId.value === kbId) isAssetReportsLoading.value = false
+  }
+}
+
+const closeAssetReportDialog = () => {
+  assetReportDialogOpen.value = false
+}
+
+const handleAssetReportClick = () => {
+  if (assetReportButtonDisabled.value) return
+  const onlyReport = assetReportFirstReport.value
+  if (assetReportButtonState.value === 'single' && onlyReport) {
+    openDiagnosticReport(onlyReport.report_id)
+    return
+  }
+  assetReportDialogOpen.value = true
+  // 0 份时不再打接口：弹层直接给出「暂无相关诊断报告，可通过 Agent 生成」的提示
+  if (assetReportButtonState.value === 'empty') return
+  void loadAssetReports()
 }
 
 const refreshLogFile = async (fileId: string) => {
@@ -12807,6 +13458,26 @@ onBeforeUnmount(() => {
             <span class="asset-item-main">
               <strong>{{ asset.name }}</strong>
               <small>{{ asset.description }}</small>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section class="nav-section">
+        <div class="nav-title">诊断报告</div>
+        <div class="nav-list">
+          <div
+            class="nav-asset-item"
+            :class="{ selected: activePage === 'reports' }"
+            role="button"
+            tabindex="0"
+            @click="openDiagnosticReportsPage"
+            @keydown.enter="openDiagnosticReportsPage"
+            @keydown.space.prevent="openDiagnosticReportsPage"
+          >
+            <span class="asset-item-main">
+              <strong>报告库</strong>
+              <small>查看 Agent 生成的诊断报告</small>
             </span>
           </div>
         </div>
@@ -16437,6 +17108,133 @@ onBeforeUnmount(() => {
         </section>
       </div>
 
+      <div v-else-if="activePage === 'reports'" class="reports-page">
+        <header class="detail-header">
+          <div class="detail-title-block">
+            <p class="eyebrow">诊断报告库</p>
+            <h1>诊断报告</h1>
+            <p class="detail-description">
+              Agent 生成的诊断报告统一落盘并在此查阅，点击「查看」在新窗口打开报告。
+            </p>
+          </div>
+          <div class="detail-actions">
+            <div class="detail-actions-bottom">
+              <button
+                class="ghost-btn"
+                type="button"
+                :disabled="isDiagnosticReportsLoading"
+                @click="loadDiagnosticReports(diagnosticReportsPage)"
+              >
+                刷新
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <section class="log-files-section">
+          <div v-if="isDiagnosticReportsLoading" class="state-text">正在加载诊断报告...</div>
+          <div v-else-if="diagnosticReportsError" class="state-text">
+            {{ diagnosticReportsError }}
+          </div>
+          <div v-else-if="diagnosticReports.length === 0" class="state-text">暂无诊断报告</div>
+          <div v-else class="log-file-list">
+            <div v-for="report in diagnosticReports" :key="report.report_id" class="log-file-item">
+              <div class="log-file-info">
+                <div class="log-file-summary">
+                  <span class="log-file-path" :title="report.report_id">
+                    📄 {{ diagnosticReportDisplayText(report.title || report.file_name) }}
+                  </span>
+                  <span class="log-file-meta">
+                    <span class="log-file-time">
+                      知识库：{{ diagnosticReportDisplayText(report.kb_name || report.kb_id) }}
+                    </span>
+                    <span class="log-file-time">
+                      生成时间：{{ diagnosticReportDisplayText(report.generated_at) }}
+                    </span>
+                    <span class="log-file-time">
+                      故障数：{{
+                        report.has_sidecar === false
+                          ? '—'
+                          : diagnosticReportDisplayText(report.fault_count)
+                      }}
+                    </span>
+                    <span
+                      v-if="report.has_sidecar === false"
+                      class="status-badge anomaly-danger"
+                      title="侧车 JSON 缺失，标题与故障数等信息不可用"
+                      >无侧车数据</span
+                    >
+                    <button
+                      class="ghost-btn"
+                      type="button"
+                      @click="openDiagnosticReport(report.report_id)"
+                    >
+                      查看
+                    </button>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div v-if="diagnosticReportsTotal > 0" class="aggregate-pagination log-file-pagination">
+          <button
+            class="ghost-btn"
+            type="button"
+            :disabled="diagnosticReportsPage <= 1 || isDiagnosticReportsLoading"
+            @click="goDiagnosticReportsPage(diagnosticReportsPage - 1)"
+          >
+            上一页
+          </button>
+          <span class="pagination-pages" aria-label="诊断报告页码">
+            <button
+              v-for="pageNum in diagnosticReportsPageWindow"
+              :key="`diagnostic-report-page-${pageNum}`"
+              class="pagination-page-btn"
+              :class="{ active: pageNum === diagnosticReportsPage, ellipsis: pageNum < 0 }"
+              type="button"
+              :disabled="
+                pageNum < 0 || pageNum === diagnosticReportsPage || isDiagnosticReportsLoading
+              "
+              @click="pageNum > 0 && goDiagnosticReportsPage(pageNum)"
+            >
+              {{ pageNum < 0 ? '…' : pageNum }}
+            </button>
+          </span>
+          <button
+            class="ghost-btn"
+            type="button"
+            :disabled="
+              diagnosticReportsPage >= diagnosticReportsPageCount || isDiagnosticReportsLoading
+            "
+            @click="goDiagnosticReportsPage(diagnosticReportsPage + 1)"
+          >
+            下一页
+          </button>
+          <span class="pagination-jump">
+            <span>第 {{ diagnosticReportsPage }} / {{ diagnosticReportsPageCount }} 页</span>
+            <input
+              v-model="diagnosticReportsPageInput"
+              class="pagination-jump-input"
+              type="number"
+              min="1"
+              :max="diagnosticReportsPageCount"
+              aria-label="跳转诊断报告页码"
+              @keyup.enter="jumpDiagnosticReportsPage"
+            />
+            <button
+              class="pagination-jump-btn"
+              type="button"
+              :disabled="isDiagnosticReportsLoading"
+              @click="jumpDiagnosticReportsPage"
+            >
+              跳转
+            </button>
+          </span>
+        </div>
+      </div>
+
       <div v-else-if="isDetailLoading" class="empty-detail">正在加载详情...</div>
 
       <article v-else-if="selectedAsset" class="detail-content">
@@ -16452,6 +17250,16 @@ onBeforeUnmount(() => {
           </div>
           <div class="detail-actions">
             <div class="detail-actions-bottom">
+              <!-- 资产库内诊断报告入口：0 份置灰 / 1 份直开 / ≥2 份弹层（docs/design/asset-report-entry.md） -->
+              <button
+                class="ghost-btn asset-report-entry-btn"
+                type="button"
+                :title="assetReportButtonHint"
+                :disabled="assetReportButtonDisabled"
+                @click="handleAssetReportClick"
+              >
+                查看诊断报告
+              </button>
               <button
                 class="edit-btn icon-btn detail-icon-btn"
                 type="button"
@@ -17357,6 +18165,94 @@ onBeforeUnmount(() => {
           </button>
         </footer>
       </form>
+    </div>
+
+    <!-- 资产库内诊断报告弹层：只列当前资产库的报告，查看仍在新窗口打开（保持弹层便于连看） -->
+    <div
+      v-if="assetReportDialogOpen"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="assetReportDialogTitle"
+      @click.self="closeAssetReportDialog"
+    >
+      <section class="modal-content asset-report-modal">
+        <header class="modal-header">
+          <h2>{{ assetReportDialogTitle }}</h2>
+          <button class="close-modal" type="button" title="关闭" @click="closeAssetReportDialog">
+            x
+          </button>
+        </header>
+        <div class="modal-body asset-report-body">
+          <div v-if="isAssetReportsLoading" class="state-text">正在加载诊断报告...</div>
+          <div v-else-if="assetReportsError" class="state-text">{{ assetReportsError }}</div>
+          <div v-else-if="assetReports.length === 0" class="state-text asset-report-empty">
+            暂无相关诊断报告，可通过 Agent 生成
+          </div>
+          <div v-else class="log-file-list asset-report-list">
+            <div v-for="report in assetReports" :key="report.report_id" class="log-file-item">
+              <div class="log-file-info">
+                <div class="log-file-summary">
+                  <span class="log-file-path" :title="report.report_id">
+                    📄
+                    {{
+                      report.has_sidecar === false
+                        ? '—'
+                        : diagnosticReportDisplayText(report.title || report.file_name)
+                    }}
+                  </span>
+                  <span class="log-file-meta">
+                    <span class="log-file-time">
+                      生成时间：{{ diagnosticReportDisplayText(report.generated_at) }}
+                    </span>
+                    <span class="log-file-time">
+                      故障数：{{
+                        report.has_sidecar === false
+                          ? '—'
+                          : diagnosticReportDisplayText(report.fault_count)
+                      }}
+                    </span>
+                    <span class="log-file-time">
+                      操作类型：{{ diagnosticReportDisplayText(report.operation) }}
+                    </span>
+                    <span class="log-file-time">
+                      时间范围：{{ diagnosticReportDisplayText(report.time_range_start) }} ~
+                      {{ diagnosticReportDisplayText(report.time_range_end) }}
+                    </span>
+                    <span
+                      v-if="report.has_sidecar === false"
+                      class="status-badge anomaly-danger"
+                      title="侧车 JSON 缺失，标题与故障数等信息不可用"
+                      >无侧车数据</span
+                    >
+                    <button
+                      class="ghost-btn"
+                      type="button"
+                      @click="openDiagnosticReport(report.report_id)"
+                    >
+                      查看
+                    </button>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <p v-if="assetReportListNotice" class="asset-report-notice">
+              {{ assetReportListNotice }}
+            </p>
+          </div>
+        </div>
+        <footer class="modal-actions">
+          <button
+            class="ghost-btn"
+            type="button"
+            :disabled="isAssetReportsLoading"
+            @click="loadAssetReports"
+          >
+            刷新
+          </button>
+          <button class="ghost-btn" type="button" @click="closeAssetReportDialog">关闭</button>
+        </footer>
+      </section>
     </div>
 
     <div v-if="traceFilterDialog.open" class="modal" role="dialog" aria-modal="true">
@@ -19812,7 +20708,10 @@ onBeforeUnmount(() => {
               <div v-if="message.role === 'assistant'" class="agent-chat-avatar" aria-hidden="true">
                 AI
               </div>
-              <div class="agent-chat-bubble">
+              <div
+                class="agent-chat-bubble"
+                :class="{ 'agent-question-reply-bubble': !!message.questionReply?.length }"
+              >
                 <template v-if="message.role === 'assistant'">
                   <section
                     v-for="part in getAgentDisplayParts(message)"
@@ -19848,9 +20747,136 @@ onBeforeUnmount(() => {
                     ></div>
                   </section>
                 </template>
+                <template v-else-if="message.role === 'user' && message.questionReply?.length">
+                  <section
+                    v-for="(reply, replyIndex) in message.questionReply"
+                    :key="replyIndex"
+                    class="agent-user-question-reply"
+                  >
+                    <h4 v-if="replyIndex === 0"># 问题</h4>
+                    <p class="agent-user-question-text">{{ reply.question }}</p>
+                    <p class="agent-user-answer-text">{{ reply.answer }}</p>
+                  </section>
+                </template>
                 <p v-else-if="message.role === 'user'">{{ message.content }}</p>
               </div>
             </article>
+
+            <section
+              v-for="request in agentPendingPermissions"
+              :key="request.id"
+              class="agent-interaction-card agent-permission-card"
+              role="group"
+              aria-label="Agent 权限请求"
+            >
+              <div class="agent-interaction-heading">
+                <span class="agent-interaction-icon" aria-hidden="true">!</span>
+                <div>
+                  <strong>需要你的授权</strong>
+                  <p>Agent 请求执行 {{ request.permission }}</p>
+                </div>
+              </div>
+              <ul v-if="request.patterns.length" class="agent-interaction-details">
+                <li v-for="pattern in request.patterns" :key="pattern"><code>{{ pattern }}</code></li>
+              </ul>
+              <details v-if="request.metadata && Object.keys(request.metadata).length">
+                <summary>查看操作详情</summary>
+                <pre>{{ JSON.stringify(request.metadata, null, 2) }}</pre>
+              </details>
+              <div class="agent-interaction-actions">
+                <button
+                  type="button"
+                  class="danger"
+                  :disabled="!!agentInteractionSubmitting"
+                  @click="answerAgentPermission(request, 'reject')"
+                >
+                  拒绝
+                </button>
+                <button
+                  type="button"
+                  :disabled="!!agentInteractionSubmitting"
+                  @click="answerAgentPermission(request, 'once')"
+                >
+                  仅允许本次
+                </button>
+                <button
+                  v-if="request.always?.length"
+                  type="button"
+                  class="primary"
+                  :disabled="!!agentInteractionSubmitting"
+                  @click="answerAgentPermission(request, 'always')"
+                >
+                  本会话始终允许
+                </button>
+              </div>
+            </section>
+
+            <form
+              v-for="request in agentPendingQuestions"
+              :key="request.id"
+              class="agent-interaction-card agent-question-card"
+              @submit.prevent="submitAgentQuestion(request)"
+            >
+              <div class="agent-interaction-heading">
+                <span class="agent-interaction-icon question" aria-hidden="true">?</span>
+                <div>
+                  <strong>Agent 需要你的选择</strong>
+                  <p>回答后将继续当前任务</p>
+                </div>
+              </div>
+              <fieldset v-for="(question, questionIndex) in request.questions" :key="questionIndex">
+                <legend>
+                  <span>{{ question.header }}</span>
+                  {{ question.question }}
+                  <small>{{ question.multiple ? '可多选' : '单选' }}</small>
+                </legend>
+                <button
+                  v-for="option in question.options"
+                  :key="option.label"
+                  type="button"
+                  class="agent-question-option"
+                  :class="{
+                    selected: agentQuestionAnswers[request.id]?.[questionIndex]?.includes(option.label),
+                  }"
+                  @click="toggleAgentQuestionOption(request, questionIndex, option.label)"
+                >
+                  <span class="agent-question-control" aria-hidden="true"></span>
+                  <span><strong>{{ option.label }}</strong><small>{{ option.description }}</small></span>
+                </button>
+                <input
+                  v-if="question.custom !== false"
+                  :value="agentQuestionCustomAnswers[request.id]?.[questionIndex] || ''"
+                  class="agent-question-custom"
+                  type="text"
+                  placeholder="其他答案（可选）"
+                  :disabled="!!agentInteractionSubmitting"
+                  @input="
+                    setAgentQuestionCustomAnswer(
+                      request,
+                      questionIndex,
+                      ($event.target as HTMLInputElement).value,
+                    )
+                  "
+                />
+              </fieldset>
+              <div class="agent-interaction-actions">
+                <button
+                  type="button"
+                  class="danger"
+                  :disabled="!!agentInteractionSubmitting"
+                  @click="rejectAgentQuestion(request)"
+                >
+                  取消
+                </button>
+                <button type="submit" class="primary" :disabled="!!agentInteractionSubmitting">
+                  {{ agentInteractionSubmitting === request.id ? '提交中…' : '提交选择' }}
+                </button>
+              </div>
+            </form>
+
+            <p v-if="agentInteractionError" class="agent-interaction-error" role="alert">
+              {{ agentInteractionError }}
+            </p>
           </div>
 
           <div v-if="agentConnectionError" class="agent-chat-error" role="alert">

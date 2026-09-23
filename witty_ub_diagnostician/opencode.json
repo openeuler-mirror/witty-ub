@@ -5,14 +5,15 @@
     "failure-code-analysis": "./skills/failure-code-analysis",
     "diagnostic-report-generation": "./skills/diagnostic-report-generation",
     "experience-skill": "./skills/experience-skill",
-    "brpc-diagnosis": "./skills/brpc-diagnosis"
+    "brpc-diagnosis": "./skills/brpc-diagnosis",
+    "case-matching": "./skills/case-matching"
   },
   "agent": {
     "witty-ub-diagnostician": {
       "description": "Witty-UB diagnostician agent: 分析分布式缓存的时延和通断故障，支持按任务需要编辑文件和执行 Bash 命令",
       "mode": "primary",
       "temperature": 0.25,
-      "maxSteps": 30,
+      "maxSteps": 60,
       "prompt": "{file:./agents/witty-ub-diagnostician.md}",
       "tools": {
         "bash": true
@@ -20,7 +21,71 @@
       "permission": {
         "edit": "allow",
         "webfetch": "deny",
-        "bash": "allow"
+        "external_directory": {
+          "*": "allow"
+        },
+        "bash": {
+          "*": "allow",
+          "rm *": "ask",
+          "rmdir *": "ask",
+          "shred *": "ask",
+          "unlink *": "ask",
+          "dd *": "ask",
+          "mkfs*": "ask",
+          "mkswap*": "ask",
+          "fdisk*": "ask",
+          "parted*": "ask",
+          "mount *": "ask",
+          "umount *": "ask",
+          "shutdown *": "ask",
+          "reboot*": "ask",
+          "poweroff*": "ask",
+          "halt*": "ask",
+          "systemctl *": "ask",
+          "service *": "ask",
+          "kill *": "ask",
+          "pkill *": "ask",
+          "killall *": "ask",
+          "chmod *": "ask",
+          "chown *": "ask",
+          "chgrp *": "ask",
+          "useradd*": "ask",
+          "userdel*": "ask",
+          "usermod*": "ask",
+          "groupadd*": "ask",
+          "groupdel*": "ask",
+          "passwd*": "ask",
+          "visudo*": "ask",
+          "sudo *": "ask",
+          "su *": "ask",
+          "crontab *": "ask",
+          "at *": "ask",
+          "ssh *": "ask",
+          "scp *": "ask",
+          "sftp *": "ask",
+          "rsync *": "ask",
+          "nc *": "ask",
+          "ncat *": "ask",
+          "socat *": "ask",
+          "telnet *": "ask",
+          "ftp *": "ask",
+          "wget *": "ask",
+          "iptables*": "ask",
+          "nft *": "ask",
+          "docker *": "ask",
+          "podman *": "ask",
+          "kubectl *": "ask",
+          "crictl *": "ask",
+          "dnf *": "ask",
+          "yum *": "ask",
+          "apt *": "ask",
+          "apt-get *": "ask",
+          "rpm -e *": "ask",
+          "rpm -i *": "ask",
+          "rpm -U *": "ask",
+          "pip install *": "ask",
+          "pip3 install *": "ask"
+        }
       }
     }
   }

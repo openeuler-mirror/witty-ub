@@ -4,10 +4,10 @@ __pycache__
 .venv/
 dist/
 node_modules/
-
+.trae/
 .codex
 .DS_Store
-
+*.pptx
 data/docs/
 data/original_docs/
 data/projects/
@@ -49,3 +49,4 @@ log_preprocessed_*/
 
 # 设计文档渲染测试产物
 docs/design/_render_test.html
+

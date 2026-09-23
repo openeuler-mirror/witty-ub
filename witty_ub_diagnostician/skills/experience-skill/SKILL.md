@@ -52,6 +52,12 @@ uv run experience-skill search-experiences \
     --top-k 5
 ```
 
+> **执行入口唯一**：本 CLI 的依赖（fastapi / pydantic / pyyaml 等）只装在
+> `scripts/.venv` 里，必须用上面的 `uv run experience-skill` 执行；若 `uv` 不可用，
+> 退路是 `scripts/.venv/bin/python -m experience_skill_cli.cli <子命令>`。
+> 禁止用系统 `python3 -m ...`、`PYTHONPATH=src python3 ...` 直跑本 CLI：系统
+> `/usr/bin/python3` 没有这些依赖，必然报 `ModuleNotFoundError: No module named 'yaml'`。
+>
 > 默认启用**混合检索**：同时搜索元数据（FTS5）和正文内容（grep）。结果中会标注匹配来源（元数据+正文 / 仅元数据 / 仅正文）。
 >
 > 如需仅搜索元数据（旧行为），添加 `--metadata-only`；如需仅搜索正文，添加 `--content-only`。

@@ -1,0 +1,35 @@
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+# witty-ub is licensed under the Mulan PSL v2.
+#
+# 试验性前端（exp）overlay 镜像：
+#   release 前端运行时（Nginx + OpenCode + 诊断工具 + Agent bundle）
+#   + 当日 exp 前端静态产物（/var/witty-ub/web-exp/）
+#
+# 构建上下文由 scripts/publish_frontend_exp.sh 组装（仅 dist/ + nginx.conf.template），
+# 不要直接用仓库根目录作为上下文。
+ARG BASE_IMAGE=hub-harbor.oepkgs.net/neocopilot/witty-ub:frontend-v1.0.4-5
+FROM ${BASE_IMAGE}
+
+ARG EXP_VERSION=exp-unknown
+ARG EXP_REVISION=unknown
+ARG EXP_BUILD_DATE=unknown
+ARG BASE_RELEASE=unknown
+ARG BASE_DIGEST=unknown
+
+# exp 前端产物（含 BUILD_INFO）
+COPY dist/ /var/witty-ub/web-exp/
+
+# 唯一改动的运行时配置：静态根指向 web-exp，监听端口保持 8080
+COPY nginx.conf.template /etc/witty-ub/web/nginx.conf.template
+
+RUN chmod 0644 /etc/witty-ub/web/nginx.conf.template && \
+    find /var/witty-ub/web-exp -type d -exec chmod 0755 {} + && \
+    find /var/witty-ub/web-exp -type f -exec chmod 0644 {} +
+
+LABEL org.opencontainers.image.title="witty-ub frontend (experimental web)" \
+      org.opencontainers.image.description="witty-ub release frontend runtime + experimental web UI" \
+      org.opencontainers.image.version="${EXP_VERSION}" \
+      org.opencontainers.image.revision="${EXP_REVISION}" \
+      org.opencontainers.image.created="${EXP_BUILD_DATE}" \
+      com.witty-ub.base.release="${BASE_RELEASE}" \
+      com.witty-ub.base.digest="${BASE_DIGEST}"

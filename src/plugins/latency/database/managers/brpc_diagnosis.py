@@ -1307,3 +1307,122 @@ class BrpcDiagnosisPGManager:
             .returning(BrpcDiagBatchRow.batch_id)
         )
         return result.scalar_one_or_none()
+
+    # --- Summary one-pager aggregates (docs/design/trace-light-api.md §11.2) ---
+    # 全部 hits 表直查下推（hit 行自带 component/pod 列，无需 join 节点表）。
+
+    @staticmethod
+    def _summary_filters(
+        batch_id: str | Sequence[str],
+        start_timestamp: int,
+        end_timestamp: int,
+        component: str | None = None,
+    ) -> list:
+        """summary 聚合共用过滤：时间窗 + 批次 + 可选组件（hit 行 component 列）。"""
+        filters = BrpcDiagnosisPGManager._scope_filters(
+            batch_id=batch_id,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
+        )
+        if component is not None:
+            filters.append(BrpcDiagHitRow.component == component)
+        return filters
+
+    @staticmethod
+    async def get_summary_component_counts(
+        session: AsyncSession,
+        *,
+        batch_id: str | Sequence[str],
+        start_timestamp: int,
+        end_timestamp: int,
+        component: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """组件命中分布（NULL component → unknown），hit_count 降序、组件名升序。"""
+        component_expr = func.coalesce(BrpcDiagHitRow.component, "unknown")
+        hit_count = func.count(BrpcDiagHitRow.hit_id)
+        result = await session.execute(
+            select(
+                component_expr.label("component"),
+                hit_count.label("hit_count"),
+            )
+            .select_from(BrpcDiagHitRow)
+            .where(
+                *BrpcDiagnosisPGManager._summary_filters(
+                    batch_id,
+                    start_timestamp,
+                    end_timestamp,
+                    component,
+                )
+            )
+            .group_by(component_expr)
+            .order_by(hit_count.desc(), component_expr)
+        )
+        return [dict(row) for row in result.mappings().all()]
+
+    @staticmethod
+    async def get_summary_pod_top(
+        session: AsyncSession,
+        *,
+        batch_id: str | Sequence[str],
+        start_timestamp: int,
+        end_timestamp: int,
+        top_n: int,
+        component: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Top Pod 聚合（DB 侧排序/LIMIT；pod_ip 为空的 hit 不计入）。"""
+        hit_count = func.count(BrpcDiagHitRow.hit_id)
+        result = await session.execute(
+            select(
+                BrpcDiagHitRow.pod_ip.label("pod_ip"),
+                func.max(BrpcDiagHitRow.pod_name).label("pod_name"),
+                hit_count.label("hit_count"),
+            )
+            .select_from(BrpcDiagHitRow)
+            .where(
+                *BrpcDiagnosisPGManager._summary_filters(
+                    batch_id,
+                    start_timestamp,
+                    end_timestamp,
+                    component,
+                ),
+                BrpcDiagHitRow.pod_ip.is_not(None),
+            )
+            .group_by(BrpcDiagHitRow.pod_ip)
+            .order_by(hit_count.desc(), BrpcDiagHitRow.pod_ip)
+            .limit(top_n)
+        )
+        return [dict(row) for row in result.mappings().all()]
+
+    @staticmethod
+    async def get_summary_peak_window(
+        session: AsyncSession,
+        *,
+        batch_id: str | Sequence[str],
+        start_timestamp: int,
+        end_timestamp: int,
+        window_us: int,
+        component: str | None = None,
+    ) -> dict[str, Any] | None:
+        """峰值单窗：DB 侧分桶取 hit_count 最大的一行（并列取最早窗口），不拉时间序列。"""
+        bucket = BrpcDiagnosisPGManager._window_start_timestamp(window_us)
+        hit_count = func.count(BrpcDiagHitRow.hit_id)
+        result = await session.execute(
+            select(
+                bucket.label("window_start_timestamp"),
+                hit_count.label("hit_count"),
+            )
+            .select_from(BrpcDiagHitRow)
+            .where(
+                *BrpcDiagnosisPGManager._summary_filters(
+                    batch_id,
+                    start_timestamp,
+                    end_timestamp,
+                    component,
+                )
+            )
+            .group_by(bucket)
+            .order_by(hit_count.desc(), bucket)
+            .limit(1)
+        )
+        row = result.mappings().first()
+        return dict(row) if row is not None else None

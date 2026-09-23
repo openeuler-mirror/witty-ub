@@ -47,7 +47,7 @@ http {
         }
 
         # Proxy API requests to backend (FastAPI)
-        location ~ ^/(log_kb|log_file|log_parse_result|aggregated_event|anomalous_event|anomalous_event_chain|log_failure_event_result|failure_mode|diagnosis_case|diagnosis_config|task|brpc-diagnosis|brpc_profiling|health_check|docs|openapi.json) {
+        location ~ ^/(log_kb|log_file|log_parse_result|aggregated_event|anomalous_event|anomalous_event_chain|log_failure_event_result|failure_mode|diagnosis_case|diag_case_library|diagnosis_config|diagnostic_report|task|brpc-diagnosis|brpc_profiling|health_check|docs|openapi.json) {
             proxy_pass ${WITTY_BACKEND_URL};
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;

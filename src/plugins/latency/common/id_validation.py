@@ -34,3 +34,12 @@ StatusCodePath = Annotated[
 
 # Dynamic BRPC event IDs are SHA-256 hashes of their complete grouping keys.
 BrpcEventIdPath = Annotated[str, Path(pattern=r"^[0-9a-f]{64}$")]
+
+# Diagnostic report IDs are the report HTML file stems: they embed a knowledge
+# base ID (``report_<kb_id>_<YYYYmmdd_HHMMSS>``, optionally with a ``_N``
+# de-duplication suffix), so the length cap is looser than the UUID-backed
+# resource IDs. No dot or path separator is allowed.
+DiagnosticReportIdPath = Annotated[
+    str,
+    Path(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$"),
+]

@@ -30,7 +30,8 @@ Options:
 
 Each WORKER row represents one direct multiprocessing child of the FastAPI
 process. RSS/PSS include all descendants of that worker, such as
-witty-ub-diag-tool and parallel scan helpers.
+witty-ub-diag-tool and parallel scan helpers. The ALL row shows the
+system-wide delta (free "used" - baseline) instead of summed PSS.
 EOF
 }
 
@@ -81,6 +82,10 @@ while (($#)); do
 done
 
 [[ $interval =~ ^[0-9]+([.][0-9]+)?$ ]] || die "invalid interval: $interval"
+
+read_free_used_kb() {
+    free -m | awk '/^Mem:/ {print $3 * 1024}'
+}
 
 discover_main_pid() {
     local pid=""
@@ -182,13 +187,13 @@ process_label() {
 }
 
 print_sample() {
-    local now epoch root pid rss pss total_rss total_pss count cpu label child_pids used
+    local now epoch root pid rss pss total_rss total_pss count cpu label child_pids used free_used free_delta
     local all_rss=0 all_pss=0 worker_count=0 all_used
     now=$(date '+%F %T')
     epoch=$(date +%s)
     printf '\n%s  main_pid=%s  service=%s\n' "$now" "$main_pid" "$service_name"
     printf '%-8s %-8s %-20s %10s %10s %8s %s\n' \
-        WORKER PPID TYPE RSS PSS CPU% TREE_PIDS
+        WORKER PPID TYPE RSS USED CPU% TREE_PIDS
 
     while IFS= read -r root; do
         [[ -n $root && -r /proc/$root/status ]] || continue
@@ -222,16 +227,17 @@ print_sample() {
             "${cpu:-?}" "$child_pids"
     done < <(children_of "$main_pid")
     if ((worker_count > 0)); then
-        all_used=$all_pss
-        ((all_used > 0)) || all_used=$all_rss
+        free_used=$(read_free_used_kb)
+        free_delta=$((free_used - baseline_free_used_kb))
         printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$((epoch - start_epoch))" "ALL" "all-worker-trees" \
-            "$all_rss" "$all_pss" "$all_used" >>"$data_file"
+            "$all_rss" "$all_pss" "$free_delta" >>"$data_file"
         printf '%-8s %-8s %-20s %10s %10s %8s %s\n' \
             "ALL" "$main_pid" "all-worker-trees" \
-            "$(format_kb "$all_rss")" "$(format_kb "$all_pss")" "-" "all"
+            "$(format_kb "$all_rss")" "$(format_kb "$free_delta")" \
+            "-" "all"
     fi
-    printf 'Note: RSS is summed and may double-count shared pages; PSS is the better total.\n'
+    printf 'Note: ALL total = free used - baseline; per-worker uses PSS (RSS double-counts shared pages).\n'
 }
 
 render_svg() {
@@ -262,7 +268,7 @@ render_svg() {
         print "<rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>";
         print "<style>text{font-family:system-ui,sans-serif;fill:#1f2937}.grid{stroke:#e5e7eb;stroke-width:1}.axis{stroke:#374151;stroke-width:1.5}</style>";
         print "<text x=\"" L "\" y=\"32\" font-size=\"22\" font-weight=\"700\">Latency worker memory</text>";
-        print "<text x=\"" L "\" y=\"54\" font-size=\"12\" fill=\"#6b7280\">Process-tree PSS (fallback to RSS), sampled during monitor lifetime</text>";
+        print "<text x=\"" L "\" y=\"54\" font-size=\"12\" fill=\"#6b7280\">Per-worker: PSS (fallback RSS); ALL: free used - baseline</text>";
         for (g=0; g<=5; g++) {
             y=T+plot_h-g*plot_h/5; mib=max_v*g/5/1024;
             print "<line class=\"grid\" x1=\"" L "\" y1=\"" y "\" x2=\"" L+plot_w "\" y2=\"" y "\"/>";
@@ -279,7 +285,7 @@ render_svg() {
             p=order[w]; c=colors[(w-1)%8+1]; points="";
             if (p=="ALL") c="#111827";
             for (i=1; i<=NR; i++) if (pid[i]==p) {
-                x=L+t[i]/max_t*plot_w; y=T+plot_h-value[i]/max_v*plot_h;
+                v=(value[i]<0?0:value[i]); x=L+t[i]/max_t*plot_w; y=T+plot_h-v/max_v*plot_h;
                 points=points sprintf("%.1f,%.1f ",x,y);
             }
             stroke_width=(p=="ALL" ? 3.5 : 2);
@@ -288,7 +294,7 @@ render_svg() {
             print "<circle cx=\"" px "\" cy=\"" py "\" r=\"4\" fill=\"" c "\"/>";
             ly=T+20+(w-1)*48;
             print "<line x1=\"" L+plot_w+25 "\" y1=\"" ly "\" x2=\"" L+plot_w+55 "\" y2=\"" ly "\" stroke=\"" c "\" stroke-width=\"3\"/>";
-            legend=(p=="ALL" ? "ALL CHILD PROCESSES" : "PID " p " " label[p]);
+            legend=(p=="ALL" ? "ALL (free used delta)" : "PID " p " " label[p]);
             print "<text x=\"" L+plot_w+65 "\" y=\"" ly-3 "\" font-size=\"12\" font-weight=\"600\">" legend "</text>";
             printf "<text x=\"%d\" y=\"%.1f\" font-size=\"12\">peak %.1f MiB @ %.0fs</text>\n",L+plot_w+65,ly+15,peak[p]/1024,peak_t[p];
         }
@@ -310,6 +316,11 @@ cleanup() {
 
 trap cleanup EXIT
 trap 'exit 0' INT TERM
+
+baseline_free_used_kb=$(read_free_used_kb) || die "cannot read free output"
+printf 'Baseline free used: %s (ALL total = free used - baseline)\n' \
+    "$(format_kb "$baseline_free_used_kb")"
+
 while [[ -r /proc/$main_pid/status ]]; do
     print_sample
     ((run_once == 1)) && exit 0

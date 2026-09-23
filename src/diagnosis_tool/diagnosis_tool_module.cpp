@@ -388,36 +388,43 @@ RackResult DiagnosisToolModule::ProcessClassifiedOutputs(
 {
     auto extractOutput = [this, &outputToSources](const std::string &outputPath, LogKind kind) {
         const auto &sources = outputToSources.at(outputPath);
+        bool anySucceeded = false;
         for (std::size_t index = 0; index < sources.size(); ++index) {
-            if (!ExtractLogLinesByTimeWindow(sources[index], outputPath, index != 0, kind)) {
-                return false;
+            const bool append = anySucceeded;
+            if (!ExtractLogLinesByTimeWindow(sources[index], outputPath, append, kind)) {
+                LOG_WARN << "Skipping failed log source: " << sources[index] << " for output: " << outputPath;
+                continue;
             }
+            anySucceeded = true;
         }
-        return true;
+        return anySucceeded;
     };
 
     std::unordered_set<std::string> extractedOutputs;
     for (const std::string &outputPath : accessOutputs) {
         if (!extractOutput(outputPath, LogKind::ACCESS)) {
-            return RACK_FAIL;
+            LOG_WARN << "Skipping access output with no successful sources: " << outputPath;
+            continue;
         }
         extractedOutputs.insert(outputPath);
     }
     for (const std::string &outputPath : runtimeOutputs) {
         if (extractedOutputs.find(outputPath) != extractedOutputs.end()) {
             if (!FeedExtractedLog(outputPath, LogKind::RUNTIME)) {
-                return RACK_FAIL;
+                LOG_WARN << "Skipping runtime feed for output: " << outputPath;
             }
         } else {
             if (!extractOutput(outputPath, LogKind::RUNTIME)) {
-                return RACK_FAIL;
+                LOG_WARN << "Skipping runtime output with no successful sources: " << outputPath;
+                continue;
             }
             extractedOutputs.insert(outputPath);
         }
     }
     for (const std::string &outputPath : otherOutputs) {
         if (!extractOutput(outputPath, LogKind::NONE)) {
-            return RACK_FAIL;
+            LOG_WARN << "Skipping other output with no successful sources: " << outputPath;
+            continue;
         }
     }
     return RACK_OK;
@@ -478,7 +485,7 @@ bool DiagnosisToolModule::ProcessGzipInput(const std::string &inputPath, LinePro
 {
     gzFile gzip = gzopen(inputPath.c_str(), "rb");
     if (gzip == nullptr) {
-        LOG_ERROR << "Cannot open gzip input file: " << inputPath;
+        LOG_WARN << "Cannot open gzip input file: " << inputPath;
         return false;
     }
     if (gzbuffer(gzip, static_cast<unsigned int>(GZIP_INTERNAL_BUFFER_SIZE)) != 0) {
@@ -518,8 +525,8 @@ bool DiagnosisToolModule::ProcessGzipInput(const std::string &inputPath, LinePro
     const char *gzipMessage = gzerror(gzip, &gzipError);
     const bool succeeded = !keepReading || (bytesRead == 0 && (gzipError == Z_OK || gzipError == Z_STREAM_END));
     if (!succeeded) {
-        LOG_ERROR << "Failed while reading gzip log: " << inputPath
-                  << ", error: " << (gzipMessage == nullptr ? "unknown zlib error" : gzipMessage);
+        LOG_WARN << "Failed while reading gzip log: " << inputPath
+                 << ", error: " << (gzipMessage == nullptr ? "unknown zlib error" : gzipMessage);
     }
     return gzclose(gzip) == Z_OK && succeeded;
 }
@@ -563,7 +570,7 @@ bool DiagnosisToolModule::ExtractLogLinesByTimeWindow(const std::string &inputPa
     if (!gzipInput && !mappedInput.IsOpen()) {
         fallbackInput.open(inputPath);
         if (!fallbackInput.is_open()) {
-            LOG_ERROR << "Cannot open input file: " << inputPath;
+            LOG_WARN << "Cannot open input file: " << inputPath;
             return false;
         }
     }
@@ -573,7 +580,7 @@ bool DiagnosisToolModule::ExtractLogLinesByTimeWindow(const std::string &inputPa
     output.rdbuf()->pubsetbuf(outputBuffer.data(), static_cast<std::streamsize>(outputBuffer.size()));
     output.open(outputPath, mode);
     if (!output.is_open()) {
-        LOG_ERROR << "Cannot open output file: " << outputPath;
+        LOG_WARN << "Cannot open output file: " << outputPath;
         return false;
     }
     std::vector<std::string_view> runtimeLines;
@@ -620,7 +627,7 @@ bool DiagnosisToolModule::FeedExtractedLog(const std::string &path, LogKind kind
 
     std::ifstream input(path);
     if (!input.is_open()) {
-        LOG_ERROR << "Cannot open extracted log file: " << path;
+        LOG_WARN << "Cannot open extracted log file: " << path;
         return false;
     }
     std::string line;
