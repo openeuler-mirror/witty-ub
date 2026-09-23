@@ -33,7 +33,7 @@ cpu_limit = 4
 
 [static_source]
 aes_key = ""
-stop_words_path = ""
+stop_words_path = "/rag-service/rag_core/static/stopwords.txt"
 prompt_template_path = ""
 
 # 部署前请填写实际使用的模型提供商、地址、模型名称和 API Key。

@@ -175,6 +175,15 @@ values = {
 
 def replace_section(match):
     name, body = match.group(1), match.group(2)
+    if name == "static_source":
+        key = "stop_words_path"
+        value = '"/rag-service/rag_core/static/stopwords.txt"'
+        pattern = rf"(?m)^\s*{key}\s*=.*$"
+        if re.search(pattern, body):
+            body = re.sub(pattern, f"{key} = {value}", body)
+        else:
+            body += f"{key} = {value}\n"
+        return f"[{name}]\n{body}"
     if name not in {"scalar_db", "vector_db"}:
         return match.group(0)
     for key, value in values.items():
@@ -188,7 +197,7 @@ def replace_section(match):
 
 section_pattern = re.compile(r"(?ms)^\[([^]]+)]\s*\n(.*?)(?=^\[|\Z)")
 found = set(re.findall(r"(?m)^\[([^]]+)]", source))
-missing = {"scalar_db", "vector_db"} - found
+missing = {"scalar_db", "vector_db", "static_source"} - found
 if missing:
     raise SystemExit("RAG config missing section(s): " + ", ".join(sorted(missing)))
 rendered = section_pattern.sub(replace_section, source)
@@ -215,20 +224,22 @@ start_rag_core_container() {
 }
 
 if docker container inspect "$WITTY_RAG_CORE_CONTAINER" >/dev/null 2>&1; then
-    if [ "$(docker inspect -f '{{.State.Running}}' "$WITTY_RAG_CORE_CONTAINER")" = "true" ]; then
+    if [ "$(docker inspect -f '{{.State.Running}}' "$WITTY_RAG_CORE_CONTAINER")" = "true" ] &&
+        docker exec "$WITTY_RAG_CORE_CONTAINER" \
+            curl -fsS --max-time 3 http://127.0.0.1:9988/health_check >/dev/null 2>&1; then
         log_warn "复用正在运行的容器 ${WITTY_RAG_CORE_CONTAINER}，不会中断现有 RAG 服务"
         connect_network "$WITTY_RAG_CORE_CONTAINER"
     else
         OLD_RAG_CONFIG_SOURCE="$(docker inspect "$WITTY_RAG_CORE_CONTAINER" \
             --format '{{range .Mounts}}{{if eq .Destination "/rag-service/rag_core/config.toml"}}{{.Source}}{{end}}{{end}}' \
             2>/dev/null || true)"
-        log_warn "检测到已停止的旧 RAG Core 容器，将重建容器以应用当前配置"
+        log_warn "检测到未通过健康检查的旧 RAG Core 容器，将重建容器以应用当前配置"
         if [ -n "$OLD_RAG_CONFIG_SOURCE" ]; then
             log_warn "旧配置挂载: ${OLD_RAG_CONFIG_SOURCE}"
         fi
         # RAG 业务数据保存在 openGauss；这里只删除已停止的无状态服务容器，
         # 不删除 openGauss 容器、数据卷或日志目录。
-        docker rm "$WITTY_RAG_CORE_CONTAINER" >/dev/null
+        docker rm -f "$WITTY_RAG_CORE_CONTAINER" >/dev/null
         unset OLD_RAG_CONFIG_SOURCE
         start_rag_core_container
     fi
@@ -248,6 +259,10 @@ for _ in $(seq 1 60); do
 done
 if [ "$rag_ready" != true ]; then
     log_error "RAG Core 未在规定时间内就绪，请检查: docker logs ${WITTY_RAG_CORE_CONTAINER}"
+    if [ -f "${RAG_LOG_DIR}/rag-core.log" ]; then
+        log_error "RAG Core 应用日志最后 80 行："
+        tail -n 80 "${RAG_LOG_DIR}/rag-core.log" >&2
+    fi
     exit 1
 fi
 
