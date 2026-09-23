@@ -2704,7 +2704,7 @@ watch(selectedAssetId, (nextAssetId, previousAssetId) => {
   saveActiveAgentSession()
   agentSessionSearch.value = ''
 })
-const activePage = ref<'asset' | 'abnormal'>('asset')
+const activePage = ref<'asset' | 'abnormal' | 'reports'>('asset')
 type MonitorSection = 'latency' | 'fault' | 'brpc' | 'brpc-fault'
 type MonitorProduct = 'KVCache' | 'UBSocket'
 const activeMonitorSection = ref<MonitorSection>('latency')
@@ -10086,6 +10086,105 @@ const jumpLogFilesPage = () => {
   goLogFilesPage(nextPage)
 }
 
+// 诊断报告列表（数据来自后端 /diagnostic_report，报告文件落 witty-ub-reports 卷）
+type DiagnosticReportModel = {
+  report_id: string
+  kb_id?: string | null
+  kb_name?: string | null
+  title?: string | null
+  generated_at?: string | null
+  operation?: string | null
+  time_range_start?: string | null
+  time_range_end?: string | null
+  fault_count?: number | null
+  file_name?: string | null
+  file_size?: number | null
+  has_sidecar?: boolean
+}
+
+const diagnosticReportsPageSize = 10
+const diagnosticReports = ref<DiagnosticReportModel[]>([])
+const diagnosticReportsTotal = ref(0)
+const diagnosticReportsPage = ref(1)
+const diagnosticReportsPageInput = ref('')
+const isDiagnosticReportsLoading = ref(false)
+const diagnosticReportsError = ref('')
+
+const diagnosticReportsPageCount = computed(() =>
+  Math.max(1, Math.ceil(diagnosticReportsTotal.value / diagnosticReportsPageSize)),
+)
+const diagnosticReportsPageWindow = computed(() =>
+  getPageWindow(diagnosticReportsPage.value, diagnosticReportsPageCount.value),
+)
+const diagnosticReportDisplayText = (value?: string | number | null) =>
+  value === undefined || value === null || value === '' ? '—' : String(value)
+
+const loadDiagnosticReports = async (pageNum = diagnosticReportsPage.value) => {
+  isDiagnosticReportsLoading.value = true
+  diagnosticReportsError.value = ''
+  try {
+    const result = await request<{ total: number; items: DiagnosticReportModel[] }>(
+      '/diagnostic_report/list',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          page_cnt: diagnosticReportsPageSize,
+          page_num: pageNum,
+        }),
+      },
+    )
+    const nextTotal = result.total ?? 0
+    const nextPageCount = Math.max(1, Math.ceil(nextTotal / diagnosticReportsPageSize))
+    if (pageNum > nextPageCount) {
+      isDiagnosticReportsLoading.value = false
+      await loadDiagnosticReports(nextPageCount)
+      return
+    }
+    diagnosticReports.value = result.items ?? []
+    diagnosticReportsTotal.value = nextTotal
+    diagnosticReportsPage.value = pageNum
+  } catch (error) {
+    diagnosticReports.value = []
+    diagnosticReportsTotal.value = 0
+    diagnosticReportsPage.value = 1
+    diagnosticReportsError.value = error instanceof Error ? error.message : '诊断报告加载失败'
+  } finally {
+    isDiagnosticReportsLoading.value = false
+  }
+}
+
+const openDiagnosticReportsPage = () => {
+  activePage.value = 'reports'
+  if (diagnosticReports.value.length === 0 && !isDiagnosticReportsLoading.value) {
+    void loadDiagnosticReports(1)
+  }
+}
+
+const goDiagnosticReportsPage = (pageNum: number) => {
+  const nextPage = Math.min(Math.max(1, pageNum), diagnosticReportsPageCount.value)
+  if (nextPage === diagnosticReportsPage.value || isDiagnosticReportsLoading.value) return
+  void loadDiagnosticReports(nextPage)
+}
+
+const jumpDiagnosticReportsPage = () => {
+  const nextPage = normalizePageInput(
+    diagnosticReportsPageInput.value,
+    diagnosticReportsPageCount.value,
+  )
+  if (nextPage === null) return
+  diagnosticReportsPageInput.value = ''
+  goDiagnosticReportsPage(nextPage)
+}
+
+// 报告为自包含 HTML，走 nginx 白名单直开新窗口（不用 Blob，地址可分享）
+const openDiagnosticReport = (reportId: string) => {
+  window.open(
+    `${apiBase}/diagnostic_report/${encodeURIComponent(reportId)}/html`,
+    '_blank',
+    'noopener',
+  )
+}
+
 const refreshLogFile = async (fileId: string) => {
   refreshingFileIds.value = new Set(refreshingFileIds.value).add(fileId)
   try {
@@ -13246,6 +13345,26 @@ onBeforeUnmount(() => {
             <span class="asset-item-main">
               <strong>{{ asset.name }}</strong>
               <small>{{ asset.description }}</small>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section class="nav-section">
+        <div class="nav-title">诊断报告</div>
+        <div class="nav-list">
+          <div
+            class="nav-asset-item"
+            :class="{ selected: activePage === 'reports' }"
+            role="button"
+            tabindex="0"
+            @click="openDiagnosticReportsPage"
+            @keydown.enter="openDiagnosticReportsPage"
+            @keydown.space.prevent="openDiagnosticReportsPage"
+          >
+            <span class="asset-item-main">
+              <strong>报告库</strong>
+              <small>查看 Agent 生成的诊断报告</small>
             </span>
           </div>
         </div>
@@ -16874,6 +16993,133 @@ onBeforeUnmount(() => {
             </article>
           </div>
         </section>
+      </div>
+
+      <div v-else-if="activePage === 'reports'" class="reports-page">
+        <header class="detail-header">
+          <div class="detail-title-block">
+            <p class="eyebrow">诊断报告库</p>
+            <h1>诊断报告</h1>
+            <p class="detail-description">
+              Agent 生成的诊断报告统一落盘并在此查阅，点击「查看」在新窗口打开报告。
+            </p>
+          </div>
+          <div class="detail-actions">
+            <div class="detail-actions-bottom">
+              <button
+                class="ghost-btn"
+                type="button"
+                :disabled="isDiagnosticReportsLoading"
+                @click="loadDiagnosticReports(diagnosticReportsPage)"
+              >
+                刷新
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <section class="log-files-section">
+          <div v-if="isDiagnosticReportsLoading" class="state-text">正在加载诊断报告...</div>
+          <div v-else-if="diagnosticReportsError" class="state-text">
+            {{ diagnosticReportsError }}
+          </div>
+          <div v-else-if="diagnosticReports.length === 0" class="state-text">暂无诊断报告</div>
+          <div v-else class="log-file-list">
+            <div v-for="report in diagnosticReports" :key="report.report_id" class="log-file-item">
+              <div class="log-file-info">
+                <div class="log-file-summary">
+                  <span class="log-file-path" :title="report.report_id">
+                    📄 {{ diagnosticReportDisplayText(report.title || report.file_name) }}
+                  </span>
+                  <span class="log-file-meta">
+                    <span class="log-file-time">
+                      知识库：{{ diagnosticReportDisplayText(report.kb_name || report.kb_id) }}
+                    </span>
+                    <span class="log-file-time">
+                      生成时间：{{ diagnosticReportDisplayText(report.generated_at) }}
+                    </span>
+                    <span class="log-file-time">
+                      故障数：{{
+                        report.has_sidecar === false
+                          ? '—'
+                          : diagnosticReportDisplayText(report.fault_count)
+                      }}
+                    </span>
+                    <span
+                      v-if="report.has_sidecar === false"
+                      class="status-badge anomaly-danger"
+                      title="侧车 JSON 缺失，标题与故障数等信息不可用"
+                      >无侧车数据</span
+                    >
+                    <button
+                      class="ghost-btn"
+                      type="button"
+                      @click="openDiagnosticReport(report.report_id)"
+                    >
+                      查看
+                    </button>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div v-if="diagnosticReportsTotal > 0" class="aggregate-pagination log-file-pagination">
+          <button
+            class="ghost-btn"
+            type="button"
+            :disabled="diagnosticReportsPage <= 1 || isDiagnosticReportsLoading"
+            @click="goDiagnosticReportsPage(diagnosticReportsPage - 1)"
+          >
+            上一页
+          </button>
+          <span class="pagination-pages" aria-label="诊断报告页码">
+            <button
+              v-for="pageNum in diagnosticReportsPageWindow"
+              :key="`diagnostic-report-page-${pageNum}`"
+              class="pagination-page-btn"
+              :class="{ active: pageNum === diagnosticReportsPage, ellipsis: pageNum < 0 }"
+              type="button"
+              :disabled="
+                pageNum < 0 || pageNum === diagnosticReportsPage || isDiagnosticReportsLoading
+              "
+              @click="pageNum > 0 && goDiagnosticReportsPage(pageNum)"
+            >
+              {{ pageNum < 0 ? '…' : pageNum }}
+            </button>
+          </span>
+          <button
+            class="ghost-btn"
+            type="button"
+            :disabled="
+              diagnosticReportsPage >= diagnosticReportsPageCount || isDiagnosticReportsLoading
+            "
+            @click="goDiagnosticReportsPage(diagnosticReportsPage + 1)"
+          >
+            下一页
+          </button>
+          <span class="pagination-jump">
+            <span>第 {{ diagnosticReportsPage }} / {{ diagnosticReportsPageCount }} 页</span>
+            <input
+              v-model="diagnosticReportsPageInput"
+              class="pagination-jump-input"
+              type="number"
+              min="1"
+              :max="diagnosticReportsPageCount"
+              aria-label="跳转诊断报告页码"
+              @keyup.enter="jumpDiagnosticReportsPage"
+            />
+            <button
+              class="pagination-jump-btn"
+              type="button"
+              :disabled="isDiagnosticReportsLoading"
+              @click="jumpDiagnosticReportsPage"
+            >
+              跳转
+            </button>
+          </span>
+        </div>
       </div>
 
       <div v-else-if="isDetailLoading" class="empty-detail">正在加载详情...</div>

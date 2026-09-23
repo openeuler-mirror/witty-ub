@@ -31,6 +31,7 @@
   "latency": {},
   "root_cause": {},
   "propagation": {},
+  "evidence_traces": [],
   "knowledge_matches": [],
   "solution": {},
   "source_code": {},
@@ -67,6 +68,50 @@
 
 - `stages[].status`：`bottleneck` 瓶颈（红）/ `warn` 异常（琥珀）/ `ok` 正常（绿）；`baseline`/`ratio`/`share` 可缺省显示 "—"。
 - **结论必须回答**：额外耗时集中在哪个阶段、相对基线放大多少、是否已逼近超时预算、Worker/进程内阶段是否正常（用于排除进程内瓶颈）。
+
+### evidence_traces 块（证据锚点，可选）
+
+渲染在"确认根因"卡片之后。作用是让读者拿着 trace ID 回到现场复现结论
+（`GET /trace/{id}` 或 `POST /trace/list`）。**纯文本、无链接、无按钮。**
+
+```json
+[
+  {
+    "trace_id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+    "kind": "latency",
+    "why": "GET·URMA超时 桶内证据耗时 Top1（该桶占异常 trace 62.3%）",
+    "evidence_ms": 1180,
+    "client_ms": 1200
+  },
+  {
+    "trace_id": "0f9e8d7c6b5a43210fedcba987654321",
+    "kind": "error",
+    "why": "-1002 首条异常（pod-worker-3 / host-101）",
+    "status_code": "-1002",
+    "failure_mode_id": "kvcache_runtime_089",
+    "pod": "pod-worker-3",
+    "host": "host-101",
+    "timestamp": "2026-09-22 12:03:11"
+  }
+]
+```
+
+| 字段 | 类型 | 必填 | 取值 / 校验 |
+| --- | --- | --- | --- |
+| `trace_id` | string | ✅ | 非空；**逐字来自本次工具响应**，不得改写长度或大小写 |
+| `kind` | string | ✅ | `latency` 时延锚点 / `error` 通断锚点 |
+| `why` | string | ✅ | ≤120 字；必须含**桶 key** 或**过滤条件**（status_code + pod + 时间窗） |
+| `evidence_ms` | number | ❌ | `latency` 类填 `top_traces[].evidence_ms` |
+| `client_ms` | number | ❌ | `latency` 类填 `top_traces[].client_ms` |
+| `status_code` | string | ❌ | `error` 类填 `list_trace_events` 行值 |
+| `failure_mode_id` | string | ❌ | 同上 |
+| `pod` / `host` | string | ❌ | 同上 |
+| `timestamp` | string | ❌ | `YYYY-MM-DD HH:MM:SS` |
+
+- 数组长度 **0~5**；`latency` 类取 `/stats/stages` 该故障**归因桶**的 `top_traces[]` 前 1~3 条。
+- **取不到就省略该键或置 `[]`**：键缺省 / `null` / `[]` 三者行为一致，模板整块不渲染
+  （不出标题、不出占位符、不占垂直空间）。不得为填满而编造 ID 或降低选择标准。
+- 数组内 `trace_id` 不得重复；同一 trace 同时命中时延与通断时只列一条，另一侧信息并入 `why`。
 
 ---
 
@@ -665,6 +710,6 @@ SET 走 CREATE/PUBLISH 写路径，**可用字段与 GET 不同**，阶段表按
 | 主问题归因 | `POST /stats/stages` 的 `items[]`：每条问题 trace 按最大瓶颈阶段归入唯一桶；GET 桶序：RPC网络/RPC排队/QueryMeta/URMA/Data Worker服务端处理/Client/Worker交叉窗口未细分/未解释残差/URMA超时；SET 桶序：SET·URMA超时/SET·数据面未观测/SET·未解释残差/SET·客户端SDK段/SET·Worker写处理 |
 | 故障模式和知识库 | `POST /failure_mode/by_ids`, `GET /failure_mode/status_code/{status_code}` |
 | 经验库 | experience-skill 检索结果（复用诊断 Skill 的附录 A） |
-| 代表 trace 证据 | `POST /log_failure_event_result/list_trace_events` (page_cnt=5), `POST /log_failure_event_result/list_log_events` (page_cnt=5) |
+| 代表 trace 证据 | `POST /log_failure_event_result/list_trace_events` (page_cnt=5), `POST /log_failure_event_result/list_log_events` (page_cnt=5)；取到的代表 trace 必须落到 `faults[].evidence_traces[]`（见上文"evidence_traces 块"），只写在 `reasoning_chain[].evidence` 自由文本里等于没落地 |
 | BRPC 源码 | `GET /diagnosis/component_src/{component}/{filename}`（规划接口，暂未落地；不可用时 `source_code` 设 `null`） |
 | 历史案例 | `POST /diag_case_library/search`（默认，只返回已人工确认案例；`kb_id` 可空 = 跨库召回）；无结果时才降级 `POST /diagnosis_case/search` 并标注未经确认 |

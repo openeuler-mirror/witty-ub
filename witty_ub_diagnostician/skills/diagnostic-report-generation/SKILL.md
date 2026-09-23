@@ -54,13 +54,17 @@ python3 render_report.py --spec statistics   # 单板块字段清单（可换任
 ```bash
 cd witty_ub_diagnostician/.opencode/skills/diagnostic-report-generation/scripts
 python3 render_report.py /tmp/report_data.json
-# 可选第二个参数指定输出路径；默认 /tmp/reports/report_<时间戳>.html
+# 默认输出 $WITTY_REPORT_DIR/<kb_id>/report_<kb_id>_<时间戳>.html（容器内
+# WITTY_REPORT_DIR=/var/witty-ub/reports，由 witty-ub-reports 卷持久化），
+# 同目录写同名侧车 .json（原样报告数据，前端「诊断报告」列表靠它取标题/故障数）。
+# 不要传 out 参数把报告挪到 /tmp 或仓库目录；本地调试可用 --kb-id 指定目录名。
 ```
 
 脚本做 schema-lite 校验（必需顶层键、字段枚举、`share_bar` 百分比合计、
-GET/SET 混桶），成功后**只回显 ≤15 行摘要**（输出路径/章节/故障/统计/提示）。
+GET/SET 混桶），成功后**只回显 ≤15 行摘要**（输出路径/侧车/章节/故障/统计/提示）。
 退出码：`0` 成功 / `2` 数据或渲染错误（按提示改 JSON 后重跑）/ `3` 模板缺失 /
-`4` 缺 jinja2。**校验失败时修正 JSON 后重跑，不要改用别的方式手写 HTML。**
+`4` 缺 jinja2 / `5` 写盘失败（目录不可写）。**校验失败时修正 JSON 后重跑，
+不要改用别的方式手写 HTML。**
 
 ## 报告契约（硬约束）
 
@@ -129,6 +133,34 @@ GET/SET 混桶），成功后**只回显 ≤15 行摘要**（输出路径/章节
   `POST /diag_case_library/search` 命中的已确认案例也只能作为**待验证假设**，须有本次现场
   证据支撑才可用于根因，未验证的在结论中显式标注；若降级用了 `POST /diagnosis_case/search`
   （旧表、未经人工确认），必须显式标注其未确认属性
+
+## 证据锚点纪律（faults[].evidence_traces[]）
+
+每条故障可附 **0~5 条代表 trace 锚点**，让读者拿着 trace ID 回到现场复现结论
+（`GET /trace/{id}` 或 `POST /trace/list`）。字段契约见
+`references/REPORT_BLOCKS.md`「evidence_traces 块」。
+
+取数（**均属本流程已调用的接口，不新增调用**）：
+
+| `kind` | 来源 | 取值 |
+|--------|------|------|
+| `latency` | `POST /stats/stages` 响应 | 该故障**归因桶**的 `top_traces[]` 前 1~3 条 |
+| `error` | `POST /log_failure_event_result/list_trace_events` | 按该故障 `status_code` + `pod`/`host` + 故障时间窗过滤后的返回行 |
+
+纪律：
+
+1. **禁止编造**：`trace_id` 必须逐字来自本次工具响应；不得凭印象、不得复用历史报告或
+   知识库案例里的 ID，不得改写长度或大小写。
+2. **`why` 必须可复核**：写明桶 key（如 `GET·URMA超时`）或完整过滤条件
+   （status_code + pod + 时间窗）。`latency` 类必须点明"证据耗时 Top"口径——
+   `top_traces` 是"桶内**证据耗时** Top"，代表该阶段耗时最极端的请求，
+   **不等于故障最严重或最具普遍性**，不点明口径会被误读为严重度排序。
+3. **只从归因桶取**：不跨桶凑数，跨桶 trace 属其它故障的证据，列错会把读者引向错误结论。
+4. **允许 0 条**：取不到就省略该键或置 `[]`，**不得为填满而降低选择标准**。
+   键缺省 / `null` / `[]` 三者行为一致，模板整块不渲染（不出标题、不出占位符）。
+5. **上限 5 条**：超过 5 条对读者无增量，只稀释报告密度。
+6. **不写数据保留期声明**：报告不加"锚点有效性以底层数据保留期为限"一类注记。
+7. **数组内不重复**：同一 trace 同时命中时延与通断时只列一条，另一侧信息并入 `why`。
 
 ## 案例沉淀（报告确认后，三步链路）
 
