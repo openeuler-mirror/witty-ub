@@ -7,10 +7,12 @@
 # 系统依赖由子包 Requires 自动拉装（backend: python3 + C++ 运行库;
 # web: nginx + nodejs; manager: curl + systemd）。本脚本仅做：
 # - 按角色验证关键二进制存在（backend: systemctl/psql/python3/venv;
-#   frontend: systemctl/nginx/npm; 公共: curl）
+#   frontend: systemctl/nginx/npm/uv; 公共: curl）
 # - 验证对应子包已安装
 # - 缺失时按 OS 调用 dnf/apt 补装
 # - 后端角色每次按 requirements.txt 创建/更新 Python venv
+# - 前端角色补装 Agent 运行时依赖: uv(pip 安装) + libsimple 分词器编译
+#   + experience-skill venv(uv sync) + 经验库同步
 #
 # 用法:
 #   /usr/libexec/witty-ub-manager/install_deps.sh
@@ -26,6 +28,13 @@ if [ -z "${WITTY_ROLE:-}" ]; then
     detect_role || exit 1
 fi
 role_services || exit 1
+
+# Agent (OpenCode) bundle 路径（与 witty-ub.spec 安装布局一致：
+# skills 由 witty-ub-web 子包安装到 witty_ub_diagnostician/.opencode/skills/）
+WITTY_AGENT_BUNDLE_DIR="${WITTY_DIR}/witty_ub_diagnostician/.opencode"
+WITTY_SKILL_DIR="${WITTY_AGENT_BUNDLE_DIR}/skills/experience-skill"
+WITTY_SKILL_SCRIPTS="${WITTY_SKILL_DIR}/scripts"
+WITTY_TOKENIZER_DIR="${WITTY_SKILL_SCRIPTS}/src/experience_skill_cli/tokenizer"
 
 # RPM 子包检查（非 RPM 系统（Ubuntu）无子包概念，跳过）
 _pkg_installed() {
@@ -78,7 +87,7 @@ verify_deps() {
         fi
     fi
 
-    # 前端角色: nginx + node
+    # 前端角色: nginx + node + Agent 运行时
     if [ "$WITTY_ROLE" != "backend" ]; then
         for cmd in nginx node npm; do
             if _has_cmd "$cmd"; then
@@ -88,6 +97,31 @@ verify_deps() {
                 missing+=("$cmd")
             fi
         done
+
+        # Agent (OpenCode) 运行时依赖（缺失项由 install_agent_deps 补装/编译）
+        if _has_cmd uv; then
+            _log "  uv ✓"
+        else
+            _warn "  uv ✗（Agent 技能依赖）"
+            missing+=("uv")
+        fi
+        if [ -d "$WITTY_SKILL_SCRIPTS" ]; then
+            if [ -e "$WITTY_TOKENIZER_DIR/libsimple" ] || [ -e "$WITTY_TOKENIZER_DIR/libsimple.so" ]; then
+                _log "  libsimple 分词器 ✓"
+            else
+                _warn "  libsimple 分词器 ✗（未编译）"
+                missing+=("libsimple")
+            fi
+            if [ -d "$WITTY_SKILL_SCRIPTS/.venv" ]; then
+                _log "  experience-skill venv ✓"
+            else
+                _warn "  experience-skill venv ✗（未 uv sync）"
+                missing+=("experience-skill-venv")
+            fi
+        else
+            _warn "  experience-skill ✗（Agent bundle 未安装）"
+            missing+=("experience-skill")
+        fi
         if _pkg_installed witty-ub-web || _pkg_installed witty-ub; then
             _log "  witty-ub-web 子包 ✓"
         else
@@ -192,6 +226,135 @@ install_python_deps() {
     _log "Python 依赖已就绪"
 }
 
+# ──────────────────── Agent (OpenCode) 运行时依赖 ────────────────────
+# 与 deploy/host/install_deps.sh 的 install_agent_deps 对齐：
+# uv 本体(pip 安装) → libsimple 分词器编译 → uv sync 建 venv → 经验库同步。
+# Agent bundle 由 witty-ub-web 子包安装（.opencode 布局）；backend 角色不跑
+# OpenCode，整体跳过。
+
+install_uv_if_missing() {
+    # openEuler 24.03 无 uv 的 dnf 包 → 走 pip。镜像源:
+    # WITTY_PIP_INDEX(宿主机脚本约定) > PYPI_INDEX_URL(spec %post 约定) > 华为云
+    local pip_index="${WITTY_PIP_INDEX:-${PYPI_INDEX_URL:-https://repo.huaweicloud.com/repository/pypi/simple/}}"
+
+    if _has_cmd uv; then
+        _log "uv 已就绪: $(command -v uv) ($(uv --version 2>/dev/null | head -n1))"
+        return 0
+    fi
+
+    _info "安装 uv（Agent 技能依赖）..."
+    _require_root || return 1
+    local SUDO=""
+    _is_root || SUDO="sudo"
+
+    # openEuler 24.03 需 --break-system-packages；老 pip 不认该参数则回退
+    $SUDO python3 -m pip install -U -i "$pip_index" uv --break-system-packages >/dev/null 2>&1 ||
+        $SUDO python3 -m pip install -U -i "$pip_index" uv ||
+        true
+
+    # pip 认为依赖已满足时不会补回丢失的 console script → 强制重装
+    if ! _has_cmd uv; then
+        $SUDO python3 -m pip install --force-reinstall --no-deps -i "$pip_index" uv --break-system-packages >/dev/null 2>&1 ||
+            $SUDO python3 -m pip install --force-reinstall --no-deps -i "$pip_index" uv >/dev/null 2>&1 ||
+            true
+    fi
+
+    # pip 全部失败时回退 astral 官方脚本（装到 ~/.local/bin）
+    if ! _has_cmd uv && _has_cmd curl; then
+        _info "pip 安装失败，回退 astral 安装脚本..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1 || true
+        [ -x "$HOME/.local/bin/uv" ] &&
+            $SUDO ln -sf "$HOME/.local/bin/uv" /usr/local/bin/uv || true
+    fi
+
+    # uv 落在 ~/.local/bin 等用户目录时，其他用户/服务的 PATH 看不到 → 复制到 /usr/local/bin
+    local uv_bin
+    uv_bin="$(command -v uv 2>/dev/null || true)"
+    if [ -n "$uv_bin" ]; then
+        case "$(readlink -f "$uv_bin" 2>/dev/null || echo "$uv_bin")" in
+        /usr/local/bin/* | /usr/bin/*) ;;
+        *) $SUDO install -m 0755 "$uv_bin" /usr/local/bin/uv || true ;;
+        esac
+    fi
+
+    if ! _has_cmd uv; then
+        _err "uv 安装失败。Agent 技能会报 'uv: command not found'，请手动安装:"
+        echo "  sudo python3 -m pip install -i $pip_index uv --break-system-packages"
+        return 1
+    fi
+    _log "uv 安装完成: $(command -v uv)"
+}
+
+build_tokenizer_if_missing() {
+    if [ -e "$WITTY_TOKENIZER_DIR/libsimple" ] || [ -e "$WITTY_TOKENIZER_DIR/libsimple.so" ]; then
+        return 0
+    fi
+
+    _info "编译 simple 分词器 (libsimple)..."
+    _require_root || return 1
+    [ -n "${OS_ID:-}" ] || detect_os || return 1
+    local SUDO=""
+    _is_root || SUDO="sudo"
+
+    # libsimple 是 C++ 工程（simple 源码自带 sqlite3 头文件，无需 sqlite-devel）；
+    # 纯前端节点默认无编译工具链 → 按需补装。
+    local need=()
+    _has_cmd cmake || need+=(cmake)
+    _has_cmd make || need+=(make)
+    if ! _has_cmd g++ && ! _has_cmd c++; then
+        if [ "$OS_ID" = "apt" ]; then
+            need+=(g++)
+        else
+            need+=(gcc-c++)
+        fi
+    fi
+    if [ ${#need[@]} -gt 0 ]; then
+        _info "补装编译工具: ${need[*]}"
+        $SUDO $PM_INSTALL "${need[@]}" || _warn "编译工具补装失败，继续尝试编译..."
+    fi
+
+    if ! (cd "$WITTY_TOKENIZER_DIR" && bash build.sh); then
+        _err "分词器编译失败: $WITTY_TOKENIZER_DIR"
+        _info "源码包已随包内置 (v0.7.1.tar.gz)，请检查 cmake/g++/make 与网络"
+        return 1
+    fi
+    _log "libsimple 分词器编译完成"
+}
+
+install_agent_deps() {
+    [ "$WITTY_ROLE" = "backend" ] && return 0
+
+    if [ ! -d "$WITTY_SKILL_SCRIPTS" ]; then
+        _warn "未找到 experience-skill（$WITTY_SKILL_SCRIPTS），跳过 Agent 依赖"
+        _info "Agent bundle 随 witty-ub-web 子包安装，请确认子包已安装"
+        return 0
+    fi
+
+    _step_header "安装 Agent (OpenCode) 运行时依赖"
+
+    install_uv_if_missing || return 1
+    build_tokenizer_if_missing || return 1
+
+    # uv sync 建 .venv（索引源由 bundle 内 pyproject.toml 的 [[tool.uv.index]] 指定）
+    if [ ! -d "$WITTY_SKILL_SCRIPTS/.venv" ]; then
+        _info "初始化 experience-skill 虚拟环境 (uv sync)..."
+        if ! (cd "$WITTY_SKILL_SCRIPTS" && uv sync); then
+            _err "uv sync 失败，可手动重试: cd $WITTY_SKILL_SCRIPTS && uv sync"
+            return 1
+        fi
+    fi
+
+    # 同步经验库（幂等）；tarball 不含 experience.db，不同步则 Agent 检索恒为 0 条
+    _info "同步经验库 (experience-skill sync)..."
+    if ! (cd "$WITTY_SKILL_SCRIPTS" && uv run experience-skill sync); then
+        _err "经验库同步失败，Agent 检索会返回空结果"
+        return 1
+    fi
+
+    _log "Agent 运行时依赖就绪 (uv + libsimple + experience-skill)"
+    return 0
+}
+
 # ──────────────────── 入口 ────────────────────
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -199,4 +362,5 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         install_missing
     fi
     install_python_deps
+    install_agent_deps
 fi
