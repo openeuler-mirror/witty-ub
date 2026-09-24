@@ -38,7 +38,9 @@ cd "$MCP_RUNTIME_DIR"
 RAG_CORE_BASE_URL=http://127.0.0.1:9988 \
 RAG_CORE_MCP_HOST=0.0.0.0 \
 RAG_CORE_MCP_PORT=12312 \
-    python3 server.py >>/rag-service/logs/rag-mcp.log 2>&1 &
+    python3 -c \
+    'import config, schema, tools, runpy; runpy.run_path("server.py", run_name="__main__")' \
+    >>/rag-service/logs/rag-mcp.log 2>&1 &
 MCP_PID=$!
 
 while kill -0 "$RAG_PID" 2>/dev/null && kill -0 "$MCP_PID" 2>/dev/null; do

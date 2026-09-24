@@ -284,7 +284,7 @@ log_info "等待 RAG MCP SSE 就绪"
 mcp_ready=false
 for _ in $(seq 1 60); do
     if docker exec "$WITTY_RAG_CORE_CONTAINER" sh -lc \
-        'status=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:12312/sse || true); [ "$status" = 200 ]'; then
+        'status=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:12312/sse 2>/dev/null || true); [ "$status" = 200 ]'; then
         mcp_ready=true
         break
     fi
