@@ -17,13 +17,20 @@ COPY --from=rag-mcp-source \
     /src/rag_core/agent/rag_core_mcp/ \
     /opt/witty-rag-mcp-source/
 
-# The upstream tools directory is a namespace package.  The base image also
-# contains a top-level package named "tools", which otherwise wins module
-# resolution and makes tools.access_key appear to be missing.
-RUN touch /opt/witty-rag-mcp-source/tools/__init__.py \
-    && test -f /opt/witty-rag-mcp-source/tools/access_key.py \
+# The base image imports generic top-level modules named tools/schema/config.
+# Give the MCP modules unique names so Python's module cache cannot resolve
+# them to packages that belong to RAG Core or another installed dependency.
+RUN mv /opt/witty-rag-mcp-source/tools /opt/witty-rag-mcp-source/rag_mcp_tools \
+    && mv /opt/witty-rag-mcp-source/schema /opt/witty-rag-mcp-source/rag_mcp_schema \
+    && mv /opt/witty-rag-mcp-source/config.py /opt/witty-rag-mcp-source/rag_mcp_config.py \
+    && touch /opt/witty-rag-mcp-source/rag_mcp_tools/__init__.py \
+    && find /opt/witty-rag-mcp-source -type f -name '*.py' -exec sed -i \
+        -e 's/from tools\./from rag_mcp_tools./g' \
+        -e 's/from schema\./from rag_mcp_schema./g' \
+        -e 's/from config import/from rag_mcp_config import/g' {} + \
+    && test -f /opt/witty-rag-mcp-source/rag_mcp_tools/access_key.py \
     && cd /opt/witty-rag-mcp-source \
-    && python3 -c 'import tools; assert tools.__file__.startswith("/opt/witty-rag-mcp-source/")'
+    && python3 -c 'import rag_mcp_tools; assert rag_mcp_tools.__file__.startswith("/opt/witty-rag-mcp-source/")'
 
 RUN python3 -m pip install --no-cache-dir \
     'mcp<2' \

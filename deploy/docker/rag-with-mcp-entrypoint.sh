@@ -32,15 +32,13 @@ echo "[INFO] Starting RAG MCP SSE service on 0.0.0.0:12312"
 MCP_RUNTIME_DIR=/rag-service/rag_core/agent/rag_core_mcp
 mkdir -p "$MCP_RUNTIME_DIR"
 cp -a /opt/witty-rag-mcp-source/. "$MCP_RUNTIME_DIR/"
-test -f "$MCP_RUNTIME_DIR/tools/access_key.py"
+test -f "$MCP_RUNTIME_DIR/rag_mcp_tools/access_key.py"
 cd "$MCP_RUNTIME_DIR"
 : >/rag-service/logs/rag-mcp.log
 RAG_CORE_BASE_URL=http://127.0.0.1:9988 \
 RAG_CORE_MCP_HOST=0.0.0.0 \
 RAG_CORE_MCP_PORT=12312 \
-    python3 -c \
-    'import config, schema, tools, runpy; runpy.run_path("server.py", run_name="__main__")' \
-    >>/rag-service/logs/rag-mcp.log 2>&1 &
+    python3 server.py >>/rag-service/logs/rag-mcp.log 2>&1 &
 MCP_PID=$!
 
 while kill -0 "$RAG_PID" 2>/dev/null && kill -0 "$MCP_PID" 2>/dev/null; do
