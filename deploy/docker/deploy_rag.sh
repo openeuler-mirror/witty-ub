@@ -280,8 +280,20 @@ if [ "$rag_ready" != true ]; then
 fi
 
 log_ok "RAG Core 已连接 openGauss 并通过健康检查"
-if docker exec "$WITTY_RAG_CORE_CONTAINER" sh -lc \
-    'status=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:12312/sse || true); [ "$status" = 200 ]'; then
+log_info "等待 RAG MCP SSE 就绪"
+mcp_ready=false
+for _ in $(seq 1 60); do
+    if docker exec "$WITTY_RAG_CORE_CONTAINER" sh -lc \
+        'status=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:12312/sse || true); [ "$status" = 200 ]'; then
+        mcp_ready=true
+        break
+    fi
+    if [ "$(docker inspect -f '{{.State.Running}}' "$WITTY_RAG_CORE_CONTAINER" 2>/dev/null || true)" != "true" ]; then
+        break
+    fi
+    sleep 2
+done
+if [ "$mcp_ready" = true ]; then
     log_ok "RAG MCP SSE 已就绪: http://${WITTY_RAG_CORE_CONTAINER}:12312/sse"
 else
     log_error "RAG MCP SSE 未就绪"

@@ -30,6 +30,7 @@ fi
 
 echo "[INFO] Starting RAG MCP SSE service on 0.0.0.0:12312"
 cd /rag-service/rag_core/agent/rag_core_mcp
+: >/rag-service/logs/rag-mcp.log
 RAG_CORE_BASE_URL=http://127.0.0.1:9988 \
 RAG_CORE_MCP_HOST=0.0.0.0 \
 RAG_CORE_MCP_PORT=12312 \
