@@ -7,7 +7,9 @@ RUN git init /src \
     && cd /src \
     && git remote add origin https://atomgit.com/openeuler/euler-copilot-rag.git \
     && git fetch --depth 1 origin "${RAG_MCP_SOURCE_REF}" \
-    && git checkout --detach FETCH_HEAD
+    && git sparse-checkout init --cone \
+    && git sparse-checkout set rag_core/agent/rag_core_mcp \
+    && GIT_LFS_SKIP_SMUDGE=1 git checkout --detach FETCH_HEAD
 
 FROM ${RAG_BASE_IMAGE}
 
