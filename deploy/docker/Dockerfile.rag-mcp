@@ -15,15 +15,15 @@ FROM ${RAG_BASE_IMAGE}
 
 COPY --from=rag-mcp-source \
     /src/rag_core/agent/rag_core_mcp/ \
-    /rag-service/rag_core/agent/rag_core_mcp/
+    /opt/witty-rag-mcp-source/
 
 # The upstream tools directory is a namespace package.  The base image also
 # contains a top-level package named "tools", which otherwise wins module
 # resolution and makes tools.access_key appear to be missing.
-RUN touch /rag-service/rag_core/agent/rag_core_mcp/tools/__init__.py \
-    && test -f /rag-service/rag_core/agent/rag_core_mcp/tools/access_key.py \
-    && cd /rag-service/rag_core/agent/rag_core_mcp \
-    && python3 -c 'import tools; assert tools.__file__.startswith("/rag-service/rag_core/agent/rag_core_mcp/")'
+RUN touch /opt/witty-rag-mcp-source/tools/__init__.py \
+    && test -f /opt/witty-rag-mcp-source/tools/access_key.py \
+    && cd /opt/witty-rag-mcp-source \
+    && python3 -c 'import tools; assert tools.__file__.startswith("/opt/witty-rag-mcp-source/")'
 
 RUN python3 -m pip install --no-cache-dir \
     'mcp<2' \

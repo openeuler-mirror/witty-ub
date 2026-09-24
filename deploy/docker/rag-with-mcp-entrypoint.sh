@@ -29,7 +29,11 @@ if ! curl -fsS http://127.0.0.1:9988/health_check >/dev/null 2>&1; then
 fi
 
 echo "[INFO] Starting RAG MCP SSE service on 0.0.0.0:12312"
-cd /rag-service/rag_core/agent/rag_core_mcp
+MCP_RUNTIME_DIR=/rag-service/rag_core/agent/rag_core_mcp
+mkdir -p "$MCP_RUNTIME_DIR"
+cp -a /opt/witty-rag-mcp-source/. "$MCP_RUNTIME_DIR/"
+test -f "$MCP_RUNTIME_DIR/tools/access_key.py"
+cd "$MCP_RUNTIME_DIR"
 : >/rag-service/logs/rag-mcp.log
 RAG_CORE_BASE_URL=http://127.0.0.1:9988 \
 RAG_CORE_MCP_HOST=0.0.0.0 \
