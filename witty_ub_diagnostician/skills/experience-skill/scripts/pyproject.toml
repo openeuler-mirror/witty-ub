@@ -21,5 +21,5 @@ experience-skill = "experience_skill_cli.cli:main"
 packages = ["src/experience_skill_cli"]
 
 [[tool.uv.index]]
-name = "aliyun"
-url = "https://mirrors.aliyun.com/pypi/simple"
+name = "huaweicloud"
+url = "https://repo.huaweicloud.com/repository/pypi/simple/"
