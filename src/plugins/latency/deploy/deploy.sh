@@ -7,7 +7,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="${PROJECT_DIR}/.venv"
-INDEX_URL="https://mirrors.aliyun.com/pypi/simple/"
+# pip 镜像源（统一环境变量 PYPI_INDEX_URL，默认华为云）
+INDEX_URL="${PYPI_INDEX_URL:-https://repo.huaweicloud.com/repository/pypi/simple/}"
 
 echo "========================================"
 echo "Latency Plugin Deployment"
@@ -46,7 +47,7 @@ else
 fi
 
 # 3. Install dependencies
-echo "[Step 2/4] Installing dependencies from Aliyun mirror ..."
+echo "[Step 2/4] Installing dependencies from ${INDEX_URL} ..."
 uv pip install --python "${VENV_DIR}/bin/python" \
     --index-url "$INDEX_URL" \
     -r "${SCRIPT_DIR}/requirements.txt"
