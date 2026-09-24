@@ -105,7 +105,9 @@ def test_scanner_accepts_progress_cb():
 
     from latency.parse.parallel_scanner.scanner import ParallelFileScanner
 
-    sig = inspect.signature(ParallelFileScanner.scan_all)
+    # scan_all 现为 (self, *args, **kwargs) 转发壳（spill-to-disk 逻辑），
+    # progress_cb 契约落在 _scan_all 上
+    sig = inspect.signature(ParallelFileScanner._scan_all)
     assert "progress_cb" in sig.parameters
 
 
