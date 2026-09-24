@@ -17,6 +17,14 @@ COPY --from=rag-mcp-source \
     /src/rag_core/agent/rag_core_mcp/ \
     /rag-service/rag_core/agent/rag_core_mcp/
 
+# The upstream tools directory is a namespace package.  The base image also
+# contains a top-level package named "tools", which otherwise wins module
+# resolution and makes tools.access_key appear to be missing.
+RUN touch /rag-service/rag_core/agent/rag_core_mcp/tools/__init__.py \
+    && test -f /rag-service/rag_core/agent/rag_core_mcp/tools/access_key.py \
+    && cd /rag-service/rag_core/agent/rag_core_mcp \
+    && python3 -c 'import tools; assert tools.__file__.startswith("/rag-service/rag_core/agent/rag_core_mcp/")'
+
 RUN python3 -m pip install --no-cache-dir \
     'mcp<2' \
     'fastapi>=0.115.0' \
