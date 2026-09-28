@@ -254,6 +254,7 @@ docker compose version
 
 **症状**: PG 容器与 witty-ub 容器都在同一个 Docker 网络 `witty-ub-network` 内，容器本身都能正常启动，但二者互相不可达:
 
+- 部署脚本末尾的自检报 `Self-check: app -> PostgreSQL failed (HTTP 503): the app is up but cannot reach postgres:5432`
 - witty-ub 启动后健康检查一直 `unhealthy`，或部署脚本报 `Latency Plugin failed to start`
 - `/var/log/witty-ub/latency_server.log` / `docker logs witty-ub` 报数据库连接被拒或超时（`connection refused` / `timeout expired` / `could not connect to server`）
 - 在 witty-ub 容器内 `getent hosts postgres` 能正常解析出 IP（容器名 DNS 没问题），但 TCP 5432 连不上
@@ -265,154 +266,109 @@ docker compose version
 
 ### 验证步骤
 
-#### 步骤 1: 确认两容器确实在同一网络
+#### 步骤 1: 先看部署自检结论
+
+部署脚本起完容器后会**在容器内**探测 `/health_check`（不是探宿主机端口，专门为避免"宿主机端口通了、容器内到 PG 的链路断了"的假成功），直接给出结论:
+
+```
+[OK]    Self-check: app -> PostgreSQL OK (HTTP 200, postgres:5432)
+[ERROR] Self-check: app -> PostgreSQL failed (HTTP 503): the app is up but cannot reach postgres:5432
+```
+
+判定对照:
+
+| 自检输出 | 含义 | 是否本节场景 |
+| --- | --- | --- |
+| `app -> PostgreSQL OK (HTTP 200, …)` | 应用与 PG 全通 | 否，不必往下查 |
+| `app -> PostgreSQL failed (HTTP 503)…` | **应用在跑但连不上 PG** | **是** |
+| `did not serve /health_check (HTTP refused)` | 应用/反代没起来 | 否，先看 `docker logs` |
+| `answered 200 but not the API health payload` | 该端口不是本 API（如 nginx 的 SPA 回退） | 否，端口被别的进程占用 |
+
+若自检根本没执行到（端口冲突、镜像问题等更早的阶段就失败了），先解决那些；该步可用 `WITTY_NETWORK_SELFCHECK=false` 关闭。
+
+#### 步骤 2: 取证（网络 / 连通性 / 宿主机策略）
 
 ```bash
-# 列出网络内所有容器及其 IP
+# 两容器应在同一网络且各有 IP
 docker network inspect witty-ub-network \
   --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}'
 
-# 记下网段，后面加信任域要用
-docker network inspect witty-ub-network \
-  --format '{{(index .IPAM.Config 0).Subnet}}'
-```
-
-#### 步骤 2: 从 witty-ub 容器内测试到 PG 的连通性
-
-镜像内自带 Python，用它做 TCP 探测（不依赖 `nc`/`telnet`）:
-
-```bash
+# 镜像内自带 Python，做 TCP 探测不依赖 nc/telnet
 docker exec witty-ub /var/witty-ub/latency/.venv/bin/python -c \
   "import socket; socket.create_connection(('postgres', 5432), 3); print('tcp ok')"
-```
 
-如果卡住 3 秒后抛 `TimeoutError` 或 `ConnectionRefusedError`，而步骤 1 里两容器 IP 都存在，即可判定为宿主机的网络策略拦截。
-
-#### 步骤 3: 检查宿主机防火墙与转发策略
-
-```bash
-firewall-cmd --state                     # firewalld 是否在跑
-firewall-cmd --get-default-zone          # 默认 zone
-firewall-cmd --get-active-zones
+# 宿主机策略
+firewall-cmd --state
+firewall-cmd --get-default-zone
 firewall-cmd --zone="$(firewall-cmd --get-default-zone)" --list-all
-firewall-cmd --zone=trusted --list-all   # 信任域里有哪些接口/网段
-
+firewall-cmd --zone=trusted --list-all
 iptables -L FORWARD -n --line-numbers
-iptables -L DOCKER-USER -n
 ```
 
-判断要点: 默认 zone 的 `target` 为 `DROP`/`REJECT`，且 `br-<hash>`（或 `docker0`）接口、Docker 网段都没有出现在 `trusted` zone 的 `interfaces`/`sources` 中。
+判定要点: 容器各有 IP，但 TCP 探测卡住 3 秒后抛 `TimeoutError`/`ConnectionRefusedError`；且默认 zone 的 `target` 为 `DROP`/`REJECT`、`br-<hash>`（或 `docker0`）接口与 Docker 网段都没出现在 `trusted` zone 的 `interfaces`/`sources` 中。
 
 ### 修复方案
 
 #### 方案一: 把 Docker 网络加入信任域（推荐，保留标准部署）
 
-该方案不改动容器端口映射与部署脚本，只调整宿主机策略，是首选。
+不改动容器端口映射与部署脚本，只调整宿主机策略，是首选。按**网段**加信任域（也可以按网桥接口 `--add-interface="br-<hash>"`，但接口名会随网络重建而变，不推荐）:
 
 ```bash
 NET=witty-ub-network
 SUBNET=$(docker network inspect "$NET" --format '{{(index .IPAM.Config 0).Subnet}}')
-BRIDGE="br-$(docker network inspect "$NET" --format '{{.Id}}' | cut -c1-12)"
 
-# 方式 A: 按网桥接口加入信任域
-sudo firewall-cmd --permanent --zone=trusted --add-interface="$BRIDGE"
-
-# 方式 B: 按网段加入信任域（推荐，网络重建后接口名会变，网段更稳）
 sudo firewall-cmd --permanent --zone=trusted --add-source="$SUBNET"
-
 sudo firewall-cmd --reload
+firewall-cmd --zone=trusted --list-all   # 确认
 
-# 确认结果
-firewall-cmd --zone=trusted --list-all
-```
-
-如果 `FORWARD` 链默认策略是 `DROP`、且 Docker 自身的转发规则被安全策略清理掉了，仅加 trusted zone 还不够，需额外放通 Docker 网段的转发（重启后会丢失，需写入安全策略或 `iptables-save` 持久化）:
-
-```bash
+# 若 FORWARD 链默认 DROP、Docker 自身的转发规则又被安全策略清理掉了，
+# 仅加 trusted zone 还不够，需额外放通网段转发（重启会丢失，需持久化）
 sudo iptables -I FORWARD -s "$SUBNET" -j ACCEPT
 sudo iptables -I FORWARD -d "$SUBNET" -j ACCEPT
 ```
 
-> 注意: 重建 `witty-ub-network`（如 `docker compose down` 后再 `up`、或脚本卸载重装）会重新生成 `br-<hash>` 网桥，方式 A 的接口名随之失效；因此优先使用方式 B（按网段）。
-
-#### 方案二: 两个容器都改为 host 网络模式
+#### 方案二: 改用 host 网络模式（可按容器分别指定）
 
 适用于主机安全策略不允许修改防火墙/信任域的机器。容器直接共享宿主机网络命名空间，容器间通信走 `127.0.0.1`，不再经过 Docker 网桥，因此不受信任域策略影响。
 
-> 用部署脚本时只需设 `WITTY_NETWORK_MODE="host"`（见本节末尾说明）；下面给出等价的 `docker run` 命令，便于理解脚本改写了什么、或用于手工启动。
-
-**启动 PG 容器**（host 模式下 `-p` 端口映射被忽略，PG 直接监听宿主机 5432）:
+**用部署脚本（推荐）**。网络模式可以按容器分别指定，键留空即继承全局 `WITTY_NETWORK_MODE`（默认 `bridge`）:
 
 ```bash
-docker run -d \
-  --name postgres \
-  --restart unless-stopped \
-  --network host \
-  -v pg15-data:/var/lib/pgsql/data \
-  -v /etc/witty-ub/pg.passwd:/run/secrets/pg_password:ro \
-  -e POSTGRESQL_USER=witty-ub \
-  -e POSTGRESQL_DATABASE=witty-ub \
-  --entrypoint /bin/bash \
-  quay.io/sclorg/postgresql-15-c9s:latest \
-  -c 'export POSTGRESQL_PASSWORD="$(tr -d "\r\n" </run/secrets/pg_password)"; test -n "$POSTGRESQL_PASSWORD" || exit 1; exec /usr/bin/container-entrypoint /usr/bin/run-postgresql'
+# 只切应用容器（PG 仍走 Docker 网络）
+WITTY_NETWORK_MODE_APP=host bash deploy/docker/deploy_witty.sh
+
+# PG 与应用都切
+WITTY_NETWORK_MODE_PG=host WITTY_NETWORK_MODE_APP=host bash deploy/docker/deploy_witty.sh
 ```
 
-**启动 witty-ub 容器**（PG 指向 `127.0.0.1:5432`；容器内 8080 直接占用宿主机 8080）:
+同机分离部署时后端与前端必须用同一模式（不一致脚本直接报错退出），跨机分离各机器只读本机相关的键。三种形态各自生效的键、以及**部署后逐链路自检**（`WITTY_NETWORK_SELFCHECK`）与**自检失败自动切 host 重试一次**（`WITTY_NETWORK_FALLBACK=auto`）的取值说明，见 [配置参考 §容器级网络模式与部署形态](../usage/03-configuration-reference.md)。
 
-```bash
-docker run -d \
-  --name witty-ub \
-  --restart unless-stopped \
-  --network host \
-  -v witty-ub-data:/var/witty-ub/data \
-  -v witty-ub-logs:/var/log/witty-ub \
-  -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
-  -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
-  -v witty-ub-reports:/var/witty-ub/reports \
-  -v ~/.config/opencode:/root/.config/opencode \
-  -v /etc/witty-ub/pg.passwd:/run/secrets/pg_password:ro \
-  -e PYTHONPATH=/var/witty-ub \
-  -e PG_HOST=127.0.0.1 \
-  -e PG_PORT=5432 \
-  -e PG_DATABASE=witty-ub \
-  -e PG_USER=witty-ub \
-  witty-ub:latest
-```
+也可以写进 `deploy/deploy.conf` 持久化，或在 `bash deploy/docker/manage.sh install` 交互式安装时选择。
 
-**host 模式的注意事项**:
+脚本会自动完成联动改写：容器用 `--network host`、跳过 `-p` 与网络创建、容器内 PG 地址按「PG 容器模式 × 应用容器模式」组合推导（host + host → `127.0.0.1:5432`；应用 host + PG bridge → `127.0.0.1:15432`；应用 bridge + PG host → Docker 网关）、前端反代改为 `http://127.0.0.1:9772`。**混合模式（一个 host 一个 bridge）不保证可用**。前端角色回退时会一并改写 `WITTY_BACKEND_URL`；跨机分离失败时脚本**不会**建议切 host，只提示检查对端地址与防火墙。
 
-| 项目 | bridge 模式（默认） | host 模式 |
-| ------ | ------ | ------ |
+**host 模式的注意事项**
+
+| 项目 | bridge（默认） | host |
+| --- | --- | --- |
 | Web UI 访问 | `http://<宿主机IP>:32412` | `http://<宿主机IP>:8080`（`-p` 被忽略，直接占用容器内端口） |
-| 容器内访问 PG | `postgres:5432`（容器名 DNS） | `127.0.0.1:5432` |
-| 宿主机 5432 占用 | 不占用（映射到 15432） | **被 PG 容器占用**，宿主机已有 PG 需先停用，或给 PG 设 `PGPORT` 并同步 `PG_PORT` |
+| 容器内访问 PG | `postgres:5432`（容器名 DNS） | `127.0.0.1:5432`（PG 也用 host 时） |
+| 宿主机 5432 占用 | 不占用（映射到 15432） | **被 PG 容器占用**，宿主机已有 PG 需先停用 |
 | 分离部署 | backend 9772 / frontend 32413，反代 `http://witty-ub-backend:9772` | backend 9772 / frontend 8080，反代 `http://127.0.0.1:9772`（跨机填后端机 IP） |
+| 端口冲突 | 由 `WITTY_HOST_PORT` 决定，冲突时启动报 `port is already allocated` | 直接占用容器内端口，宿主机已有服务监听 8080/9772 会启动失败 |
 
-> **部署脚本已内置该模式**（推荐用法，不必手工敲上面的 `docker run`）：
->
-> - `deploy/deploy.conf` 中设 `WITTY_NETWORK_MODE="host"`，或临时 `WITTY_NETWORK_MODE=host bash deploy/docker/manage.sh install`；交互式菜单安装时会询问该选项
-> - 脚本会自动完成 host 模式的全部联动改写：PG 容器与 witty-ub 容器都用 `--network host`、跳过 `-p` 端口映射与网络创建、容器内 PG 地址改为 `127.0.0.1:5432`、前端反代改为 `http://127.0.0.1:9772`、`deploy_pg.sh` 强制 PG 监听 5432
-> - 用 `manage.sh status` 查看端口：host 模式下 `docker port` 输出为空，状态表会显示为 `host net (:8080)` 形式
->
-> `docker-compose.yml` 无法用变量在 bridge/host 间干净切换，host 模式仍需手工改该文件（`network_mode: host` + 删除 `networks:`/`ports:`，并给 frontend 设 `WITTY_BACKEND_URL=http://127.0.0.1:9772`），详见文件头部说明。
+`docker-compose.yml` 无法用变量在 bridge/host 间干净切换，host 模式仍需手工改该文件（`network_mode: host` + 删除 `networks:`/`ports:`，并给 frontend 设 `WITTY_BACKEND_URL=http://127.0.0.1:9772`），详见文件头部说明。
 
 ### 验证修复结果
 
-重新执行连通性探测，应输出 `tcp ok`（host 模式把 `postgres` 换成 `127.0.0.1`）:
+重新部署，脚本末尾自检应通过 `Self-check: app -> PostgreSQL OK (HTTP 200, …)`。需手工复核时（host 模式下地址随之变化）:
 
 ```bash
-docker exec witty-ub /var/witty-ub/latency/.venv/bin/python -c \
-  "import socket; socket.create_connection(('postgres', 5432), 3); print('tcp ok')"
+docker inspect --format '{{.State.Health.Status}}' witty-ub          # healthy
+docker exec witty-ub curl -s http://127.0.0.1:9772/health_check     # {"status":"healthy"}
 ```
 
-再确认应用健康状态:
-
-```bash
-docker inspect --format '{{.State.Health.Status}}' witty-ub
-docker exec witty-ub curl http://localhost:9772/health_check
-```
-
-预期输出 `healthy` 与 `{"status": "healthy"}`。
+完整配置项见 [配置参考 §容器级网络模式与部署形态](../usage/03-configuration-reference.md)。
 
 ---
 
