@@ -234,66 +234,39 @@ WITTY_HOST_PORT="${WITTY_HOST_PORT:-32412}"
 WITTY_NETWORK="${PG_NETWORK:-witty-ub-network}"
 WITTY_LOG_LEVEL="${WITTY_LOG_LEVEL:-info}"
 
-# ---------- 容器运行时选项（网络模式 / SSL 校验 / seccomp） ----------
+# ---------- 容器运行时选项（网络模式 / SSL 校验 / seccomp / 自检） ----------
+# 枚举项校验: require_enum <变量名> <值> <允许值...>；非法值直接报错退出
+require_enum() {
+    local _k="$1" _v="$2" IFS='|' _a
+    shift 2
+    for _a in "$@"; do [ "$_v" = "$_a" ] && return 0; done
+    log_error "Invalid ${_k} '${_v}' (expected: $*)"
+    exit 1
+}
+# 布尔开关归一化为 true|false（接受 true/1/yes 与 false/0/no）
+normalize_bool() {
+    case "$2" in
+    true | True | TRUE | 1 | yes | YES) printf -v "$1" '%s' true ;;
+    false | False | FALSE | 0 | no | NO) printf -v "$1" '%s' false ;;
+    *) log_error "Invalid $1 '$2' (expected: true|false)"; exit 1 ;;
+    esac
+}
 # 网络模式: bridge（默认，接入 WITTY_NETWORK 组网）| host（共享宿主机网络）
 WITTY_NETWORK_MODE="${WITTY_NETWORK_MODE:-bridge}"
-case "$WITTY_NETWORK_MODE" in
-bridge | host) ;;
-*)
-    log_error "Invalid WITTY_NETWORK_MODE '${WITTY_NETWORK_MODE}' (expected: bridge|host)"
-    exit 1
-    ;;
-esac
-
-# OpenCode/LLM 出网 HTTPS 证书校验: true（默认校验）| false（关闭，由容器入口翻译为
-# NODE_TLS_REJECT_UNAUTHORIZED=0）
-WITTY_SSL_VERIFY="${WITTY_SSL_VERIFY:-true}"
-case "$WITTY_SSL_VERIFY" in
-true | True | TRUE | 1 | yes | YES) WITTY_SSL_VERIFY="true" ;;
-false | False | FALSE | 0 | no | NO) WITTY_SSL_VERIFY="false" ;;
-*)
-    log_error "Invalid WITTY_SSL_VERIFY '${WITTY_SSL_VERIFY}' (expected: true|false)"
-    exit 1
-    ;;
-esac
-
-# seccomp 策略: default（默认过滤）| unconfined（关闭过滤，兼容旧版 Docker/libseccomp 的 clone3 问题）
+require_enum WITTY_NETWORK_MODE "$WITTY_NETWORK_MODE" bridge host
+# seccomp: default（默认过滤）| unconfined（关闭，兼容旧版 Docker/libseccomp 的 clone3 问题）
 WITTY_SECCOMP="${WITTY_SECCOMP:-default}"
-case "$WITTY_SECCOMP" in
-default | unconfined) ;;
-*)
-    log_error "Invalid WITTY_SECCOMP '${WITTY_SECCOMP}' (expected: default|unconfined)"
-    exit 1
-    ;;
-esac
-
-# 逐链路自检开关（true 时额外探测"应用→PG"/"前端→后端"链路）
-WITTY_NETWORK_SELFCHECK="${WITTY_NETWORK_SELFCHECK:-true}"
-case "$WITTY_NETWORK_SELFCHECK" in
-true | True | TRUE | 1 | yes | YES) WITTY_NETWORK_SELFCHECK="true" ;;
-false | False | FALSE | 0 | no | NO) WITTY_NETWORK_SELFCHECK="false" ;;
-*)
-    log_error "Invalid WITTY_NETWORK_SELFCHECK '${WITTY_NETWORK_SELFCHECK}' (expected: true|false)"
-    exit 1
-    ;;
-esac
-
-# 自检失败后的回退策略：prompt（提示命令）| auto（自动切 host 重跑一次）| off
+require_enum WITTY_SECCOMP "$WITTY_SECCOMP" default unconfined
+# 自检失败回退: prompt（提示命令，默认）| auto（自动切 host 重跑一次）| off
 WITTY_NETWORK_FALLBACK="${WITTY_NETWORK_FALLBACK:-prompt}"
-case "$WITTY_NETWORK_FALLBACK" in
-prompt | auto | off) ;;
-*)
-    log_error "Invalid WITTY_NETWORK_FALLBACK '${WITTY_NETWORK_FALLBACK}' (expected: prompt|auto|off)"
-    exit 1
-    ;;
-esac
+require_enum WITTY_NETWORK_FALLBACK "$WITTY_NETWORK_FALLBACK" prompt auto off
+# SSL 校验交给容器入口翻译为 NODE_TLS_REJECT_UNAUTHORIZED（OpenCode 是 Node 应用）
+normalize_bool WITTY_SSL_VERIFY "${WITTY_SSL_VERIFY:-true}"
+normalize_bool WITTY_NETWORK_SELFCHECK "${WITTY_NETWORK_SELFCHECK:-true}"
 
 # ---------- 网络模式解析（全局 + 容器级覆盖） ----------
-# 优先级: 容器级键 > WITTY_NETWORK_MODE（全局）> bridge
-# 按部署形态生效（详见 deploy.conf 中的说明）:
-#   一体（--role all）: _APP 生效；_BACKEND/_FRONTEND 指向同一容器，非空则告警忽略
-#   分离·同机         : _BACKEND + _FRONTEND 生效，且两者必须一致
-#   分离·跨机         : 各机器各读本机的键
+# 优先级: 容器级键（非空）> WITTY_NETWORK_MODE（全局）> bridge；一体只认 _APP，分离同机 _BACKEND 与
+# _FRONTEND 必须一致，分离跨机各读本机键（详见 deploy.conf）
 WITTY_NETWORK_MODE_GLOBAL="$WITTY_NETWORK_MODE"
 
 for _mode_key in WITTY_NETWORK_MODE_PG WITTY_NETWORK_MODE_APP \
@@ -310,7 +283,6 @@ for _mode_key in WITTY_NETWORK_MODE_PG WITTY_NETWORK_MODE_APP \
 done
 unset _mode_key _mode_val
 
-# 解析生效模式: 容器级键（非空）> 全局
 resolve_mode() {
     local _v="${!1:-}"
     printf '%s' "${_v:-$WITTY_NETWORK_MODE_GLOBAL}"
@@ -374,8 +346,7 @@ if [ "$ROLE" = "frontend" ]; then
 fi
 
 # ---------- 拓扑判定与同机一致性校验 ----------
-# 同机分离部署时前后端共享宿主机端口空间，网络模式必须一致：混合模式要让前端连上后端，
-# 就得把后端的 9772 额外发布到宿主机，本方案不允许（避免后端端口意外暴露）。
+# 同机分离时前后端共享宿主机端口空间，网络模式必须一致（混合模式需额外发布后端 9772，本方案不允许）
 is_local_host_ref() {
     local _h="$1" _ip
     case "$_h" in 127.0.0.1 | localhost | 0.0.0.0) return 0 ;; esac
@@ -702,10 +673,8 @@ detect_pg_config() {
     fi
 
     # 按 (PG 容器模式, 应用容器模式) 组合推导访问地址（不再只看应用容器的模式）
-    #   host   + host   : PG 监听宿主机 5432，应用在 host 网络走回环
-    #   host   + bridge : PG 监听宿主机 5432，应用经 Docker 网关访问宿主机
-    #   bridge + host   : PG 容器把端口发布到宿主机 PG_PORT，应用走回环
-    #   bridge + bridge : 同组网用容器名；宿主机 RPM PG 走 Docker 网关（见下面的检测 1/2）
+    #   host+host→回环 5432；host+bridge→Docker 网关 5432；bridge+host→回环 PG_PORT；bridge+bridge→容器名
+    #   （宿主机 RPM PG 走 Docker 网关，见下面的检测 1/2）
     if [ "$PG_EFFECTIVE_MODE" = "host" ] && [ "$WITTY_NETWORK_MODE" = "host" ]; then
         PG_IN_CONTAINER_HOST="127.0.0.1"
         PG_IN_CONTAINER_PORT="${PG_PORT_RPM:-5432}"
@@ -899,11 +868,8 @@ else
 fi
 
 # ---------- 逐链路自检与回退 ----------
-# 探针统一打 /health_check：
-#   200（且响应体含 "status"） = 应用与 PG 都通
-#   503                        = 应用在跑但连不上 PG → 归因 PG 链路
-#   拒绝/其他                  = 应用或反代没起来（curl 退出码 7 = 连接被拒）
-# 容器内链路走 docker exec（bridge 模式下容器内端口并不发布到宿主机）
+# 容器内链路走 docker exec 探 /health_check：200 且响应体含 "status" = 全通；503 = 应用在跑但连不上 PG；
+# 拒绝/其他 = 应用或反代没起来（curl 退出码 7）。bridge 模式下容器内端口并不发布到宿主机，故不走宿主机端口
 in_container_health() {
     local _port="$1" _out _code _body
     _out="$(docker exec "${CONTAINER_NAME}" curl -s -m 5 --noproxy '*' \
@@ -937,10 +903,21 @@ selfcheck_verdict() {
 # 同机分离部署回退到 host 模式时，前端容器内访问后端的地址（容器名在 host 网络下无法解析）
 local_backend_url() { printf 'http://127.0.0.1:%s' "${WITTY_BACKEND_HOST_PORT:-9772}"; }
 
+# 回退到 host 模式要覆盖的环境变量（提示命令与 auto 回退共用这一份推导，避免两处漂移）
+fallback_env_pairs() {
+    if [ "$ROLE" = "frontend" ]; then
+        # 同机分离的一致性校验要求前后端模式相同，两个键必须一起给，否则命令自身会被拦下
+        printf 'WITTY_NETWORK_MODE_BACKEND=host WITTY_NETWORK_MODE_FRONTEND=host WITTY_BACKEND_URL=%s' "$(local_backend_url)"
+    elif [ "$ROLE" = "backend" ]; then
+        printf 'WITTY_NETWORK_MODE_BACKEND=host WITTY_NETWORK_MODE_PG=host'
+    else
+        printf 'WITTY_NETWORK_MODE_APP=host WITTY_NETWORK_MODE_PG=host'
+    fi
+}
+
 # 自检失败处理：off=只报错；prompt=给出手工回退命令；auto=自动切 host 重跑一次
 netfallback_hint() {
-    local _link="$1" _orig="${ORIG_ARGS[*]:-}" _mode_arg="WITTY_NETWORK_MODE_APP=host"
-    [ "$ROLE" = "backend" ] && _mode_arg="WITTY_NETWORK_MODE_BACKEND=host"
+    local _link="$1" _orig="${ORIG_ARGS[*]:-}"
 
     if [ "$WITTY_NETWORK_FALLBACK" = "off" ]; then
         log_error "Self-check failed on link '${_link}' (WITTY_NETWORK_FALLBACK=off: no remediation attempted)"
@@ -961,37 +938,24 @@ netfallback_hint() {
     log_error "Self-check failed on link '${_link}'"
     log_warn "The Docker network is probably untrusted/filtered on this host (docs/troubleshooting/02-container-runtime.md §3)"
     log_warn "Fallback to host network mode with env overrides (deploy.conf is NOT modified):"
+    [ "$ROLE" = "frontend" ] || log_warn "  WITTY_NETWORK_MODE_PG=host bash ${DEPLOY_DIR}/../deploy_pg.sh --docker"
+    log_warn "  $(fallback_env_pairs) bash ${SCRIPT_DIR}/deploy_witty.sh ${_orig}"
     if [ "$ROLE" = "frontend" ]; then
-        # 同机分离的一致性校验要求前后端模式相同，所以两个键必须一起给，否则命令自身会被拦下
-        log_warn "  WITTY_NETWORK_MODE_BACKEND=host WITTY_NETWORK_MODE_FRONTEND=host WITTY_BACKEND_URL=$(local_backend_url) bash ${SCRIPT_DIR}/deploy_witty.sh ${_orig}"
-        log_warn "  (the backend container on this host must listen on ${WITTY_BACKEND_HOST_PORT:-9772}: a bridge backend publishes it,"
-        log_warn "   a host backend binds it directly; redeploy it with WITTY_NETWORK_MODE_BACKEND=host for a uniform host-mode setup)"
-    else
-        log_warn "  WITTY_NETWORK_MODE_PG=host bash ${DEPLOY_DIR}/../deploy_pg.sh --docker"
-        log_warn "  ${_mode_arg} WITTY_NETWORK_MODE_PG=host bash ${SCRIPT_DIR}/deploy_witty.sh ${_orig}"
+        log_warn "  (the backend on this host must listen on ${WITTY_BACKEND_HOST_PORT:-9772}: a bridge backend publishes it, a host backend binds it directly)"
     fi
 }
 
-# auto 回退：把环境变量覆盖成 host 后原样重跑（PG 与应用容器都会被重建，数据卷保留）
+# auto 回退：按与提示命令相同的推导设置环境变量后原样重跑（PG 与应用容器都会被重建，数据卷保留）
 run_fallback_retry() {
     if [ -n "${WITTY_FALLBACK_APPLIED:-}" ]; then
         log_error "Automatic fallback already applied once; stopping to avoid a rebuild loop"
         return 1
     fi
     export WITTY_FALLBACK_APPLIED=1 WITTY_NETWORK_FALLBACK=off
-    if [ "$ROLE" = "frontend" ]; then
-        # 同机分离：前端切 host 后必须改用回环地址访问后端（容器名在 host 网络下无法解析）；
-        # _BACKEND 也要一并声明 host，否则一致性校验会把这次重跑直接拦下
-        export WITTY_NETWORK_MODE_FRONTEND=host WITTY_NETWORK_MODE_BACKEND=host
-        export WITTY_BACKEND_URL="$(local_backend_url)"
-    else
-        # 一体容器用 _APP，分离后端容器用 _BACKEND（两者互不生效，避免重跑时打出"被忽略"告警）
-        case "$ROLE" in
-        backend) export WITTY_NETWORK_MODE_BACKEND=host ;;
-        *) export WITTY_NETWORK_MODE_APP=host ;;
-        esac
-        export WITTY_NETWORK_MODE_PG=host
-        if ! WITTY_NETWORK_MODE_PG=host bash "${DEPLOY_DIR}/../deploy_pg.sh" --docker; then
+    # shellcheck disable=SC2046
+    export $(fallback_env_pairs)
+    if [ "$ROLE" != "frontend" ]; then
+        if ! bash "${DEPLOY_DIR}/../deploy_pg.sh" --docker; then
             log_error "Automatic fallback failed while recreating PostgreSQL; please rerun the deployment manually"
             exit 1
         fi
@@ -1053,8 +1017,7 @@ echo ""
 echo "========================================"
 echo "Verifying connection ..."
 
-# frontend 经 Nginx 反代探测远端后端；all/backend 直连本机 API
-# host 模式下端口映射被忽略，用容器内端口（8080 / 9772）访问
+# frontend 经 Nginx 反代探测远端后端；all/backend 直连本机 API（host 模式用容器内端口 8080/9772）
 VERIFY_URL="http://localhost:${ACCESS_PORT}/health_check"
 VERIFY_OK=0
 for i in {1..15}; do

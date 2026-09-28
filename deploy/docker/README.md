@@ -134,7 +134,6 @@ manage.sh
 
 > 分离部署顺序：先后端（`install-pg` + `install-backend`），后前端（`install-frontend`）。
 > 密钥权限按读取方自动设置：容器化 PG → `0440`，宿主机/远端 PG → `0400`。
-> `WITTY_NETWORK_MODE="host"` 时跳过上述"创建网络"步骤，并改用宿主机网络（端口映射不生效），详见下文配置项说明。
 
 ---
 
@@ -191,25 +190,11 @@ WITTY_NETWORK_SELFCHECK="true"          # 部署后逐链路自检（true|false�
 WITTY_NETWORK_FALLBACK="prompt"         # 自检失败回退：prompt（提示命令）| auto（自动切 host 重跑）| off
 ```
 
-> `WITTY_NETWORK_MODE="host"` 时脚本自动改写：容器用 `--network host`、跳过 `-p` 端口映射与网络创建、
-> 容器内 PG 地址改为 `127.0.0.1:5432`（`deploy_pg.sh` 强制 PG 监听 5432）、前端反代改为 `http://127.0.0.1:9772`；
-> Web UI 直接占用宿主机 8080，`WITTY_HOST_PORT` 不再生效。详见[故障排查 §3](../../docs/troubleshooting/02-container-runtime.md)。
->
-> **容器级模式**：`WITTY_NETWORK_MODE_PG/_APP/_BACKEND/_FRONTEND` 可给单个容器单独指定模式，留空继承
-> `WITTY_NETWORK_MODE`，优先级 **容器级键 > 全局键**。一体部署只认 `_APP`（前后端是同一个容器，
-> 写了 `_BACKEND`/`_FRONTEND` 会告警忽略）；分离同机认 `_BACKEND` + `_FRONTEND`，**两者必须一致**，
-> 不一致脚本直接报错退出（混合模式需要把后端 9772 额外发布到宿主机，本方案不支持）；分离跨机各机器
-> 只填本机用到的键。**混合组合（如 PG=host + 应用=bridge）脚本会按组合推导连接地址，但不保证可用。**
->
-> **自检与回退**：`WITTY_NETWORK_SELFCHECK=true`（默认）时部署完会逐链路探针——
-> 一体/后端探"应用→PG"（容器内 `docker exec curl` 打 `/health_check`，200=通 / 503=PG 不通 /
-> 200 但响应体不含 `status` 说明该端口不是本 API），前端探"前端→后端"（经 Nginx 反代）。
-> 失败时按 `WITTY_NETWORK_FALLBACK`：`prompt` 打印归因与带环境变量覆盖的回退命令
-> （**不回写 `deploy.conf`**），`auto` 自动切 host 重建一次，`off` 只报错。
-> 前端角色回退时脚本会一并把 `WITTY_BACKEND_URL` 改写为 `http://127.0.0.1:9772`
-> 并同时声明 `WITTY_NETWORK_MODE_BACKEND=host`（host 网络下容器名无法解析，且同机分离的
-> 一致性校验要求前后端模式相同，只给 `_FRONTEND` 会被拦下）。跨机分离失败时只提示检查
-> 对端地址与防火墙，不会建议改 host。
+> **网络模式与自检**：`WITTY_NETWORK_MODE="host"` 时脚本改用 `--network host`、跳过 `-p` 端口映射与网络创建，
+> 容器内 PG 地址改为 `127.0.0.1:5432`，前端反代改为 `http://127.0.0.1:9772`，Web UI 直接占用宿主机 8080
+> （`WITTY_HOST_PORT` 不再生效）。容器级键 `WITTY_NETWORK_MODE_PG/_APP/_BACKEND/_FRONTEND` 可覆盖全局键（一体
+> 只认 `_APP`，分离同机要求前后端一致）；自检失败按 `WITTY_NETWORK_FALLBACK`（`prompt`/`auto`/`off`）处理。
+> 完整规则（含混合组合、探针判定、回退细节）见[配置参考](../../docs/usage/03-configuration-reference.md)。
 
 ### 镜像拉取优先级
 
@@ -308,29 +293,21 @@ WITTY_BACKEND_URL=http://<后端机器IP>:9772 bash manage.sh install-frontend
 
 ### Docker 网络不被信任（容器间无法通信）
 
-服务器把 Docker 网桥视为不可信区域时，PG 容器与 witty-ub 容器在同一网络内也互相不可达（PG 自身 `healthy`）。
+PG 容器 `healthy` 但与应用容器互相不可达时，多为宿主机把 Docker 网桥视为不可信区域：
 
 ```bash
 # 方案 A（推荐）: 把 Docker 网络加入 firewalld 信任域
 SUBNET=$(docker network inspect witty-ub-network --format '{{(index .IPAM.Config 0).Subnet}}')
 sudo firewall-cmd --permanent --zone=trusted --add-source="$SUBNET" && sudo firewall-cmd --reload
-
-# 方案 B: 改用 host 网络模式（PG 与 witty-ub 都用）
+# 方案 B: PG 与应用都改用 host 网络模式
 WITTY_NETWORK_MODE=host bash manage.sh install-all
-# 或写入 deploy/deploy.conf 后执行 bash manage.sh
-# 交互式菜单安装时也会询问该选项（Network mode）
 ```
 
-> 方案 B 下 Web UI 变为 `http://<宿主机IP>:8080`，PG 直接占用宿主机 5432。详见[故障排查 §3](../../docs/troubleshooting/02-container-runtime.md)。
+> 完整取证步骤与两方案取舍见[故障排查 §3](../../docs/troubleshooting/02-container-runtime.md)。
 
 ### 内网自签证书导致 OpenCode 调用 LLM 报证书错误
 
-```bash
-# deploy/deploy.conf 中设置（仅内网自签证书/代理拦截且无法导入 CA 时使用）
-# WITTY_SSL_VERIFY="false"
-```
-
-> 关闭的是 OpenCode/LLM **出网 HTTPS 证书校验**（容器内导出 `NODE_TLS_REJECT_UNAUTHORIZED=0`），不影响 Nginx 或数据库连接。
+在 `deploy/deploy.conf` 设 `WITTY_SSL_VERIFY="false"`（关闭的只是 OpenCode/LLM 出网 HTTPS 证书校验，不影响 Nginx 与数据库连接）。
 
 ### 完全卸载
 
@@ -376,6 +353,7 @@ bash manage.sh
 
 - [宿主机脚本部署](../../docs/deployment/02-script-host.md)
 - [容器脚本部署](../../docs/deployment/03-script-container.md)
+- [配置参考](../../docs/usage/03-configuration-reference.md)
 - [手动数据库部署](../../docs/deployment/05-database.md)
 - [手动源码部署](../../docs/deployment/06-source.md)
 - [手动 RPM 部署](../../docs/deployment/07-rpm.md)

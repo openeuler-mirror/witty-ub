@@ -78,9 +78,7 @@ fi
 restore_env_overrides
 unset ENV_OVERRIDES CONFIG_KEYS
 
-# ---------- 容器名/卷名派生（必须在配置加载完成后计算） ----------
-# 这些变量依赖 WITTY_CONTAINER_NAME / PG_CONTAINER_NAME / PG_VOLUME：deploy.conf 里的
-# 自定义值会覆盖脚本顶部的默认值，放在 source 之前计算会让自定义容器名全程失效。
+# ---------- 容器名/卷名派生（必须在配置加载后计算，否则 deploy.conf 的自定义名会失效） ----------
 PG_CONTAINER="${PG_CONTAINER_NAME:-postgres}"
 WITTY_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}"
 # 分离部署角色容器（deploy_witty.sh --role backend/frontend）
@@ -139,23 +137,28 @@ container_network_mode() {
     docker inspect --format '{{.HostConfig.NetworkMode}}' "$1" 2>/dev/null || echo ""
 }
 
-# 端口展示：bridge 模式用 docker port 的实际映射（与容器真实映射一致）；
-# host 模式没有端口映射（docker port 输出为空），回退显示容器内监听端口。
-container_ports() {
-    local name="$1" mode inport ports
-    mode="$(container_network_mode "$name")"
-    if [ "$mode" = "host" ]; then
-        case "$name" in
-        "$WITTY_BACKEND_CONTAINER") inport=9772 ;;
-        "$WITTY_FRONTEND_CONTAINER") inport=8080 ;;
-        "$WITTY_CONTAINER") inport=8080 ;;
-        *) inport="${PG_PORT_RPM:-5432}" ;;
-        esac
-        echo "host net (:${inport})"
-        return
+# 容器对外端口：bridge 取 docker port 实际映射；host 无映射，用容器内监听端口
+container_access_port() {
+    local name="$1" inport="$2"
+    if [ "$(container_network_mode "$name")" = "host" ]; then
+        echo "$inport"
+    else
+        docker port "$name" 2>/dev/null | grep "$inport" | sed 's/.*://' | head -1 || true
     fi
-    ports="$(docker port "$name" 2>/dev/null | head -1 || true)"
-    echo "${ports}"
+}
+
+# 状态展示用端口串：host 模式标注 "host net (:端口)"，bridge 取第一条映射
+container_ports() {
+    local name="$1"
+    if [ "$(container_network_mode "$name")" = "host" ]; then
+        case "$name" in
+        "$WITTY_BACKEND_CONTAINER") echo "host net (:9772)" ;;
+        "$WITTY_FRONTEND_CONTAINER" | "$WITTY_CONTAINER") echo "host net (:8080)" ;;
+        *) echo "host net (:${PG_PORT_RPM:-5432})" ;;
+        esac
+    else
+        docker port "$name" 2>/dev/null | head -1 || true
+    fi
 }
 
 get_container_image() {
@@ -221,8 +224,7 @@ ask_container_runtime_options() {
     echo ""
     echo "  [${idx}] Network mode       [${default_mode}]"
     echo "      bridge = Docker network ${WITTY_NETWORK:-${PG_NETWORK:-witty-ub-network}} / host = share the host network"
-    echo "      Use 'host' when the Docker network is untrusted on this server"
-    echo "      (per-container WITTY_NETWORK_MODE_* keys in deploy.conf override this global default)"
+    echo "      Use 'host' when the Docker network is untrusted (per-container WITTY_NETWORK_MODE_* keys override this)"
     ask "                           [${default_mode}]: " input
     WITTY_NETWORK_MODE="${input:-${default_mode}}"
 
@@ -257,8 +259,7 @@ do_install_all() {
     echo "│    Press Enter to use the default shown in [ ]      │"
     echo "└─────────────────────────────────────────────────────┘"
     noninteractive_hint
-    # [1]-[3] 网络模式 / SSL 校验 / seccomp；这里设置的是全局默认值，
-    # PG 与应用容器默认继承它（deploy.conf 里的容器级键非空时优先）
+    # [1]-[3] 网络模式 / SSL / seccomp（全局默认值，PG 与应用容器默认继承，容器级键非空时优先）
     ask_container_runtime_options 1
     echo ""
     if ! bash "${DEPLOY_DIR}/../deploy_pg.sh" --docker; then
@@ -755,32 +756,22 @@ show_status() {
     done
 
     # 从 docker port 获取实际映射端口；host 模式下无端口映射，直接用容器内端口
-    local actual_port="" net_mode=""
+    local actual_port=""
     if container_running "$WITTY_CONTAINER"; then
-        net_mode="$(container_network_mode "$WITTY_CONTAINER")"
-        if [ "$net_mode" = "host" ]; then
-            actual_port="8080"
-        else
-            actual_port=$(docker port "$WITTY_CONTAINER" 2>/dev/null | grep '8080' | sed 's/.*://' | head -1 || true)
-        fi
+        actual_port=$(container_access_port "$WITTY_CONTAINER" 8080)
     fi
     actual_port="${actual_port:-${WITTY_HOST_PORT:-32412}}"
 
     echo ""
     echo "Access URLs:"
-    if [ "$net_mode" = "host" ]; then
+    [ "$(container_network_mode "$WITTY_CONTAINER")" = "host" ] &&
         echo "  (host network mode: ports are bound directly on the host)"
-    fi
     echo "  Web UI:   http://localhost:${actual_port}"
     echo "  API:      http://localhost:${actual_port}/health_check"
     echo "  Agent API: http://localhost:${actual_port}/agent-api/ (OpenCode via Nginx)"
     if container_running "$WITTY_FRONTEND_CONTAINER"; then
         local fe_port
-        if [ "$(container_network_mode "$WITTY_FRONTEND_CONTAINER")" = "host" ]; then
-            fe_port="8080"
-        else
-            fe_port=$(docker port "$WITTY_FRONTEND_CONTAINER" 2>/dev/null | grep '8080' | sed 's/.*://' | head -1 || true)
-        fi
+        fe_port=$(container_access_port "$WITTY_FRONTEND_CONTAINER" 8080)
         echo "  Split frontend: http://localhost:${fe_port:-${WITTY_FRONTEND_HOST_PORT:-32413}} (proxying witty-ub-backend)"
     fi
 }

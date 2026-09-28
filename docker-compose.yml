@@ -13,25 +13,13 @@
 # 注意: 本文件与 deploy/docker/manage.sh（脚本部署）使用相同的容器名/卷名/网络名，
 #       两套方式互斥；混用会出现同名容器冲突。
 #
-# ── 容器运行时选项（compose 无法用变量在 bridge/host 间切换，host 需手工改本文件） ──
-# 1) 网络模式: 默认 bridge（各服务接入 witty-ub-network，用服务名互访）。
-#    若服务器把 Docker 网络视为不可信区域（PG 与 witty-ub 同组网却无法通信），
-#    改为 host 模式：给每个服务加 `network_mode: host`，删除对应的 `networks:` 与
-#    `ports:`（host 模式下端口映射被忽略，Web UI 变为 http://<宿主机IP>:8080，
-#    后端 9772，PG 直接占用宿主机 5432；PG_HOST 需改为 127.0.0.1）。
-#    详见 docs/troubleshooting/02-container-runtime.md §3。
-#    脚本部署可直接用 WITTY_NETWORK_MODE=host 自动完成上述改写。
-#    分离形态务必成套改：witty-ub-backend 与 witty-ub-frontend 必须同时加
-#    `network_mode: host`，并把 witty-ub-frontend 的 WITTY_BACKEND_URL 改成
-#    http://127.0.0.1:9772 —— 只改一个会让前端连不上后端（后端的 9772 只有 host
-#    模式下才能被本机回环访问）。脚本部署对同机分离会强制校验两者模式一致。
-#    容器级模式：脚本侧另有 WITTY_NETWORK_MODE_PG / _APP / _BACKEND / _FRONTEND
-#    四个键可单独指定，留空继承上面的 WITTY_NETWORK_MODE；本文件不支持变量切换。
-# 2) SSL 校验: WITTY_SSL_VERIFY=false 关闭 OpenCode/LLM 出网 HTTPS 证书校验
-#    （容器入口翻译为 NODE_TLS_REJECT_UNAUTHORIZED=0），仅用于内网自签证书或代理
-#    拦截且无法导入 CA 的场景；默认 true。
-# 3) seccomp: 旧版 Docker(<20.10)/libseccomp(<2.5) 因 clone3 报 "can't start new
-#    thread" 时，给服务加 `security_opt: ["seccomp=unconfined"]` 关闭过滤。
+# ── 容器运行时选项（compose 不能按变量切 bridge/host，改 host 需手工编辑本文件） ──
+# host 模式: 给每个服务加 network_mode: host 并删掉对应的 networks:/ports:（端口映射被忽略，
+#   Web UI → http://<宿主机IP>:8080、后端 9772、PG 占用宿主机 5432；PG_HOST 改 127.0.0.1）；
+#   分离形态必须成套改（backend/frontend 同时改，frontend 的 WITTY_BACKEND_URL 改 http://127.0.0.1:9772）。
+# SSL: WITTY_SSL_VERIFY=false 关闭 OpenCode/LLM 出网证书校验；seccomp: 旧版 Docker 报 clone3 时给服务
+#   加 security_opt: ["seccomp=unconfined"]。脚本部署用 WITTY_NETWORK_MODE=host 可自动完成，详见
+#   docs/usage/03-configuration-reference.md 与 docs/troubleshooting/02-container-runtime.md §3。
 
 services:
   postgres:

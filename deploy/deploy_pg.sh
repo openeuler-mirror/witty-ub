@@ -82,9 +82,7 @@ elif [ -n "$PG_PORT_OVERRIDE" ]; then
     PG_PORT="$PG_PORT_OVERRIDE"
 fi
 
-# 容器网络模式（与 deploy_witty.sh 共用同一配置项）：
-#   bridge（默认）PG 容器接入 PG_NETWORK 组网，宿主机端口映射为 PG_PORT
-#   host          共享宿主机网络，PG 直接监听宿主机 5432（不创建网络、不做端口映射）
+# 容器网络模式（与 deploy_witty.sh 共用）: bridge（默认，PG 接入 PG_NETWORK 组网）| host（PG 直接监听宿主机 5432）
 WITTY_NETWORK_MODE="${WITTY_NETWORK_MODE_OVERRIDE:-${WITTY_NETWORK_MODE:-bridge}}"
 case "$WITTY_NETWORK_MODE" in
 bridge | host) ;;
@@ -94,9 +92,7 @@ bridge | host) ;;
     ;;
 esac
 
-# PG 容器的网络模式可单独覆盖（容器级键，留空继承上面的全局值）：
-#   bridge（默认）PG 接入 PG_NETWORK 组网，宿主机端口映射为 PG_PORT
-#   host          PG 直接监听宿主机 5432（不创建网络、不做端口映射）
+# PG 容器可单独覆盖网络模式（容器级键，留空继承上面的全局值）
 WITTY_NETWORK_MODE_PG="${WITTY_NETWORK_MODE_PG_OVERRIDE:-${WITTY_NETWORK_MODE_PG:-}}"
 WITTY_NETWORK_MODE_PG="${WITTY_NETWORK_MODE_PG:-$WITTY_NETWORK_MODE}"
 case "$WITTY_NETWORK_MODE_PG" in
