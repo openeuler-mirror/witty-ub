@@ -15,6 +15,13 @@ log_error() { echo "[ERROR] $*" >&2; }
 _ENV_RAG_CONFIG_FILE="${RAG_CONFIG_FILE:-}"
 _ENV_RAG_DB_SECRET_FILE="${RAG_DB_SECRET_FILE:-}"
 _ENV_RAG_ACCESS_KEY_SECRET_FILE="${RAG_ACCESS_KEY_SECRET_FILE:-}"
+_ENV_RAG_MODEL_API_KEY_SECRET_FILE="${RAG_MODEL_API_KEY_SECRET_FILE:-}"
+_ENV_RAG_EMBEDDING_MODEL_NAME="${RAG_EMBEDDING_MODEL_NAME:-}"
+_ENV_RAG_EMBEDDING_MODEL_PROVIDER="${RAG_EMBEDDING_MODEL_PROVIDER:-}"
+_ENV_RAG_EMBEDDING_ENDPOINT="${RAG_EMBEDDING_ENDPOINT:-}"
+_ENV_RAG_RERANK_MODEL_NAME="${RAG_RERANK_MODEL_NAME:-}"
+_ENV_RAG_RERANK_MODEL_PROVIDER="${RAG_RERANK_MODEL_PROVIDER:-}"
+_ENV_RAG_RERANK_ENDPOINT="${RAG_RERANK_ENDPOINT:-}"
 _ENV_OPENGAUSS_RAG_IMAGE="${OPENGAUSS_RAG_IMAGE:-}"
 _ENV_WITTY_RAG_CORE_IMAGE="${WITTY_RAG_CORE_IMAGE:-}"
 _ENV_WITTY_RAG_MCP_IMAGE="${WITTY_RAG_MCP_IMAGE:-}"
@@ -28,11 +35,20 @@ fi
 [ -n "$_ENV_RAG_CONFIG_FILE" ] && RAG_CONFIG_FILE="$_ENV_RAG_CONFIG_FILE"
 [ -n "$_ENV_RAG_DB_SECRET_FILE" ] && RAG_DB_SECRET_FILE="$_ENV_RAG_DB_SECRET_FILE"
 [ -n "$_ENV_RAG_ACCESS_KEY_SECRET_FILE" ] && RAG_ACCESS_KEY_SECRET_FILE="$_ENV_RAG_ACCESS_KEY_SECRET_FILE"
+[ -n "$_ENV_RAG_MODEL_API_KEY_SECRET_FILE" ] && RAG_MODEL_API_KEY_SECRET_FILE="$_ENV_RAG_MODEL_API_KEY_SECRET_FILE"
+[ -n "$_ENV_RAG_EMBEDDING_MODEL_NAME" ] && RAG_EMBEDDING_MODEL_NAME="$_ENV_RAG_EMBEDDING_MODEL_NAME"
+[ -n "$_ENV_RAG_EMBEDDING_MODEL_PROVIDER" ] && RAG_EMBEDDING_MODEL_PROVIDER="$_ENV_RAG_EMBEDDING_MODEL_PROVIDER"
+[ -n "$_ENV_RAG_EMBEDDING_ENDPOINT" ] && RAG_EMBEDDING_ENDPOINT="$_ENV_RAG_EMBEDDING_ENDPOINT"
+[ -n "$_ENV_RAG_RERANK_MODEL_NAME" ] && RAG_RERANK_MODEL_NAME="$_ENV_RAG_RERANK_MODEL_NAME"
+[ -n "$_ENV_RAG_RERANK_MODEL_PROVIDER" ] && RAG_RERANK_MODEL_PROVIDER="$_ENV_RAG_RERANK_MODEL_PROVIDER"
+[ -n "$_ENV_RAG_RERANK_ENDPOINT" ] && RAG_RERANK_ENDPOINT="$_ENV_RAG_RERANK_ENDPOINT"
 [ -n "$_ENV_OPENGAUSS_RAG_IMAGE" ] && OPENGAUSS_RAG_IMAGE="$_ENV_OPENGAUSS_RAG_IMAGE"
 [ -n "$_ENV_WITTY_RAG_CORE_IMAGE" ] && WITTY_RAG_CORE_IMAGE="$_ENV_WITTY_RAG_CORE_IMAGE"
 [ -n "$_ENV_WITTY_RAG_MCP_IMAGE" ] && WITTY_RAG_MCP_IMAGE="$_ENV_WITTY_RAG_MCP_IMAGE"
 [ -n "$_ENV_WITTY_NETWORK" ] && WITTY_NETWORK="$_ENV_WITTY_NETWORK"
-unset _ENV_RAG_CONFIG_FILE _ENV_RAG_DB_SECRET_FILE _ENV_RAG_ACCESS_KEY_SECRET_FILE _ENV_OPENGAUSS_RAG_IMAGE \
+unset _ENV_RAG_CONFIG_FILE _ENV_RAG_DB_SECRET_FILE _ENV_RAG_ACCESS_KEY_SECRET_FILE _ENV_RAG_MODEL_API_KEY_SECRET_FILE _ENV_OPENGAUSS_RAG_IMAGE \
+    _ENV_RAG_EMBEDDING_MODEL_NAME _ENV_RAG_EMBEDDING_MODEL_PROVIDER _ENV_RAG_EMBEDDING_ENDPOINT \
+    _ENV_RAG_RERANK_MODEL_NAME _ENV_RAG_RERANK_MODEL_PROVIDER _ENV_RAG_RERANK_ENDPOINT \
     _ENV_WITTY_RAG_CORE_IMAGE _ENV_WITTY_RAG_MCP_IMAGE _ENV_WITTY_NETWORK
 
 WITTY_NETWORK="${WITTY_NETWORK:-${PG_NETWORK:-witty-ub-network}}"
@@ -65,6 +81,13 @@ RAG_DB_NAME="${RAG_DB_NAME:-postgres}"
 RAG_DB_SECRET_FILE="${RAG_DB_SECRET_FILE:-/etc/witty-ub/rag-opengauss.passwd}"
 RAG_ACCESS_KEY_SECRET_FILE="${RAG_ACCESS_KEY_SECRET_FILE:-/etc/witty-ub/rag-secrets/access-key}"
 RAG_ACCESS_KEY_SECRET_DIR="$(dirname "$RAG_ACCESS_KEY_SECRET_FILE")"
+RAG_MODEL_API_KEY_SECRET_FILE="${RAG_MODEL_API_KEY_SECRET_FILE:-/etc/witty-ub/rag-secrets/model-api-key}"
+RAG_EMBEDDING_MODEL_NAME="${RAG_EMBEDDING_MODEL_NAME:-BAAI/bge-m3}"
+RAG_EMBEDDING_MODEL_PROVIDER="${RAG_EMBEDDING_MODEL_PROVIDER:-openai}"
+RAG_EMBEDDING_ENDPOINT="${RAG_EMBEDDING_ENDPOINT:-https://api.siliconflow.cn/v1/embeddings}"
+RAG_RERANK_MODEL_NAME="${RAG_RERANK_MODEL_NAME:-BAAI/bge-reranker-v2-m3}"
+RAG_RERANK_MODEL_PROVIDER="${RAG_RERANK_MODEL_PROVIDER:-guijiliudong}"
+RAG_RERANK_ENDPOINT="${RAG_RERANK_ENDPOINT:-https://api.siliconflow.cn/v1/rerank}"
 
 WITTY_RAG_CORE_CONTAINER="${WITTY_RAG_CORE_CONTAINER:-witty-rag-core}"
 WITTY_RAG_CORE_IMAGE="${WITTY_RAG_CORE_IMAGE:-hub-harbor.oepkgs.net/neocopilot/witty-rag-core:0.10.2-release-arm}"
@@ -95,6 +118,12 @@ if [ ! -s "$RAG_DB_SECRET_FILE" ]; then
     exit 1
 fi
 chmod 0600 "$RAG_DB_SECRET_FILE" 2>/dev/null || true
+if [ ! -s "$RAG_MODEL_API_KEY_SECRET_FILE" ]; then
+    log_error "模型 API Key 文件不存在或为空: ${RAG_MODEL_API_KEY_SECRET_FILE}"
+    log_error "请创建该文件并执行 chmod 600 ${RAG_MODEL_API_KEY_SECRET_FILE}"
+    exit 1
+fi
+chmod 0600 "$RAG_MODEL_API_KEY_SECRET_FILE" 2>/dev/null || true
 mkdir -p "$RAG_ACCESS_KEY_SECRET_DIR"
 chmod 0700 "$RAG_ACCESS_KEY_SECRET_DIR"
 
@@ -161,13 +190,22 @@ log_ok "openGauss 已就绪并启用 accept_empty_str"
 # Keep model and service settings supplied by the user, but force both RAG
 # database sections to use the dedicated openGauss container.
 mkdir -p "$(dirname "$RAG_RUNTIME_CONFIG")" "$RAG_LOG_DIR"
+RAG_CONFIG_OLD_SHA="$(sha256sum "$RAG_RUNTIME_CONFIG" 2>/dev/null | awk '{print $1}' || true)"
 export RAG_RENDER_SOURCE="$RAG_CONFIG_FILE"
 export RAG_RENDER_TARGET="$RAG_RUNTIME_CONFIG"
 export RAG_RENDER_PASSWORD="$(tr -d '\r\n' <"$RAG_DB_SECRET_FILE")"
 export RAG_RENDER_HOST="$OPENGAUSS_RAG_CONTAINER"
 export RAG_RENDER_USER="$RAG_DB_USER"
 export RAG_RENDER_DB="$RAG_DB_NAME"
+export RAG_RENDER_MODEL_API_KEY="$(tr -d '\r\n' <"$RAG_MODEL_API_KEY_SECRET_FILE")"
+export RAG_RENDER_EMBEDDING_MODEL_NAME="$RAG_EMBEDDING_MODEL_NAME"
+export RAG_RENDER_EMBEDDING_MODEL_PROVIDER="$RAG_EMBEDDING_MODEL_PROVIDER"
+export RAG_RENDER_EMBEDDING_ENDPOINT="$RAG_EMBEDDING_ENDPOINT"
+export RAG_RENDER_RERANK_MODEL_NAME="$RAG_RERANK_MODEL_NAME"
+export RAG_RENDER_RERANK_MODEL_PROVIDER="$RAG_RERANK_MODEL_PROVIDER"
+export RAG_RENDER_RERANK_ENDPOINT="$RAG_RERANK_ENDPOINT"
 python3 - <<'PY'
+import json
 import os
 import re
 from pathlib import Path
@@ -181,6 +219,43 @@ values = {
     "database_password": os.environ["RAG_RENDER_PASSWORD"],
     "database_db": os.environ["RAG_RENDER_DB"],
 }
+model_values = {
+    "embedding_model": {
+        "model_name": os.environ["RAG_RENDER_EMBEDDING_MODEL_NAME"],
+        "online_status": "online",
+        "model_labels": ["txt2embedding"],
+        "model_provider": os.environ["RAG_RENDER_EMBEDDING_MODEL_PROVIDER"],
+        "end_point": os.environ["RAG_RENDER_EMBEDDING_ENDPOINT"],
+        "api_key": os.environ["RAG_RENDER_MODEL_API_KEY"],
+        "request_timeout": 60,
+        "input_max_tokens": 8192,
+        "output_max_tokens": 8192,
+        "temperature": 0.7,
+        "batch_size": 16,
+    },
+    "rerank_model": {
+        "model_name": os.environ["RAG_RENDER_RERANK_MODEL_NAME"],
+        "online_status": "online",
+        "model_labels": ["reranker"],
+        "model_provider": os.environ["RAG_RENDER_RERANK_MODEL_PROVIDER"],
+        "end_point": os.environ["RAG_RENDER_RERANK_ENDPOINT"],
+        "api_key": os.environ["RAG_RENDER_MODEL_API_KEY"],
+        "request_timeout": 60,
+        "input_max_tokens": 8192,
+        "output_max_tokens": 8192,
+        "temperature": 0.7,
+        "batch_size": 16,
+    },
+}
+
+def render_value(value):
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
+    return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 def replace_section(match):
     name, body = match.group(1), match.group(2)
@@ -192,6 +267,15 @@ def replace_section(match):
             body = re.sub(pattern, f"{key} = {value}", body)
         else:
             body += f"{key} = {value}\n"
+        return f"[{name}]\n{body}"
+    if name in model_values:
+        for key, value in model_values[name].items():
+            rendered = render_value(value)
+            pattern = rf"(?m)^\s*{re.escape(key)}\s*=.*$"
+            if re.search(pattern, body):
+                body = re.sub(pattern, f"{key} = {rendered}", body)
+            else:
+                body += f"{key} = {rendered}\n"
         return f"[{name}]\n{body}"
     if name not in {"scalar_db", "vector_db"}:
         return match.group(0)
@@ -206,15 +290,24 @@ def replace_section(match):
 
 section_pattern = re.compile(r"(?ms)^\[([^]]+)]\s*\n(.*?)(?=^\[|\Z)")
 found = set(re.findall(r"(?m)^\[([^]]+)]", source))
-missing = {"scalar_db", "vector_db", "static_source"} - found
+missing = {"scalar_db", "vector_db", "static_source", "embedding_model", "rerank_model"} - found
 if missing:
     raise SystemExit("RAG config missing section(s): " + ", ".join(sorted(missing)))
 rendered = section_pattern.sub(replace_section, source)
 Path(os.environ["RAG_RENDER_TARGET"]).write_text(rendered)
 PY
 unset RAG_RENDER_SOURCE RAG_RENDER_TARGET RAG_RENDER_PASSWORD RAG_RENDER_HOST \
-    RAG_RENDER_USER RAG_RENDER_DB
+    RAG_RENDER_USER RAG_RENDER_DB RAG_RENDER_MODEL_API_KEY \
+    RAG_RENDER_EMBEDDING_MODEL_NAME RAG_RENDER_EMBEDDING_MODEL_PROVIDER RAG_RENDER_EMBEDDING_ENDPOINT \
+    RAG_RENDER_RERANK_MODEL_NAME RAG_RENDER_RERANK_MODEL_PROVIDER RAG_RENDER_RERANK_ENDPOINT
 chmod 0600 "$RAG_RUNTIME_CONFIG"
+RAG_CONFIG_NEW_SHA="$(sha256sum "$RAG_RUNTIME_CONFIG" | awk '{print $1}')"
+RAG_CONFIG_CHANGED=false
+if [ "$RAG_CONFIG_OLD_SHA" != "$RAG_CONFIG_NEW_SHA" ]; then
+    RAG_CONFIG_CHANGED=true
+    log_info "检测到 RAG 运行配置变更，将重建 RAG Core 容器"
+fi
+unset RAG_CONFIG_OLD_SHA RAG_CONFIG_NEW_SHA
 log_ok "已生成 openGauss 专用 RAG 配置 ${RAG_RUNTIME_CONFIG}"
 
 ensure_image "$WITTY_RAG_CORE_IMAGE"
@@ -243,6 +336,7 @@ start_rag_core_container() {
 
 if docker container inspect "$WITTY_RAG_CORE_CONTAINER" >/dev/null 2>&1; then
     if [ "$(docker inspect -f '{{.State.Running}}' "$WITTY_RAG_CORE_CONTAINER")" = "true" ] &&
+        [ "$RAG_CONFIG_CHANGED" != true ] &&
         [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/witty-rag"}}yes{{end}}{{end}}' 2>/dev/null)" = "yes" ] &&
         docker exec "$WITTY_RAG_CORE_CONTAINER" \
             curl -fsS --max-time 3 http://127.0.0.1:9988/health_check >/dev/null 2>&1 &&

@@ -23,6 +23,9 @@ CONFIG_KEYS=(
     OPENCODE_CONFIG_DIR
     WITTY_RAG_MCP_URL WITTY_RAG_NETWORK RAG_CONFIG_FILE RAG_DB_SECRET_FILE RAG_DB_PASSWORD
     RAG_ACCESS_KEY_SECRET_FILE
+    RAG_MODEL_API_KEY_SECRET_FILE RAG_MODEL_API_KEY
+    RAG_EMBEDDING_MODEL_NAME RAG_EMBEDDING_MODEL_PROVIDER RAG_EMBEDDING_ENDPOINT
+    RAG_RERANK_MODEL_NAME RAG_RERANK_MODEL_PROVIDER RAG_RERANK_ENDPOINT
     OPENGAUSS_RAG_IMAGE WITTY_RAG_CORE_IMAGE
 )
 ENV_OVERRIDES=""
@@ -216,6 +219,7 @@ configure_rag_inputs() {
     local default_config="${RAG_CONFIG_FILE:-${DEPLOY_DIR}/../rag-core.toml}"
     local default_secret="${RAG_DB_SECRET_FILE:-/etc/witty-ub/rag-opengauss.passwd}"
     local rag_password="${RAG_DB_PASSWORD:-}" confirm_password="" password_classes=0
+    local model_api_key="${RAG_MODEL_API_KEY:-}" model_api_key_confirm=""
     local secret_dir secret_tmp
 
     noninteractive_hint
@@ -277,7 +281,48 @@ configure_rag_inputs() {
         log_ok "Created protected openGauss password file: ${RAG_DB_SECRET_FILE}"
     fi
     chmod 0600 "$RAG_DB_SECRET_FILE" 2>/dev/null || true
-    export RAG_CONFIG_FILE RAG_DB_SECRET_FILE
+    RAG_MODEL_API_KEY_SECRET_FILE="${RAG_MODEL_API_KEY_SECRET_FILE:-/etc/witty-ub/rag-secrets/model-api-key}"
+    if [ ! -s "$RAG_MODEL_API_KEY_SECRET_FILE" ]; then
+        echo "  RAG model API key file will be created at: ${RAG_MODEL_API_KEY_SECRET_FILE}"
+        if [ -t 0 ]; then
+            read -r -s -p "  Enter the model API key: " model_api_key
+            echo ""
+            read -r -s -p "  Confirm the model API key: " model_api_key_confirm
+            echo ""
+            if [ "$model_api_key" != "$model_api_key_confirm" ]; then
+                log_error "The two model API keys do not match"
+                return 1
+            fi
+        elif [ -z "$model_api_key" ]; then
+            log_error "Model API key file is missing in non-interactive mode: ${RAG_MODEL_API_KEY_SECRET_FILE}"
+            log_error "Set RAG_MODEL_API_KEY or create the key file first"
+            return 1
+        fi
+        [ -n "$model_api_key" ] || {
+            log_error "The model API key cannot be empty"
+            return 1
+        }
+        secret_dir="$(dirname "$RAG_MODEL_API_KEY_SECRET_FILE")"
+        secret_tmp="$(mktemp)"
+        chmod 0600 "$secret_tmp"
+        printf '%s' "$model_api_key" >"$secret_tmp"
+        if mkdir -p "$secret_dir" 2>/dev/null && install -m 600 "$secret_tmp" "$RAG_MODEL_API_KEY_SECRET_FILE" 2>/dev/null; then
+            :
+        elif command -v sudo >/dev/null 2>&1 &&
+            sudo install -d -m 700 "$secret_dir" &&
+            sudo install -m 600 "$secret_tmp" "$RAG_MODEL_API_KEY_SECRET_FILE"; then
+            :
+        else
+            rm -f "$secret_tmp"
+            log_error "Cannot create model API key file: ${RAG_MODEL_API_KEY_SECRET_FILE}"
+            return 1
+        fi
+        rm -f "$secret_tmp"
+        unset model_api_key model_api_key_confirm RAG_MODEL_API_KEY
+        log_ok "Created protected model API key file: ${RAG_MODEL_API_KEY_SECRET_FILE}"
+    fi
+    chmod 0600 "$RAG_MODEL_API_KEY_SECRET_FILE" 2>/dev/null || true
+    export RAG_CONFIG_FILE RAG_DB_SECRET_FILE RAG_MODEL_API_KEY_SECRET_FILE
 }
 
 do_install_rag() {
