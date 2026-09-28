@@ -37,6 +37,7 @@ from latency.routers import (
     diagnosis_case,
     diag_case_library,
     diagnosis_config,
+    diagnostic_report,
     brpc_profiling,
     stats,
     trace,
@@ -170,6 +171,7 @@ async def configure():
     app.include_router(diagnosis_case.router)
     app.include_router(diag_case_library.router)
     app.include_router(diagnosis_config.router)
+    app.include_router(diagnostic_report.router)
     app.include_router(brpc_profiling.router)
     app.include_router(stats.router)
     app.include_router(trace.router)

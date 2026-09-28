@@ -449,9 +449,9 @@ log_info "Preparing Docker volumes ..."
 if [ "$ROLE" = "frontend" ]; then
     # frontend 也挂 witty-ub-logs：否则镜像声明的 VOLUME /var/log/witty-ub 会生成匿名卷，
     # 容器重建后日志丢失且残留孤儿卷（与文档"witty-ub-logs 通用"的描述保持一致）。
-    ROLE_VOLUMES=(witty-ub-logs witty-ub-experience-data)
+    ROLE_VOLUMES=(witty-ub-logs witty-ub-experience-data witty-ub-reports)
 else
-    ROLE_VOLUMES=(witty-ub-data witty-ub-logs witty-ub-uploads witty-ub-results)
+    ROLE_VOLUMES=(witty-ub-data witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports)
 fi
 for vol in "${ROLE_VOLUMES[@]}"; do
     if docker volume ls --format '{{.Name}}' | grep -qx "$vol"; then
@@ -564,6 +564,7 @@ backend)
         -v witty-ub-logs:/var/log/witty-ub \
         -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
         -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
+        -v witty-ub-reports:/var/witty-ub/reports \
         -v "${PG_SECRET_FILE}:/run/secrets/pg_password:ro" \
         "${EXTRA_MOUNT_ARGS[@]}" \
         -e WITTY_ROLE=backend \
@@ -589,6 +590,7 @@ frontend)
         -v witty-ub-logs:/var/log/witty-ub \
         -v "${OPENCODE_CONFIG_DIR}:/root/.config/opencode" \
         -v witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data \
+        -v witty-ub-reports:/var/witty-ub/reports \
         "${EXTRA_MOUNT_ARGS[@]}" \
         -e WITTY_ROLE=frontend \
         -e WITTY_BACKEND_URL="${BACKEND_URL}" \
@@ -605,6 +607,7 @@ frontend)
         -v witty-ub-logs:/var/log/witty-ub \
         -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
         -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
+        -v witty-ub-reports:/var/witty-ub/reports \
         -v "${PG_SECRET_FILE}:/run/secrets/pg_password:ro" \
         -v "${OPENCODE_CONFIG_DIR}:/root/.config/opencode" \
         "${EXTRA_MOUNT_ARGS[@]}" \

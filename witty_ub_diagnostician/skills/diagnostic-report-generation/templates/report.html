@@ -537,6 +537,17 @@ body {  font-family: var(--font-sans);
 .root-cause-value { color: var(--ink); font-size: 14px; font-weight: 650; }
 .root-cause-support { margin-top: 7px; color: var(--slate); font-size: 11px; }
 
+/* 证据锚点（faults[].evidence_traces，可选；纯文本无链接无按钮） */
+.ev-traces { margin-top: 14px; padding: 14px 16px; border: 1px solid var(--gray-200); border-radius: var(--radius-sm); background: var(--gray-50); }
+.ev-trace-list { list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.ev-trace-item { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ev-trace-id { font-family: var(--font-mono); font-size: 12px; color: var(--brand-deep); background: var(--white); border: 1px solid var(--gray-200); border-radius: 6px; padding: 2px 8px; overflow-wrap: anywhere; word-break: break-all; user-select: all; }
+.ev-trace-meta { font-size: 11px; color: var(--gray-500); font-family: var(--font-mono); }
+.ev-kind { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; font-family: var(--font-sans); }
+.ev-kind.kind-latency { background: var(--brand-pale); color: var(--brand-deep); }
+.ev-kind.kind-error { background: var(--danger-pale); color: var(--danger); }
+.ev-trace-why { font-size: 11.5px; color: var(--gray-600); flex: 1 1 260px; min-width: 0; }
+
 .pnode { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--card); transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); border-color: var(--hairline); box-shadow: none; }
 .pnode:hover { border-color: var(--hairline); box-shadow: none; }
 .pnode-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 46px; padding: 10px 14px; }
@@ -1000,7 +1011,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
 {%- if faults -%}
   {%- set fault_list = faults -%}
 {%- else -%}
-  {%- set fault_list = [{'id':'F01','title':'诊断故障','role':'primary','status':'confirmed','severity':'P2','confidence':conclusion.confidence,'affected_scope':conclusion.affected_scope_desc,'conclusion':conclusion,'root_cause':root_cause,'propagation':propagation,'knowledge_matches':knowledge_matches,'solution':solution,'source_code':source_code}] -%}
+  {%- set fault_list = [{'id':'F01','title':'诊断故障','role':'primary','status':'confirmed','severity':'P2','confidence':conclusion.confidence,'affected_scope':conclusion.affected_scope_desc,'conclusion':conclusion,'root_cause':root_cause,'propagation':propagation,'evidence_traces':evidence_traces,'knowledge_matches':knowledge_matches,'solution':solution,'source_code':source_code}] -%}
 {%- endif -%}
 {%- set is_multi = fault_list | length > 1 -%}
 {%- set f0 = fault_list[0] -%}
@@ -1182,6 +1193,28 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
     </div>
     {% endif %}
   
+{% endmacro %}
+
+{% macro m_evidence_traces(traces) %}
+    <div class="ev-traces">
+      <ul class="ev-trace-list">
+        {% for t in traces %}
+        <li class="ev-trace-item">
+          <code class="ev-trace-id">{{ t.trace_id }}</code>
+          <span class="ev-trace-meta">
+            <span class="ev-kind kind-{{ t.kind }}">{% if t.kind == 'latency' %}时延{% else %}通断{% endif %}</span>
+            {%- if t.evidence_ms is number %} · 证据 {{ t.evidence_ms }}ms{% endif %}
+            {%- if t.client_ms is number %} · 客户端 {{ t.client_ms }}ms{% endif %}
+            {%- if t.status_code %} · {{ t.status_code }}{% endif %}
+            {%- if t.pod %} · {{ t.pod }}{% endif %}
+            {%- if t.host %} · {{ t.host }}{% endif %}
+            {%- if t.timestamp %} · {{ t.timestamp }}{% endif %}
+          </span>
+          <span class="ev-trace-why">{{ t.why }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
 {% endmacro %}
 
 {% macro m_propagation(p) %}
@@ -1751,6 +1784,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
         {% if f.latency %}<h4 class="fa-sub">时延阶段定位</h4>{{ m_latency(f.latency) }}{% endif %}
         {% if not f.simplified %}
           {% if f.root_cause %}<h4 class="fa-sub">根因推理链</h4>{{ m_root_cause(f.root_cause) }}{% endif %}
+          {% if f.evidence_traces %}<h4 class="fa-sub">证据锚点</h4>{{ m_evidence_traces(f.evidence_traces) }}{% endif %}
           {% if f.propagation %}<h4 class="fa-sub">故障传播链</h4>{{ m_propagation(f.propagation) }}{% endif %}
           {% if f.knowledge_matches %}<h4 class="fa-sub">知识库匹配</h4>{{ m_knowledge(f.knowledge_matches, f.id) }}{% endif %}
           {% if f.solution %}<h4 class="fa-sub">解决方案</h4>{{ m_solution(f.solution) }}{% endif %}

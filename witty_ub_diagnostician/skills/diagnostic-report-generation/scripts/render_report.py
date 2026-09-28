@@ -2,26 +2,33 @@
 """渲染诊断报告 HTML（diagnostic-report-generation Skill 的渲染器）。
 
 用法：
-    python3 scripts/render_report.py <data.json> [out.html]
+    python3 scripts/render_report.py <data.json> [out.html] [--kb-id <id>] [--no-sidecar]
     python3 scripts/render_report.py --spec [section]
 
 约定：
     - 输入是**一个** JSON 文件（即报告的全部模板变量），不要在命令行上传大段 JSON。
-    - 默认输出 /tmp/reports/report_<时间戳>.html。
-    - 成功时只回显 ≤15 行摘要；数据/校验失败 exit 2，模板缺失 exit 3，缺 jinja2 exit 4。
+    - 默认输出 <WITTY_REPORT_DIR>/<kb_id>/report_<kb_id>_<时间戳>.html，同目录写
+      同名侧车 .json（原样报告数据，供前端列表展示与复现渲染）。
+      WITTY_REPORT_DIR 未设置时回落 /tmp/reports（本地调试用）。
+    - 显式传 out.html 时按该路径输出，侧车写到同目录同名。
+    - 成功时只回显 ≤15 行摘要；数据/校验失败 exit 2，模板缺失 exit 3，
+      缺 jinja2 exit 4，写盘失败 exit 5。
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sys
 import time
 from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_TEMPLATE = SKILL_DIR / "templates" / "report.html"
-DEFAULT_OUT_DIR = Path("/tmp/reports")
+FALLBACK_OUT_DIR = Path("/tmp/reports")
+KB_SLUG_FALLBACK = "unknown"
 
 ROLE_ENUM = ("primary", "secondary", "independent")
 STATUS_ENUM = ("confirmed", "suspected", "excluded")
@@ -29,6 +36,8 @@ SEVERITY_ENUM = ("P1", "P2", "P3")
 CATEGORY_ENUM = ("error", "latency", "mixed")
 STAGE_STATUS_ENUM = ("ok", "warn", "bottleneck")
 SHARE_CLS_ENUM = ("s-ok", "s-warn", "s-bottleneck")
+TRACE_KIND_ENUM = ("latency", "error")
+EVIDENCE_TRACES_MAX = 5
 
 REQUIRED_TOP = ("report", "basic_info", "statistics", "workflow")
 
@@ -71,6 +80,37 @@ def _check_enum(path, value, enum, errors, required=True):
         return
     if value not in enum:
         errors.append(f"{path}: {value!r} 不是合法取值（{'|'.join(enum)}）")
+
+
+def _check_evidence_traces(path, traces, errors, warnings):
+    """证据锚点校验：可选键，缺省 / null / [] 一律视为零锚点（不产生任何提示）。"""
+    if traces is None:
+        return
+    if not isinstance(traces, list):
+        errors.append(f"{path}: 必须是数组（零锚点可省略该键）")
+        return
+    if len(traces) > EVIDENCE_TRACES_MAX:
+        errors.append(f"{path}: 最多 {EVIDENCE_TRACES_MAX} 条，当前 {len(traces)} 条")
+    seen_ids: set = set()
+    for j, t in enumerate(traces):
+        tp = f"{path}[{j}]"
+        if not isinstance(t, dict):
+            errors.append(f"{tp}: 必须是对象")
+            continue
+        for field in ("trace_id", "kind", "why"):
+            if not t.get(field):
+                errors.append(f"{tp}.{field}: 必填")
+        _check_enum(f"{tp}.kind", t.get("kind"), TRACE_KIND_ENUM, errors)
+        tid = t.get("trace_id")
+        if tid:
+            if tid in seen_ids:
+                warnings.append(f"{tp}.trace_id: {tid!r} 在本故障内重复")
+            else:
+                seen_ids.add(tid)
+        if t.get("kind") == "latency" and t.get("evidence_ms") is None:
+            warnings.append(f"{tp}.evidence_ms: latency 锚点建议填证据耗时")
+        if t.get("kind") == "error" and not t.get("status_code"):
+            warnings.append(f"{tp}.status_code: error 锚点建议填状态码")
 
 
 def _check_stage_breakdown(path, bd, errors, warnings):
@@ -147,6 +187,8 @@ def validate(data) -> tuple[list[str], list[str]]:
     if faults is None:
         if not isinstance(data.get("conclusion"), dict):
             errors.append("faults / conclusion: 二者必须至少提供一个（单故障可用扁平 conclusion）")
+        else:
+            _check_evidence_traces("evidence_traces", data.get("evidence_traces"), errors, warnings)
     elif not isinstance(faults, list) or not faults:
         errors.append("faults: 必须是至少含 1 个故障的数组")
     else:
@@ -176,6 +218,7 @@ def validate(data) -> tuple[list[str], list[str]]:
                 warnings.append(f"{p}.category: 多故障建议填 error|latency|mixed（档案头标签）")
             if f.get("role") == "primary":
                 primary_cnt += 1
+            _check_evidence_traces(f"{p}.evidence_traces", f.get("evidence_traces"), errors, warnings)
             lat = f.get("latency")
             if isinstance(lat, dict):
                 for j, st in enumerate(lat.get("stages") or []):
@@ -308,7 +351,7 @@ SPEC = {
     "top": """顶层变量（全部为 JSON 键）
 report{title,report_id,generated_at}
 basic_info{kb_id,kb_name,log_file,operation,time_range_start,time_range_end,total_trace_cnt,fault_trace_cnt,fault_ratio,parse_ok,diagnosis_ok}
-faults[]{id,title,role,status,severity,confidence,category,affected_scope,conclusion,latency,root_cause,propagation,knowledge_matches,solution,source_code,simplified,upstream,need_independent_fix}
+faults[]{id,title,role,status,severity,confidence,category,affected_scope,conclusion,latency,root_cause,propagation,evidence_traces,knowledge_matches,solution,source_code,simplified,upstream,need_independent_fix}
 incident_summary{one_line_conclusion,fault_count,primary_fault_id,secondary_fault_count,independent_fault_count,overall_impact,confidence}
 fault_relations[]{from,to,type,confidence,evidence}
 action_plan[]{priority,fault_ids,action,depends_on,expected_effect,verify}
@@ -316,13 +359,14 @@ statistics{stage_breakdown|stage_breakdowns,heatmap_metric,dist_total,top_error_
 workflow{session_id,total_steps,api_calls,duration,steps[]}
 枚举：role=primary|secondary|independent; status=confirmed|suspected|excluded; severity=P1|P2|P3
      category=error|latency|mixed; stage.status=ok|warn|bottleneck; share_bar.cls=s-ok|s-warn|s-bottleneck
-     fault_relations.type=causes|common_cause|independent|correlated
-单故障可用扁平 conclusion/root_cause/propagation/knowledge_matches/solution/source_code，模板自动包成 F01
+     fault_relations.type=causes|common_cause|independent|correlated; evidence_traces[].kind=latency|error
+单故障可用扁平 conclusion/root_cause/propagation/evidence_traces/knowledge_matches/solution/source_code，模板自动包成 F01
 示例与逐字段说明：references/REPORT_BLOCKS.md""",
     "basic_info": "kb_id,kb_name,log_file,operation,time_range_start,time_range_end,total_trace_cnt,fault_trace_cnt,fault_ratio,parse_ok,diagnosis_ok",
     "conclusion": "one_line_conclusion,fault_domain,fault_component,fault_function,fault_function_loc,affected_scope_pct,affected_scope_desc,confidence,key_findings[]",
     "latency": "metrics[]{label,value,sub,tone},stages[]{name,p99,baseline,ratio,share,status,detail},conclusion",
     "root_cause": "reasoning_chain[]{step_label,title,description,evidence,excluded,confirmed},confirmed_root_cause,supporting_knowledge",
+    "evidence_traces": "可选，0~5 条；trace_id(必填,逐字来自工具响应),kind(必填,latency|error),why(必填,含桶key或过滤条件),evidence_ms,client_ms,status_code,failure_mode_id,pod,host,timestamp；latency 类取 /stats/stages 归因桶 top_traces[]；缺省/[]/null 均不渲染",
     "propagation": "chain[]{label,detail,type,transition,branches[{label,nodes[]}]},impact_scope[]",
     "solution": "short_term[],long_term[],verification[]",
     "knowledge": "rank,id,stars,match_logic,symptom,root_cause,solution,adoption_class,adoption_label,phenomenon_fit,log_fit,rc_consistency,env_diff,adaptation,applicability",
@@ -351,10 +395,41 @@ def print_spec(which: str) -> int:
 
 
 # --------------------------------------------------------------------------- #
+def report_root() -> Path:
+    """报告根目录：运行时读 WITTY_REPORT_DIR，未设置时回落 /tmp/reports。"""
+    return Path(os.environ.get("WITTY_REPORT_DIR") or FALLBACK_OUT_DIR)
+
+
+def kb_slug(kb_id) -> str:
+    """把知识库 ID 清洗成可用作目录名/文件名的一段（同时挡住路径穿越）。"""
+    slug = re.sub(r"[^A-Za-z0-9_-]", "_", str(kb_id or "").strip())
+    return slug or KB_SLUG_FALLBACK
+
+
+def sidecar_payload(data: dict, out_path: Path) -> dict:
+    """侧车 JSON：渲染入参原样保留，仅补齐 report.report_id / report.generated_at。"""
+    payload = dict(data)
+    report = payload.get("report")
+    if isinstance(report, dict):
+        report = dict(report)
+        if not report.get("report_id"):
+            report["report_id"] = out_path.stem
+        if not report.get("generated_at"):
+            report["generated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        payload["report"] = report
+    return payload
+
+
+# --------------------------------------------------------------------------- #
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(add_help=True, description="渲染诊断报告 HTML")
     parser.add_argument("data", nargs="?", help="报告数据 JSON 文件")
-    parser.add_argument("out", nargs="?", help="输出 HTML 路径（默认 /tmp/reports/report_<ts>.html）")
+    parser.add_argument("out", nargs="?",
+                        help="输出 HTML 路径（默认 $WITTY_REPORT_DIR/<kb_id>/report_<kb_id>_<ts>.html）")
+    parser.add_argument("--kb-id", default=None, metavar="ID",
+                        help="知识库 ID（默认取 basic_info.kb_id），决定默认输出目录与文件名")
+    parser.add_argument("--no-sidecar", action="store_true",
+                        help="不写同名侧车 JSON（前端列表将缺少标题/故障数）")
     parser.add_argument("--spec", nargs="?", const="all", default=None, metavar="SECTION",
                         help="打印紧凑字段清单（top|basic_info|statistics|... 或 all）后退出")
     parser.add_argument("--template", default=str(DEFAULT_TEMPLATE), help="模板路径")
@@ -419,11 +494,32 @@ def main(argv=None) -> int:
         print(f"  提示：模板 {template_path}；数据 {data_path}", file=sys.stderr)
         return 2
 
-    out_path = Path(args.out) if args.out else DEFAULT_OUT_DIR / f"report_{time.strftime('%Y%m%d_%H%M%S')}.html"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(html, encoding="utf-8")
+    if args.out:
+        out_path = Path(args.out)
+    else:
+        slug = kb_slug(args.kb_id or (data.get("basic_info") or {}).get("kb_id"))
+        base = f"report_{slug}_{time.strftime('%Y%m%d_%H%M%S')}"
+        out_path = report_root() / slug / f"{base}.html"
+        seq = 0
+        while out_path.exists() or (not args.no_sidecar and out_path.with_suffix(".json").exists()):
+            seq += 1
+            out_path = out_path.with_name(f"{base}_{seq}.html")
+
+    sidecar_path = None if args.no_sidecar else out_path.with_suffix(".json")
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(html, encoding="utf-8")
+        if sidecar_path is not None:
+            payload = json.dumps(sidecar_payload(data, out_path), ensure_ascii=False, indent=2)
+            sidecar_path.write_text(payload + "\n", encoding="utf-8")
+    except OSError as exc:
+        print(f"✘ 写盘失败: {exc}", file=sys.stderr)
+        print(f"  提示：确认 {out_path.parent} 可写（WITTY_REPORT_DIR={report_root()}），或显式传 out 路径", file=sys.stderr)
+        return 5
 
     print(f"✔ {out_path}  ({len(html.encode('utf-8')):,} bytes)")
+    if sidecar_path is not None:
+        print(f"  侧车 {sidecar_path.name}  ({sidecar_path.stat().st_size:,} bytes)")
     print("  章节 " + str(len(section_names(data))) + ": " + " · ".join(section_names(data)))
     print("  故障 " + faults_line(data))
     print("  统计 " + stats_line(data))

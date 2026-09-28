@@ -537,6 +537,17 @@ body {  font-family: var(--font-sans);
 .root-cause-value { color: var(--ink); font-size: 14px; font-weight: 650; }
 .root-cause-support { margin-top: 7px; color: var(--slate); font-size: 11px; }
 
+/* 证据锚点（faults[].evidence_traces，可选；纯文本无链接无按钮） */
+.ev-traces { margin-top: 14px; padding: 14px 16px; border: 1px solid var(--gray-200); border-radius: var(--radius-sm); background: var(--gray-50); }
+.ev-trace-list { list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.ev-trace-item { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ev-trace-id { font-family: var(--font-mono); font-size: 12px; color: var(--brand-deep); background: var(--white); border: 1px solid var(--gray-200); border-radius: 6px; padding: 2px 8px; overflow-wrap: anywhere; word-break: break-all; user-select: all; }
+.ev-trace-meta { font-size: 11px; color: var(--gray-500); font-family: var(--font-mono); }
+.ev-kind { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; font-family: var(--font-sans); }
+.ev-kind.kind-latency { background: var(--brand-pale); color: var(--brand-deep); }
+.ev-kind.kind-error { background: var(--danger-pale); color: var(--danger); }
+.ev-trace-why { font-size: 11.5px; color: var(--gray-600); flex: 1 1 260px; min-width: 0; }
+
 .pnode { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--card); transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); border-color: var(--hairline); box-shadow: none; }
 .pnode:hover { border-color: var(--hairline); box-shadow: none; }
 .pnode-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 46px; padding: 10px 14px; }
@@ -1835,6 +1846,22 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
             知识库支撑: <span class="mono">kvcache_runtime_089 (etcd连接超时)，kvcache_runtime_042 (连接池耗尽-辅助)</span>
           </div>
 
+        </div>
+
+          <h4 class="fa-sub">证据锚点</h4>
+        <div class="ev-traces">
+          <ul class="ev-trace-list">
+            <li class="ev-trace-item">
+              <code class="ev-trace-id">a1b2c3d4e5f60718293a4b5c6d7e8f90</code>
+              <span class="ev-trace-meta"><span class="ev-kind kind-latency">时延</span> · 证据 1180ms · 客户端 1200ms</span>
+              <span class="ev-trace-why">GET·URMA超时 桶内证据耗时 Top1（该桶占异常 trace 62.3%）</span>
+            </li>
+            <li class="ev-trace-item">
+              <code class="ev-trace-id">0f9e8d7c6b5a43210fedcba987654321</code>
+              <span class="ev-trace-meta"><span class="ev-kind kind-error">通断</span> · -1002 · pod-worker-3 · host-101 · 2026-09-22 12:03:11</span>
+              <span class="ev-trace-why">-1002 首条异常（pod-worker-3 / host-101，12:03 时间窗内）</span>
+            </li>
+          </ul>
         </div>
 
 

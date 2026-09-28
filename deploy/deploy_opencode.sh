@@ -94,13 +94,21 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 
 # ── Agent 技能工具链检查（缺 uv 时每条技能命令都报 uv: command not found）──
-SKILL_SCRIPTS="${WITTY_ROOT}/witty_ub_diagnostician/skills/experience-skill/scripts"
+# 技能脚本随 bundle 布局走：源码树 witty_ub_diagnostician/skills/，
+# 部署布局（RPM/宿主机部署）witty_ub_diagnostician/.opencode/skills/。
+# OPENCODE_CONFIG_PATH 两种布局下均已解析到 bundle 根，用其所在目录定位。
+AGENT_BUNDLE_DIR="$(cd "$(dirname "${OPENCODE_CONFIG_PATH}")" && pwd)"
+SKILL_SCRIPTS="${AGENT_BUNDLE_DIR}/skills/experience-skill/scripts"
 if [[ -d "${SKILL_SCRIPTS}" ]]; then
     if ! command -v uv >/dev/null 2>&1; then
         echo "[ERROR] 'uv' is required by the diagnosis agent skills, but it is not installed." >&2
         echo "        Symptom: every diagnosis run stalls at 'uv: command not found'." >&2
-        echo "        Fix    : bash ${WITTY_ROOT}/deploy/host/install_deps.sh" >&2
-        echo "                 (or: sudo python3 -m pip install uv --break-system-packages)" >&2
+        if [[ "${WITTY_ROOT}" == "/var/witty-ub" ]]; then
+            echo "        Fix    : sudo witty-ub manager deps" >&2
+        else
+            echo "        Fix    : bash ${WITTY_ROOT}/deploy/host/install_deps.sh" >&2
+        fi
+        echo "        (or: sudo python3 -m pip install uv --break-system-packages)" >&2
         exit 1
     fi
     if [[ ! -d "${SKILL_SCRIPTS}/.venv" ]]; then

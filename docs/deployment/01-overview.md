@@ -37,6 +37,7 @@ Witty-UB 是一个用于超节点故障定位的工具，前后端默认分离�
 | `WITTY_API_BASE` | 跟随 `WITTY_BACKEND_URL` | Agent 提示词中的后端 API 基址 |
 | `WITTY_AGENT_URL` | `http://127.0.0.1:4096` | Nginx `/agent-api/` 反代上游（OpenCode） |
 | `OPENCODE_HOST` | `127.0.0.1` | OpenCode 监听地址 |
+| `WITTY_REPORT_DIR` | `/var/witty-ub/reports` | 诊断报告落盘根目录（`witty-ub-reports` 卷），agent 写入、后端 `/diagnostic_report` 读取 |
 
 ## 组件说明
 

@@ -15,6 +15,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 source "$SCRIPT_DIR/_lib.sh"
 
+# pip 镜像源（统一环境变量 PYPI_INDEX_URL，默认华为云；与 RPM spec %post 约定一致。
+# 注意: experience-skill 的 uv sync 不走此变量，源由其 pyproject.toml 指定）
+PIP_INDEX="${PYPI_INDEX_URL:-https://repo.huaweicloud.com/repository/pypi/simple/}"
+
 # ──────────────────── 系统依赖 ────────────────────
 
 install_system_deps() {
@@ -98,7 +102,7 @@ install_python_deps() {
     # 升级既有依赖到 requirements 声明的版本（全新环境一次装好；
     # 旧环境避免因残留旧版 polars/numpy 导致 ImportError）。
     # tee 流式回显 + 留档: 依赖安装耗时最长, 静默会让部署看起来像假死。
-    if ! pip install -U -r "$LATENCY_DIR/deploy/requirements.txt" 2>&1 | tee "$LOG_DIR/pip-install.log"; then
+    if ! pip install -U -i "$PIP_INDEX" -r "$LATENCY_DIR/deploy/requirements.txt" 2>&1 | tee "$LOG_DIR/pip-install.log"; then
         _err "Python 依赖安装失败，最近日志:"
         tail -30 "$LOG_DIR/pip-install.log"
         return 1
@@ -112,8 +116,6 @@ install_python_deps() {
 # 容器镜像装过这套（Dockerfile.base），宿主机部署此前没有。
 
 install_uv_if_missing() {
-    local pip_index="${WITTY_PIP_INDEX:-https://mirrors.aliyun.com/pypi/simple/}"
-
     if _has_cmd uv; then
         _normalize_uv_path
         _log "uv 已就绪: $(command -v uv) ($(uv --version 2>/dev/null | head -n1))"
@@ -125,17 +127,17 @@ install_uv_if_missing() {
         local SUDO_CMD=()
         _is_root || SUDO_CMD=(sudo)
         # openEuler 24.03 需 --break-system-packages；老 pip 不认则该参数回退
-        "${SUDO_CMD[@]}" python3 -m pip install -U -i "$pip_index" uv --break-system-packages \
+        "${SUDO_CMD[@]}" python3 -m pip install -U -i "$PIP_INDEX" uv --break-system-packages \
             >/dev/null 2>&1 \
-            || "${SUDO_CMD[@]}" python3 -m pip install -U -i "$pip_index" uv \
+            || "${SUDO_CMD[@]}" python3 -m pip install -U -i "$PIP_INDEX" uv \
             || true
 
         # pip 认为依赖已满足时不会补回丢失的 console script → 强制重装
         if ! _has_cmd uv; then
             "${SUDO_CMD[@]}" python3 -m pip install --force-reinstall --no-deps \
-                -i "$pip_index" uv --break-system-packages >/dev/null 2>&1 \
+                -i "$PIP_INDEX" uv --break-system-packages >/dev/null 2>&1 \
                 || "${SUDO_CMD[@]}" python3 -m pip install --force-reinstall --no-deps \
-                    -i "$pip_index" uv >/dev/null 2>&1 \
+                    -i "$PIP_INDEX" uv >/dev/null 2>&1 \
                 || true
         fi
 
@@ -155,7 +157,7 @@ install_uv_if_missing() {
 
     if ! _has_cmd uv; then
         _err "uv 安装失败。Agent 技能会全部报 'uv: command not found'，请手动安装:"
-        echo "  sudo python3 -m pip install -i $pip_index uv --break-system-packages"
+        echo "  sudo python3 -m pip install -i $PIP_INDEX uv --break-system-packages"
         return 1
     fi
     _log "uv 安装完成: $(command -v uv)"

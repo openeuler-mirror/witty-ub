@@ -33,6 +33,7 @@
 | `WITTY_AGENT_URL` | `http://127.0.0.1:4096` | Nginx `/agent-api/` 反代上游 |
 | `WITTY_CORS_ORIGINS` | 空 | FastAPI 允许的跨域前端源，多个源用逗号分隔；经 Nginx 同源反代时无需设置 |
 | `OPENCODE_HOST` | `127.0.0.1` | OpenCode 监听地址（OpenCode 留在后端节点时改 `0.0.0.0`） |
+| `WITTY_REPORT_DIR` | `/var/witty-ub/reports` | 诊断报告落盘根目录（`witty-ub-reports` 卷）；未设置时报告读写两端均回落 `/tmp/reports`（本地调试） |
 
 仅当前端浏览器直接访问后端 `9772` 端口时需要设置 `WITTY_CORS_ORIGINS`。源必须包含协议、主机和端口，可在前端页面的浏览器控制台执行 `window.location.origin` 获取，例如：
 
@@ -101,6 +102,7 @@ RPM 单机部署：Nginx 8080、FastAPI 9772、OpenCode 4096、PostgreSQL 5432�
 | `witty-ub-uploads` | 命名卷 | `/var/witty-ub/latency/file/file_upload` | 上传的日志文件 |
 | `witty-ub-results` | 命名卷 | `/var/witty-ub/latency/file/file_parse_result` | 解析结果 |
 | `witty-ub-experience-data` | 命名卷 | `…/skills/experience-skill/data` | Agent 经验库 `experience.db` |
+| `witty-ub-reports` | 命名卷 | `/var/witty-ub/reports` | 诊断报告（HTML + 侧车 JSON），前端「诊断报告」列表读取 |
 | `~/.config/opencode` | bind mount | `/root/.config/opencode` | OpenCode 配置目录 |
 | `pg15-data` | 命名卷 | `/var/lib/pgsql/data` | PostgreSQL 数据目录 |
 

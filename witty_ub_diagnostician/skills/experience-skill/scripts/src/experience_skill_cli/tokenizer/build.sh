@@ -7,7 +7,7 @@ BUILD_DIR="${SRC_DIR}/build"
 OUTPUT_DIR="${SRC_DIR}/output"
 LIBSIMPLE_LINK="${SCRIPT_DIR}/libsimple"
 echo "[Tokenizer] 查询最新 release 版本..."
-LATEST_TAG=$(curl -s --max-time 5 https://api.github.com/repos/wangfenjin/simple/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+LATEST_TAG=$(curl -s --max-time 5 https://api.github.com/repos/wangfenjin/simple/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' || true)
 if [[ -z "${LATEST_TAG}" ]]; then
     echo "[WARN] 无法获取最新版本，使用默认版本 v0.7.1"
     LATEST_TAG="v0.7.1"
