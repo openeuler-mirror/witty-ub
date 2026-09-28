@@ -962,9 +962,10 @@ netfallback_hint() {
     log_warn "The Docker network is probably untrusted/filtered on this host (docs/troubleshooting/02-container-runtime.md §3)"
     log_warn "Fallback to host network mode with env overrides (deploy.conf is NOT modified):"
     if [ "$ROLE" = "frontend" ]; then
-        log_warn "  WITTY_NETWORK_MODE_FRONTEND=host WITTY_BACKEND_URL=$(local_backend_url) bash ${SCRIPT_DIR}/deploy_witty.sh ${_orig}"
+        # 同机分离的一致性校验要求前后端模式相同，所以两个键必须一起给，否则命令自身会被拦下
+        log_warn "  WITTY_NETWORK_MODE_BACKEND=host WITTY_NETWORK_MODE_FRONTEND=host WITTY_BACKEND_URL=$(local_backend_url) bash ${SCRIPT_DIR}/deploy_witty.sh ${_orig}"
         log_warn "  (the backend container on this host must listen on ${WITTY_BACKEND_HOST_PORT:-9772}: a bridge backend publishes it,"
-        log_warn "   a host backend binds it directly; if the backend is still in bridge mode, redeploy it with WITTY_NETWORK_MODE_BACKEND=host)"
+        log_warn "   a host backend binds it directly; redeploy it with WITTY_NETWORK_MODE_BACKEND=host for a uniform host-mode setup)"
     else
         log_warn "  WITTY_NETWORK_MODE_PG=host bash ${DEPLOY_DIR}/../deploy_pg.sh --docker"
         log_warn "  ${_mode_arg} WITTY_NETWORK_MODE_PG=host bash ${SCRIPT_DIR}/deploy_witty.sh ${_orig}"
@@ -979,8 +980,9 @@ run_fallback_retry() {
     fi
     export WITTY_FALLBACK_APPLIED=1 WITTY_NETWORK_FALLBACK=off
     if [ "$ROLE" = "frontend" ]; then
-        # 同机分离：前端切 host 后必须改用回环地址访问后端，容器名在 host 网络下无法解析
-        export WITTY_NETWORK_MODE_FRONTEND=host
+        # 同机分离：前端切 host 后必须改用回环地址访问后端（容器名在 host 网络下无法解析）；
+        # _BACKEND 也要一并声明 host，否则一致性校验会把这次重跑直接拦下
+        export WITTY_NETWORK_MODE_FRONTEND=host WITTY_NETWORK_MODE_BACKEND=host
         export WITTY_BACKEND_URL="$(local_backend_url)"
     else
         # 一体容器用 _APP，分离后端容器用 _BACKEND（两者互不生效，避免重跑时打出"被忽略"告警）

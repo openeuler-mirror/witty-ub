@@ -314,12 +314,14 @@ bash /var/witty-ub/deploy/deploy_opencode.sh
 WITTY_NETWORK_MODE_PG=host bash deploy/deploy_pg.sh --docker
 WITTY_NETWORK_MODE_APP=host WITTY_NETWORK_MODE_PG=host bash deploy/docker/deploy_witty.sh
 
-# 前端角色（同机分离）：切 host 后必须改用回环地址访问后端（容器名在 host 网络下无法解析）
-WITTY_NETWORK_MODE_FRONTEND=host WITTY_BACKEND_URL=http://127.0.0.1:9772 bash deploy/docker/deploy_witty.sh
+# 前端角色（同机分离）：切 host 后必须改用回环地址访问后端（容器名在 host 网络下无法解析）；
+# _BACKEND 要一并给 host，否则同机分离的一致性校验会把该命令自身拦下
+WITTY_NETWORK_MODE_BACKEND=host WITTY_NETWORK_MODE_FRONTEND=host \
+  WITTY_BACKEND_URL=http://127.0.0.1:9772 bash deploy/docker/deploy_witty.sh --role frontend
 ```
 
-`auto` 会用 host 模式自动重建一次（前端角色同样会改写 `WITTY_BACKEND_URL`）；`off` 只报错退出。
-跨机分离部署失败时只提示检查对端地址与防火墙，不会建议改 host。
+`auto` 会用 host 模式自动重建一次（前端角色同样会一并声明 `_BACKEND=host` 并改写 `WITTY_BACKEND_URL`）；
+`off` 只报错退出。跨机分离部署失败时只提示检查对端地址与防火墙，不会建议改 host。
 
 #### host 网络模式的联动变化
 

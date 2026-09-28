@@ -207,7 +207,9 @@ WITTY_NETWORK_FALLBACK="prompt"         # 自检失败回退：prompt（提示�
 > 失败时按 `WITTY_NETWORK_FALLBACK`：`prompt` 打印归因与带环境变量覆盖的回退命令
 > （**不回写 `deploy.conf`**），`auto` 自动切 host 重建一次，`off` 只报错。
 > 前端角色回退时脚本会一并把 `WITTY_BACKEND_URL` 改写为 `http://127.0.0.1:9772`
-> （host 网络下容器名无法解析）。跨机分离失败时只提示检查对端地址与防火墙，不会建议改 host。
+> 并同时声明 `WITTY_NETWORK_MODE_BACKEND=host`（host 网络下容器名无法解析，且同机分离的
+> 一致性校验要求前后端模式相同，只给 `_FRONTEND` 会被拦下）。跨机分离失败时只提示检查
+> 对端地址与防火墙，不会建议改 host。
 
 ### 镜像拉取优先级
 
