@@ -72,6 +72,7 @@ esac
 CONFIG_KEYS=(
     WITTY_HOST_PORT WITTY_EXTRA_MOUNTS WITTY_IMAGE WITTY_LOG_LEVEL WITTY_CONTAINER_NAME
     WITTY_BACKEND_URL WITTY_BACKEND_HOST_PORT WITTY_FRONTEND_HOST_PORT WITTY_NETWORK
+    WITTY_NETWORK_MODE WITTY_SSL_VERIFY WITTY_SECCOMP
     PG_HOST PG_PORT PG_DATABASE PG_USER PG_PASSWORD PG_SECRET_FILE
     PG_HOST_IN_CONTAINER PG_PORT_IN_CONTAINER PG_CONTAINER_NAME PG_NETWORK PG_VOLUME
     OPENCODE_CONFIG_DIR PG_IMAGE PG_HEALTH_INTERVAL PG_HEALTH_TIMEOUT PG_HEALTH_RETRIES
@@ -228,6 +229,39 @@ WITTY_HOST_PORT="${WITTY_HOST_PORT:-32412}"
 WITTY_NETWORK="${PG_NETWORK:-witty-ub-network}"
 WITTY_LOG_LEVEL="${WITTY_LOG_LEVEL:-info}"
 
+# ---------- 容器运行时选项（网络模式 / SSL 校验 / seccomp） ----------
+# 网络模式: bridge（默认，接入 WITTY_NETWORK 组网）| host（共享宿主机网络）
+WITTY_NETWORK_MODE="${WITTY_NETWORK_MODE:-bridge}"
+case "$WITTY_NETWORK_MODE" in
+bridge | host) ;;
+*)
+    log_error "Invalid WITTY_NETWORK_MODE '${WITTY_NETWORK_MODE}' (expected: bridge|host)"
+    exit 1
+    ;;
+esac
+
+# OpenCode/LLM 出网 HTTPS 证书校验: true（默认校验）| false（关闭，由容器入口翻译为
+# NODE_TLS_REJECT_UNAUTHORIZED=0）
+WITTY_SSL_VERIFY="${WITTY_SSL_VERIFY:-true}"
+case "$WITTY_SSL_VERIFY" in
+true | True | TRUE | 1 | yes | YES) WITTY_SSL_VERIFY="true" ;;
+false | False | FALSE | 0 | no | NO) WITTY_SSL_VERIFY="false" ;;
+*)
+    log_error "Invalid WITTY_SSL_VERIFY '${WITTY_SSL_VERIFY}' (expected: true|false)"
+    exit 1
+    ;;
+esac
+
+# seccomp 策略: default（默认过滤）| unconfined（关闭过滤，兼容旧版 Docker/libseccomp 的 clone3 问题）
+WITTY_SECCOMP="${WITTY_SECCOMP:-default}"
+case "$WITTY_SECCOMP" in
+default | unconfined) ;;
+*)
+    log_error "Invalid WITTY_SECCOMP '${WITTY_SECCOMP}' (expected: default|unconfined)"
+    exit 1
+    ;;
+esac
+
 # 角色派生：容器名、镜像 tag、宿主机端口
 # backend 暴露 9772 供前端/外部访问；frontend 默认 32413 与单机部署 32412 错开
 case "$ROLE" in
@@ -235,23 +269,35 @@ backend)
     CONTAINER_NAME="${WITTY_CONTAINER_NAME}-backend"
     ROLE_TAG="backend"
     HOST_PORT="${WITTY_BACKEND_HOST_PORT:-9772}"
+    CONTAINER_PORT="9772"
     ;;
 frontend)
     CONTAINER_NAME="${WITTY_CONTAINER_NAME}-frontend"
     ROLE_TAG="frontend"
     HOST_PORT="${WITTY_FRONTEND_HOST_PORT:-32413}"
+    CONTAINER_PORT="8080"
     ;;
 *)
     CONTAINER_NAME="${WITTY_CONTAINER_NAME}"
     ROLE_TAG="latest"
     HOST_PORT="${WITTY_HOST_PORT}"
+    CONTAINER_PORT="8080"
     ;;
 esac
 
-# frontend 容器内访问后端的地址：显式配置 > 同网络后端容器名 > Docker 网关 + 宿主机端口
+# host 模式：端口映射被 Docker 忽略，容器直接占用容器内端口
+if [ "$WITTY_NETWORK_MODE" = "host" ]; then
+    ACCESS_PORT="${CONTAINER_PORT}"
+else
+    ACCESS_PORT="${HOST_PORT}"
+fi
+
+# frontend 容器内访问后端的地址：显式配置 > host 模式走本机 9772 > 同网络后端容器名
 if [ "$ROLE" = "frontend" ]; then
     if [ -n "${WITTY_BACKEND_URL:-}" ]; then
         BACKEND_URL="${WITTY_BACKEND_URL}"
+    elif [ "$WITTY_NETWORK_MODE" = "host" ]; then
+        BACKEND_URL="http://127.0.0.1:${WITTY_BACKEND_HOST_PORT:-9772}"
     else
         BACKEND_URL="http://${WITTY_CONTAINER_NAME}-backend:9772"
     fi
@@ -295,6 +341,29 @@ if [ -n "${WITTY_EXTRA_MOUNTS:-}" ]; then
         EXTRA_MOUNT_ARGS+=("-v" "${mount}")
         log_info "Extra mount: ${mount}"
     done
+fi
+
+# 运行时参数（网络 / 端口 / seccomp / SSL），由上面的容器运行时选项派生
+NETWORK_ARGS=(--network "${WITTY_NETWORK}")
+PORT_ARGS=(-p "${HOST_PORT}:${CONTAINER_PORT}")
+if [ "$WITTY_NETWORK_MODE" = "host" ]; then
+    # host 模式下 -p 会被 Docker 忽略，容器直接占用容器内端口
+    NETWORK_ARGS=(--network host)
+    PORT_ARGS=()
+    log_warn "Network mode 'host': port mapping is ignored; the container binds port ${CONTAINER_PORT} on the host"
+    log_warn "  host port ${HOST_PORT} is not used; Web UI/API is served on http://<host-ip>:${ACCESS_PORT}"
+fi
+
+SECURITY_OPT_ARGS=()
+if [ "$WITTY_SECCOMP" = "unconfined" ]; then
+    SECURITY_OPT_ARGS=(--security-opt seccomp=unconfined)
+    log_warn "seccomp policy 'unconfined': container syscall filtering is disabled"
+fi
+
+# SSL 校验开关交给容器入口翻译为 NODE_TLS_REJECT_UNAUTHORIZED（OpenCode 是 Node 应用）
+SSL_ENV_ARGS=(-e "WITTY_SSL_VERIFY=${WITTY_SSL_VERIFY}")
+if [ "$WITTY_SSL_VERIFY" = "false" ]; then
+    log_warn "WITTY_SSL_VERIFY=false: OpenCode/LLM HTTPS certificate verification will be disabled in the container"
 fi
 
 # ============================================================
@@ -416,13 +485,17 @@ echo ""
 echo "[Step 3/3] Starting witty-ub container ..."
 
 # 3.1 准备网络
-log_info "Preparing Docker network ..."
-if docker network ls --format '{{.Name}}' | grep -qx "${WITTY_NETWORK}"; then
-    log_ok "Network ${WITTY_NETWORK} already exists"
+if [ "$WITTY_NETWORK_MODE" = "host" ]; then
+    log_info "Network mode 'host': skipping Docker network creation"
 else
-    log_info "Creating network ${WITTY_NETWORK} ..."
-    docker network create "${WITTY_NETWORK}"
-    log_ok "Network ${WITTY_NETWORK} created"
+    log_info "Preparing Docker network ..."
+    if docker network ls --format '{{.Name}}' | grep -qx "${WITTY_NETWORK}"; then
+        log_ok "Network ${WITTY_NETWORK} already exists"
+    else
+        log_info "Creating network ${WITTY_NETWORK} ..."
+        docker network create "${WITTY_NETWORK}"
+        log_ok "Network ${WITTY_NETWORK} created"
+    fi
 fi
 
 # 3.2 准备数据卷
@@ -475,6 +548,15 @@ detect_pg_config() {
     # 用户显式配置了端口但没改 host（不常见，但兼容）
     if [ -n "${PG_PORT_IN_CONTAINER:-}" ] && [ "${PG_PORT_IN_CONTAINER}" != "5432" ]; then
         PG_IN_CONTAINER_PORT="${PG_PORT_IN_CONTAINER}"
+    fi
+
+    # host 模式：容器共享宿主机网络，PG 容器/宿主机 PG 都通过 127.0.0.1 访问
+    # （host 模式下 PG 容器直接监听宿主机端口，不再是 PG_PORT 映射端口）
+    if [ "$WITTY_NETWORK_MODE" = "host" ]; then
+        PG_IN_CONTAINER_HOST="127.0.0.1"
+        PG_IN_CONTAINER_PORT="${PG_PORT_RPM:-5432}"
+        log_info "Network mode 'host': using PostgreSQL at ${PG_IN_CONTAINER_HOST}:${PG_IN_CONTAINER_PORT}"
+        return 0
     fi
 
     # 检测 1：PG 容器是否在同一网络中运行
@@ -540,7 +622,7 @@ backend)
     docker run -d \
         --name "${CONTAINER_NAME}" \
         --restart unless-stopped \
-        -p "${HOST_PORT}:9772" \
+        "${PORT_ARGS[@]}" \
         -v witty-ub-data:/var/witty-ub/data \
         -v witty-ub-logs:/var/log/witty-ub \
         -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
@@ -555,19 +637,21 @@ backend)
         -e PG_PORT="${PG_IN_CONTAINER_PORT}" \
         -e PG_DATABASE="${PG_DATABASE:-witty-ub}" \
         -e PG_USER="${PG_USER:-witty-ub}" \
+        "${SSL_ENV_ARGS[@]}" \
         --health-cmd="curl -f http://localhost:9772/health_check" \
         --health-interval=30s \
         --health-timeout=10s \
         --health-retries=3 \
         --health-start-period=40s \
-        --network "${WITTY_NETWORK}" \
+        "${SECURITY_OPT_ARGS[@]}" \
+        "${NETWORK_ARGS[@]}" \
         "${SELECTED_IMAGE}"
     ;;
 frontend)
     docker run -d \
         --name "${CONTAINER_NAME}" \
         --restart unless-stopped \
-        -p "${HOST_PORT}:8080" \
+        "${PORT_ARGS[@]}" \
         -v witty-ub-logs:/var/log/witty-ub \
         -v "${OPENCODE_CONFIG_DIR}:/root/.config/opencode" \
         -v witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data \
@@ -575,14 +659,16 @@ frontend)
         "${EXTRA_MOUNT_ARGS[@]}" \
         -e WITTY_ROLE=frontend \
         -e WITTY_BACKEND_URL="${BACKEND_URL}" \
-        --network "${WITTY_NETWORK}" \
+        "${SSL_ENV_ARGS[@]}" \
+        "${SECURITY_OPT_ARGS[@]}" \
+        "${NETWORK_ARGS[@]}" \
         "${SELECTED_IMAGE}"
     ;;
 *)
     docker run -d \
         --name "${CONTAINER_NAME}" \
         --restart unless-stopped \
-        -p "${HOST_PORT}:8080" \
+        "${PORT_ARGS[@]}" \
         -v witty-ub-data:/var/witty-ub/data \
         -v witty-ub-logs:/var/log/witty-ub \
         -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
@@ -598,12 +684,14 @@ frontend)
         -e PG_PORT="${PG_IN_CONTAINER_PORT}" \
         -e PG_DATABASE="${PG_DATABASE:-witty-ub}" \
         -e PG_USER="${PG_USER:-witty-ub}" \
+        "${SSL_ENV_ARGS[@]}" \
         --health-cmd="curl -f http://localhost:9772/health_check" \
         --health-interval=30s \
         --health-timeout=10s \
         --health-retries=3 \
         --health-start-period=40s \
-        --network "${WITTY_NETWORK}" \
+        "${SECURITY_OPT_ARGS[@]}" \
+        "${NETWORK_ARGS[@]}" \
         "${SELECTED_IMAGE}"
     ;;
 esac
@@ -644,7 +732,8 @@ echo "========================================"
 echo "Verifying connection ..."
 
 # frontend 经 Nginx 反代探测远端后端；all/backend 直连本机 API
-VERIFY_URL="http://localhost:${HOST_PORT}/health_check"
+# host 模式下端口映射被忽略，用容器内端口（8080 / 9772）访问
+VERIFY_URL="http://localhost:${ACCESS_PORT}/health_check"
 VERIFY_OK=0
 for i in {1..15}; do
     # 必须校验响应体，只看 curl 退出码会把 502/404 也当成成功
@@ -673,17 +762,23 @@ echo "========================================"
 echo "  Container:  ${CONTAINER_NAME}"
 echo "  Image:      ${SELECTED_IMAGE}"
 if [ "$ROLE" != "backend" ]; then
-    echo "  Web UI:     http://localhost:${HOST_PORT}"
-    echo "  API:        http://localhost:${HOST_PORT}/health_check"
-    echo "  Agent API:  http://localhost:${HOST_PORT}/agent-api/ (OpenCode via Nginx)"
+    echo "  Web UI:     http://localhost:${ACCESS_PORT}"
+    echo "  API:        http://localhost:${ACCESS_PORT}/health_check"
+    echo "  Agent API:  http://localhost:${ACCESS_PORT}/agent-api/ (OpenCode via Nginx)"
 fi
 if [ "$ROLE" = "backend" ]; then
-    echo "  API:        http://localhost:${HOST_PORT}/health_check (port 9772, proxied by the frontend node)"
+    echo "  API:        http://localhost:${ACCESS_PORT}/health_check (port 9772, proxied by the frontend node)"
 fi
 if [ "$ROLE" = "frontend" ]; then
     echo "  Backend:    ${BACKEND_URL} (nginx upstream inside the frontend container)"
 fi
-echo "  Network:    ${WITTY_NETWORK}"
+if [ "$WITTY_NETWORK_MODE" = "host" ]; then
+    echo "  Network:    host (shares the host network; port mapping disabled)"
+else
+    echo "  Network:    ${WITTY_NETWORK} (bridge)"
+fi
+echo "  seccomp:    ${WITTY_SECCOMP}"
+echo "  SSL verify: ${WITTY_SSL_VERIFY}"
 if [ "$ROLE" != "frontend" ]; then
     echo "  PG Host:    ${PG_IN_CONTAINER_HOST}:${PG_IN_CONTAINER_PORT} (container)"
 fi

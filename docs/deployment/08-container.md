@@ -299,6 +299,18 @@ docker run -d \
 
 ---
 
+## 容器运行时选项
+
+用部署脚本（`deploy/docker/manage.sh`）时这三项在 `deploy/deploy.conf` 中配置（`WITTY_NETWORK_MODE` / `WITTY_SSL_VERIFY` / `WITTY_SECCOMP`，交互式安装也会询问）；手工 `docker run` 时对应下面的参数：
+
+| 场景 | 参数 |
+| ------ | ------ |
+| Docker 网络被服务器视为不可信（PG 与 witty-ub 同组网却无法通信） | 每个容器加 `--network host`、去掉 `-p`，并把 `PG_HOST` 改为 `127.0.0.1`；或改用 firewalld 信任域方案，见[容器运行时问题排查 §3](../troubleshooting/02-container-runtime.md) |
+| OpenCode 调用 LLM 报证书错误（内网自签证书 / 代理拦截，且无法导入 CA） | 给跑 OpenCode 的容器加 `-e WITTY_SSL_VERIFY=false`（容器入口导出 `NODE_TLS_REJECT_UNAUTHORIZED=0` 关闭出网 HTTPS 校验） |
+| 旧版 Docker(<20.10)/libseccomp(<2.5) 启动报 `can't start new thread` | 加 `--security-opt seccomp=unconfined` 关闭 seccomp 过滤 |
+
+---
+
 ## 数据卷说明
 
 | 卷名 | 容器路径 | 角色 | 用途 |

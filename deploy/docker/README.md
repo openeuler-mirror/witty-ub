@@ -134,6 +134,7 @@ manage.sh
 
 > 分离部署顺序：先后端（`install-pg` + `install-backend`），后前端（`install-frontend`）。
 > 密钥权限按读取方自动设置：容器化 PG → `0440`，宿主机/远端 PG → `0400`。
+> `WITTY_NETWORK_MODE="host"` 时跳过上述"创建网络"步骤，并改用宿主机网络（端口映射不生效），详见下文配置项说明。
 
 ---
 
@@ -175,7 +176,16 @@ WITTY_EXTRA_MOUNTS="/home:/home:ro"     # 额外挂载（可选）
 WITTY_BACKEND_HOST_PORT="9772"          # 后端容器宿主机端口（容器内 9772）
 WITTY_FRONTEND_HOST_PORT="32413"        # 前端容器宿主机端口（容器内 8080）
 WITTY_BACKEND_URL=""                    # 前端容器内反代上游；留空 = http://witty-ub-backend:9772，跨机填 http://<后端IP>:9772
+
+# ---------- 容器运行时（网络 / SSL / seccomp） ----------
+WITTY_NETWORK_MODE="bridge"             # bridge（默认，接入 PG_NETWORK 组网）| host（共享宿主机网络）
+WITTY_SSL_VERIFY="true"                 # true（默认校验 OpenCode/LLM 出网 HTTPS 证书）| false（关闭校验）
+WITTY_SECCOMP="default"                 # default（Docker 默认过滤）| unconfined（关闭，旧版 Docker/libseccomp）
 ```
+
+> `WITTY_NETWORK_MODE="host"` 时脚本自动改写：容器用 `--network host`、跳过 `-p` 端口映射与网络创建、
+> 容器内 PG 地址改为 `127.0.0.1:5432`（`deploy_pg.sh` 强制 PG 监听 5432）、前端反代改为 `http://127.0.0.1:9772`；
+> Web UI 直接占用宿主机 8080，`WITTY_HOST_PORT` 不再生效。详见[故障排查 §3](../../docs/troubleshooting/02-container-runtime.md)。
 
 ### 镜像拉取优先级
 
@@ -269,6 +279,32 @@ bash manage.sh install-backend
 WITTY_BACKEND_URL=http://<后端机器IP>:9772 bash manage.sh install-frontend
 ```
 
+### Docker 网络不被信任（容器间无法通信）
+
+服务器把 Docker 网桥视为不可信区域时，PG 容器与 witty-ub 容器在同一网络内也互相不可达（PG 自身 `healthy`）。
+
+```bash
+# 方案 A（推荐）: 把 Docker 网络加入 firewalld 信任域
+SUBNET=$(docker network inspect witty-ub-network --format '{{(index .IPAM.Config 0).Subnet}}')
+sudo firewall-cmd --permanent --zone=trusted --add-source="$SUBNET" && sudo firewall-cmd --reload
+
+# 方案 B: 改用 host 网络模式（PG 与 witty-ub 都用）
+WITTY_NETWORK_MODE=host bash manage.sh install-all
+# 或写入 deploy/deploy.conf 后执行 bash manage.sh
+# 交互式菜单安装时也会询问该选项（Network mode）
+```
+
+> 方案 B 下 Web UI 变为 `http://<宿主机IP>:8080`，PG 直接占用宿主机 5432。详见[故障排查 §3](../../docs/troubleshooting/02-container-runtime.md)。
+
+### 内网自签证书导致 OpenCode 调用 LLM 报证书错误
+
+```bash
+# deploy/deploy.conf 中设置（仅内网自签证书/代理拦截且无法导入 CA 时使用）
+# WITTY_SSL_VERIFY="false"
+```
+
+> 关闭的是 OpenCode/LLM **出网 HTTPS 证书校验**（容器内导出 `NODE_TLS_REJECT_UNAUTHORIZED=0`），不影响 Nginx 或数据库连接。
+
 ### 完全卸载
 
 ```bash
@@ -300,6 +336,10 @@ bash manage.sh
 | 分离前端 unhealthy，但前端页面能打开 | 远端后端不可达：先在 BE 执行 `curl http://<BE>:9772/health_check`，见[常见问题 §11](../../docs/troubleshooting/01-common-issues.md) |
 | 报 `Cannot access the Docker daemon socket (permission denied)` | 当前用户不在 `docker` 组：`sudo usermod -aG docker $USER && newgrp docker`（脚本已区分该错误与"守护进程未启动"） |
 | 端口冲突 | `ss -tlnp \| grep <端口>` 检查占用 |
+| 同网络内 PG 与 witty-ub 互相不可达（PG 自身 healthy） | Docker 网络被服务器视为不可信：加 firewalld 信任域，或设 `WITTY_NETWORK_MODE=host`，见[故障排查 §3](../../docs/troubleshooting/02-container-runtime.md) |
+| host 模式下 `docker port witty-ub` 输出为空 | 正常现象（host 模式无端口映射）：Web UI 直接占用宿主机 8080，`manage.sh status` 显示为 `host net (:8080)` |
+| OpenCode 调用 LLM 报证书错误 | 内网自签证书/代理拦截：导入 CA，或设 `WITTY_SSL_VERIFY="false"` 关闭校验 |
+| 旧版 Docker 容器启动报 `can't start new thread` | 设 `WITTY_SECCOMP="unconfined"` 关闭 seccomp 过滤（Docker<20.10 / libseccomp<2.5） |
 | 容器已有数据但无法启动 | 检查数据卷完整性、PG 数据目录权限 |
 | 与 compose 混用报容器名冲突 | 脚本与 `docker-compose.yml` 互斥（容器名/卷名/网络名一致），请二选一 |
 

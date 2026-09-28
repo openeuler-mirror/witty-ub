@@ -19,6 +19,7 @@
 | `PG_DATABASE` | `witty-ub` | PostgreSQL 数据库名 |
 | `PG_USER` | `witty-ub` | PostgreSQL 用户名 |
 | `PG_PASSWORD` | （进程启动时注入） | PostgreSQL 密码；容器入口从 `/run/secrets/pg_password` 读取，不写入容器配置 |
+| `WITTY_SSL_VERIFY` | `true` | 是否校验 OpenCode/LLM 出网 HTTPS 证书；`false` 时容器入口导出 `NODE_TLS_REJECT_UNAUTHORIZED=0` 关闭校验，仅用于内网自签证书/代理拦截且无法导入 CA 的场景 |
 
 ### 前后端分离部署环境变量
 
@@ -272,6 +273,22 @@ bash /var/witty-ub/deploy/deploy_opencode.sh
 | `WITTY_LOG_LEVEL` | `info` | 日志级别 |
 | `OPENCODE_CONFIG_DIR` | `${HOME}/.config/opencode` | OpenCode 配置目录 |
 | `WITTY_EXTRA_MOUNTS` | `/home:/home:ro` | 额外目录挂载 |
+| `WITTY_NETWORK_MODE` | `bridge` | 容器网络模式：`bridge` 接入 `PG_NETWORK` 组网，容器间用容器名互访；`host` 共享宿主机网络（端口映射失效、PG 走 `127.0.0.1:5432`），用于服务器把 Docker 网络视为不可信区域的场景 |
+| `WITTY_SSL_VERIFY` | `true` | 是否校验 OpenCode/LLM 出网 HTTPS 证书（同上表） |
+| `WITTY_SECCOMP` | `default` | seccomp 策略：`default` 用 Docker 默认过滤；`unconfined` 关闭过滤（旧版 Docker(<20.10)/libseccomp(<2.5) 因 clone3 报 `can't start new thread` 时使用） |
+
+#### host 网络模式的联动变化
+
+`WITTY_NETWORK_MODE=host` 时部署脚本会自动处理以下差异（脚本与 `docker-compose.yml` 两种入口都适用）：
+
+| 项 | bridge（默认） | host |
+| ---- | ---- | ---- |
+| 端口映射 | `-p <宿主机端口>:8080` 生效 | 被 Docker 忽略；Web UI 直接绑定宿主机 `8080`，后端 `9772` |
+| 容器间访问 | 容器名（`postgres`） | `127.0.0.1` |
+| PG 端口 | PG 容器映射为宿主机 `15432` | PG 直接占用宿主机 `5432` |
+| 前端反代后端 | `http://witty-ub-backend:9772` | `http://127.0.0.1:9772` |
+
+> compose 无法用变量在 bridge/host 间切换，`docker-compose.yml` 的 host 模式需手工改（`network_mode: host` 并删除 `networks:`/`ports:`），详见该文件头部说明与 [容器运行时问题排查](../troubleshooting/02-container-runtime.md)。
 
 ### RPM 部署专用配置
 

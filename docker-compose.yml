@@ -12,6 +12,20 @@
 #       `docker tag` 成 witty-ub:<role>，再执行上面的 up 命令。
 # 注意: 本文件与 deploy/docker/manage.sh（脚本部署）使用相同的容器名/卷名/网络名，
 #       两套方式互斥；混用会出现同名容器冲突。
+#
+# ── 容器运行时选项（compose 无法用变量在 bridge/host 间切换，host 需手工改本文件） ──
+# 1) 网络模式: 默认 bridge（各服务接入 witty-ub-network，用服务名互访）。
+#    若服务器把 Docker 网络视为不可信区域（PG 与 witty-ub 同组网却无法通信），
+#    改为 host 模式：给每个服务加 `network_mode: host`，删除对应的 `networks:` 与
+#    `ports:`（host 模式下端口映射被忽略，Web UI 变为 http://<宿主机IP>:8080，
+#    后端 9772，PG 直接占用宿主机 5432；PG_HOST 需改为 127.0.0.1）。
+#    详见 docs/troubleshooting/02-container-runtime.md §3。
+#    脚本部署可直接用 WITTY_NETWORK_MODE=host 自动完成上述改写。
+# 2) SSL 校验: WITTY_SSL_VERIFY=false 关闭 OpenCode/LLM 出网 HTTPS 证书校验
+#    （容器入口翻译为 NODE_TLS_REJECT_UNAUTHORIZED=0），仅用于内网自签证书或代理
+#    拦截且无法导入 CA 的场景；默认 true。
+# 3) seccomp: 旧版 Docker(<20.10)/libseccomp(<2.5) 因 clone3 报 "can't start new
+#    thread" 时，给服务加 `security_opt: ["seccomp=unconfined"]` 关闭过滤。
 
 services:
   postgres:
@@ -78,6 +92,8 @@ services:
       - PG_PORT=5432
       - PG_DATABASE=witty-ub
       - PG_USER=witty-ub
+      # OpenCode/LLM 出网 HTTPS 证书校验（false = 关闭，见文件头说明）
+      - WITTY_SSL_VERIFY=${WITTY_SSL_VERIFY:-true}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9772/health_check"]
       interval: 30s
@@ -149,6 +165,8 @@ services:
       - WITTY_ROLE=frontend
       # 容器网络内经服务名访问后端
       - WITTY_BACKEND_URL=http://witty-ub-backend:9772
+      # OpenCode/LLM 出网 HTTPS 证书校验（false = 关闭，见文件头说明）
+      - WITTY_SSL_VERIFY=${WITTY_SSL_VERIFY:-true}
     networks:
       - witty-ub-network
 

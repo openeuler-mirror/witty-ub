@@ -25,7 +25,20 @@ export OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
 # 诊断报告落盘根目录（由 witty-ub-reports 卷持久化；agent 子进程继承此变量）
 export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-${WITTY_DIR}/reports}"
 
-echo "Role: ${WITTY_ROLE}  Backend: ${WITTY_BACKEND_URL}  Agent: ${WITTY_AGENT_URL}"
+# ── OpenCode/LLM 出网 HTTPS 证书校验（WITTY_SSL_VERIFY=false 时关闭） ──
+# 内网自签证书或代理拦截会让 OpenCode 调用 LLM 接口时报证书错误；此类环境若无法
+# 导入 CA，可把 WITTY_SSL_VERIFY 设为 false。OpenCode 是 Node 应用，关闭校验通过
+# NODE_TLS_REJECT_UNAUTHORIZED=0 实现，必须在启动 OpenCode 之前导出。
+export WITTY_SSL_VERIFY="${WITTY_SSL_VERIFY:-true}"
+case "$WITTY_SSL_VERIFY" in
+false | False | FALSE | 0 | no | NO)
+    export NODE_TLS_REJECT_UNAUTHORIZED=0
+    echo "[WARN] WITTY_SSL_VERIFY=${WITTY_SSL_VERIFY}: HTTPS certificate verification for OpenCode/LLM calls is DISABLED"
+    ;;
+*) ;;
+esac
+
+echo "Role: ${WITTY_ROLE}  Backend: ${WITTY_BACKEND_URL}  Agent: ${WITTY_AGENT_URL}  SSL verify: ${WITTY_SSL_VERIFY}"
 
 # Docker 部署通过只读 bind mount / Compose secret 传入口令，避免将密码
 # 写入镜像配置或 docker inspect 可见的容器环境配置。只在后端角色中加载。
