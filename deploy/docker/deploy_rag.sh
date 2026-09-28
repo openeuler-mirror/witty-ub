@@ -14,6 +14,7 @@ log_error() { echo "[ERROR] $*" >&2; }
 # Environment values take precedence over deploy.conf.
 _ENV_RAG_CONFIG_FILE="${RAG_CONFIG_FILE:-}"
 _ENV_RAG_DB_SECRET_FILE="${RAG_DB_SECRET_FILE:-}"
+_ENV_RAG_ACCESS_KEY_SECRET_FILE="${RAG_ACCESS_KEY_SECRET_FILE:-}"
 _ENV_OPENGAUSS_RAG_IMAGE="${OPENGAUSS_RAG_IMAGE:-}"
 _ENV_WITTY_RAG_CORE_IMAGE="${WITTY_RAG_CORE_IMAGE:-}"
 _ENV_WITTY_RAG_MCP_IMAGE="${WITTY_RAG_MCP_IMAGE:-}"
@@ -26,11 +27,12 @@ fi
 
 [ -n "$_ENV_RAG_CONFIG_FILE" ] && RAG_CONFIG_FILE="$_ENV_RAG_CONFIG_FILE"
 [ -n "$_ENV_RAG_DB_SECRET_FILE" ] && RAG_DB_SECRET_FILE="$_ENV_RAG_DB_SECRET_FILE"
+[ -n "$_ENV_RAG_ACCESS_KEY_SECRET_FILE" ] && RAG_ACCESS_KEY_SECRET_FILE="$_ENV_RAG_ACCESS_KEY_SECRET_FILE"
 [ -n "$_ENV_OPENGAUSS_RAG_IMAGE" ] && OPENGAUSS_RAG_IMAGE="$_ENV_OPENGAUSS_RAG_IMAGE"
 [ -n "$_ENV_WITTY_RAG_CORE_IMAGE" ] && WITTY_RAG_CORE_IMAGE="$_ENV_WITTY_RAG_CORE_IMAGE"
 [ -n "$_ENV_WITTY_RAG_MCP_IMAGE" ] && WITTY_RAG_MCP_IMAGE="$_ENV_WITTY_RAG_MCP_IMAGE"
 [ -n "$_ENV_WITTY_NETWORK" ] && WITTY_NETWORK="$_ENV_WITTY_NETWORK"
-unset _ENV_RAG_CONFIG_FILE _ENV_RAG_DB_SECRET_FILE _ENV_OPENGAUSS_RAG_IMAGE \
+unset _ENV_RAG_CONFIG_FILE _ENV_RAG_DB_SECRET_FILE _ENV_RAG_ACCESS_KEY_SECRET_FILE _ENV_OPENGAUSS_RAG_IMAGE \
     _ENV_WITTY_RAG_CORE_IMAGE _ENV_WITTY_RAG_MCP_IMAGE _ENV_WITTY_NETWORK
 
 WITTY_NETWORK="${WITTY_NETWORK:-${PG_NETWORK:-witty-ub-network}}"
@@ -61,6 +63,8 @@ OPENGAUSS_RAG_VOLUME="${OPENGAUSS_RAG_VOLUME:-opengauss-rag-data}"
 RAG_DB_USER="${RAG_DB_USER:-gaussdb}"
 RAG_DB_NAME="${RAG_DB_NAME:-postgres}"
 RAG_DB_SECRET_FILE="${RAG_DB_SECRET_FILE:-/etc/witty-ub/rag-opengauss.passwd}"
+RAG_ACCESS_KEY_SECRET_FILE="${RAG_ACCESS_KEY_SECRET_FILE:-/etc/witty-ub/rag-secrets/access-key}"
+RAG_ACCESS_KEY_SECRET_DIR="$(dirname "$RAG_ACCESS_KEY_SECRET_FILE")"
 
 WITTY_RAG_CORE_CONTAINER="${WITTY_RAG_CORE_CONTAINER:-witty-rag-core}"
 WITTY_RAG_CORE_IMAGE="${WITTY_RAG_CORE_IMAGE:-hub-harbor.oepkgs.net/neocopilot/witty-rag-core:0.10.2-release-arm}"
@@ -91,6 +95,8 @@ if [ ! -s "$RAG_DB_SECRET_FILE" ]; then
     exit 1
 fi
 chmod 0600 "$RAG_DB_SECRET_FILE" 2>/dev/null || true
+mkdir -p "$RAG_ACCESS_KEY_SECRET_DIR"
+chmod 0700 "$RAG_ACCESS_KEY_SECRET_DIR"
 
 if ! docker network inspect "$WITTY_NETWORK" >/dev/null 2>&1; then
     docker network create "$WITTY_NETWORK" >/dev/null
@@ -230,12 +236,14 @@ start_rag_core_container() {
         -e RAG_WORKERS="$RAG_WORKERS" \
         -v "${RAG_RUNTIME_CONFIG}:/rag-service/rag_core/config.toml:ro" \
         -v "${RAG_LOG_DIR}:/rag-service/logs" \
+        -v "${RAG_ACCESS_KEY_SECRET_DIR}:/run/secrets/witty-rag:ro" \
         "$WITTY_RAG_MCP_IMAGE" >/dev/null
     log_ok "已启动 ${WITTY_RAG_CORE_CONTAINER}"
 }
 
 if docker container inspect "$WITTY_RAG_CORE_CONTAINER" >/dev/null 2>&1; then
     if [ "$(docker inspect -f '{{.State.Running}}' "$WITTY_RAG_CORE_CONTAINER")" = "true" ] &&
+        [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/witty-rag"}}yes{{end}}{{end}}' 2>/dev/null)" = "yes" ] &&
         docker exec "$WITTY_RAG_CORE_CONTAINER" \
             curl -fsS --max-time 3 http://127.0.0.1:9988/health_check >/dev/null 2>&1 &&
         docker exec "$WITTY_RAG_CORE_CONTAINER" sh -lc \
@@ -280,6 +288,49 @@ if [ "$rag_ready" != true ]; then
 fi
 
 log_ok "RAG Core 已连接 openGauss 并通过健康检查"
+
+if [ ! -s "$RAG_ACCESS_KEY_SECRET_FILE" ]; then
+    log_info "首次部署：为 Witty-UB Agent 创建 RAG 访问密钥"
+    access_key_response="$(curl -fsS \
+        -H 'Content-Type: application/json' \
+        -d '{"owner_id":"witty-ub-agent","owner_name":"Witty-UB Agent","name":"witty-ub-agent","description":"Managed by Witty-UB deployment"}' \
+        "http://127.0.0.1:${WITTY_RAG_CORE_HOST_PORT}/access_key/")"
+    RAG_ACCESS_KEY_RESPONSE="$access_key_response" \
+    RAG_ACCESS_KEY_TARGET="$RAG_ACCESS_KEY_SECRET_FILE" \
+        python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+payload = json.loads(os.environ["RAG_ACCESS_KEY_RESPONSE"])
+key = payload.get("result", {}).get("key")
+if not isinstance(key, str) or not key.strip():
+    raise SystemExit("RAG access-key response does not contain result.key")
+Path(os.environ["RAG_ACCESS_KEY_TARGET"]).write_text(key.strip() + "\n")
+PY
+    unset access_key_response RAG_ACCESS_KEY_RESPONSE RAG_ACCESS_KEY_TARGET
+    chmod 0600 "$RAG_ACCESS_KEY_SECRET_FILE"
+    log_ok "RAG 访问密钥已保存到受保护文件 ${RAG_ACCESS_KEY_SECRET_FILE}"
+    docker restart "$WITTY_RAG_CORE_CONTAINER" >/dev/null
+    log_info "重启 RAG Core 以加载访问密钥"
+    rag_ready=false
+    for _ in $(seq 1 60); do
+        if docker exec "$WITTY_RAG_CORE_CONTAINER" \
+            curl -fsS http://127.0.0.1:9988/health_check >/dev/null 2>&1; then
+            rag_ready=true
+            break
+        fi
+        sleep 3
+    done
+    if [ "$rag_ready" != true ]; then
+        log_error "RAG Core 重启后未就绪"
+        exit 1
+    fi
+else
+    chmod 0600 "$RAG_ACCESS_KEY_SECRET_FILE" 2>/dev/null || true
+    log_ok "复用已有 RAG 访问密钥文件 ${RAG_ACCESS_KEY_SECRET_FILE}"
+fi
+
 log_info "等待 RAG MCP SSE 就绪"
 mcp_ready=false
 for _ in $(seq 1 60); do

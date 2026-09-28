@@ -35,6 +35,10 @@ cp -a /opt/witty-rag-mcp-source/. "$MCP_RUNTIME_DIR/"
 test -f "$MCP_RUNTIME_DIR/rag_mcp_tools/access_key.py"
 cd "$MCP_RUNTIME_DIR"
 : >/rag-service/logs/rag-mcp.log
+if [ -s /run/secrets/witty-rag/access-key ]; then
+    RAG_CORE_ACCESS_KEY="$(tr -d '\r\n' </run/secrets/witty-rag/access-key)"
+    export RAG_CORE_ACCESS_KEY
+fi
 RAG_CORE_BASE_URL=http://127.0.0.1:9988 \
 RAG_CORE_MCP_HOST=0.0.0.0 \
 RAG_CORE_MCP_PORT=12312 \
