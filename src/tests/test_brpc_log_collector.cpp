@@ -631,7 +631,7 @@ TEST(DiagnosisModuleInit, SucceedsWithValidArgs) {
     EXPECT_EQ(module.Initialize(), RACK_OK);
     EXPECT_EQ(module.taskId_, "task_1");
     EXPECT_EQ(module.timestamp_, 5000);
-    EXPECT_EQ(module.outputPath_, witty.Path() / "brpc-diag");
+    EXPECT_EQ(module.batchOutputPath_, witty.Path() / "brpc-tmp");
     EXPECT_NE(module.collector_, nullptr);
     EXPECT_NE(module.engine_, nullptr);
 
@@ -718,9 +718,11 @@ TEST(DiagnosisModuleRun, StartSucceedsAndWritesOutputs) {
     ASSERT_EQ(module.Initialize(), RACK_OK);
     EXPECT_EQ(module.Start(), RACK_OK);
 
-    const auto outputDir = witty.Path() / "brpc-diag";
-    ASSERT_TRUE(std::filesystem::exists(outputDir / "batch_task_1.jsonl"));
-    std::ifstream batch(outputDir / "batch_task_1.jsonl");
+    // master 版输出拆为两个目录：批次 → brpc-tmp，schema → cache
+    const auto batchDir = witty.Path() / "brpc-tmp";
+    const auto schemaDir = witty.Path() / "cache";
+    ASSERT_TRUE(std::filesystem::exists(batchDir / "batch_task_1.jsonl"));
+    std::ifstream batch(batchDir / "batch_task_1.jsonl");
     std::stringstream buffer;
     buffer << batch.rdbuf();
     const std::string content = buffer.str();
@@ -728,7 +730,7 @@ TEST(DiagnosisModuleRun, StartSucceedsAndWritesOutputs) {
     EXPECT_NE(content.find("ubsocket_err"), std::string::npos);
 
     bool hasSchema = false;
-    for (const auto &entry : std::filesystem::directory_iterator(outputDir)) {
+    for (const auto &entry : std::filesystem::directory_iterator(schemaDir)) {
         if (entry.path().filename().string().rfind("schema_", 0) == 0) {
             hasSchema = true;
         }
@@ -768,8 +770,8 @@ TEST(DiagnosisModuleRun, StartFailsWhenOutputDirBlocked) {
                    {"timestamp", "0"}});
     brpc::DiagnosisModule module;
     ASSERT_EQ(module.Initialize(), RACK_OK);
-    // 用同名普通文件堵住输出目录 → Dump 失败
-    witty.Write("brpc-diag", "x");
+    // 用同名普通文件堵住批次输出目录 → Dump 失败
+    witty.Write("brpc-tmp", "x");
     EXPECT_NE(module.Start(), RACK_OK);
 
     module.UnInitialize();

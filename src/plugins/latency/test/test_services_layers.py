@@ -738,7 +738,7 @@ def test_delete_log_kb_by_kb_id_not_found(monkeypatch):
         run(LogKnowledgeService.delete_log_kb_by_kb_id("missing-kb"))
 
 
-def test_delete_log_kb_survives_failed_task_stops(monkeypatch):
+def test_delete_log_kb_aborts_when_task_stops_fail(monkeypatch):
     monkeypatch.setattr(
         LogKnowledgePGManager,
         "get_log_kb_by_kb_id",
@@ -749,7 +749,8 @@ def test_delete_log_kb_survives_failed_task_stops(monkeypatch):
         "list_tasks_by_kb_id",
         AsyncMock(return_value=[SimpleNamespace(id="t-1"), SimpleNamespace(id="t-2")]),
     )
-    # 第一个任务 stop 返回 False，第二个任务 stop 抛异常，删除仍然继续
+    # master：第一个任务 stop 返回 False、第二个抛异常 → 整体中止删除并抛错，
+    # 不允许有 worker 在数据库行被删除后存活
     monkeypatch.setattr(BaseWorker, "stop", AsyncMock(side_effect=[False, Exception("kill failed")]))
     update_log_kb = AsyncMock(return_value=1)
     monkeypatch.setattr(LogKnowledgePGManager, "update_log_kb", update_log_kb)
@@ -759,10 +760,10 @@ def test_delete_log_kb_survives_failed_task_stops(monkeypatch):
     delete_config = AsyncMock()
     monkeypatch.setattr(log_knowledge_module.DiagnosisConfigPGManager, "delete", delete_config)
 
-    msg = run(LogKnowledgeService.delete_log_kb_by_kb_id("kb-1"))
-    assert msg.kb_id == "kb-1"
-    update_log_kb.assert_awaited_once_with("kb-1", {"existed_status": False})
-    delete_config.assert_awaited_once_with("kb-1")
+    with pytest.raises(RuntimeError, match="未能确认终止"):
+        run(LogKnowledgeService.delete_log_kb_by_kb_id("kb-1"))
+    update_log_kb.assert_not_awaited()
+    delete_config.assert_not_awaited()
 
 
 def test_delete_log_kb_cleans_directories(monkeypatch, tmp_path):
@@ -772,7 +773,18 @@ def test_delete_log_kb_cleans_directories(monkeypatch, tmp_path):
         AsyncMock(return_value=SimpleNamespace(kb_id="kb-1")),
     )
     monkeypatch.setattr(TaskPGManager, "list_tasks_by_kb_id", AsyncMock(return_value=[]))
-    monkeypatch.setattr(LogKnowledgePGManager, "update_log_kb", AsyncMock(return_value=1))
+    # master：删除改为硬删除（update existed_status=False 的旧路径已移除）
+    monkeypatch.setattr(
+        LogKnowledgePGManager, "delete_log_kb_by_kb_id", AsyncMock(return_value=1)
+    )
+    monkeypatch.setattr(
+        TaskPGManager, "hard_delete_tasks_by_kb_id", AsyncMock()
+    )
+    monkeypatch.setattr(
+        LogFilePGManager,
+        "hard_delete_log_file_with_related_data",
+        AsyncMock(return_value=True),
+    )
     monkeypatch.setattr(
         LogFilePGManager, "list_log_file_ids", AsyncMock(return_value=["lf-0001-x", "lf-0002-y"])
     )
@@ -818,8 +830,20 @@ def test_delete_log_kb_rowcount_zero(monkeypatch):
         AsyncMock(return_value=SimpleNamespace(kb_id="kb-1")),
     )
     monkeypatch.setattr(TaskPGManager, "list_tasks_by_kb_id", AsyncMock(return_value=[]))
-    monkeypatch.setattr(LogKnowledgePGManager, "update_log_kb", AsyncMock(return_value=0))
-    with pytest.raises(NotFoundBizException):
+    # master：物理删除返回 0 → "删除资产库失败"；旧 NotFound 语义已移除
+    monkeypatch.setattr(
+        LogKnowledgePGManager, "delete_log_kb_by_kb_id", AsyncMock(return_value=0)
+    )
+    monkeypatch.setattr(
+        TaskPGManager, "hard_delete_tasks_by_kb_id", AsyncMock()
+    )
+    monkeypatch.setattr(
+        LogFilePGManager, "list_log_file_ids", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(
+        log_knowledge_module.DiagnosisConfigPGManager, "delete", AsyncMock()
+    )
+    with pytest.raises(RuntimeError, match="删除资产库失败"):
         run(LogKnowledgeService.delete_log_kb_by_kb_id("kb-1"))
 
 
@@ -1896,7 +1920,8 @@ def test_upload_file_object_flow(monkeypatch, tmp_path):
     )
     assert add_log_files.await_args.args[0] == []
 
-    # 未命名上传对象：name 回退为 "unnamed"
+    # 未命名上传对象：master 的 _display_name 依次回退 name → filename →
+    # str(source)（展示字段不卡登记，2026-09-14 故障回归），不会抛 422
     run(
         LogFileService.upload_log_files(
             "kb-1",
@@ -1905,7 +1930,9 @@ def test_upload_file_object_flow(monkeypatch, tmp_path):
             ),
         )
     )
-    assert add_log_files.await_args.args[0][-1].name == "unnamed"
+    fallback_name = add_log_files.await_args.args[0][-1].name
+    assert isinstance(fallback_name, str)
+    assert fallback_name  # 非空：登记未因缺名失败
 
 
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")

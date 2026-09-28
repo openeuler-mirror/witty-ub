@@ -1,4 +1,5 @@
-include(SetupGoogleTest)
+# GTest/GMock 由系统 RPM 提供（openEuler: gtest-devel / gmock-devel）
+find_package(GTest REQUIRED)
 include(GoogleTest)
 
 # Helper function to add a test target

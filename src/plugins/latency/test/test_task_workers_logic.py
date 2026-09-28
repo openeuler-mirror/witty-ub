@@ -473,8 +473,9 @@ class TestKVCacheLogParseWorkerParseLog:
         monkeypatch.setattr(
             kv_module, "Config", _fake_config(retry_times=3)
         )
+        # master 的 build_trace_frame 签名带 threshold_ms kwarg（trace_frame.py:446）
         monkeypatch.setattr(
-            kv_module, "build_trace_frame", lambda rows: fake_df
+            kv_module, "build_trace_frame", lambda rows, threshold_ms=None: fake_df
         )
 
         result = _run(KVCacheLogParseWorker.parse_log(log_dir=str(tmp_path)))
@@ -553,46 +554,44 @@ class TestKVCacheLogParseWorkerStoreResult:
 
 
 class TestKVCacheLogParseWorkerDetailBatches:
-    def test_iter_detail_batches_top_and_anomaly(self):
+    # 说明：master 已把 _iter_detail_batches 重构为 _iter_detail_frames
+    # （trace_index + top1000_tids + threshold_ms + anomalous_only_count，
+    # 异常不再由显式集合传入，而是阈值推导），_store_detail_batches 委托
+    # LogParseResultPGManager.add_log_parse_result_batches 的写法已删，
+    # 改为 _store_detail_frames 直连 PGManager COPY（由
+    # test_compact_trace_frames.py 的 bounded COPY 用例覆盖），对应用例删除。
+    _TOP = {"t1", "t2", "t3", "t4"}
+
+    def test_iter_detail_frames_top_and_anomaly(self):
         df = _df()
         agg_map = {("10.1.0.1", "10.1.0.2", "SET"): "agg-2"}
-        batches = list(KVCacheLogParseWorker._iter_detail_batches(
-            df, {"t2"}, agg_map, "log-x",
+        frames = list(KVCacheLogParseWorker._iter_detail_frames(
+            df, self._TOP, 5.0, agg_map, "log-x", 0,
         ))
-        rows = [row for batch in batches for row in batch]
-        # 4 trace 全部进 top_k(1000)，t2 同时是异常
+        rows = [row for frame in frames for row in frame.iter_rows(named=True)]
+        # 4 trace 全部进 top_k(1000)，t2（total_ms=5.0 达阈值）是异常
         assert len(rows) == 4
-        by_tid = {row.trace_id: row for row in rows}
-        assert by_tid["t2"].is_anomalous is True
-        assert by_tid["t2"].aggregated_event_id == "agg-2"
-        assert by_tid["t2"].log_id == "log-x"
-        assert by_tid["t1"].is_anomalous is False
-        assert by_tid["t1"].aggregated_event_id == ""
+        by_tid = {row["tid"]: row for row in rows}
+        assert by_tid["t2"]["is_anomalous"] is True
+        assert by_tid["t2"]["aggregated_event_id"] == "agg-2"
+        assert by_tid["t2"]["log_id"] == "log-x"
+        assert by_tid["t1"]["is_anomalous"] is False
+        assert by_tid["t1"]["aggregated_event_id"] == ""
 
-    def test_iter_detail_batches_batch_size_splits(self):
+    def test_iter_detail_frames_batch_size_splits(self):
         df = _df()
-        batches = list(KVCacheLogParseWorker._iter_detail_batches(
-            df, {"t2"}, {}, "log-x", batch_size=1,
+        frames = list(KVCacheLogParseWorker._iter_detail_frames(
+            df, self._TOP, 5.0, {}, "log-x", 0, batch_size=1,
         ))
-        assert len(batches) == 4
-        assert all(len(batch) == 1 for batch in batches)
+        assert len(frames) == 4
+        assert all(frame.height == 1 for frame in frames)
 
-    def test_iter_detail_batches_invalid_batch_size(self):
+    def test_iter_detail_frames_invalid_batch_size(self):
         df = _df()
         with pytest.raises(ValueError):
-            list(KVCacheLogParseWorker._iter_detail_batches(
-                df, {"t2"}, {}, "log-x", batch_size=0,
+            list(KVCacheLogParseWorker._iter_detail_frames(
+                df, self._TOP, 5.0, {}, "log-x", 0, batch_size=0,
             ))
-
-    def test_store_detail_batches_delegates(self, monkeypatch):
-        add_batches = AsyncMock(return_value=5)
-        monkeypatch.setattr(
-            kv_module.LogParseResultPGManager,
-            "add_log_parse_result_batches",
-            add_batches,
-        )
-        assert _run(KVCacheLogParseWorker._store_detail_batches([[1], [2]])) == 5
-        add_batches.assert_awaited_once_with([[1], [2]])
 
 
 class TestKVCacheLogParseWorkerRun:
@@ -635,11 +634,8 @@ class TestKVCacheLogParseWorkerRun:
             "_aggregate_three_way",
             AsyncMock(return_value=(sd_events, agg_map, tw_events, {"t2"}, df)),
         )
-        monkeypatch.setattr(
-            KVCacheLogParseWorker,
-            "_store_detail_batches",
-            AsyncMock(return_value=3),
-        )
+        # master run() 不再单独调 _store_detail_*：明细帧迭代器经
+        # store_result(detail_frames=...) 一并写入（store_result 已 mock）。
         monkeypatch.setattr(
             KVCacheLogParseWorker,
             "_store_bucket_stats_degraded",
@@ -650,33 +646,40 @@ class TestKVCacheLogParseWorkerRun:
             "store_result",
             AsyncMock(return_value=store_ok),
         )
+        # master 失败路径改走 TaskPGManager.mark_failed_with_report（直连
+        # PGManager.session 写失败报告），不再走 update_task({"status": ...})。
+        mark_failed = AsyncMock()
+        monkeypatch.setattr(
+            kv_module.TaskPGManager, "mark_failed_with_report", mark_failed
+        )
         report = AsyncMock()
         monkeypatch.setattr(BaseWorker, "report", report)
         update_task = AsyncMock()
         monkeypatch.setattr(kv_module.TaskPGManager, "update_task", update_task)
-        return update_task, report
+        return update_task, report, mark_failed
 
     def test_run_success_path(self, monkeypatch):
-        update_task, report = self._wire_run(monkeypatch)
+        update_task, report, mark_failed = self._wire_run(monkeypatch)
         assert _run(KVCacheLogParseWorker.run("task-1")) is True
         assert update_task.await_args_list[-1].args[1] == {
             "status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value
         }
+        mark_failed.assert_not_awaited()
 
     def test_run_empty_traces_marks_failed(self, monkeypatch):
-        update_task, report = self._wire_run(
+        update_task, report, mark_failed = self._wire_run(
             monkeypatch, parse_result=SimpleNamespace(height=0)
         )
         assert _run(KVCacheLogParseWorker.run("task-1")) is False
-        assert update_task.await_args_list[-1].args[1] == {
-            "status": TaskStatusEnum.FAILED_PENDING_REMOVE.value
-        }
+        assert mark_failed.await_args.kwargs["status"] == (
+            TaskStatusEnum.FAILED_PENDING_REMOVE
+        )
 
     def test_run_cancelled_after_scan_stops(self, monkeypatch):
         running = _task()
         cancelled = _task(status=TaskStatusEnum.CANCELLED)
         get_task = AsyncMock(side_effect=[running, cancelled, cancelled, cancelled])
-        update_task, report = self._wire_run(monkeypatch)
+        update_task, report, mark_failed = self._wire_run(monkeypatch)
         monkeypatch.setattr(
             kv_module.TaskPGManager, "get_task_by_task_id", get_task
         )
@@ -686,22 +689,25 @@ class TestKVCacheLogParseWorkerRun:
             "status" not in c.args[1] or c.args[1]["status"] == TaskStatusEnum.RUNNING.value
             for c in update_task.await_args_list
         )
+        mark_failed.assert_not_awaited()
 
     def test_run_parse_exception_marks_failed(self, monkeypatch):
-        update_task, report = self._wire_run(
+        update_task, report, mark_failed = self._wire_run(
             monkeypatch, parse_exc=RuntimeError("scan died")
         )
         assert _run(KVCacheLogParseWorker.run("task-1")) is False
-        assert update_task.await_args_list[-1].args[1] == {
-            "status": TaskStatusEnum.FAILED_PENDING_REMOVE.value
-        }
+        assert mark_failed.await_args.kwargs["status"] == (
+            TaskStatusEnum.FAILED_PENDING_REMOVE
+        )
 
     def test_run_store_failure_marks_failed(self, monkeypatch):
-        update_task, report = self._wire_run(monkeypatch, store_ok=False)
+        update_task, report, mark_failed = self._wire_run(
+            monkeypatch, store_ok=False
+        )
         assert _run(KVCacheLogParseWorker.run("task-1")) is False
-        statuses = [c.args[1] for c in update_task.await_args_list]
-        assert {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value} in statuses
-        assert any("failed" in str(c.args) for c in report.await_args_list)
+        assert mark_failed.await_args.kwargs["status"] == (
+            TaskStatusEnum.FAILED_PENDING_REMOVE
+        )
 
     def test_run_task_missing_returns_false(self, monkeypatch):
         monkeypatch.setattr(
@@ -867,6 +873,11 @@ class TestStoreTraceContextLogsGenerate:
 
 class TestStoreTraceContextLogsStore:
     def _wire_common(self, monkeypatch, *, access_patterns=None):
+        # master 默认走 polars CSV COPY 路径（add_log_failure_event_csv）；
+        # 本组用例断言的是逐行 dict 契约，切回 WITTY_STORE_POLARS=0 的
+        # legacy 路径（add_log_failure_event_raw），polars 路径另由
+        # test_context_store_bounded.py 覆盖。
+        monkeypatch.setenv("WITTY_STORE_POLARS", "0")
         monkeypatch.setattr(
             KVCacheLogEventDiagnosisWorker,
             "parse_filepath_config",
@@ -1071,7 +1082,9 @@ class TestStoreTraceContextLogsLifecycle:
         monkeypatch.setattr(
             store_module.TaskPGManager,
             "get_task_by_task_id",
-            AsyncMock(return_value=_task(retry_times=3)),
+            # master 语义：retry_times >= task_retry_times 即拒绝重试，
+            # 允许重试需严格小于上限（此处 2 < 3）
+            AsyncMock(return_value=_task(retry_times=2)),
         )
         assert _run(StoreTraceContextLogsWorker.reinit("task-1")) is True
         report.assert_awaited_once()
@@ -1160,11 +1173,17 @@ class TestStoreTraceContextLogsRun:
             "refresh_kb_counters",
             AsyncMock(),
         )
+        # master 失败路径改走 TaskPGManager.mark_failed_with_report（直连
+        # PGManager.session 写失败报告），不再走 update_task({"status": ...})。
+        mark_failed = AsyncMock()
+        monkeypatch.setattr(
+            store_module.TaskPGManager, "mark_failed_with_report", mark_failed
+        )
         monkeypatch.setattr(BaseWorker, "report", AsyncMock())
-        return update_task, store_logs, update_log_file
+        return update_task, store_logs, update_log_file, mark_failed
 
     def test_run_success_path(self, monkeypatch, tmp_path):
-        update_task, store_logs, update_log_file = self._wire_run(
+        update_task, store_logs, update_log_file, mark_failed = self._wire_run(
             monkeypatch, tmp_path
         )
         assert _run(StoreTraceContextLogsWorker.run("task-1")) is True
@@ -1179,25 +1198,26 @@ class TestStoreTraceContextLogsRun:
         assert update_task.await_args_list[-1].args[1] == {
             "status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value
         }
+        mark_failed.assert_not_awaited()
 
     def test_run_diagnosis_dependency_failed(self, monkeypatch, tmp_path):
-        update_task, _, _ = self._wire_run(
+        update_task, _, _, mark_failed = self._wire_run(
             monkeypatch, tmp_path, diagnosis_done=False
         )
         assert _run(StoreTraceContextLogsWorker.run("task-1")) is False
-        assert update_task.await_args_list[-1].args[1] == {
-            "status": TaskStatusEnum.FAILED_PENDING_REMOVE.value
-        }
+        assert mark_failed.await_args.kwargs["status"] == (
+            TaskStatusEnum.FAILED_PENDING_REMOVE
+        )
 
     def test_run_parse_dependency_failed(self, monkeypatch, tmp_path):
-        update_task, store_logs, _ = self._wire_run(
+        update_task, store_logs, _, mark_failed = self._wire_run(
             monkeypatch, tmp_path, parse_done=False
         )
         assert _run(StoreTraceContextLogsWorker.run("task-1")) is False
         assert store_logs.await_count == 1
-        assert update_task.await_args_list[-1].args[1] == {
-            "status": TaskStatusEnum.FAILED_PENDING_REMOVE.value
-        }
+        assert mark_failed.await_args.kwargs["status"] == (
+            TaskStatusEnum.FAILED_PENDING_REMOVE
+        )
 
     def test_run_cancelled_between_stages(self, monkeypatch, tmp_path):
         task = _task(task_id="task-1", op_id="log-op",
@@ -1206,21 +1226,21 @@ class TestStoreTraceContextLogsRun:
             task_id="task-1", status=TaskStatusEnum.CANCELLED,
             task_type=TaskTypeEnum.STORE_TRACE_CONTEXT_LOGS_WORKER,
         )
-        update_task, store_logs, _ = self._wire_run(
+        update_task, store_logs, _, _ = self._wire_run(
             monkeypatch, tmp_path, tasks=[task, cancelled]
         )
         assert _run(StoreTraceContextLogsWorker.run("task-1")) is False
         store_logs.assert_not_awaited()
 
     def test_run_log_file_missing(self, monkeypatch, tmp_path):
-        update_task, store_logs, _ = self._wire_run(
+        update_task, store_logs, _, mark_failed = self._wire_run(
             monkeypatch, tmp_path, log_file=None
         )
         assert _run(StoreTraceContextLogsWorker.run("task-1")) is False
         store_logs.assert_not_awaited()
-        assert update_task.await_args_list[-1].args[1] == {
-            "status": TaskStatusEnum.FAILED_PENDING_REMOVE.value
-        }
+        assert mark_failed.await_args.kwargs["status"] == (
+            TaskStatusEnum.FAILED_PENDING_REMOVE
+        )
 
     def test_run_task_missing(self, monkeypatch):
         monkeypatch.setattr(
@@ -1591,9 +1611,11 @@ class TestEventDiagnosisLifecycle:
             "parse_filepath_config",
             AsyncMock(return_value={"ds_worker_access_log_file": []}),
         )
-        update_task = AsyncMock()
+        # master 失败路径改走 TaskPGManager.mark_failed_with_report（直连
+        # PGManager.session 写失败报告），不再走 update_task({"status": ...})。
+        mark_failed = AsyncMock()
         monkeypatch.setattr(
-            event_module.TaskPGManager, "update_task", update_task
+            event_module.TaskPGManager, "mark_failed_with_report", mark_failed
         )
         monkeypatch.setattr(BaseWorker, "report", AsyncMock())
         task = _task()
@@ -1629,10 +1651,10 @@ class TestEventDiagnosisLifecycle:
         assert _run(KVCacheLogEventDiagnosisWorker.run_diagnosis_tool(
             "/logs", task, "rand"
         )) is False
-        assert update_task.await_count == 4
+        assert mark_failed.await_count == 4
         assert all(
-            c.args[1] == {"status": TaskStatusEnum.FAILED_PENDING_REMOVE.value}
-            for c in update_task.await_args_list
+            c.kwargs["status"] == TaskStatusEnum.FAILED_PENDING_REMOVE
+            for c in mark_failed.await_args_list
         )
 
     def test_stop_returns_none_and_delete_passthrough(self, monkeypatch):
@@ -1685,11 +1707,17 @@ class TestEventDiagnosisRun:
         monkeypatch.setattr(
             event_module.TaskPGManager, "update_task", update_task
         )
+        # master 失败路径改走 TaskPGManager.mark_failed_with_report（直连
+        # PGManager.session 写失败报告），不再走 update_task({"status": ...})。
+        mark_failed = AsyncMock()
+        monkeypatch.setattr(
+            event_module.TaskPGManager, "mark_failed_with_report", mark_failed
+        )
         monkeypatch.setattr(asyncio, "sleep", AsyncMock())
-        return update_task, report
+        return update_task, report, mark_failed
 
     def test_run_success_path_with_kb_update(self, monkeypatch, tmp_path):
-        update_task, report = self._wire_run(monkeypatch, tmp_path)
+        update_task, report, mark_failed = self._wire_run(monkeypatch, tmp_path)
         assert _run(KVCacheLogEventDiagnosisWorker.run("task-1")) is True
         assert update_task.await_args_list[-1].args[1] == {
             "status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value
@@ -1699,7 +1727,7 @@ class TestEventDiagnosisRun:
     def test_run_retries_get_task_after_pg_glitch(self, monkeypatch, tmp_path):
         task = _task(task_id="task-1", op_id="log-1",
                      task_type=TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER)
-        update_task, _ = self._wire_run(
+        update_task, _, _ = self._wire_run(
             monkeypatch, tmp_path, tasks=[RuntimeError("pg glitch"), task, task]
         )
         assert _run(KVCacheLogEventDiagnosisWorker.run("task-1")) is True
@@ -1708,24 +1736,24 @@ class TestEventDiagnosisRun:
         }
 
     def test_run_get_task_retry_exhausted(self, monkeypatch, tmp_path):
-        update_task, _ = self._wire_run(
+        update_task, _, _ = self._wire_run(
             monkeypatch, tmp_path, tasks=[RuntimeError("pg down")] * 6
         )
         assert _run(KVCacheLogEventDiagnosisWorker.run("task-1")) is False
         update_task.assert_not_awaited()
 
     def test_run_tool_failed_returns_false(self, monkeypatch, tmp_path):
-        update_task, _ = self._wire_run(monkeypatch, tmp_path, tool_ok=False)
+        update_task, _, _ = self._wire_run(monkeypatch, tmp_path, tool_ok=False)
         assert _run(KVCacheLogEventDiagnosisWorker.run("task-1")) is False
 
     def test_run_output_dir_missing(self, monkeypatch, tmp_path):
-        update_task, report = self._wire_run(monkeypatch, tmp_path)
+        update_task, report, mark_failed = self._wire_run(monkeypatch, tmp_path)
         import shutil as _shutil
         _shutil.rmtree(tmp_path / "log_abcdefgh")
         assert _run(KVCacheLogEventDiagnosisWorker.run("task-1")) is False
-        assert update_task.await_args_list[-1].args[1] == {
-            "status": TaskStatusEnum.FAILED_PENDING_REMOVE.value
-        }
+        assert mark_failed.await_args.kwargs["status"] == (
+            TaskStatusEnum.FAILED_PENDING_REMOVE
+        )
 
     def test_run_cancelled_after_tool(self, monkeypatch, tmp_path):
         task = _task(task_id="task-1", op_id="log-1",
@@ -1734,7 +1762,7 @@ class TestEventDiagnosisRun:
             task_id="task-1", status=TaskStatusEnum.CANCELLED,
             task_type=TaskTypeEnum.KV_CACHE_LOG_EVENT_DIAGNOSIS_WORKER,
         )
-        update_task, _ = self._wire_run(
+        update_task, _, _ = self._wire_run(
             monkeypatch, tmp_path, tasks=[task, cancelled]
         )
         assert _run(KVCacheLogEventDiagnosisWorker.run("task-1")) is False
@@ -1744,11 +1772,13 @@ class TestEventDiagnosisRun:
         )
 
     def test_run_log_file_missing(self, monkeypatch, tmp_path):
-        update_task, _ = self._wire_run(monkeypatch, tmp_path, log_file=None)
+        update_task, _, mark_failed = self._wire_run(
+            monkeypatch, tmp_path, log_file=None
+        )
         assert _run(KVCacheLogEventDiagnosisWorker.run("task-1")) is False
-        assert update_task.await_args_list[-1].args[1] == {
-            "status": TaskStatusEnum.FAILED_PENDING_REMOVE.value
-        }
+        assert mark_failed.await_args.kwargs["status"] == (
+            TaskStatusEnum.FAILED_PENDING_REMOVE
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1877,7 +1907,8 @@ class TestBrpcDiagnosisProcessManagement:
         BrpcLogDiagnosisWorker._processes.clear()
         process = SimpleNamespace(pid=4242)
         BrpcLogDiagnosisWorker._register_process("task-1", process)
-        pid_path = tmp_path / "brpc-diag" / ".worker_task-1.pid"
+        # master 的 pid 目录已从 brpc-diag 改为 brpc-tmp（_output_dir）
+        pid_path = tmp_path / "brpc-tmp" / ".worker_task-1.pid"
         assert pid_path.read_text(encoding="ascii") == "4242"
         assert BrpcLogDiagnosisWorker._processes["task-1"] is process
 
@@ -1895,7 +1926,8 @@ class TestBrpcDiagnosisProcessManagement:
 
     def test_terminate_pid_stale_or_invalid(self, monkeypatch, tmp_path):
         monkeypatch.setenv("WITTY_DIR", str(tmp_path))
-        pid_dir = tmp_path / "brpc-diag"
+        # master 的 pid 目录已从 brpc-diag 改为 brpc-tmp（_output_dir）
+        pid_dir = tmp_path / "brpc-tmp"
         pid_dir.mkdir()
         pid_path = pid_dir / ".worker_task-1.pid"
 
@@ -1914,7 +1946,8 @@ class TestBrpcDiagnosisProcessManagement:
         monkeypatch.setenv("WITTY_DIR", str(tmp_path))
         proc = _spawn_diag_tool()
         assert _wait_for_exec(proc, "task-77")
-        pid_dir = tmp_path / "brpc-diag"
+        # master 的 pid 目录已从 brpc-diag 改为 brpc-tmp（_output_dir）
+        pid_dir = tmp_path / "brpc-tmp"
         pid_dir.mkdir()
         (pid_dir / ".worker_task-77.pid").write_text(
             str(proc.pid), encoding="ascii"
@@ -1960,7 +1993,8 @@ class TestBrpcDiagnosisResultPaths:
     _BATCH_DIR = Path(__file__).parent / "fixtures" / "brpc_diag" / "valid"
 
     def _write_batch(self, tmp_path, task_id="task-normal", first_line=None):
-        out = tmp_path / "brpc-diag"
+        # master 的 batch 目录已从 brpc-diag 改为 brpc-tmp（_output_dir）
+        out = tmp_path / "brpc-tmp"
         out.mkdir(exist_ok=True)
         if first_line is None:
             first_line = (
@@ -1978,7 +2012,9 @@ class TestBrpcDiagnosisResultPaths:
         schema_id = json.loads(
             (out / "batch_task-normal.jsonl").read_text(encoding="utf-8").splitlines()[0]
         )["schema_id"]
-        schema_path = out / f"schema_{schema_id}.json"
+        # master 的 schema 缓存独立到 WITTY_DIR/cache（_schema_dir）
+        schema_path = tmp_path / "cache" / f"schema_{schema_id}.json"
+        schema_path.parent.mkdir(parents=True, exist_ok=True)
         schema_path.write_text("{}", encoding="utf-8")
 
         got_schema, got_batch = BrpcLogDiagnosisWorker._result_paths("task-normal")
@@ -2000,7 +2036,7 @@ class TestBrpcDiagnosisResultPaths:
         valid_first_line = (
             self._BATCH_DIR / "batch_task-normal.jsonl"
         ).read_text(encoding="utf-8").splitlines()[0]
-        (tmp_path / "brpc-diag" / "batch_task-other.jsonl").write_text(
+        (tmp_path / "brpc-tmp" / "batch_task-other.jsonl").write_text(
             valid_first_line + "\n", encoding="utf-8"
         )
         with pytest.raises(BrpcDiagnosisWorkerError):
@@ -2104,13 +2140,21 @@ class TestBrpcDiagnosisLifecycle:
             )),
         )
         monkeypatch.setattr(BaseWorker, "report", AsyncMock())
+        # master 失败路径改走 _mark_failed -> TaskPGManager.mark_failed_with_report
+        # （直连 PGManager.session 写失败报告），不再走 update_task({"status": ...})。
+        mark_failed = AsyncMock()
+        monkeypatch.setattr(
+            brpc_diag_module.TaskPGManager,
+            "mark_failed_with_report",
+            mark_failed,
+        )
 
         assert _run(BrpcLogDiagnosisWorker.run(
             "task-1", log_dir=str(log_file), start_time="bad-format",
         )) is False
-        assert update_task.await_args_list[-1].args[1] == {
-            "status": TaskStatusEnum.FAILED_PENDING_REMOVE.value
-        }
+        assert mark_failed.await_args.kwargs["status"] == (
+            TaskStatusEnum.FAILED_PENDING_REMOVE
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -2277,20 +2321,29 @@ class TestBrpcLogParseWorkerRunStopDelete:
         monkeypatch.setattr(
             brpc_parse_module.LogKnowledgePGManager, "touch_log_kb", touch_kb
         )
+        # master 失败路径改走 TaskPGManager.mark_failed_with_report（直连
+        # PGManager.session 写失败报告），不再走 update_task({"status": ...})。
+        mark_failed = AsyncMock()
+        monkeypatch.setattr(
+            brpc_parse_module.TaskPGManager,
+            "mark_failed_with_report",
+            mark_failed,
+        )
         monkeypatch.setattr(BaseWorker, "report", AsyncMock())
-        return update_task, parse_log, touch_kb
+        return update_task, parse_log, touch_kb, mark_failed
 
     def test_run_success_path(self, monkeypatch):
-        update_task, parse_log, touch_kb = self._wire_run(monkeypatch)
+        update_task, parse_log, touch_kb, mark_failed = self._wire_run(monkeypatch)
         assert _run(BrpcLogParseWorker.run("task-1")) is True
         assert update_task.await_args_list[-1].args[1] == {
             "status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value
         }
         parse_log.assert_awaited_once()
         touch_kb.assert_awaited_once_with("kb-1")
+        mark_failed.assert_not_awaited()
 
     def test_run_zero_records_marks_skip(self, monkeypatch):
-        update_task, parse_log, touch_kb = self._wire_run(
+        update_task, parse_log, touch_kb, mark_failed = self._wire_run(
             monkeypatch, parse_result=0
         )
         assert _run(BrpcLogParseWorker.run("task-1")) is True
@@ -2309,13 +2362,13 @@ class TestBrpcLogParseWorkerRunStopDelete:
         assert _run(BrpcLogParseWorker.run("task-404")) is False
 
     def test_run_parse_exception_marks_failed(self, monkeypatch):
-        update_task, _, _ = self._wire_run(
+        update_task, _, _, mark_failed = self._wire_run(
             monkeypatch, parse_exc=RuntimeError("parse died")
         )
         assert _run(BrpcLogParseWorker.run("task-1")) is False
-        assert update_task.await_args_list[-1].args[1] == {
-            "status": TaskStatusEnum.FAILED_PENDING_REMOVE.value
-        }
+        assert mark_failed.await_args.kwargs["status"] == (
+            TaskStatusEnum.FAILED_PENDING_REMOVE
+        )
 
     def test_stop_and_delete(self, monkeypatch):
         pending = _task(

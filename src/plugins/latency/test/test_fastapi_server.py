@@ -158,7 +158,13 @@ class TestHealthCheck:
 
         executed = self._patch_ok_connection(monkeypatch)
         result = await health_check()
-        assert result == {"status": "ok"}
+        # master：health 附带磁盘水位信息（可写状态/剩余空间/阈值）
+        assert result["status"] == "ok"
+        assert result["writable"] is True
+        assert result["disk_mode"] == "normal"
+        assert result["free_disk_bytes"] >= 0
+        assert "minimum_free_disk_bytes" in result
+        assert result["message"] is None
         assert len(executed) == 1
         assert str(executed[0]).startswith("SELECT 1")
 
@@ -279,6 +285,11 @@ class TestStartupEvent:
             async def handle_tasks():
                 raise AssertionError("不应在启动期执行")
 
+            @staticmethod
+            async def reap_finished_processes():
+                # master：收尸独立成 interval job（join 子进程）
+                calls.append("reap")
+
         monkeypatch.setattr(fastapi_server, "TaskHandler", _FakeTaskHandler)
 
         class _FakeScheduler:
@@ -319,10 +330,15 @@ class TestStartupEvent:
         # mk_dirs：已存在目录跳过、缺失目录创建
         assert (tmp_path / "exists").is_dir()
         assert (tmp_path / "created").is_dir()
-        # 调度任务注册：handle_tasks 每秒执行、单实例、合并积压
-        assert len(scheduler.jobs) == 1
+        # 调度任务注册：handle_tasks 每秒执行、单实例、合并积压；
+        # master：收尸（reap_finished_processes）独立成第二个 interval job
+        assert len(scheduler.jobs) == 2
         fn, args, kwargs = scheduler.jobs[0]
         assert fn is fake_task.handle_tasks
+        assert args == ("interval",)
+        assert kwargs == {"seconds": 1, "max_instances": 1, "coalesce": True}
+        fn, args, kwargs = scheduler.jobs[1]
+        assert fn is fake_task.reap_finished_processes
         assert args == ("interval",)
         assert kwargs == {"seconds": 1, "max_instances": 1, "coalesce": True}
 

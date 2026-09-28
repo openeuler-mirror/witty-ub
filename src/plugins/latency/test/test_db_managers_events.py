@@ -697,7 +697,10 @@ async def test_list_log_failure_events_kb_without_logs(monkeypatch):
 async def test_list_log_failure_events_full(monkeypatch):
     rows = [
         make_log_failure_row(),
-        make_log_failure_row(id="row-2", failure_mode=None, timestamp=None),
+        # master：结果按 raw_text 去重，两行需不同 raw_text 才都会保留
+        make_log_failure_row(
+            id="row-2", failure_mode=None, timestamp=None, raw_text="raw-2"
+        ),
     ]
     install_session(
         monkeypatch,
@@ -713,10 +716,12 @@ async def test_list_log_failure_events_full(monkeypatch):
     )
     total, events = await LogFailureEventPGManager.list_log_failure_events(req)
     assert total == 2
-    assert events[0].id == "row-1"
-    assert events[0].failure_mode == ["mode_a", "mode_b"]
-    assert events[1].failure_mode == []
-    assert events[1].timestamp == ""
+    # master：去重后按 timestamp 排序，timestamp=None（格式化为 ""）排最前
+    assert events[0].id == "row-2"
+    assert events[0].failure_mode == []
+    assert events[0].timestamp == ""
+    assert events[1].id == "row-1"
+    assert events[1].failure_mode == ["mode_a", "mode_b"]
 
 
 async def test_get_err_code_metrics_kb_without_logs(monkeypatch):
@@ -1550,9 +1555,10 @@ async def test_get_latency_metrics_guards(monkeypatch):
             kb_id="kb-1", bucket_seconds=60, log_id="log-1", host="host-1"
         )
         await LogParseResultPGManager.get_latency_metrics(req)
-    install_session(monkeypatch, FakeSession())
+    # master：缺少 log_id 直接 400（时延曲线按单个日志文件查询）
     req = GetLatencyMetricsRequest(kb_id="kb-1", bucket_seconds=60)
-    assert await LogParseResultPGManager.get_latency_metrics(req) == (0, [])
+    with pytest.raises(BadRequestBizException):
+        await LogParseResultPGManager.get_latency_metrics(req)
 
 
 async def test_get_latency_metrics_happy(monkeypatch):

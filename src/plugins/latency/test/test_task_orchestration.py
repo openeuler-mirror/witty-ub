@@ -191,6 +191,7 @@ class _FakeRemovableProcess:
         self.terminate_calls = 0
         self.kill_calls = 0
         self.closed = False
+        self.exitcode = None  # master：_cleanup_dead_processes 收集退出码
 
     def is_alive(self):
         return self._alive
@@ -233,7 +234,7 @@ def _patch_process_pool(
             return _FakeEvent(wait_result=event_wait)
 
         @staticmethod
-        def Process(*, target, args=(), kwargs=None):
+        def Process(*, name=None, target, args=(), kwargs=None):
             process = _FakeSpawnProcess(
                 target=target, args=args, kwargs=kwargs, start_error=start_error
             )
@@ -264,7 +265,8 @@ class TestProcessHandlerAddTask:
         assert isinstance(ready_event, _FakeEvent)
         assert target is _sample_target
         assert rest == ["a"]
-        assert process.kwargs == {"k": 1}
+        # master：child_nice 随 kwargs 传给子进程
+        assert process.kwargs == {"k": 1, "child_nice": 0}
         assert ProcessHandler.tasks["t-1"] is process
 
     def test_add_task_lock_timeout_returns_false(self, monkeypatch):
@@ -950,10 +952,11 @@ class TestBaseWorkerRun:
         assert args[1] is KVCacheLogParseWorker.run
         # BaseWorker.run 的 *args = (task_id, log_dir)，随 target 一并传给进程池
         assert args[2:] == ("t-1", "/logs")
-        assert add_task.call_args.kwargs == {"parse_config": None}
-        update.assert_awaited_once_with(
-            "t-1", {"status": TaskStatusEnum.RUNNING.value}
-        )
+        # master：child_nice 显式传 0（默认不调整子进程 nice）
+        assert add_task.call_args.kwargs == {"parse_config": None, "child_nice": 0}
+        # master：派发器已原子置 PENDING→RUNNING，run 不再重复写状态
+        # （否则会覆盖子进程先完成的 SUCCESSFUL_PENDING_REMOVE）
+        update.assert_not_awaited()
 
     async def test_run_without_log_dir_passes_single_arg(self, monkeypatch):
         monkeypatch.setattr(

@@ -595,7 +595,8 @@ TEST(DiagnosisResultDump, WritesSchemaAndBatch) {
         {2, {MakeLog(TS + 2000000, "m-err2", "", "-", std::nullopt, "")}},
     };
     ASSERT_TRUE(result.Build(MakeTwoFailureRules(), directlyHitLogs, TS - 5000000, TS + 5000000));
-    ASSERT_TRUE(result.Dump(dir.Path(), "task_1"));
+    // master 版 Dump 拆为批次/schema 两个目录；此处同目录仍可覆盖全部断言
+    ASSERT_TRUE(result.Dump(dir.Path(), dir.Path(), "task_1"));
 
     // ---- batch 文件 ----
     const auto batchPath = dir.Path() / "batch_task_1.jsonl";
@@ -694,7 +695,7 @@ TEST(DiagnosisResultDump, EmptyHitsUseCreationTimestamp) {
     TempDir dir("diagres_dump_empty");
     brpc::DiagnosisResult result;
     ASSERT_TRUE(result.Build(MakeSimpleRules(), {}, 0, 1000000));
-    ASSERT_TRUE(result.Dump(dir.Path(), "t_empty"));
+    ASSERT_TRUE(result.Dump(dir.Path(), dir.Path(), "t_empty"));
 
     const auto lines = ReadLines(dir.Path() / "batch_t_empty.jsonl");
     ASSERT_EQ(lines.size(), 1u);
@@ -710,11 +711,11 @@ TEST(DiagnosisResultDump, OverwritesBatchAndReusesSchema) {
     TempDir dir("diagres_dump_retry");
     brpc::DiagnosisResult first;
     ASSERT_TRUE(first.Build(MakeSimpleRules(), {{1, {MakeLog(TS + 1000000, "first hit")}}}, TS, TS + 2000000));
-    ASSERT_TRUE(first.Dump(dir.Path(), "t_retry"));
+    ASSERT_TRUE(first.Dump(dir.Path(), dir.Path(), "t_retry"));
 
     brpc::DiagnosisResult second;
     ASSERT_TRUE(second.Build(MakeSimpleRules(), {{1, {MakeLog(TS + 1000000, "second hit")}}}, TS, TS + 2000000));
-    ASSERT_TRUE(second.Dump(dir.Path(), "t_retry"));
+    ASSERT_TRUE(second.Dump(dir.Path(), dir.Path(), "t_retry"));
 
     // 相同规则 → schema 复用，不重复落盘；batch 原子覆盖，不叠加
     EXPECT_EQ(ListFileNamesWithPrefix(dir.Path(), "schema_").size(), 1u);
@@ -728,7 +729,7 @@ TEST(DiagnosisResultDump, OverwritesBatchAndReusesSchema) {
     otherRules[1].failureMode.name = "changed";
     brpc::DiagnosisResult third;
     ASSERT_TRUE(third.Build(otherRules, {{1, {MakeLog(TS + 1000000, "third hit")}}}, TS, TS + 2000000));
-    ASSERT_TRUE(third.Dump(dir.Path(), "t_retry"));
+    ASSERT_TRUE(third.Dump(dir.Path(), dir.Path(), "t_retry"));
     EXPECT_EQ(ListFileNamesWithPrefix(dir.Path(), "schema_").size(), 2u);
     EXPECT_EQ(ReadLines(dir.Path() / "batch_t_retry.jsonl").size(), 2u);
 }
@@ -739,7 +740,7 @@ TEST(DiagnosisResultDump, FailsWhenDirectoryNotCreatable) {
     brpc::DiagnosisResult result;
     ASSERT_TRUE(result.Build(MakeSimpleRules(), {}, 0, 1000));
     // 父路径是普通文件 → 目录创建失败
-    EXPECT_FALSE(result.Dump(dir.Path() / "blocker" / "sub", "t"));
+    EXPECT_FALSE(result.Dump(dir.Path() / "blocker" / "sub", dir.Path() / "blocker" / "sub", "t"));
 }
 
 TEST(DiagnosisResultDump, NullableFieldsForUnresolvedHit) {
@@ -751,7 +752,7 @@ TEST(DiagnosisResultDump, NullableFieldsForUnresolvedHit) {
         MakeRule("x_err", brpc::DiagnosisComponent::UNKNOWN, false),
     };
     ASSERT_TRUE(result.Build(rules, {{2, {MakeLog(TS + 1000000, "m")}}}, TS, TS + 2000000));
-    ASSERT_TRUE(result.Dump(dir.Path(), "t_null"));
+    ASSERT_TRUE(result.Dump(dir.Path(), dir.Path(), "t_null"));
 
     const auto lines = ReadLines(dir.Path() / "batch_t_null.jsonl");
     ASSERT_EQ(lines.size(), 2u);

@@ -604,11 +604,11 @@ class TestCollectTraceContextLogsGaps:
         total = await collect_trace_context_logs("log-1", str(tmp_path), {"trace-1"})
 
         assert total == n
-        # 批大小触发 add_log_failure_event_if_not_exist，剩余走 add_log_failure_event
-        assert len(state["batches"]) == 1
+        # master：批量触发与收尾均走 add_log_failure_event_if_not_exist
+        assert len(state["batches"]) == 2
         assert len(state["batches"][0]) == TRACE_CONTEXT_BATCH_SIZE
-        assert len(state["final"]) == 1
-        assert len(state["final"][0]) == 76
+        assert len(state["batches"][1]) == 76
+        assert state["final"] == []
         assert state["deleted"] == []
 
     async def test_corrupted_gz_file_is_skipped(self, tmp_path, monkeypatch):
@@ -620,7 +620,9 @@ class TestCollectTraceContextLogsGaps:
         total = await collect_trace_context_logs("log-1", str(tmp_path), {"trace-1"})
 
         assert total == 1
-        assert len(state["final"]) == 1
+        # master：收尾 flush 走 add_log_failure_event_if_not_exist
+        assert len(state["batches"]) == 1
+        assert len(state["batches"][0]) == 1
 
     async def test_unreadable_file_is_skipped(self, tmp_path, monkeypatch):
         state = _patch_failure_event_manager(monkeypatch)
@@ -639,7 +641,8 @@ class TestCollectTraceContextLogsGaps:
         total = await collect_trace_context_logs("log-1", str(tmp_path), {"trace-1"})
 
         assert total == 1
-        assert state["final"][0][0].log_file == "good.log"
+        # master：收尾 flush 走 add_log_failure_event_if_not_exist
+        assert state["batches"][0][0].log_file == "good.log"
 
 
 # ---------------------------------------------------------------------------
@@ -725,47 +728,67 @@ def _patch_pg_connection(monkeypatch, driver):
 
 class TestStoreBucketRows:
     async def test_copies_each_granularity_in_one_connection(self, monkeypatch):
-        from latency.bucket.statistics import (
-            BUCKET_COLUMNS,
-            GRANULARITY_KEYS,
-            _store_bucket_rows,
-        )
+        import polars as pl
+
+        from latency.bucket.statistics import GRANULARITY_KEYS, _store_bucket_rows
+        from latency.database.managers import log_parse_result_bulk
 
         driver = _FakeDriverConnection()
         _patch_pg_connection(monkeypatch, driver)
 
-        rows = {g: [(f"v{g}-{i}",) for i in range(2)] for g in GRANULARITY_KEYS}
+        copied = []
+
+        async def fake_copy_dataframe(frame, spec, pg_conn=None):
+            copied.append((spec.table, frame, pg_conn))
+
+        monkeypatch.setattr(log_parse_result_bulk, "copy_dataframe", fake_copy_dataframe)
+
+        frames = {g: pl.DataFrame({"v": [f"v{g}-0", f"v{g}-1"]}) for g in GRANULARITY_KEYS}
         tables = {g: f"tbl_{g}" for g in GRANULARITY_KEYS}
         on_table_calls = []
 
         async def on_table(g, t_table, n_rows):
             on_table_calls.append((g, n_rows))
 
-        await _store_bucket_rows("log-1", rows, tables, on_table=on_table)
+        await _store_bucket_rows("log-1", frames, tables, on_table=on_table)
 
-        # 每张表先 DELETE（带 log_id 参数）再 COPY
+        # 每张表先 DELETE（带 log_id 参数）再 copy_dataframe（复用事务连接）
         assert len(driver.executed) == len(GRANULARITY_KEYS)
         for sql, args in driver.executed:
             assert sql.startswith("DELETE FROM tbl_")
             assert args == ("log-1",)
-        assert len(driver.copied) == len(GRANULARITY_KEYS)
-        copied_tables = {table: (records, columns) for table, records, columns in driver.copied}
+        assert len(copied) == len(GRANULARITY_KEYS)
+        copied_tables = {table: frame for table, frame, _ in copied}
         for g in GRANULARITY_KEYS:
-            records, columns = copied_tables[f"tbl_{g}"]
-            assert records == rows[g]
-            assert columns == BUCKET_COLUMNS
+            assert copied_tables[f"tbl_{g}"].equals(frames[g])
             assert (g, 2) in on_table_calls
+        # pg_conn 复用本函数持有的驱动连接
+        assert {id(pg) for _, _, pg in copied} == {id(driver)}
 
-    async def test_empty_rows_skip_copy_but_still_delete(self, monkeypatch):
+    async def test_empty_frames_still_delete_and_copy(self, monkeypatch):
+        import polars as pl
+
         from latency.bucket.statistics import DEFAULT_TABLES, GRANULARITY_KEYS, _store_bucket_rows
+        from latency.database.managers import log_parse_result_bulk
 
         driver = _FakeDriverConnection()
         _patch_pg_connection(monkeypatch, driver)
 
-        await _store_bucket_rows("log-1", {g: [] for g in GRANULARITY_KEYS}, DEFAULT_TABLES)
+        copied = []
 
+        async def fake_copy_dataframe(frame, spec, pg_conn=None):
+            copied.append((spec.table, frame))
+
+        monkeypatch.setattr(log_parse_result_bulk, "copy_dataframe", fake_copy_dataframe)
+
+        await _store_bucket_rows(
+            "log-1", {g: pl.DataFrame() for g in GRANULARITY_KEYS}, DEFAULT_TABLES
+        )
+
+        # master：空 frame 也走 DELETE + copy_dataframe（frame.height == 0）
         assert len(driver.executed) == len(GRANULARITY_KEYS)
-        assert driver.copied == []
+        assert len(copied) == len(GRANULARITY_KEYS)
+        assert all(frame.height == 0 for _, frame in copied)
 
 
 def _mini_trace_frame():

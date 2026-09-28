@@ -12,12 +12,8 @@ from latency.bucket import statistics as bstat
 from latency.bucket.statistics import (
     GRANULARITY_KEYS,
     PERCENTILE_MODES,
-    _build_bucket_rows,
     _group_edges,
-    _merge_yuanrong,
     _normalize_op,
-    _report,
-    _row_field,
     compute_bucket_ids,
     compute_bucket_stats_from_frame,
     percentile_kth_positions,
@@ -126,36 +122,16 @@ def _make_trace_frame() -> pl.DataFrame:
 
 
 class TestComputeBucketStatsFromFrame:
+    # 说明：test_tuple_shape / test_operation_encoding / test_modes_per_group /
+    # test_empty_frame_returns_empty_lists / test_total_latency_of_median_get /
+    # test_materializer_path 及 TestYuanrongEnrichment 断言的是 dev 分支的
+    # 48 列 tuple 行 + median/p99/p9999/pmax 模式输出；master 的
+    # compute_bucket_stats_from_frame 返回 polars DataFrame，行为不同，
+    # 相关用例删除（结构无关的键覆盖/过滤用例保留）。
+
     def test_all_granularity_keys_present(self):
         result = compute_bucket_stats_from_frame(_make_trace_frame(), kb_id="kb", log_id="log")
         assert set(result.keys()) == set(GRANULARITY_KEYS)
-
-    def test_tuple_shape(self):
-        result = compute_bucket_stats_from_frame(_make_trace_frame(), kb_id="kb", log_id="log")
-        for g, rows in result.items():
-            for row in rows:
-                # 8 固定键 + 14 legacy 指标 + 26 yuanrong = 48 列
-                assert len(row) == 48
-                assert row[0] == "kb"  # kb_id
-                assert row[1] == "log"
-
-    def test_operation_encoding(self):
-        result = compute_bucket_stats_from_frame(_make_trace_frame())
-        for rows in result.values():
-            for row in rows:
-                assert row[3] in ("GET", "SET")
-
-    def test_modes_per_group(self):
-        # g=10：桶1 内 GET 组(2行)+SET 组(1行) + 桶2 GET 组(1行) → 每组 4 个分位
-        result = compute_bucket_stats_from_frame(_make_trace_frame())
-        assert len(result[10]) == 12
-        modes = {row[4] for row in result[10]}
-        assert modes == {"median", "p99", "p9999", "pmax"}
-
-    def test_empty_frame_returns_empty_lists(self):
-        df = _make_trace_frame().filter(pl.lit(False))
-        result = compute_bucket_stats_from_frame(df)
-        assert result == {g: [] for g in GRANULARITY_KEYS}
 
     def test_null_rows_filtered(self):
         df = _make_trace_frame().with_columns(
@@ -164,81 +140,6 @@ class TestComputeBucketStatsFromFrame:
         result = compute_bucket_stats_from_frame(df)
         # t1 被过滤后：桶1 内 GET 仅 t2、SET t3、桶2 GET t4 → 3 组 × 4 分位
         assert len(result[10]) == 12
-
-    def test_total_latency_of_median_get(self):
-        # 桶1（epoch 1704067200，即 2024-01-01 00:00:00）GET 组 = [100(t1), 200(t2)]：
-        # median → 100，pmax → 200
-        from datetime import datetime as _dt
-
-        result = compute_bucket_stats_from_frame(_make_trace_frame())
-        bucket1 = _dt(2024, 1, 1, 0, 0, 0)
-        get_rows = [
-            r for r in result[10]
-            if r[3] == "GET" and r[4] in ("median", "pmax") and r[2] == bucket1
-        ]
-        latencies = {r[4]: r[8] for r in get_rows}
-        assert latencies["median"] == 100.0
-        assert latencies["pmax"] == 200.0
-
-    def test_materializer_path(self):
-        """materializer（dataclass 物化）路径与 dict 路径产出一致的键列。"""
-
-        def materializer(row):
-            return SimpleNamespace(
-                trace_id=row.get("tid"),
-                src_ip=row.get("src"),
-                dst_ip=row.get("dst"),
-                **{k: row.get(k) for k in bstat.METRIC_KEYS},
-            )
-
-        result = compute_bucket_stats_from_frame(
-            _make_trace_frame(), kb_id="kb", log_id="log", materializer=materializer
-        )
-        assert set(result.keys()) == set(GRANULARITY_KEYS)
-        for rows in result.values():
-            for row in rows:
-                assert len(row) == 48
-                assert row[0] == "kb"
-                assert row[1] == "log"
-        # trace_id 列（row[7]）应来自 materializer 对象
-        tids = {r[7] for r in result[10]}
-        assert tids == {"t1", "t2", "t3", "t4"}
-
-
-_YR_INTERNAL_INT_COLS = (
-    "__se", "__wsum", "__wmax", "__wn", "__umax", "__uimax", "__cn",
-    "__ce2esum", "__ce0", "__ce1", "__cs0", "__cs1", "__cnw0", "__cnw1",
-    "__me", "__ms", "__mn", "__re", "__rs", "__rn", "__qm",
-)
-
-
-def _make_yuanrong_frame() -> pl.DataFrame:
-    """在基础 frame 上附加 22 个 yuanrong 内部列（合法零值），触发 Phase 2 富化。"""
-    df = _make_trace_frame()
-    cols = [pl.lit(0.0, dtype=pl.Float64).alias(c) for c in _YR_INTERNAL_INT_COLS]
-    cols.append(pl.lit("GET", dtype=pl.Utf8).alias("__sop"))
-    return df.with_columns(cols)
-
-
-class TestYuanrongEnrichment:
-    def test_phase2_runs_with_internal_cols(self):
-        result = compute_bucket_stats_from_frame(_make_yuanrong_frame(), kb_id="kb", log_id="log")
-        assert set(result.keys()) == set(GRANULARITY_KEYS)
-        # 48 列结构不变，yuanrong 26 列由 Phase 2 填充
-        for rows in result.values():
-            for row in rows:
-                assert len(row) == 48
-
-
-class TestRowField:
-    def test_dict_source(self):
-        assert _row_field({"a": 1}, "a") == 1
-        assert _row_field({"a": 1}, "b") is None
-
-    def test_object_source(self):
-        obj = SimpleNamespace(x=5)
-        assert _row_field(obj, "x") == 5
-        assert _row_field(obj, "y") is None
 
 
 class TestGroupEdges:
@@ -254,80 +155,12 @@ class TestGroupEdges:
         assert buckets.tolist() == [1, 0, 1]
 
 
-class TestMergeYuanrong:
-    def test_none_passthrough(self):
-        r = {"a": 1}
-        assert _merge_yuanrong(r, None) is r
-
-    def test_dict_update(self):
-        r = {"a": 1}
-        out = _merge_yuanrong(r, {"a": 2, "b": 3})
-        assert out == {"a": 2, "b": 3}
-
-    def test_dataclass_setattr_skips_none(self):
-        @dataclass
-        class Row:
-            a: int = 1
-            b: int = 2
-
-        row = Row()
-        _merge_yuanrong(row, {"a": 10, "b": None})
-        assert row.a == 10
-        assert row.b == 2  # None 不覆盖
-
-
-class TestBuildBucketRows:
-    def test_builds_rows_per_granularity(self):
-        valid_rows = [
-            {"trace_id": "t1", "src_ip": "1.1.1.1", "dst_ip": "2.2.2.2"},
-            {"trace_id": "t2", "src_ip": "1.1.1.1", "dst_ip": "2.2.2.2"},
-        ]
-        # g=10 单组：bucket_ids=[0,0], op=[0,0]
-        per_granularity = {
-            g: _group_edges(np.array([0, 0]), np.array([0, 0]), np.array([0, 1]))
-            for g in GRANULARITY_KEYS
-        }
-        # reps: (gid, mode_idx, orig) —— 4 个分位全选第 0/1 行
-        reps = {g: [(0, mi, mi % 2) for mi in range(4)] for g in GRANULARITY_KEYS}
-        result = _build_bucket_rows(valid_rows, per_granularity, reps, kb_id="kb", log_id="log")
-        assert set(result.keys()) == set(GRANULARITY_KEYS)
-        for rows in result.values():
-            assert len(rows) == 4
-            for row in rows:
-                assert len(row) == 48
-                assert row[0] == "kb"
-                assert row[7] in ("t1", "t2")
-
-    def test_materializer_only_for_selected(self):
-        calls = []
-
-        def materializer(row):
-            calls.append(row["trace_id"])
-            return SimpleNamespace(
-                trace_id=row["trace_id"], src_ip=None, dst_ip=None,
-                **{k: None for k in bstat.METRIC_KEYS},
-            )
-
-        valid_rows = [{"trace_id": f"t{i}"} for i in range(4)]
-        per_granularity = {
-            g: _group_edges(np.array([0, 0, 0, 0]), np.array([0, 0, 0, 0]), np.array([0, 1, 2, 3]))
-            for g in GRANULARITY_KEYS
-        }
-        # 每粒度只选 1 个代表行（median → orig 0）
-        reps = {g: [(0, 0, 0)] for g in GRANULARITY_KEYS}
-        result = _build_bucket_rows(
-            valid_rows, per_granularity, reps, kb_id="kb", log_id="log", materializer=materializer
-        )
-        # 同一 orig=0 在 4 个粒度中被复用，只物化一次
-        assert calls == ["t0"]
-        assert all(len(rows) == 1 for rows in result.values())
+# 说明：TestRowField / TestMergeYuanrong / TestBuildBucketRows 依赖的
+# _row_field/_merge_yuanrong/_build_bucket_rows 在 master 的 bucket
+# 实现中不存在（dev 分支的富化行构建路径），相关用例随 import 一并移除。
 
 
 class TestReport:
-    async def test_no_task_id_is_silent(self):
-        # task_id=None 时静默跳过，不触碰 BaseWorker
-        await _report(None, "message", 0.5)
-
     async def test_report_stage_no_task_id(self):
         from latency.bucket.statistics import _report_stage
 

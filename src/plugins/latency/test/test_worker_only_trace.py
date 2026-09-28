@@ -3,7 +3,6 @@ import sys
 sys.path.insert(0, "src/plugins")
 
 from latency.task.worker.kv_cache_log_parse_worker import KVCacheLogParseWorker
-from latency.parse.parallel_scanner.process_worker import _serialize_entry
 from latency.ENUM.ds_log import TupleField, EntryType
 from datetime import datetime
 

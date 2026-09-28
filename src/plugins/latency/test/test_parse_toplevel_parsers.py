@@ -41,7 +41,6 @@ from latency.parse.worker_info_parser import (
     MASTER_RPC_LABEL,
     CLIENT_RPC_LABEL,
 )
-from latency.parse.parallel_scanner.spill import SpillError
 from latency.schemas.parse_config import ParseConfig
 
 # ---------------------------------------------------------------------------
@@ -867,20 +866,6 @@ class TestWorkerInfoScope:
 # ---------------------------------------------------------------------------
 
 
-class _FakeSink:
-    """entry_sink 替身：register 记录 label，append 收集条目。"""
-
-    def __init__(self):
-        self.registered = []
-        self.appended = []
-
-    def register(self, labels):
-        self.registered.extend(labels)
-
-    def append(self, label, entry):
-        self.appended.append((label, entry))
-
-
 def _write_info_log(tmp_path, lines, name="info.log"):
     path = tmp_path / name
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -888,99 +873,9 @@ def _write_info_log(tmp_path, lines, name="info.log"):
 
 
 class TestWorkerInfoScanFile:
-    def _mixed_lines(self):
-        return [
-            "garbage line without timestamp",              # 非 2 开头
-            run_line("plain run msg, no keyword"),          # 关键词不命中
-            "2|a|b|c|Remote get request",                   # 段数不足
-            run_line("[URMA_ELAPSED_TOTAL] no numbers"),    # 关键词命中但正则失败
-            run_line(URMA_MSG),                             # 正常 URMA
-            run_line(QUERY_META_MSG, trace="trace-qm"),     # 正常 QueryMeta
-        ]
-
-    def test_scan_file_groups_by_label(self, tmp_path):
-        parser = WorkerInfoParser()
-        path = _write_info_log(tmp_path, self._mixed_lines())
-        results = parser.scan_file(path)
-        assert len(results[URMA_LABEL]) == 1
-        assert len(results[QUERY_META_LABEL]) == 1
-        assert results[URMA_LABEL][0].log_id is not None
-        assert results[URMA_LABEL][0].entry_type == EntryType.URMA
-        # 其余 label 均为空
-        for label in (REMOTE_PULL_LABEL, LINK_LABEL, SDK_PROCESS_LABEL, MASTER_RPC_LABEL):
-            assert results[label] == []
-
-    def test_scan_file_time_filter(self, tmp_path):
-        parser = WorkerInfoParser(ParseConfig(end_time="2026-05-12 00:00:00"))
-        path = _write_info_log(tmp_path, [run_line(URMA_MSG)])
-        results = parser.scan_file(path)
-        assert results[URMA_LABEL] == []
-        assert parser._filtered_by_time == 1
-
-    def test_scan_file_with_entry_sink(self, tmp_path):
-        parser = WorkerInfoParser()
-        path = _write_info_log(tmp_path, self._mixed_lines())
-        sink = _FakeSink()
-        results = parser.scan_file(path, entry_sink=sink)
-        # 命中条目全部进入 sink，本地 results 为空
-        assert len(sink.appended) == 2
-        assert {label for label, _ in sink.appended} == {URMA_LABEL, QUERY_META_LABEL}
-        assert URMA_LABEL in sink.registered
-        assert results[URMA_LABEL] == []
-
-    def test_scan_file_with_line_filter(self, tmp_path):
-        parser = WorkerInfoParser()
-        path = _write_info_log(tmp_path, self._mixed_lines())
-        results = parser.scan_file(path, line_filter=lambda f: (ln for ln in f if "URMA" in ln))
-        assert len(results[URMA_LABEL]) == 1
-        assert results[QUERY_META_LABEL] == []
-
-    def test_scan_file_swallows_eof_error(self, tmp_path):
-        parser = WorkerInfoParser()
-        path = _write_info_log(tmp_path, [run_line(URMA_MSG)])
-
-        def _raise_eof(f):
-            raise EOFError("corrupted")
-
-        results = parser.scan_file(path, line_filter=_raise_eof)
-        assert results[URMA_LABEL] == []
-
-    def test_scan_file_swallows_generic_error(self, tmp_path):
-        parser = WorkerInfoParser()
-        path = _write_info_log(tmp_path, [run_line(URMA_MSG)])
-
-        def _raise_value(f):
-            raise ValueError("bad")
-
-        results = parser.scan_file(path, line_filter=_raise_value)
-        assert results[URMA_LABEL] == []
-
-    def test_scan_file_reraises_spill_error(self, tmp_path):
-        parser = WorkerInfoParser()
-        path = _write_info_log(tmp_path, [run_line(URMA_MSG)])
-
-        def _raise_spill(f):
-            raise SpillError("disk full")
-
-        with pytest.raises(SpillError):
-            parser.scan_file(path, entry_sink=_FakeSink(), line_filter=_raise_spill)
-
-    def test_scan_file_missing_file(self, tmp_path):
-        parser = WorkerInfoParser()
-        results = parser.scan_file(str(tmp_path / "missing.log"))
-        assert results[URMA_LABEL] == []
-
-    def test_scan_file_pod_ip_extract_failure(self, tmp_path, monkeypatch):
-        parser = WorkerInfoParser()
-        monkeypatch.setattr(
-            parser, "extract_pod_ip",
-            lambda p: (_ for _ in ()).throw(ValueError("bad path")),
-        )
-        path = _write_info_log(tmp_path, [run_line(URMA_MSG, pod="")])
-        results = parser.scan_file(path)
-        # extract_pod_ip 失败时回退空 pod_ip，条目仍产出
-        assert len(results[URMA_LABEL]) == 1
-        assert results[URMA_LABEL][0].pod_ip == ""
+    # 说明：原 scan_file（公共入口，entry_sink/line_filter 参数）系列 8 个
+    # 用例依赖的公共 scan_file API 在 master 上不存在（master 仅有
+    # _scan_file 私有兼容路径），用例随之删除；保留 _scan_file 兼容用例。
 
     def test_base_scan_file_compat(self, tmp_path):
         from latency.common.ds_log_io import Progress

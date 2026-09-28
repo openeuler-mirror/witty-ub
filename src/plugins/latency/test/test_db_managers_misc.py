@@ -456,11 +456,17 @@ async def test_create_manual_indexes_covers_all_groups(patch_engine):
     conn = patch_engine(RecordingConn())
     await init_module.create_manual_indexes()
     sqls = [sql_text(s) for s, _ in conn.statements]
-    expected = 12 + len(init_module.LATENCY_BUCKET_TABLES) + len(init_module.BRPC_DIAG_INDEX_DDL)
+    expected = (
+        12
+        + len(init_module.LATENCY_BUCKET_TABLES)
+        + len(init_module.BRPC_DIAG_INDEX_DDL)
+        + len(init_module.DIAG_CASE_LIBRARY_DDL)
+    )
     assert len(sqls) == expected
     assert any("idx_lpr_pod_ips" in s for s in sqls)
     assert any("ix_latency_bucket_1h_query" in s for s in sqls)
     assert any("idx_brpc_diag_hit_batch_timestamp" in s for s in sqls)
+    assert any("ux_dcl_case_no" in s for s in sqls)
 
 
 async def test_init_postgresql_database_runs_every_migration_step(
@@ -774,7 +780,9 @@ async def test_transition_task_status_false(patch_session):
 async def test_mark_interrupted_running_tasks_for_retry(patch_session):
     session = patch_session(FakeSession())
     assert await TaskPGManager.mark_interrupted_running_tasks_for_retry() is True
-    sql, params = session.executed[0]
+    # master：先 SELECT 收集被打断的任务 id，再 UPDATE 置 FAILED_PENDING_REMOVE
+    assert "SELECT task.id FROM task" in sql_text(session.executed[0][0])
+    sql, params = session.executed[1]
     assert "UPDATE task SET status = :retry_status" in sql_text(sql)
     assert params["retry_status"] == TaskStatusEnum.FAILED_PENDING_REMOVE.value
     assert params["running_status"] == TaskStatusEnum.RUNNING.value

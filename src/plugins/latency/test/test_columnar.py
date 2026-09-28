@@ -96,6 +96,30 @@ def _mk_urma_dataclass(tid="trace-urma-1", elapsed_us=1272.62):
     )
 
 
+def _serialize_entry(entry) -> tuple:
+    # 本地等价实现：旧 process_worker._serialize_entry（master 已随 polars
+    # 重构移除该模块），仅做 16 字段 dataclass→tuple 的平凡转换，供
+    # "tuple 与 dataclass 输入等价"类用例构造参考输入。
+    return (
+        entry.timestamp,
+        entry.operation,
+        entry.elapsed_us,
+        entry.data_size,
+        entry.object_key,
+        entry.trace_id,
+        entry.pod_ip,
+        entry.status_code,
+        entry.resp_msg,
+        entry.entry_type.value if entry.entry_type else None,
+        entry.cluster_name,
+        entry.src_addr,
+        entry.dst_addr,
+        entry.inflight_count,
+        entry.request_size,
+        entry.log_id,
+    )
+
+
 # ---------------------------------------------------------------------------
 # 1. TRACE_COLUMNS frozen contract
 # ---------------------------------------------------------------------------
@@ -155,7 +179,6 @@ def test_label_to_columns_contract():
 
 def test_sdk_projection_matches_serialize_entry_read():
     from latency.parse.parallel_scanner import columnar
-    from latency.parse.parallel_scanner.process_worker import _serialize_entry
 
     entry = _mk_sdk_dataclass()
     t = _serialize_entry(entry)  # 16-field tuple, 参考读取
@@ -237,7 +260,6 @@ def test_worker_info_bucket_routes_by_entry_type():
 
 def test_tuple_and_dataclass_inputs_equivalent():
     from latency.parse.parallel_scanner import columnar
-    from latency.parse.parallel_scanner.process_worker import _serialize_entry
 
     sdk_dc = _mk_sdk_dataclass()
     urma_dc = _mk_urma_dataclass()
@@ -270,135 +292,8 @@ def test_columns_to_frame_has_all_columns():
 
 
 # ---------------------------------------------------------------------------
-# 3. spawn-process pickle round-trip (worker result survives the boundary)
+# 说明：原第 3/4 节（spawn 子进程跑 process_worker、_merge_results 列合并）
+# 依赖的 process_worker 模块与 ParallelFileScanner._merge_results 已在
+# master 的 polars 重构（1b398771）中移除，相关用例随之删除；列契约与
+# 投影行为由本文件其余用例覆盖。
 # ---------------------------------------------------------------------------
-
-def _spawn_worker_call(file_group_files, group_id, parsers_info,
-                       parse_config_dict, scan_scope):
-    from latency.parse.parallel_scanner.process_worker import (
-        _process_worker_func,
-    )
-    return _process_worker_func(
-        file_group_files, group_id, parsers_info, parse_config_dict,
-        scan_scope,
-    )
-
-
-def _parsers_info():
-    from latency.parse.sdk_access_log_parser import SdkAccessLogParser
-    from latency.parse.worker_info_parser import WorkerInfoParser
-
-    infos = []
-    for cls in (SdkAccessLogParser, WorkerInfoParser):
-        parser = cls(None)
-        infos.append({
-            "label": parser.label,
-            "class_name": cls.__name__,
-            "patterns": list(parser.patterns),
-        })
-    return infos
-
-
-_SDK_LINE = (
-    "2026-05-11T05:25:20.207278 | I | access_recorder.cpp:220 | "
-    "searchctrwirelessub-24-00031 | 3941:3970 | trace-sdk-1 |  | 0 | "
-    "DS_KV_CLIENT_GET | 773 | 8395125 | {Object_key:key-sdk-1,timeout:0} | resp"
-)
-_URMA_LINE = (
-    "2026-05-13T00:03:42.487820 | I | urma_manager.cpp:852 | "
-    "6.62.223.31 | 112:409 | trace-urma-1 | model_kvcache_predictor |  "
-    "[URMA_ELAPSED_TOTAL]: Waiting URMA jfc event done after "
-    "urma_post_jetty_send_wr cost 1.27262ms, request id:2052374, "
-    "src address:6.62.223.31:31501, target address:6.62.222.250:31501, "
-    "dataSize:8395125, cpuid:2, status: code: [OK], msg: [DS_KV_CLIENT_GET], "
-    "urma_inflight_wr_count: 1"
-)
-
-
-def test_spawn_pickle_roundtrip_worker_columns(tmp_path):
-    """真实 spawn 子进程跑 _process_worker_func: columns + legacy labels 都完整。"""
-    import multiprocessing
-
-    access = tmp_path / "access.log"
-    access.write_text(_SDK_LINE + "\n")
-    runtime = tmp_path / "runtime.log"
-    runtime.write_text(_URMA_LINE + "\n")
-    file_group_files = [(str(access), [0]), (str(runtime), [1])]
-
-    ctx = multiprocessing.get_context("spawn")
-    with ctx.Pool(1) as pool:
-        result = pool.apply(
-            _spawn_worker_call,
-            (file_group_files, 0, _parsers_info(), None, None),
-        )
-
-    from latency.parse.parallel_scanner import columnar
-
-    assert "columns" in result
-    cols = result["columns"]
-    assert len(cols["tid"]) == 2  # 1 SDK + 1 URMA bucket row
-    sdk_rows = [tid for tid, lbl in zip(cols["tid"], cols["_label"])
-                if lbl == columnar.SDK_LABEL]
-    urma_rows = [tid for tid, lbl in zip(cols["tid"], cols["_label"])
-                 if lbl == columnar.URMA_LABEL]
-    assert sdk_rows == ["trace-sdk-1"]
-    assert urma_rows == ["trace-urma-1"]
-    assert cols["_src_rank"] == [0, 2]
-    # 不再产出 legacy 标签
-
-
-def test_process_worker_func_always_produces_columns(tmp_path,
-                                                    monkeypatch):
-    """Worker 默认始终产 columns（legacy {label: [tuple]} 已删除）。"""
-    from latency.parse.parallel_scanner.process_worker import (
-        _process_worker_func,
-    )
-
-    access = tmp_path / "access.log"
-    access.write_text(_SDK_LINE + "\n")
-    file_group_files = [(str(access), [0])]
-
-    result = _process_worker_func(file_group_files, 0, _parsers_info(), None,
-                                  None)
-    assert "columns" in result
-    assert result["columns"]["tid"] == ["trace-sdk-1"]
-    # 不再产出 legacy 标签
-    assert "SDK access parse" not in result
-
-
-# ---------------------------------------------------------------------------
-# 4. _merge_results column-aware merging
-# ---------------------------------------------------------------------------
-
-def test_merge_results_extends_columns_per_field():
-    from latency.parse.parallel_scanner import columnar
-    from latency.parse.parallel_scanner.scanner import ParallelFileScanner
-
-    r1 = {
-        "columns": columnar.entries_to_columns({
-            columnar.SDK_LABEL: [_sdk("t1")],
-        }),
-    }
-    r2 = {
-        "columns": columnar.entries_to_columns({
-            columnar.URMA_LABEL: [_urma("t2")],
-        }),
-    }
-    merged = ParallelFileScanner._merge_results([r1, r2])
-    assert "columns" in merged
-    assert merged["columns"]["tid"] == ["t1", "t2"]
-    assert merged["columns"]["_src_rank"] == [0, 2]
-
-
-def test_merge_results_handles_perf_marker():
-    from latency.parse.parallel_scanner import columnar
-    from latency.parse.parallel_scanner.process_worker import _PERF_MARKER
-    from latency.parse.parallel_scanner.scanner import ParallelFileScanner
-
-    col_result = {
-        "columns": columnar.entries_to_columns({columnar.SDK_LABEL: [_sdk("t1")]}),
-        _PERF_MARKER: {"a.log": {"io_ms": 1.0, "parse_ms": 2.0}},
-    }
-    merged = ParallelFileScanner._merge_results([col_result])
-    assert merged["columns"]["tid"] == ["t1"]
-    assert _PERF_MARKER not in merged
