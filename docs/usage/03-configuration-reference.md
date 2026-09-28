@@ -276,6 +276,50 @@ bash /var/witty-ub/deploy/deploy_opencode.sh
 | `WITTY_NETWORK_MODE` | `bridge` | 容器网络模式：`bridge` 接入 `PG_NETWORK` 组网，容器间用容器名互访；`host` 共享宿主机网络（端口映射失效、PG 走 `127.0.0.1:5432`），用于服务器把 Docker 网络视为不可信区域的场景 |
 | `WITTY_SSL_VERIFY` | `true` | 是否校验 OpenCode/LLM 出网 HTTPS 证书（同上表） |
 | `WITTY_SECCOMP` | `default` | seccomp 策略：`default` 用 Docker 默认过滤；`unconfined` 关闭过滤（旧版 Docker(<20.10)/libseccomp(<2.5) 因 clone3 报 `can't start new thread` 时使用） |
+| `WITTY_NETWORK_MODE_PG` | （空） | PG 容器（`postgres`）的网络模式，留空继承 `WITTY_NETWORK_MODE` |
+| `WITTY_NETWORK_MODE_APP` | （空） | 一体容器（`--role all`）的网络模式，留空继承全局值 |
+| `WITTY_NETWORK_MODE_BACKEND` | （空） | 分离部署后端容器（`--role backend`）的网络模式，留空继承全局值 |
+| `WITTY_NETWORK_MODE_FRONTEND` | （空） | 分离部署前端容器（`--role frontend`）的网络模式，留空继承全局值 |
+| `WITTY_NETWORK_SELFCHECK` | `true` | 部署后是否逐链路自检（探针打容器内 `/health_check`）；`false` 只做宿主机端口探测 |
+| `WITTY_NETWORK_FALLBACK` | `prompt` | 自检失败后的回退策略：`prompt` 打印归因与带环境变量覆盖的回退命令（不回写本文件）；`auto` 自动切 `host` 重建一次；`off` 只报错退出 |
+
+#### 容器级网络模式与部署形态
+
+优先级为 **容器级键 > `WITTY_NETWORK_MODE`（全局）> `bridge`**。按部署形态决定哪些键生效：
+
+| 部署形态 | 生效的键 | 说明 |
+| -------- | -------- | ---- |
+| 一体（`--role all`） | `_PG` + `_APP` | 前后端在同一容器，`_BACKEND`/`_FRONTEND` 非空会告警忽略 |
+| 分离·同一台机器 | `_PG` + `_BACKEND` + `_FRONTEND` | 前后端**必须同模式**，不一致脚本直接报错退出（混合模式需要把后端 9772 发布到宿主机，本方案不支持） |
+| 分离·前后端分机器 | 各机器各读本机的键 | 前端机读 `_FRONTEND`，后端机读 `_PG` + `_BACKEND`；其余键留空 |
+
+> 混合组合（如 `PG=host` + 应用 `bridge`）脚本会按组合推导连接地址（`127.0.0.1:<PG_PORT>` / `Docker 网关:5432`），
+> 但**不保证可用**，建议整机统一为 `host`。
+
+#### 部署后逐链路自检与回退
+
+`WITTY_NETWORK_SELFCHECK=true`（默认）时，部署完成后按拓扑逐链路探针：
+
+| 角色 | 探测链路 | 探针与判定 |
+| ---- | -------- | ---------- |
+| 一体 / 后端 | 应用 → PG | 容器内打 `http://127.0.0.1:9772/health_check`：`200` 通（且响应体含 `status`）；`503` 应用在跑但连不上 PG；`200` 但响应体不含 `status` 说明该端口不是本 API |
+| 前端 | 前端 → 后端 | 容器内经 Nginx 打 `http://127.0.0.1:8080/health_check`，上游为 `WITTY_BACKEND_URL` |
+| 全部角色 | 宿主机 → 发布端口 | 宿主机打 `http://localhost:<访问端口>/health_check` |
+
+失败时按 `WITTY_NETWORK_FALLBACK` 处理：`prompt`（默认）打印归因与回退命令，回退通过环境变量覆盖实现
+（**不修改 `deploy.conf`**），命令由脚本按角色打印，例如：
+
+```bash
+# 一体 / 后端角色：PG 容器与应用容器都要切 host
+WITTY_NETWORK_MODE_PG=host bash deploy/deploy_pg.sh --docker
+WITTY_NETWORK_MODE_APP=host WITTY_NETWORK_MODE_PG=host bash deploy/docker/deploy_witty.sh
+
+# 前端角色（同机分离）：切 host 后必须改用回环地址访问后端（容器名在 host 网络下无法解析）
+WITTY_NETWORK_MODE_FRONTEND=host WITTY_BACKEND_URL=http://127.0.0.1:9772 bash deploy/docker/deploy_witty.sh
+```
+
+`auto` 会用 host 模式自动重建一次（前端角色同样会改写 `WITTY_BACKEND_URL`）；`off` 只报错退出。
+跨机分离部署失败时只提示检查对端地址与防火墙，不会建议改 host。
 
 #### host 网络模式的联动变化
 

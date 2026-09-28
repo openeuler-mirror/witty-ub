@@ -181,11 +181,33 @@ WITTY_BACKEND_URL=""                    # 前端容器内反代上游；留空 =
 WITTY_NETWORK_MODE="bridge"             # bridge（默认，接入 PG_NETWORK 组网）| host（共享宿主机网络）
 WITTY_SSL_VERIFY="true"                 # true（默认校验 OpenCode/LLM 出网 HTTPS 证书）| false（关闭校验）
 WITTY_SECCOMP="default"                 # default（Docker 默认过滤）| unconfined（关闭，旧版 Docker/libseccomp）
+
+# 容器级网络模式覆盖（留空继承 WITTY_NETWORK_MODE）
+WITTY_NETWORK_MODE_PG=""                # PG 容器（postgres）
+WITTY_NETWORK_MODE_APP=""               # 一体容器（--role all）
+WITTY_NETWORK_MODE_BACKEND=""           # 分离：后端容器（--role backend）
+WITTY_NETWORK_MODE_FRONTEND=""          # 分离：前端容器（--role frontend）
+WITTY_NETWORK_SELFCHECK="true"          # 部署后逐链路自检（true|false）
+WITTY_NETWORK_FALLBACK="prompt"         # 自检失败回退：prompt（提示命令）| auto（自动切 host 重跑）| off
 ```
 
 > `WITTY_NETWORK_MODE="host"` 时脚本自动改写：容器用 `--network host`、跳过 `-p` 端口映射与网络创建、
 > 容器内 PG 地址改为 `127.0.0.1:5432`（`deploy_pg.sh` 强制 PG 监听 5432）、前端反代改为 `http://127.0.0.1:9772`；
 > Web UI 直接占用宿主机 8080，`WITTY_HOST_PORT` 不再生效。详见[故障排查 §3](../../docs/troubleshooting/02-container-runtime.md)。
+>
+> **容器级模式**：`WITTY_NETWORK_MODE_PG/_APP/_BACKEND/_FRONTEND` 可给单个容器单独指定模式，留空继承
+> `WITTY_NETWORK_MODE`，优先级 **容器级键 > 全局键**。一体部署只认 `_APP`（前后端是同一个容器，
+> 写了 `_BACKEND`/`_FRONTEND` 会告警忽略）；分离同机认 `_BACKEND` + `_FRONTEND`，**两者必须一致**，
+> 不一致脚本直接报错退出（混合模式需要把后端 9772 额外发布到宿主机，本方案不支持）；分离跨机各机器
+> 只填本机用到的键。**混合组合（如 PG=host + 应用=bridge）脚本会按组合推导连接地址，但不保证可用。**
+>
+> **自检与回退**：`WITTY_NETWORK_SELFCHECK=true`（默认）时部署完会逐链路探针——
+> 一体/后端探"应用→PG"（容器内 `docker exec curl` 打 `/health_check`，200=通 / 503=PG 不通 /
+> 200 但响应体不含 `status` 说明该端口不是本 API），前端探"前端→后端"（经 Nginx 反代）。
+> 失败时按 `WITTY_NETWORK_FALLBACK`：`prompt` 打印归因与带环境变量覆盖的回退命令
+> （**不回写 `deploy.conf`**），`auto` 自动切 host 重建一次，`off` 只报错。
+> 前端角色回退时脚本会一并把 `WITTY_BACKEND_URL` 改写为 `http://127.0.0.1:9772`
+> （host 网络下容器名无法解析）。跨机分离失败时只提示检查对端地址与防火墙，不会建议改 host。
 
 ### 镜像拉取优先级
 
@@ -208,9 +230,12 @@ WITTY_SECCOMP="default"                 # default（Docker 默认过滤）| unco
 | 优先级 | 检测条件 | 连接结果 |
 | ------ | ------ | ------ |
 | 0 | `deploy.conf` 显式设置 `PG_HOST_IN_CONTAINER` | 使用配置值 |
-| 1 | 同网络 PG 容器正在运行 | `postgres:5432` |
-| 2 | 宿主机 RPM PG 正在运行 | `Docker网关IP:监听端口` |
-| 3 | 以上都未检测到 | 默认 `postgres:5432` |
+| 1 | PG 容器 `host` + 应用 `host` | `127.0.0.1:5432` |
+| 2 | PG 容器 `host` + 应用 `bridge` | `Docker网关IP:5432`（混合组合，不保证） |
+| 3 | PG 容器 `bridge` + 应用 `host` | `127.0.0.1:<PG_PORT>`（混合组合，不保证） |
+| 4 | 同网络 PG 容器正在运行（都 `bridge`） | `postgres:5432` |
+| 5 | 宿主机 RPM PG 正在运行 | `Docker网关IP:监听端口` |
+| 6 | 以上都未检测到 | 默认 `postgres:5432` |
 
 ---
 

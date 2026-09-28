@@ -19,6 +19,8 @@ CONFIG_KEYS=(
     WITTY_HOST_PORT WITTY_EXTRA_MOUNTS WITTY_IMAGE WITTY_LOG_LEVEL WITTY_CONTAINER_NAME
     WITTY_BACKEND_URL WITTY_BACKEND_HOST_PORT WITTY_FRONTEND_HOST_PORT WITTY_NETWORK
     WITTY_NETWORK_MODE WITTY_SSL_VERIFY WITTY_SECCOMP
+    WITTY_NETWORK_MODE_PG WITTY_NETWORK_MODE_APP WITTY_NETWORK_MODE_BACKEND
+    WITTY_NETWORK_MODE_FRONTEND WITTY_NETWORK_SELFCHECK WITTY_NETWORK_FALLBACK
     PG_HOST PG_PORT PG_DATABASE PG_USER PG_PASSWORD PG_SECRET_FILE
     PG_HOST_IN_CONTAINER PG_PORT_IN_CONTAINER PG_CONTAINER_NAME PG_NETWORK PG_VOLUME
     OPENCODE_CONFIG_DIR
@@ -43,13 +45,6 @@ restore_env_overrides() {
 ${ENV_OVERRIDES}
 EOF
 }
-
-PG_CONTAINER="${PG_CONTAINER_NAME:-postgres}"
-WITTY_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}"
-# 分离部署角色容器（deploy_witty.sh --role backend/frontend）
-WITTY_BACKEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-backend"
-WITTY_FRONTEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-frontend"
-PG_VOLUME="${PG_VOLUME:-pg15-data}"
 
 # ---------- 全局选项：-y / --yes 跳过确认（卸载类命令在非交互环境下必需） ----------
 ASSUME_YES=0
@@ -82,6 +77,16 @@ fi
 # 环境变量优先级高于配置文件（导出给 deploy_witty.sh / deploy_pg.sh 子进程）
 restore_env_overrides
 unset ENV_OVERRIDES CONFIG_KEYS
+
+# ---------- 容器名/卷名派生（必须在配置加载完成后计算） ----------
+# 这些变量依赖 WITTY_CONTAINER_NAME / PG_CONTAINER_NAME / PG_VOLUME：deploy.conf 里的
+# 自定义值会覆盖脚本顶部的默认值，放在 source 之前计算会让自定义容器名全程失效。
+PG_CONTAINER="${PG_CONTAINER_NAME:-postgres}"
+WITTY_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}"
+# 分离部署角色容器（deploy_witty.sh --role backend/frontend）
+WITTY_BACKEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-backend"
+WITTY_FRONTEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-frontend"
+PG_VOLUME="${PG_VOLUME:-pg15-data}"
 
 # ---------- 工具函数 ----------
 log_info() { echo "[INFO]  $*"; }
@@ -217,6 +222,7 @@ ask_container_runtime_options() {
     echo "  [${idx}] Network mode       [${default_mode}]"
     echo "      bridge = Docker network ${WITTY_NETWORK:-${PG_NETWORK:-witty-ub-network}} / host = share the host network"
     echo "      Use 'host' when the Docker network is untrusted on this server"
+    echo "      (per-container WITTY_NETWORK_MODE_* keys in deploy.conf override this global default)"
     ask "                           [${default_mode}]: " input
     WITTY_NETWORK_MODE="${input:-${default_mode}}"
 
@@ -251,7 +257,8 @@ do_install_all() {
     echo "│    Press Enter to use the default shown in [ ]      │"
     echo "└─────────────────────────────────────────────────────┘"
     noninteractive_hint
-    # [1]-[3] 网络模式 / SSL 校验 / seccomp；PG 与 witty-ub 必须取同一网络模式
+    # [1]-[3] 网络模式 / SSL 校验 / seccomp；这里设置的是全局默认值，
+    # PG 与应用容器默认继承它（deploy.conf 里的容器级键非空时优先）
     ask_container_runtime_options 1
     echo ""
     if ! bash "${DEPLOY_DIR}/../deploy_pg.sh" --docker; then
@@ -730,6 +737,22 @@ show_status() {
         fi
     done
     sep
+
+    # 网络模式：actual 取自容器（bridge 显示组网名，host 显示 host），config 取自 deploy.conf
+    echo ""
+    echo "Network modes (actual / configured):"
+    local _c _mode _cfg
+    for _c in "$PG_CONTAINER" "$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER"; do
+        container_exists "$_c" || continue
+        _mode="$(container_network_mode "$_c")"
+        case "$_c" in
+        "$PG_CONTAINER") _cfg="WITTY_NETWORK_MODE_PG=${WITTY_NETWORK_MODE_PG:-<inherit>}" ;;
+        "$WITTY_CONTAINER") _cfg="WITTY_NETWORK_MODE_APP=${WITTY_NETWORK_MODE_APP:-<inherit>}" ;;
+        "$WITTY_BACKEND_CONTAINER") _cfg="WITTY_NETWORK_MODE_BACKEND=${WITTY_NETWORK_MODE_BACKEND:-<inherit>}" ;;
+        *) _cfg="WITTY_NETWORK_MODE_FRONTEND=${WITTY_NETWORK_MODE_FRONTEND:-<inherit>}" ;;
+        esac
+        printf "  %-22s %-22s %s\n" "$_c" "${_mode:--}" "${_cfg} (global: ${WITTY_NETWORK_MODE:-bridge})"
+    done
 
     # 从 docker port 获取实际映射端口；host 模式下无端口映射，直接用容器内端口
     local actual_port="" net_mode=""

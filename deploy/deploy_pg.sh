@@ -20,6 +20,7 @@ DEPLOY_MODE="docker" # 默认 docker
 PG_PORT_OVERRIDE="${PG_PORT:-}"
 PG_PORT_RPM_OVERRIDE="${PG_PORT_RPM:-}"
 WITTY_NETWORK_MODE_OVERRIDE="${WITTY_NETWORK_MODE:-}"
+WITTY_NETWORK_MODE_PG_OVERRIDE="${WITTY_NETWORK_MODE_PG:-}"
 
 usage() {
     cat <<EOF
@@ -89,6 +90,19 @@ case "$WITTY_NETWORK_MODE" in
 bridge | host) ;;
 *)
     echo "[ERROR] Invalid WITTY_NETWORK_MODE '${WITTY_NETWORK_MODE}' (expected: bridge|host)"
+    exit 1
+    ;;
+esac
+
+# PG 容器的网络模式可单独覆盖（容器级键，留空继承上面的全局值）：
+#   bridge（默认）PG 接入 PG_NETWORK 组网，宿主机端口映射为 PG_PORT
+#   host          PG 直接监听宿主机 5432（不创建网络、不做端口映射）
+WITTY_NETWORK_MODE_PG="${WITTY_NETWORK_MODE_PG_OVERRIDE:-${WITTY_NETWORK_MODE_PG:-}}"
+WITTY_NETWORK_MODE_PG="${WITTY_NETWORK_MODE_PG:-$WITTY_NETWORK_MODE}"
+case "$WITTY_NETWORK_MODE_PG" in
+bridge | host) ;;
+*)
+    echo "[ERROR] Invalid WITTY_NETWORK_MODE_PG '${WITTY_NETWORK_MODE_PG}' (expected: bridge|host)"
     exit 1
     ;;
 esac
@@ -345,7 +359,7 @@ deploy_docker() {
 
     # Step 2: Docker 网络
     echo ""
-    if [ "$WITTY_NETWORK_MODE" = "host" ]; then
+    if [ "$WITTY_NETWORK_MODE_PG" = "host" ]; then
         echo "[Step 2/6] Network mode 'host': skipping Docker network creation ..."
         # host 模式下端口映射被忽略，PG 直接监听宿主机 5432（校验/汇总口径同步）
         PG_PORT="5432"
@@ -393,7 +407,7 @@ deploy_docker() {
     # 网络/端口参数按网络模式派生（host 模式忽略端口映射，容器直接占用 5432）
     PG_NET_ARGS=(--network "${PG_NETWORK}")
     PG_PORT_ARGS=(-p "${PG_PORT}:5432")
-    if [ "$WITTY_NETWORK_MODE" = "host" ]; then
+    if [ "$WITTY_NETWORK_MODE_PG" = "host" ]; then
         PG_NET_ARGS=(--network host)
         PG_PORT_ARGS=()
     fi
@@ -487,7 +501,7 @@ deploy_docker() {
     echo "  Port:       ${PG_PORT} (host) / 5432 (container)"
     echo "  Database:   ${PG_DATABASE}"
     echo "  User:       ${PG_USER}"
-    if [ "$WITTY_NETWORK_MODE" = "host" ]; then
+    if [ "$WITTY_NETWORK_MODE_PG" = "host" ]; then
         echo "  Network:    host (shares the host network; port mapping disabled)"
     else
         echo "  Network:    ${PG_NETWORK} (bridge)"

@@ -21,6 +21,12 @@
 #    后端 9772，PG 直接占用宿主机 5432；PG_HOST 需改为 127.0.0.1）。
 #    详见 docs/troubleshooting/02-container-runtime.md §3。
 #    脚本部署可直接用 WITTY_NETWORK_MODE=host 自动完成上述改写。
+#    分离形态务必成套改：witty-ub-backend 与 witty-ub-frontend 必须同时加
+#    `network_mode: host`，并把 witty-ub-frontend 的 WITTY_BACKEND_URL 改成
+#    http://127.0.0.1:9772 —— 只改一个会让前端连不上后端（后端的 9772 只有 host
+#    模式下才能被本机回环访问）。脚本部署对同机分离会强制校验两者模式一致。
+#    容器级模式：脚本侧另有 WITTY_NETWORK_MODE_PG / _APP / _BACKEND / _FRONTEND
+#    四个键可单独指定，留空继承上面的 WITTY_NETWORK_MODE；本文件不支持变量切换。
 # 2) SSL 校验: WITTY_SSL_VERIFY=false 关闭 OpenCode/LLM 出网 HTTPS 证书校验
 #    （容器入口翻译为 NODE_TLS_REJECT_UNAUTHORIZED=0），仅用于内网自签证书或代理
 #    拦截且无法导入 CA 的场景；默认 true。
