@@ -1,0 +1,88 @@
+{
+  "id": "d29b704d-d90e-4948-bde0-2f39b9eb5b38",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Client获取退出启动",
+  "description": "自动导入: dfx_client_process_get_exit_start",
+  "task_ids": [],
+  "task_names": [
+    "lingqu_kvcache_dfx_client_process_get_exit_start_001_20260528_22_51_28"
+  ],
+  "log_file_id": "7dabbd2e-0f53-4db6-b90b-ba3a6bf25c63",
+  "log_file_name": "lingqu_kvcache_dfx_client_process_get_exit_start_001_20260528_22_51_28",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "Client-退出",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "remote_worker_cost",
+          386.711
+        ],
+        [
+          "urma_total_latency",
+          386.456
+        ],
+        [
+          "total_latency",
+          198.40400000000002
+        ],
+        [
+          "sdk_process",
+          197.3905
+        ],
+        [
+          "worker_total_latency",
+          197.388
+        ],
+        [
+          "remote_worker_rpc",
+          196.93449999999999
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "remote_worker_cost",
+          386.711
+        ],
+        [
+          "urma_total_latency",
+          386.456
+        ],
+        [
+          "total_latency",
+          198.40400000000002
+        ],
+        [
+          "sdk_process",
+          197.3905
+        ],
+        [
+          "worker_total_latency",
+          197.388
+        ]
+      ],
+      "p99_p50_ratio": 49.89239451070925,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 49.892
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 3,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 4
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 3,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 4,
+      "failure_event_count": 0,
+      "total_parse_result_count": 4
+    }
+  },
+  "created_at": "2026-09-28 18:29:45"
+}

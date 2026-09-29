@@ -1,0 +1,161 @@
+{
+  "id": "e8620e4d-e6d2-43e5-ba60-b287fdab5c0c",
+  "kb_id": "bc10b5c3-bca4-46ca-8629-5bf3494a50b6",
+  "root_cause_type": "UB交换机L1的上行端口闪断",
+  "description": "",
+  "task_ids": [
+    "3e81b204-5026-420b-ae45-2612110e6511"
+  ],
+  "task_names": [
+    "UB交换机L1的上行端口闪断.tar.gz"
+  ],
+  "log_file_id": "b6948b00-02e4-4d54-a929-b20989341898",
+  "log_file_name": "UB交换机L1的上行端口闪断.tar.gz",
+  "attachment_path": null,
+  "fault_category": "mixed",
+  "features": {
+    "fault_category": "mixed",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          12.932141000000023
+        ],
+        [
+          "c2w_latency",
+          10.798979775730892
+        ],
+        [
+          "c2w_urma_latency",
+          10.798979775730892
+        ],
+        [
+          "remote_worker_rpc",
+          10.154245614035089
+        ],
+        [
+          "worker_query_meta_latency",
+          9.729333333333335
+        ],
+        [
+          "remote_worker_cost",
+          7.758885714285717
+        ],
+        [
+          "urma_link_latency",
+          2.62019
+        ],
+        [
+          "sdk_process",
+          2.6189027946536947
+        ],
+        [
+          "worker_total_latency",
+          2.146119999999989
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          12.932141000000023
+        ],
+        [
+          "c2w_latency",
+          10.798979775730892
+        ],
+        [
+          "c2w_urma_latency",
+          10.798979775730892
+        ],
+        [
+          "remote_worker_rpc",
+          10.154245614035089
+        ],
+        [
+          "worker_query_meta_latency",
+          9.729333333333335
+        ]
+      ],
+      "p99_p50_ratio": 1.6792653713068937,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 1.464,
+        "DS_POSIX_GET": 1.619,
+        "DS_KV_CLIENT_SET": 1.222
+      },
+      "pod_concentration": "multi_pod",
+      "affected_pods_count": 36,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 4109,
+        "DS_POSIX_GET": 6,
+        "DS_KV_CLIENT_SET": 885
+      },
+      "anomalous_ratio": 0.09187629775270575,
+      "trace_context_pods_count": 32,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 2
+    },
+    "connectivity": {
+      "failure_mode_dist": {
+        "kvcache_runtime_1106": 4901,
+        "kvcache_runtime_906": 4900,
+        "kvcache_runtime_111": 1823,
+        "kvcache_access_022": 497,
+        "kvcache_runtime_2117": 53319,
+        "kvcache_runtime_2115": 53319,
+        "kvcache_runtime_2116": 53319,
+        "kvcache_runtime_2529": 31573,
+        "kvcache_failure_unknown": 27574,
+        "kvcache_runtime_272": 135,
+        "kvcache_access_020": 130,
+        "kvcache_runtime_1377": 51,
+        "kvcache_runtime_2212": 32,
+        "kvcache_access_012": 68937,
+        "kvcache_runtime_1026": 69127,
+        "kvcache_runtime_2541": 25225,
+        "kvcache_access_005": 4856,
+        "kvcache_runtime_881": 4856,
+        "kvcache_runtime_2525": 100,
+        "kvcache_runtime_2195": 14,
+        "kvcache_runtime_2182": 80,
+        "kvcache_runtime_2114": 39,
+        "kvcache_runtime_2192": 3,
+        "kvcache_runtime_2295": 1,
+        "kvcache_runtime_2303": 1,
+        "kvcache_runtime_106": 2,
+        "kvcache_runtime_247": 3,
+        "kvcache_runtime_241": 1
+      },
+      "status_code_dist": {
+        "1010": 4370,
+        "1004": 497,
+        "1001": 169,
+        "19": 68937,
+        "5": 4859
+      },
+      "spatial_pod": {
+        "unique_count": 36,
+        "scope": "multi_pod"
+      },
+      "spatial_host": {
+        "unique_count": 1,
+        "scope": "single_host"
+      },
+      "spatial_cluster": {
+        "unique_count": 2,
+        "scope": "few_clusters"
+      },
+      "affected_operation_dist": {
+        "SET": 16576,
+        "GET": 89723
+      },
+      "src_dst_pair_count": 14
+    },
+    "summary": {
+      "anomalous_event_count": 5000,
+      "failure_event_count": 106532,
+      "total_parse_result_count": 54421
+    }
+  },
+  "created_at": "2026-09-24 06:42:21",
+  "case_category": "UB-端口故障"
+}

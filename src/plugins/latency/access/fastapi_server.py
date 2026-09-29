@@ -41,6 +41,8 @@ from latency.routers import (
     brpc_profiling,
     stats,
     trace,
+    case_library,
+    similarity_analysis,
 )
 
 from latency.database.engine import PGManager
@@ -175,6 +177,8 @@ async def configure():
     app.include_router(brpc_profiling.router)
     app.include_router(stats.router)
     app.include_router(trace.router)
+    app.include_router(case_library.router)
+    app.include_router(similarity_analysis.router)
 
     web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
     if os.path.isdir(web_dir):

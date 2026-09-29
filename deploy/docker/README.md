@@ -175,7 +175,26 @@ WITTY_EXTRA_MOUNTS="/home:/home:ro"     # 额外挂载（可选）
 WITTY_BACKEND_HOST_PORT="9772"          # 后端容器宿主机端口（容器内 9772）
 WITTY_FRONTEND_HOST_PORT="32413"        # 前端容器宿主机端口（容器内 8080）
 WITTY_BACKEND_URL=""                    # 前端容器内反代上游；留空 = http://witty-ub-backend:9772，跨机填 http://<后端IP>:9772
+
+# ---------- 容器运行时（网络 / SSL / seccomp） ----------
+WITTY_NETWORK_MODE="bridge"             # bridge（默认，接入 PG_NETWORK 组网）| host（共享宿主机网络）
+WITTY_SSL_VERIFY="true"                 # true（默认校验 OpenCode/LLM 出网 HTTPS 证书）| false（关闭校验）
+WITTY_SECCOMP="default"                 # default（Docker 默认过滤）| unconfined（关闭，旧版 Docker/libseccomp）
+
+# 容器级网络模式覆盖（留空继承 WITTY_NETWORK_MODE）
+WITTY_NETWORK_MODE_PG=""                # PG 容器（postgres）
+WITTY_NETWORK_MODE_APP=""               # 一体容器（--role all）
+WITTY_NETWORK_MODE_BACKEND=""           # 分离：后端容器（--role backend）
+WITTY_NETWORK_MODE_FRONTEND=""          # 分离：前端容器（--role frontend）
+WITTY_NETWORK_SELFCHECK="true"          # 部署后逐链路自检（true|false）
+WITTY_NETWORK_FALLBACK="prompt"         # 自检失败回退：prompt（提示命令）| auto（自动切 host 重跑）| off
 ```
+
+> **网络模式与自检**：`WITTY_NETWORK_MODE="host"` 时脚本改用 `--network host`、跳过 `-p` 端口映射与网络创建，
+> 容器内 PG 地址改为 `127.0.0.1:5432`，前端反代改为 `http://127.0.0.1:9772`，Web UI 直接占用宿主机 8080
+> （`WITTY_HOST_PORT` 不再生效）。容器级键 `WITTY_NETWORK_MODE_PG/_APP/_BACKEND/_FRONTEND` 可覆盖全局键（一体
+> 只认 `_APP`，分离同机要求前后端一致）；自检失败按 `WITTY_NETWORK_FALLBACK`（`prompt`/`auto`/`off`）处理。
+> 完整规则（含混合组合、探针判定、回退细节）见[配置参考](../../docs/usage/03-configuration-reference.md)。
 
 ### 镜像拉取优先级
 
@@ -198,9 +217,12 @@ WITTY_BACKEND_URL=""                    # 前端容器内反代上游；留空 =
 | 优先级 | 检测条件 | 连接结果 |
 | ------ | ------ | ------ |
 | 0 | `deploy.conf` 显式设置 `PG_HOST_IN_CONTAINER` | 使用配置值 |
-| 1 | 同网络 PG 容器正在运行 | `postgres:5432` |
-| 2 | 宿主机 RPM PG 正在运行 | `Docker网关IP:监听端口` |
-| 3 | 以上都未检测到 | 默认 `postgres:5432` |
+| 1 | PG 容器 `host` + 应用 `host` | `127.0.0.1:5432` |
+| 2 | PG 容器 `host` + 应用 `bridge` | `Docker网关IP:5432`（混合组合，不保证） |
+| 3 | PG 容器 `bridge` + 应用 `host` | `127.0.0.1:<PG_PORT>`（混合组合，不保证） |
+| 4 | 同网络 PG 容器正在运行（都 `bridge`） | `postgres:5432` |
+| 5 | 宿主机 RPM PG 正在运行 | `Docker网关IP:监听端口` |
+| 6 | 以上都未检测到 | 默认 `postgres:5432` |
 
 ---
 
@@ -269,6 +291,24 @@ bash manage.sh install-backend
 WITTY_BACKEND_URL=http://<后端机器IP>:9772 bash manage.sh install-frontend
 ```
 
+### Docker 网络不被信任（容器间无法通信）
+
+PG 容器 `healthy` 但与应用容器互相不可达时，多为宿主机把 Docker 网桥视为不可信区域：
+
+```bash
+# 方案 A（推荐）: 把 Docker 网络加入 firewalld 信任域
+SUBNET=$(docker network inspect witty-ub-network --format '{{(index .IPAM.Config 0).Subnet}}')
+sudo firewall-cmd --permanent --zone=trusted --add-source="$SUBNET" && sudo firewall-cmd --reload
+# 方案 B: PG 与应用都改用 host 网络模式
+WITTY_NETWORK_MODE=host bash manage.sh install-all
+```
+
+> 完整取证步骤与两方案取舍见[故障排查 §3](../../docs/troubleshooting/02-container-runtime.md)。
+
+### 内网自签证书导致 OpenCode 调用 LLM 报证书错误
+
+在 `deploy/deploy.conf` 设 `WITTY_SSL_VERIFY="false"`（关闭的只是 OpenCode/LLM 出网 HTTPS 证书校验，不影响 Nginx 与数据库连接）。
+
 ### 完全卸载
 
 ```bash
@@ -300,6 +340,10 @@ bash manage.sh
 | 分离前端 unhealthy，但前端页面能打开 | 远端后端不可达：先在 BE 执行 `curl http://<BE>:9772/health_check`，见[常见问题 §11](../../docs/troubleshooting/01-common-issues.md) |
 | 报 `Cannot access the Docker daemon socket (permission denied)` | 当前用户不在 `docker` 组：`sudo usermod -aG docker $USER && newgrp docker`（脚本已区分该错误与"守护进程未启动"） |
 | 端口冲突 | `ss -tlnp \| grep <端口>` 检查占用 |
+| 同网络内 PG 与 witty-ub 互相不可达（PG 自身 healthy） | Docker 网络被服务器视为不可信：加 firewalld 信任域，或设 `WITTY_NETWORK_MODE=host`，见[故障排查 §3](../../docs/troubleshooting/02-container-runtime.md) |
+| host 模式下 `docker port witty-ub` 输出为空 | 正常现象（host 模式无端口映射）：Web UI 直接占用宿主机 8080，`manage.sh status` 显示为 `host net (:8080)` |
+| OpenCode 调用 LLM 报证书错误 | 内网自签证书/代理拦截：导入 CA，或设 `WITTY_SSL_VERIFY="false"` 关闭校验 |
+| 旧版 Docker 容器启动报 `can't start new thread` | 设 `WITTY_SECCOMP="unconfined"` 关闭 seccomp 过滤（Docker<20.10 / libseccomp<2.5） |
 | 容器已有数据但无法启动 | 检查数据卷完整性、PG 数据目录权限 |
 | 与 compose 混用报容器名冲突 | 脚本与 `docker-compose.yml` 互斥（容器名/卷名/网络名一致），请二选一 |
 
@@ -309,6 +353,7 @@ bash manage.sh
 
 - [宿主机脚本部署](../../docs/deployment/02-script-host.md)
 - [容器脚本部署](../../docs/deployment/03-script-container.md)
+- [配置参考](../../docs/usage/03-configuration-reference.md)
 - [手动数据库部署](../../docs/deployment/05-database.md)
 - [手动源码部署](../../docs/deployment/06-source.md)
 - [手动 RPM 部署](../../docs/deployment/07-rpm.md)

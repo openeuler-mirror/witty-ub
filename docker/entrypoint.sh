@@ -25,7 +25,19 @@ export OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
 # 诊断报告落盘根目录（由 witty-ub-reports 卷持久化；agent 子进程继承此变量）
 export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-${WITTY_DIR}/reports}"
 
-echo "Role: ${WITTY_ROLE}  Backend: ${WITTY_BACKEND_URL}  Agent: ${WITTY_AGENT_URL}"
+# ── OpenCode/LLM 出网 HTTPS 证书校验（WITTY_SSL_VERIFY=false 时关闭） ──
+# 内网自签证书/代理拦截会导致 OpenCode 调 LLM 报证书错误；无法导入 CA 时可设为 false。
+# OpenCode 是 Node 应用，关闭校验通过 NODE_TLS_REJECT_UNAUTHORIZED=0（须在启动前导出）
+export WITTY_SSL_VERIFY="${WITTY_SSL_VERIFY:-true}"
+case "$WITTY_SSL_VERIFY" in
+false | False | FALSE | 0 | no | NO)
+    export NODE_TLS_REJECT_UNAUTHORIZED=0
+    echo "[WARN] WITTY_SSL_VERIFY=${WITTY_SSL_VERIFY}: HTTPS certificate verification for OpenCode/LLM calls is DISABLED"
+    ;;
+*) ;;
+esac
+
+echo "Role: ${WITTY_ROLE}  Backend: ${WITTY_BACKEND_URL}  Agent: ${WITTY_AGENT_URL}  SSL verify: ${WITTY_SSL_VERIFY}"
 
 # Docker 部署通过只读 bind mount / Compose secret 传入口令，避免将密码
 # 写入镜像配置或 docker inspect 可见的容器环境配置。只在后端角色中加载。
@@ -78,6 +90,18 @@ sync_backend_data() {
         exit 1
     fi
     echo "[OK] BRPC diagnosis tool and data are ready"
+
+    # Sync case library (similarity analysis / case management)
+    # 先删除旧 case 文件再拷贝，确保删除的案例不残留（cp 只增不删会导致旧案例污染）
+    local CASE_SEED_DIR="/usr/share/witty-ub/case"
+    local CASE_RUNTIME_DIR="${WITTY_DIR}/case"
+    mkdir -p "${CASE_RUNTIME_DIR}"
+    if [ -d "${CASE_SEED_DIR}" ]; then
+        echo "Syncing case library..."
+        rm -f "${CASE_RUNTIME_DIR}"/*.json 2>/dev/null || true
+        cp -a "${CASE_SEED_DIR}/." "${CASE_RUNTIME_DIR}/"
+        echo "[OK] Case library synced: $(find "${CASE_RUNTIME_DIR}" -name '*.json' | wc -l) files"
+    fi
 }
 
 # ── Agent 配置布局检测 ──────────────────────────────────────────────

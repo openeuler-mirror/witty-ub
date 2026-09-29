@@ -1,0 +1,104 @@
+{
+  "id": "c6cfe586-9b0b-49f6-a26c-b143c44acdba",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker进程退出",
+  "description": "自动导入: dfx_worker_set_exit",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new/lingqu_kvcache_dfx_worker_set_exit_002_20260522_06_56_45"
+  ],
+  "log_file_id": "a5ddd741-46c2-4a04-92ad-02798945857f",
+  "log_file_name": "lingqu_kvcache_dfx_worker_set_exit_002_20260522_06_56_45",
+  "attachment_path": null,
+  "fault_category": "mixed",
+  "case_category": "Worker-退出/崩溃",
+  "features": {
+    "fault_category": "mixed",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          1796.305334677421
+        ],
+        [
+          "worker_total_latency",
+          1796.0077227926045
+        ],
+        [
+          "urma_total_latency",
+          1559.4000000000003
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          1796.305334677421
+        ],
+        [
+          "worker_total_latency",
+          1796.0077227926045
+        ],
+        [
+          "urma_total_latency",
+          1559.4000000000003
+        ],
+        [
+          "c2w_latency",
+          0.2909117043121084
+        ],
+        [
+          "c2w_urma_latency",
+          0.2909117043121084
+        ]
+      ],
+      "p99_p50_ratio": 1.000590466936356,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 1.001
+      },
+      "pod_concentration": "multi_pod",
+      "affected_pods_count": 7,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 1488
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 7,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": {
+      "failure_mode_dist": {
+        "kvcache_access_003": 825,
+        "kvcache_runtime_2173": 578,
+        "kvcache_runtime_2526": 658,
+        "kvcache_runtime_1696": 520,
+        "kvcache_runtime_1711": 520,
+        "kvcache_runtime_1706": 519
+      },
+      "status_code_dist": {
+        "3": 825
+      },
+      "spatial_pod": {
+        "unique_count": 10,
+        "scope": "multi_pod"
+      },
+      "spatial_host": {
+        "unique_count": 1,
+        "scope": "single_host"
+      },
+      "spatial_cluster": {
+        "unique_count": 1,
+        "scope": "single_cluster"
+      },
+      "affected_operation_dist": {
+        "GET": 495
+      },
+      "src_dst_pair_count": 1
+    },
+    "summary": {
+      "anomalous_event_count": 1488,
+      "failure_event_count": 1120,
+      "total_parse_result_count": 1488
+    }
+  },
+  "created_at": "2026-09-28 17:24:07"
+}

@@ -1,0 +1,84 @@
+{
+  "id": "6b289223-3d02-4f71-83f6-3b98ad90af4c",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker远端UB单链路down",
+  "description": "自动导入: dfx_worker_process_remote_ub_single_link_down",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new/lingqu_kvcache_dfx_worker_process_remote_ub_single_link_down_001_20260522_19_43_30"
+  ],
+  "log_file_id": "81f3d5c0-12e2-4c30-86c3-517466933a00",
+  "log_file_name": "lingqu_kvcache_dfx_worker_process_remote_ub_single_link_down_001_20260522_19_43_30",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "UB-链路故障",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          9.681
+        ],
+        [
+          "worker_total_latency",
+          8.606
+        ],
+        [
+          "urma_total_latency",
+          3.36443
+        ],
+        [
+          "c2w_latency",
+          1.0749999999999993
+        ],
+        [
+          "c2w_urma_latency",
+          1.0749999999999993
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          9.681
+        ],
+        [
+          "worker_total_latency",
+          8.606
+        ],
+        [
+          "urma_total_latency",
+          3.36443
+        ],
+        [
+          "c2w_latency",
+          1.0749999999999993
+        ],
+        [
+          "c2w_urma_latency",
+          1.0749999999999993
+        ]
+      ],
+      "p99_p50_ratio": 1.0,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 1.0
+      },
+      "pod_concentration": "multi_pod",
+      "affected_pods_count": 4,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 2
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 5,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 2,
+      "failure_event_count": 0,
+      "total_parse_result_count": 2
+    }
+  },
+  "created_at": "2026-09-28 17:24:03"
+}

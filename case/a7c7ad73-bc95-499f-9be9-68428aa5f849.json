@@ -1,0 +1,72 @@
+{
+  "id": "a7c7ad73-bc95-499f-9be9-68428aa5f849",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker写入网卡丢包",
+  "description": "自动导入: dfx_worker_process_write_net_card_loss",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new/lingqu_kvcache_dfx_worker_process_write_net_card_loss_001_20260522_05_42_27"
+  ],
+  "log_file_id": "2f26296c-761a-4a59-b7e6-d1ad917b44e1",
+  "log_file_name": "lingqu_kvcache_dfx_worker_process_write_net_card_loss_001_20260522_05_42_27",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "网络/TCP故障",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          27.487
+        ],
+        [
+          "c2w_latency",
+          27.468
+        ],
+        [
+          "c2w_urma_latency",
+          27.468
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          27.487
+        ],
+        [
+          "c2w_latency",
+          27.468
+        ],
+        [
+          "c2w_urma_latency",
+          27.468
+        ],
+        [
+          "worker_total_latency",
+          0.019
+        ]
+      ],
+      "p99_p50_ratio": 1.0,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_SET": 1.0
+      },
+      "pod_concentration": "multi_pod",
+      "affected_pods_count": 4,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_SET": 2
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 5,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 2,
+      "failure_event_count": 0,
+      "total_parse_result_count": 2
+    }
+  },
+  "created_at": "2026-09-28 17:24:07"
+}

@@ -18,6 +18,9 @@ CONF_FILE="${DEPLOY_DIR}/../deploy.conf"
 CONFIG_KEYS=(
     WITTY_HOST_PORT WITTY_EXTRA_MOUNTS WITTY_IMAGE WITTY_LOG_LEVEL WITTY_CONTAINER_NAME
     WITTY_BACKEND_URL WITTY_BACKEND_HOST_PORT WITTY_FRONTEND_HOST_PORT WITTY_NETWORK
+    WITTY_NETWORK_MODE WITTY_SSL_VERIFY WITTY_SECCOMP
+    WITTY_NETWORK_MODE_PG WITTY_NETWORK_MODE_APP WITTY_NETWORK_MODE_BACKEND
+    WITTY_NETWORK_MODE_FRONTEND WITTY_NETWORK_SELFCHECK WITTY_NETWORK_FALLBACK
     PG_HOST PG_PORT PG_DATABASE PG_USER PG_PASSWORD PG_SECRET_FILE
     PG_HOST_IN_CONTAINER PG_PORT_IN_CONTAINER PG_CONTAINER_NAME PG_NETWORK PG_VOLUME
     OPENCODE_CONFIG_DIR
@@ -42,13 +45,6 @@ restore_env_overrides() {
 ${ENV_OVERRIDES}
 EOF
 }
-
-PG_CONTAINER="${PG_CONTAINER_NAME:-postgres}"
-WITTY_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}"
-# 分离部署角色容器（deploy_witty.sh --role backend/frontend）
-WITTY_BACKEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-backend"
-WITTY_FRONTEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-frontend"
-PG_VOLUME="${PG_VOLUME:-pg15-data}"
 
 # ---------- 全局选项：-y / --yes 跳过确认（卸载类命令在非交互环境下必需） ----------
 ASSUME_YES=0
@@ -81,6 +77,14 @@ fi
 # 环境变量优先级高于配置文件（导出给 deploy_witty.sh / deploy_pg.sh 子进程）
 restore_env_overrides
 unset ENV_OVERRIDES CONFIG_KEYS
+
+# ---------- 容器名/卷名派生（必须在配置加载后计算，否则 deploy.conf 的自定义名会失效） ----------
+PG_CONTAINER="${PG_CONTAINER_NAME:-postgres}"
+WITTY_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}"
+# 分离部署角色容器（deploy_witty.sh --role backend/frontend）
+WITTY_BACKEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-backend"
+WITTY_FRONTEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-frontend"
+PG_VOLUME="${PG_VOLUME:-pg15-data}"
 
 # ---------- 工具函数 ----------
 log_info() { echo "[INFO]  $*"; }
@@ -126,6 +130,35 @@ container_health() {
 
 volume_exists() {
     docker volume ls --format '{{.Name}}' 2>/dev/null | grep -qx "$1"
+}
+
+# 容器网络模式（bridge / host / ...）
+container_network_mode() {
+    docker inspect --format '{{.HostConfig.NetworkMode}}' "$1" 2>/dev/null || echo ""
+}
+
+# 容器对外端口：bridge 取 docker port 实际映射；host 无映射，用容器内监听端口
+container_access_port() {
+    local name="$1" inport="$2"
+    if [ "$(container_network_mode "$name")" = "host" ]; then
+        echo "$inport"
+    else
+        docker port "$name" 2>/dev/null | grep "$inport" | sed 's/.*://' | head -1 || true
+    fi
+}
+
+# 状态展示用端口串：host 模式标注 "host net (:端口)"，bridge 取第一条映射
+container_ports() {
+    local name="$1"
+    if [ "$(container_network_mode "$name")" = "host" ]; then
+        case "$name" in
+        "$WITTY_BACKEND_CONTAINER") echo "host net (:9772)" ;;
+        "$WITTY_FRONTEND_CONTAINER" | "$WITTY_CONTAINER") echo "host net (:8080)" ;;
+        *) echo "host net (:${PG_PORT_RPM:-5432})" ;;
+        esac
+    else
+        docker port "$name" 2>/dev/null | head -1 || true
+    fi
 }
 
 get_container_image() {
@@ -178,6 +211,40 @@ noninteractive_hint() {
     fi
 }
 
+# 容器运行时选项（网络模式 / SSL 校验 / seccomp）；回车取 deploy.conf 中的当前值。
+# 参数: $1 = 起始编号（跟随调用处的提示序号）
+ask_container_runtime_options() {
+    local idx="${1:-1}"
+    local default_mode default_ssl default_seccomp input
+
+    default_mode="${WITTY_NETWORK_MODE:-bridge}"
+    default_ssl="${WITTY_SSL_VERIFY:-true}"
+    default_seccomp="${WITTY_SECCOMP:-default}"
+
+    echo ""
+    echo "  [${idx}] Network mode       [${default_mode}]"
+    echo "      bridge = Docker network ${WITTY_NETWORK:-${PG_NETWORK:-witty-ub-network}} / host = share the host network"
+    echo "      Use 'host' when the Docker network is untrusted (per-container WITTY_NETWORK_MODE_* keys override this)"
+    ask "                           [${default_mode}]: " input
+    WITTY_NETWORK_MODE="${input:-${default_mode}}"
+
+    idx=$((idx + 1))
+    echo ""
+    echo "  [${idx}] SSL verification   [${default_ssl}]"
+    echo "      true = verify OpenCode/LLM HTTPS certificates / false = disable verification"
+    ask "                           [${default_ssl}]: " input
+    WITTY_SSL_VERIFY="${input:-${default_ssl}}"
+
+    idx=$((idx + 1))
+    echo ""
+    echo "  [${idx}] seccomp policy     [${default_seccomp}]"
+    echo "      default = Docker default filter / unconfined = disable (old Docker/libseccomp)"
+    ask "                           [${default_seccomp}]: " input
+    WITTY_SECCOMP="${input:-${default_seccomp}}"
+
+    export WITTY_NETWORK_MODE WITTY_SSL_VERIFY WITTY_SECCOMP
+}
+
 # ============================================================
 # 安装
 # ============================================================
@@ -186,6 +253,14 @@ do_install_all() {
     echo "One-shot install: PostgreSQL + witty-ub (Docker)"
     sep
     check_docker || return 1
+    echo ""
+    echo "┌─────────────────────────────────────────────────────┐"
+    echo "│    Container runtime options (PG + witty-ub)        │"
+    echo "│    Press Enter to use the default shown in [ ]      │"
+    echo "└─────────────────────────────────────────────────────┘"
+    noninteractive_hint
+    # [1]-[3] 网络模式 / SSL / seccomp（全局默认值，PG 与应用容器默认继承，容器级键非空时优先）
+    ask_container_runtime_options 1
     echo ""
     if ! bash "${DEPLOY_DIR}/../deploy_pg.sh" --docker; then
         log_error "PostgreSQL deployment failed; aborting the one-shot install (witty-ub will not be deployed)"
@@ -262,6 +337,9 @@ do_install_witty() {
     fi
     WITTY_IMAGE="${input_image:-${default_image}}"
 
+    # [4]-[6] 网络模式 / SSL 校验 / seccomp
+    ask_container_runtime_options 4
+
     # ---------- 配置汇总 ----------
     echo ""
     echo "┌─────────────────────────────────────────────────────┐"
@@ -269,6 +347,9 @@ do_install_witty() {
     echo "├─────────────────────────────────────────────────────┤"
     printf "│  %-19s %-30s │\n" "Host port" "${WITTY_HOST_PORT}"
     printf "│  %-19s %-30s │\n" "Image" "${WITTY_IMAGE:-auto}"
+    printf "│  %-19s %-30s │\n" "Network mode" "${WITTY_NETWORK_MODE}"
+    printf "│  %-19s %-30s │\n" "SSL verify" "${WITTY_SSL_VERIFY}"
+    printf "│  %-19s %-30s │\n" "seccomp" "${WITTY_SECCOMP}"
     if [ -n "${WITTY_EXTRA_MOUNTS}" ]; then
         first=1
         for m in ${WITTY_EXTRA_MOUNTS}; do
@@ -344,6 +425,9 @@ do_install_witty_role() {
         ask "  [2] Image            [${WITTY_IMAGE:-auto-select witty-ub:backend if empty}]: " input_image
         WITTY_IMAGE="${input_image:-${WITTY_IMAGE:-}}"
 
+        # [3]-[5] 网络模式 / SSL 校验 / seccomp
+        ask_container_runtime_options 3
+
         export WITTY_BACKEND_HOST_PORT WITTY_IMAGE
     else
         default_port="${WITTY_FRONTEND_HOST_PORT:-32413}"
@@ -361,6 +445,9 @@ do_install_witty_role() {
         echo ""
         ask "  [3] Image            [${WITTY_IMAGE:-auto-select witty-ub:frontend if empty}]: " input_image
         WITTY_IMAGE="${input_image:-${WITTY_IMAGE:-}}"
+
+        # [4]-[6] 网络模式 / SSL 校验 / seccomp
+        ask_container_runtime_options 4
 
         export WITTY_FRONTEND_HOST_PORT WITTY_BACKEND_URL WITTY_IMAGE
     fi
@@ -388,7 +475,7 @@ do_uninstall_all() {
     echo ""
     log_warn "About to delete:"
     echo "  - Containers: ${WITTY_CONTAINER}, ${WITTY_BACKEND_CONTAINER} (split), ${WITTY_FRONTEND_CONTAINER} (split), ${PG_CONTAINER}"
-    echo "  - Volumes: witty-ub-data, witty-ub-logs, witty-ub-uploads, witty-ub-results, witty-ub-experience-data, ${PG_VOLUME}"
+    echo "  - Volumes: witty-ub-data, witty-ub-case, witty-ub-logs, witty-ub-uploads, witty-ub-results, witty-ub-experience-data, ${PG_VOLUME}"
     if [ "$scope" = "2" ]; then
         echo "  - Images: images used by the containers above"
     fi
@@ -419,7 +506,7 @@ do_uninstall_all() {
     done
 
     # 删除所有数据卷
-    for v in witty-ub-data witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-experience-data "$PG_VOLUME"; do
+    for v in witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-experience-data "$PG_VOLUME"; do
         if volume_exists "$v"; then
             log_info "Removing volume: $v"
             docker volume rm "$v" &>/dev/null
@@ -639,7 +726,7 @@ show_status() {
             if container_running "$c"; then
                 status="running"
                 health=$(container_health "$c")
-                ports=$(docker port "$c" 2>/dev/null | head -1 || echo "")
+                ports=$(container_ports "$c")
             else
                 status="stopped"
                 health="-"
@@ -652,21 +739,39 @@ show_status() {
     done
     sep
 
-    # 从 docker port 获取实际映射端口
+    # 网络模式：actual 取自容器（bridge 显示组网名，host 显示 host），config 取自 deploy.conf
+    echo ""
+    echo "Network modes (actual / configured):"
+    local _c _mode _cfg
+    for _c in "$PG_CONTAINER" "$WITTY_CONTAINER" "$WITTY_BACKEND_CONTAINER" "$WITTY_FRONTEND_CONTAINER"; do
+        container_exists "$_c" || continue
+        _mode="$(container_network_mode "$_c")"
+        case "$_c" in
+        "$PG_CONTAINER") _cfg="WITTY_NETWORK_MODE_PG=${WITTY_NETWORK_MODE_PG:-<inherit>}" ;;
+        "$WITTY_CONTAINER") _cfg="WITTY_NETWORK_MODE_APP=${WITTY_NETWORK_MODE_APP:-<inherit>}" ;;
+        "$WITTY_BACKEND_CONTAINER") _cfg="WITTY_NETWORK_MODE_BACKEND=${WITTY_NETWORK_MODE_BACKEND:-<inherit>}" ;;
+        *) _cfg="WITTY_NETWORK_MODE_FRONTEND=${WITTY_NETWORK_MODE_FRONTEND:-<inherit>}" ;;
+        esac
+        printf "  %-22s %-22s %s\n" "$_c" "${_mode:--}" "${_cfg} (global: ${WITTY_NETWORK_MODE:-bridge})"
+    done
+
+    # 从 docker port 获取实际映射端口；host 模式下无端口映射，直接用容器内端口
     local actual_port=""
     if container_running "$WITTY_CONTAINER"; then
-        actual_port=$(docker port "$WITTY_CONTAINER" 2>/dev/null | grep '8080' | sed 's/.*://' | head -1 || true)
+        actual_port=$(container_access_port "$WITTY_CONTAINER" 8080)
     fi
     actual_port="${actual_port:-${WITTY_HOST_PORT:-32412}}"
 
     echo ""
     echo "Access URLs:"
+    [ "$(container_network_mode "$WITTY_CONTAINER")" = "host" ] &&
+        echo "  (host network mode: ports are bound directly on the host)"
     echo "  Web UI:   http://localhost:${actual_port}"
     echo "  API:      http://localhost:${actual_port}/health_check"
     echo "  Agent API: http://localhost:${actual_port}/agent-api/ (OpenCode via Nginx)"
     if container_running "$WITTY_FRONTEND_CONTAINER"; then
         local fe_port
-        fe_port=$(docker port "$WITTY_FRONTEND_CONTAINER" 2>/dev/null | grep '8080' | sed 's/.*://' | head -1 || true)
+        fe_port=$(container_access_port "$WITTY_FRONTEND_CONTAINER" 8080)
         echo "  Split frontend: http://localhost:${fe_port:-${WITTY_FRONTEND_HOST_PORT:-32413}} (proxying witty-ub-backend)"
     fi
 }

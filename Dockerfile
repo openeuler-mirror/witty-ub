@@ -49,6 +49,10 @@ COPY data/urma /usr/share/witty-ub/data/urma/
 RUN find /usr/share/witty-ub/data -type f -exec chmod 0640 {} \; && \
     cp -a /usr/share/witty-ub/data/. /var/witty-ub/data/
 
+# Case library seed (similarity analysis / case management)
+COPY case/ /usr/share/witty-ub/case/
+RUN cp -a /usr/share/witty-ub/case/. /var/witty-ub/case/
+
 COPY config/diagnosis_config.toml /var/witty-ub/config/
 
 # Copy latency plugin
@@ -82,7 +86,7 @@ ENV WITTY_ROLE=backend
 
 EXPOSE 9772
 
-VOLUME ["/var/witty-ub/data", "/var/log/witty-ub"]
+VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["/healthcheck.sh"]
@@ -163,6 +167,10 @@ COPY data/urma /usr/share/witty-ub/data/urma/
 RUN find /usr/share/witty-ub/data -type f -exec chmod 0640 {} \; && \
     cp -a /usr/share/witty-ub/data/. /var/witty-ub/data/
 
+# Case library seed (similarity analysis / case management)
+COPY case/ /usr/share/witty-ub/case/
+RUN cp -a /usr/share/witty-ub/case/. /var/witty-ub/case/
+
 # Copy configuration files
 COPY config/diagnosis_config.toml /var/witty-ub/config/
 
@@ -225,7 +233,7 @@ RUN chmod +x /entrypoint.sh /healthcheck.sh
 EXPOSE 8080 9772 4096
 
 # Volumes for persistent data
-VOLUME ["/var/witty-ub/data", "/var/log/witty-ub"]
+VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub"]
 
 # Health check (role-aware: frontend probes the remote backend)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

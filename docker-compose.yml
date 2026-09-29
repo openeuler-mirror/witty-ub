@@ -12,6 +12,14 @@
 #       `docker tag` 成 witty-ub:<role>，再执行上面的 up 命令。
 # 注意: 本文件与 deploy/docker/manage.sh（脚本部署）使用相同的容器名/卷名/网络名，
 #       两套方式互斥；混用会出现同名容器冲突。
+#
+# ── 容器运行时选项（compose 不能按变量切 bridge/host，改 host 需手工编辑本文件） ──
+# host 模式: 给每个服务加 network_mode: host 并删掉对应的 networks:/ports:（端口映射被忽略，
+#   Web UI → http://<宿主机IP>:8080、后端 9772、PG 占用宿主机 5432；PG_HOST 改 127.0.0.1）；
+#   分离形态必须成套改（backend/frontend 同时改，frontend 的 WITTY_BACKEND_URL 改 http://127.0.0.1:9772）。
+# SSL: WITTY_SSL_VERIFY=false 关闭 OpenCode/LLM 出网证书校验；seccomp: 旧版 Docker 报 clone3 时给服务
+#   加 security_opt: ["seccomp=unconfined"]。脚本部署用 WITTY_NETWORK_MODE=host 可自动完成，详见
+#   docs/usage/03-configuration-reference.md 与 docs/troubleshooting/02-container-runtime.md §3。
 
 services:
   postgres:
@@ -78,6 +86,8 @@ services:
       - PG_PORT=5432
       - PG_DATABASE=witty-ub
       - PG_USER=witty-ub
+      # OpenCode/LLM 出网 HTTPS 证书校验（false = 关闭，见文件头说明）
+      - WITTY_SSL_VERIFY=${WITTY_SSL_VERIFY:-true}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9772/health_check"]
       interval: 30s
@@ -149,6 +159,8 @@ services:
       - WITTY_ROLE=frontend
       # 容器网络内经服务名访问后端
       - WITTY_BACKEND_URL=http://witty-ub-backend:9772
+      # OpenCode/LLM 出网 HTTPS 证书校验（false = 关闭，见文件头说明）
+      - WITTY_SSL_VERIFY=${WITTY_SSL_VERIFY:-true}
     networks:
       - witty-ub-network
 

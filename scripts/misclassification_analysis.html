@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>误分类分析报告 - kvcache故障诊断</title>
+<style>
+:root {
+    --bg: #f8f9fa;
+    --card-bg: #ffffff;
+    --border: #dee2e6;
+    --text: #212529;
+    --text-muted: #6c757d;
+    --accent: #0066cc;
+    --near-sibling: #27ae60;
+    --cross-family: #e67e22;
+    --cross-cat: #e74c3c;
+    --starved: #8e44ad;
+    --attractor: #c0392b;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 20px;
+}
+.container { max-width: 1400px; margin: 0 auto; }
+h1 { text-align: center; font-size: 1.8em; margin-bottom: 8px; color: var(--text); }
+h2 { font-size: 1.4em; margin: 24px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+h3 { font-size: 1.15em; margin: 16px 0 8px; }
+.subtitle { text-align: center; color: var(--text-muted); margin-bottom: 24px; font-size: 0.95em; }
+
+/* Summary cards */
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+}
+.summary-card {
+    background: var(--card-bg);
+    border-radius: 10px;
+    padding: 16px 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border-left: 4px solid;
+}
+.summary-card .num { font-size: 2em; font-weight: 700; line-height: 1.2; }
+.summary-card .label { font-size: 0.85em; color: var(--text-muted); }
+
+/* Section */
+.section {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 20px 0;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+    padding: 4px 0;
+}
+.section-header:hover { opacity: 0.85; }
+.section-icon {
+    font-size: 1.3em;
+    width: 28px;
+    text-align: center;
+}
+.section-title { font-size: 1.25em; font-weight: 600; }
+.section-count {
+    background: #e9ecef;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.85em;
+    color: var(--text-muted);
+    margin-left: auto;
+}
+.collapse-toggle {
+    font-size: 0.8em;
+    color: var(--text-muted);
+    margin-left: 6px;
+}
+.section-body { margin-top: 16px; }
+.section.collapsed .section-body { display: none; }
+
+/* Root cause & improvement boxes */
+.analysis-box {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 12px 0;
+    border-left: 3px solid var(--accent);
+}
+.analysis-box h4 { color: var(--accent); margin-bottom: 6px; font-size: 1em; }
+.analysis-box ul { padding-left: 20px; }
+.analysis-box li { margin: 4px 0; }
+
+/* Table */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88em;
+    margin: 12px 0;
+}
+th {
+    background: #f1f3f5;
+    padding: 8px 10px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+}
+td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #eee;
+    vertical-align: top;
+}
+tr:hover td { background: #f8f9fa; }
+.cand { font-weight: 500; }
+.score { color: var(--text-muted); font-size: 0.92em; }
+.empty { color: #adb5bd; font-style: italic; }
+.tag {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 4px;
+    font-size: 0.82em;
+    font-weight: 500;
+    color: #fff;
+    margin: 1px 2px;
+}
+.tag-yes { background: var(--near-sibling); }
+.tag-no { background: #adb5bd; }
+.badge-starved { background: var(--starved); color: #fff; padding: 1px 6px; border-radius: 3px; font-size: 0.78em; }
+.badge-attractor { background: var(--attractor); color: #fff; padding: 1px 6px; border-radius: 3px; font-size: 0.78em; }
+.conf-bar {
+    display: inline-block;
+    height: 8px;
+    border-radius: 4px;
+    min-width: 4px;
+}
+.gt-name { color: #c0392b; font-weight: 600; }
+.pred-name { color: #2980b9; font-weight: 600; }
+.family-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.78em;
+    background: #e9ecef;
+    color: var(--text-muted);
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+    body { padding: 10px; }
+    .section { padding: 16px; }
+    table { font-size: 0.82em; }
+    th, td { padding: 5px 6px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>🔍 kvcache故障诊断 误分类深度分析报告</h1>
+<p class="subtitle">基于 match_results_v2.json · 42个误分类案例 · 5种混淆模式 · 生成时间: 2026-09-22</p>
+
+<div class="summary-grid">
+<div class="summary-card" style="border-left-color:#e74c3c">
+        <div class="num" style="color:#e74c3c">32.3%</div>
+        <div class="label">Top-1 准确率 (20/62)</div>
+    </div><div class="summary-card" style="border-left-color:#e67e22">
+        <div class="num" style="color:#e67e22">17.7%</div>
+        <div class="label">Top-3 命中率 (11/62)</div>
+    </div><div class="summary-card" style="border-left-color:#f39c12">
+        <div class="num" style="color:#f39c12">21.0%</div>
+        <div class="label">Top-5 命中率 (13/62)</div>
+    </div><div class="summary-card" style="border-left-color:#8e44ad">
+        <div class="num" style="color:#8e44ad">42/62</div>
+        <div class="label">误分类总数 (42)</div>
+    </div></div>
+
+<div class="summary-grid">
+<div class="summary-card" style="border-left-color:#27ae60">
+        <div class="num" style="color:#27ae60">★ 5</div>
+        <div class="label">近亲混淆 (11.9%)</div>
+    </div><div class="summary-card" style="border-left-color:#e67e22">
+        <div class="num" style="color:#e67e22">◆ 15</div>
+        <div class="label">跨族同品类混淆 (35.7%)</div>
+    </div><div class="summary-card" style="border-left-color:#e74c3c">
+        <div class="num" style="color:#e74c3c">▲ 0</div>
+        <div class="label">跨品类混淆 (0.0%)</div>
+    </div><div class="summary-card" style="border-left-color:#8e44ad">
+        <div class="num" style="color:#8e44ad">● 19</div>
+        <div class="label">特征饥饿 (45.2%)</div>
+    </div><div class="summary-card" style="border-left-color:#c0392b">
+        <div class="num" style="color:#c0392b">■ 3</div>
+        <div class="label">特征贫乏吸引子 (7.1%)</div>
+    </div></div>
+
+<div class="section" id="section-near_sibling">
+<div class="section-header" onclick="toggleSection('near_sibling')">
+    <span class="section-icon" style="color:#27ae60">★</span>
+    <span class="section-title" style="color:#27ae60">近亲混淆</span>
+    <span class="section-count">5 例</span>
+    <span class="collapse-toggle">[收起]</span>
+</div>
+<div class="section-body">
+<div class="analysis-box" style="border-left-color:#e74c3c"><h4>🔬 根因分析</h4><h5 style="margin:8px 0 4px;color:#555">核心原因</h5><ul><li>真实标签与预测标签属于同一故障家族，特征模式高度相似。</li><li>ubm_failure 与 ubse_failure 在时延分布、segment_ranking上几乎不可区分——两者都导致GET操作超时，区别仅在UB返回的具体错误码(UBM vs UBSE)。</li><li>local_ub 变体(all_port_down / all_port_lanedown / two_port_flashdown)的时延特征几乎完全重叠，因为都表现为"所有端口不可用"的宏观效果。</li><li>worker_process_remote_local_ub 的 single_port_down 与 link_loss 在failure_mode_dist上高度重叠，都产生相似的runtime错误码分布。</li><li>scale_in_remote_ub 的 nfe 与 link_down 在缩容场景下故障传播路径一致，导致特征收敛。</li></ul><h5 style="margin:8px 0 4px;color:#555">失效特征</h5><ul><li>failure_mode_dist：UBM和UBSE故障产生的runtime错误码集合高度重叠。</li><li>segment_ranking：同一故障族内的时延段排序模式一致。</li><li>affected_operation_dist：受影响操作分布无差异。</li></ul><h5 style="margin:8px 0 4px;color:#555">潜在区分特征(未使用)</h5><ul><li>UB错误码的具体类型(UBM vs UBSE)——当前feature提取未区分。</li><li>端口故障的物理拓扑差异(全部端口 vs 单socket双端口 vs 闪烁断开)——需要拓扑感知特征。</li><li>故障注入的精确方式(链路丢失 vs 端口down vs lane down)——运行时可能产生微妙的日志差异。</li></ul></div><h3>📋 案例明细</h3>
+<div style="overflow-x:auto">
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>真实类型</th>
+<th>预测类型</th>
+<th>置信度</th>
+<th>Top-3</th>
+<th>Top-5</th>
+<th>品类</th>
+<th>训练样本数</th>
+<th>预测样本数</th>
+<th>故障族(GT)</th>
+<th>故障族(Pred)</th>
+<th>failure_mode_dist</th>
+<th>Top-5候选</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td class="gt-name">dfx_client_process_get_ubm_failure</td>
+<td class="pred-name">dfx_client_process_get_ubse_failure</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9385</td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>2</td>
+<td>2</td>
+<td><span class="family-tag">客户端GET-UB故障</span></td>
+<td><span class="family-tag">客户端GET-UB故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_client_process_get_ubse_failure</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_client_process_get_ubm_failure</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_client_process_get_exit_start</span> <span class="score">(0.7487)</span><br><span class="cand">dfx_worker_process_local_get_etcd_main_fail</span> <span class="score">(0.7486)</span><br><span class="cand">dfx_client_process_tcp_down</span> <span class="score">(0.7486)</span></td>
+</tr><tr>
+<td>2</td>
+<td class="gt-name">dfx_local_ub_all_port_lanedown <span class="badge-starved">特征饥饿</span></td>
+<td class="pred-name">dfx_local_ub_all_port_down</td>
+<td><span class="conf-bar" style="width:90px;background:#e74c3c"></span> 0.9092</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>1</td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_local_ub_all_port_down</span> <span class="score">(0.9092)</span><br><span class="cand">dfx_local_ub_two_socket_single_port_down</span> <span class="score">(0.8839)</span><br><span class="cand">dfx_client_write_remote_worker_etcd_main_fault</span> <span class="score">(0.8769)</span><br><span class="cand">dfx_client_write_remote_after_ubse_fault</span> <span class="score">(0.8769)</span><br><span class="cand">dfx_local_ub_single_port_down</span> <span class="score">(0.8769)</span></td>
+</tr><tr>
+<td>3</td>
+<td class="gt-name">dfx_local_ub_two_socket_single_port_down <span class="badge-starved">特征饥饿</span></td>
+<td class="pred-name">dfx_local_ub_two_port_flashdown</td>
+<td><span class="conf-bar" style="width:99px;background:#e74c3c"></span> 0.9943</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>1</td>
+<td>2</td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td style="font-size:0.82em">kvcache_access_022: 12288, kvcache_runtime_1036: 12288, kvcache_runtime_1051: 12288, kvcache_runtime_1056: 12288, kvcache_runtime_1065: 12288, kvcache_runtime_1075: 12288, kvcache_runtime_048: 12288, kvcache_runtime_241: 12288</td>
+<td style="font-size:0.85em"><span class="cand">dfx_local_ub_two_port_flashdown</span> <span class="score">(0.9943)</span><br><span class="cand">dfx_remote_ub_single_socket_two_port_down</span> <span class="score">(0.9171)</span><br><span class="cand">dfx_remote_ub_all_port_down</span> <span class="score">(0.9083)</span><br><span class="cand">dfx_ps_n_n</span> <span class="score">(0.7703)</span><br><span class="cand">dfx_worker_reboot_single_node</span> <span class="score">(0.5675)</span></td>
+</tr><tr>
+<td>4</td>
+<td class="gt-name">dfx_worker_process_remote_local_ub_single_port_down <span class="badge-starved">特征饥饿</span></td>
+<td class="pred-name">dfx_worker_process_remote_local_ub_link_loss</td>
+<td><span class="conf-bar" style="width:98px;background:#e74c3c"></span> 0.9819</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>1</td>
+<td>3</td>
+<td><span class="family-tag">Worker远端本地UB故障</span></td>
+<td><span class="family-tag">Worker远端本地UB故障</span></td>
+<td style="font-size:0.82em">kvcache_runtime_949: 878, kvcache_runtime_1377: 443, kvcache_runtime_2117: 335, kvcache_runtime_2115: 335, kvcache_runtime_2116: 335, kvcache_runtime_2212: 327, kvcache_runtime_2525: 327, kvcache_runtime_906: 278 ...(+5)</td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_remote_local_ub_link_loss</span> <span class="score">(0.9819)</span><br><span class="cand">dfx_worker_process_remote_local_ub_lane_down</span> <span class="score">(0.9658)</span><br><span class="cand">dfx_worker_process_remote_ub_ce</span> <span class="score">(0.9394)</span><br><span class="cand">dfx_worker_process_remote_local_ub_flash_down</span> <span class="score">(0.8800)</span><br><span class="cand">dfx_worker_process_remote_ub_fe</span> <span class="score">(0.8437)</span></td>
+</tr><tr>
+<td>5</td>
+<td class="gt-name">dfx_worker_process_scale_in_remote_ub_nfe <span class="badge-starved">特征饥饿</span></td>
+<td class="pred-name">dfx_worker_process_scale_in_remote_ub_link_down</td>
+<td><span class="conf-bar" style="width:95px;background:#e74c3c"></span> 0.9547</td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>1</td>
+<td>1</td>
+<td><span class="family-tag">Worker缩容故障</span></td>
+<td><span class="family-tag">Worker缩容故障</span></td>
+<td style="font-size:0.82em">kvcache_access_003: 632, kvcache_runtime_1696: 632, kvcache_runtime_1711: 632, kvcache_runtime_1706: 632, kvcache_runtime_2173: 632, kvcache_runtime_2526: 632, kvcache_runtime_111: 316</td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_scale_in_remote_ub_link_down</span> <span class="score">(0.9547)</span><br><span class="cand">dfx_worker_process_scale_in_remote_ub_nfe</span> <span class="score">(0.9541)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.9022)</span><br><span class="cand">dfx_client_init_etcd_cluster_fail</span> <span class="score">(0.8907)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.8739)</span></td>
+</tr></tbody></table></div><div class="analysis-box" style="border-left-color:#27ae60"><h4>💡 改进建议</h4><h5 style="margin:8px 0 4px;color:#555">特征改进</h5><ul><li><b>新增 ub_error_type 特征</b>：提取UBM/UBSE的具体错误码类型，作为枚举特征加入匹配。</li><li><b>新增 port_failure_topology 特征</b>：编码端口故障的物理拓扑(all/single/two_port_flash/two_socket)。</li><li><b>新增 failure_granularity 特征</b>：区分"全量端口故障"和"部分端口故障"的粒度。</li></ul><h5 style="margin:8px 0 4px;color:#555">算法改进</h5><ul><li><b>近亲惩罚机制</b>：当Top-1和Top-2属于同一故障族且置信度差<0.01时，触发"近亲消歧"子流程，使用更细粒度的特征(如ub_error_type)做二次匹配。</li><li><b>族内排序规则</b>：同一族内如有多个候选，按failure_mode_dist的Jaccard差异做二次排序。</li></ul><h5 style="margin:8px 0 4px;color:#555">近亲处理</h5><ul><li><b>可选：合并UBM/UBSE</b>：如果业务上两种故障的恢复策略相同，可合并为client_get_ub_failure一个类型，减少不必要的区分。</li><li><b>可选：合并local_ub全端口变体</b>：all_port_down/all_port_lanedown/all_port_link_loss在诊断结论上一致，可合并。</li></ul></div></div></div>
+
+<div class="section" id="section-cross_family_same_category">
+<div class="section-header" onclick="toggleSection('cross_family_same_category')">
+    <span class="section-icon" style="color:#e67e22">◆</span>
+    <span class="section-title" style="color:#e67e22">跨族同品类混淆</span>
+    <span class="section-count">15 例</span>
+    <span class="collapse-toggle">[收起]</span>
+</div>
+<div class="section-body">
+<div class="analysis-box" style="border-left-color:#e74c3c"><h4>🔬 根因分析</h4><h5 style="margin:8px 0 4px;color:#555">核心原因</h5><ul><li>真实标签与预测标签属于不同故障族，但同属一个品类(latency/mixed)，时延特征模式存在交叉。</li><li><b>local_ub ↔ remote_ub 互混</b>(4例)：本地UB和远端UB的端口故障在时延段排序、p99/p50比率上高度相似——都是"远端RPC超时"的表现。</li><li><b>worker_process 系列互混</b>(6例)：worker_process_remote_ub_ce/fe与remote_local_ub系列在failure_mode_dist上大面积重叠，都产生runtime_949/runtime_2115等错误码。</li><li><b>client_process 与 worker_process 互混</b>(3例)：客户端进程异常与worker进程异常的时延模式相似(set_exit/hang_up都导致请求超时)。</li><li><b>write_remote_tcp_dalay 吸附</b>(1例)：dfx_write_remote_tcp_dalay的特征模板过于宽泛，能匹配多种"远端写超时"场景。</li></ul><h5 style="margin:8px 0 4px;color:#555">失效特征</h5><ul><li>segment_ranking：local_ub和remote_ub的时延段排序几乎一致(都是remote_worker_rpc最大)。</li><li>pod_concentration / affected_pods_count：本地vs远端故障在pod分布上可能有差异，但当前权重不足。</li><li>failure_mode_dist：worker_process族的错误码分布交叉严重，缺少"族标识性错误码"。</li></ul><h5 style="margin:8px 0 4px;color:#555">潜在区分特征(未使用)</h5><ul><li><b>故障作用域(scope)</b>：local_ub仅影响本节点，remote_ub影响跨节点——可从pod分布和网络拓扑推断。</li><li><b>RPC方向特征</b>：区分"本节点发出的RPC超时"与"远端返回的RPC超时"。</li><li><b>UB实例标识</b>：从日志中提取UB实例名，区分local_ub和remote_ub。</li><li><b>worker进程角色</b>：区分remote worker和local worker的错误来源。</li></ul></div><h3>📋 案例明细</h3>
+<div style="overflow-x:auto">
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>真实类型</th>
+<th>预测类型</th>
+<th>置信度</th>
+<th>Top-3</th>
+<th>Top-5</th>
+<th>品类</th>
+<th>训练样本数</th>
+<th>预测样本数</th>
+<th>故障族(GT)</th>
+<th>故障族(Pred)</th>
+<th>failure_mode_dist</th>
+<th>Top-5候选</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td class="gt-name">dfx_client_process_get_ubse_failure</td>
+<td class="pred-name">dfx_worker_process_net_card_loss</td>
+<td><span class="conf-bar" style="width:77px;background:#f39c12"></span> 0.7707</td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>2</td>
+<td>1</td>
+<td><span class="family-tag">客户端GET-UB故障</span></td>
+<td><span class="family-tag">Worker网卡故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_net_card_loss</span> <span class="score">(0.7707)</span><br><span class="cand">dfx_client_process_get_ubse_failure</span> <span class="score">(0.7409)</span><br><span class="cand">dfx_client_process_get_ubm_failure</span> <span class="score">(0.7409)</span><br><span class="cand">dfx_worker_process_local_ub_link_down</span> <span class="score">(0.6533)</span><br><span class="cand">dfx_worker_process_upgrade_etcd_fault</span> <span class="score">(0.6532)</span></td>
+</tr><tr>
+<td>2</td>
+<td class="gt-name">dfx_client_process_scale_in_worker_hang_up</td>
+<td class="pred-name">dfx_worker_process_write_net_card_loss</td>
+<td><span class="conf-bar" style="width:89px;background:#e67e22"></span> 0.8984</td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>2</td>
+<td>1</td>
+<td><span class="family-tag">客户端缩容Worker挂起</span></td>
+<td><span class="family-tag">Worker网卡故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_write_net_card_loss</span> <span class="score">(0.8984)</span><br><span class="cand">dfx_client_process_scale_in_worker_hang_up</span> <span class="score">(0.8849)</span><br><span class="cand">dfx_ps_n_n</span> <span class="score">(0.8848)</span><br><span class="cand">dfx_remote_ub_all_port_down</span> <span class="score">(0.8845)</span><br><span class="cand">dfx_remote_ub_single_socket_two_port_down</span> <span class="score">(0.8845)</span></td>
+</tr><tr>
+<td>3</td>
+<td class="gt-name">dfx_client_process_set_exit_start</td>
+<td class="pred-name">dfx_r_discovery_worker_process_hangup</td>
+<td><span class="conf-bar" style="width:91px;background:#e74c3c"></span> 0.9147</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>2</td>
+<td>1</td>
+<td><span class="family-tag">客户端SET进程异常</span></td>
+<td><span class="family-tag">R Discovery进程挂起</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_r_discovery_worker_process_hangup</span> <span class="score">(0.9147)</span><br><span class="cand">dfx_remote_ub_single_socket_two_port_down</span> <span class="score">(0.9009)</span><br><span class="cand">dfx_remote_ub_all_port_down</span> <span class="score">(0.9008)</span><br><span class="cand">dfx_client_process_scale_in_worker_hang_up</span> <span class="score">(0.9004)</span><br><span class="cand">dfx_ps_n_n</span> <span class="score">(0.9001)</span></td>
+</tr><tr>
+<td>4</td>
+<td class="gt-name">dfx_local_ub_single_port_down</td>
+<td class="pred-name">dfx_remote_ub_two_socket_single_port_down</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9385</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>2</td>
+<td>2</td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td><span class="family-tag">远端UB端口故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_remote_ub_two_socket_single_port_down</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_remote_ub_single_port_down</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_local_ub_all_port_link_loss</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_local_ub_all_port_lanedown</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_local_ub_single_port_down</span> <span class="score">(0.9385)</span></td>
+</tr><tr>
+<td>5</td>
+<td class="gt-name">dfx_remote_ub_single_port_down</td>
+<td class="pred-name">dfx_local_ub_all_port_down</td>
+<td><span class="conf-bar" style="width:88px;background:#e67e22"></span> 0.8803</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>2</td>
+<td>1</td>
+<td><span class="family-tag">远端UB端口故障</span></td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_local_ub_all_port_down</span> <span class="score">(0.8803)</span><br><span class="cand">dfx_r_worker_process_set_exit</span> <span class="score">(0.8790)</span><br><span class="cand">dfx_local_ub_two_socket_single_port_down</span> <span class="score">(0.8777)</span><br><span class="cand">dfx_client_write_remote_after_ubse_fault</span> <span class="score">(0.8772)</span><br><span class="cand">dfx_client_write_remote_after_ubm_fault</span> <span class="score">(0.8772)</span></td>
+</tr><tr>
+<td>6</td>
+<td class="gt-name">dfx_remote_ub_single_socket_two_port_down</td>
+<td class="pred-name">dfx_local_ub_single_port_down</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9385</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>2</td>
+<td>2</td>
+<td><span class="family-tag">远端UB端口故障</span></td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_local_ub_single_port_down</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_local_ub_all_port_lanedown</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_remote_ub_single_port_down</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_remote_ub_two_socket_single_port_down</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_local_ub_all_port_link_loss</span> <span class="score">(0.9384)</span></td>
+</tr><tr>
+<td>7</td>
+<td class="gt-name">dfx_remote_ub_two_socket_single_port_down</td>
+<td class="pred-name">dfx_local_ub_all_port_link_loss</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9385</td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>2</td>
+<td>1</td>
+<td><span class="family-tag">远端UB端口故障</span></td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_local_ub_all_port_link_loss</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_remote_ub_two_socket_single_port_down</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_remote_ub_single_port_down</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_local_ub_all_port_lanedown</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_local_ub_single_port_down</span> <span class="score">(0.9385)</span></td>
+</tr><tr>
+<td>8</td>
+<td class="gt-name">dfx_sdk_install_etcd_down</td>
+<td class="pred-name">dfx_local_ub_single_port_down</td>
+<td><span class="conf-bar" style="width:35px;background:#27ae60"></span> 0.3503</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#3498db">连通性</span></td>
+<td>2</td>
+<td>2</td>
+<td><span class="family-tag">SDK安装etcd故障</span></td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td style="font-size:0.82em">kvcache_access_005: 351, kvcache_runtime_2788: 90, kvcache_runtime_2295: 90, kvcache_runtime_2303: 90, kvcache_runtime_106: 90, kvcache_runtime_241: 45</td>
+<td style="font-size:0.85em"><span class="cand">dfx_local_ub_single_port_down</span> <span class="score">(0.3503)</span><br><span class="cand">dfx_worker_reboot_single_node</span> <span class="score">(0.1121)</span><br><span class="cand">dfx_r_etcd_fail_client_update</span> <span class="score">(0.1118)</span><br><span class="cand">dfx_local_ub_single_socket_two_port_down</span> <span class="score">(0.1078)</span><br><span class="cand">dfx_client_process_get_ubse_failure</span> <span class="score">(0.1030)</span></td>
+</tr><tr>
+<td>9</td>
+<td class="gt-name">dfx_worker_process_exit_single_node</td>
+<td class="pred-name">dfx_local_ub_single_socket_two_port_down</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9360</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>2</td>
+<td>2</td>
+<td><span class="family-tag">Worker进程单节点退出</span></td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td style="font-size:0.82em">kvcache_access_005: 390, kvcache_runtime_2303: 270, kvcache_runtime_2295: 242, kvcache_runtime_106: 242, kvcache_runtime_2788: 186, kvcache_runtime_241: 121, kvcache_access_003: 84, kvcache_runtime_1377: 56 ...(+1)</td>
+<td style="font-size:0.85em"><span class="cand">dfx_local_ub_single_socket_two_port_down</span> <span class="score">(0.9360)</span><br><span class="cand">dfx_r_etcd_fail_client_update</span> <span class="score">(0.9098)</span><br><span class="cand">dfx_client_process_get_ubse_failure</span> <span class="score">(0.8745)</span><br><span class="cand">dfx_client_process_get_ubm_failure</span> <span class="score">(0.8741)</span><br><span class="cand">dfx_client_scale_in_tcp_down</span> <span class="score">(0.8269)</span></td>
+</tr><tr>
+<td>10</td>
+<td class="gt-name">dfx_worker_process_local_ub_link_down</td>
+<td class="pred-name">dfx_worker_process_remote_ub_ce</td>
+<td><span class="conf-bar" style="width:96px;background:#e74c3c"></span> 0.9621</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>6</td>
+<td>2</td>
+<td><span class="family-tag">Worker本地UB链路故障</span></td>
+<td><span class="family-tag">Worker远端UB信号故障</span></td>
+<td style="font-size:0.82em">kvcache_access_021: 297, kvcache_runtime_949: 297, kvcache_runtime_1377: 246, kvcache_runtime_2115: 198, kvcache_runtime_2117: 198, kvcache_runtime_2212: 198, kvcache_runtime_2116: 198, kvcache_runtime_2525: 198 ...(+2)</td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_remote_ub_ce</span> <span class="score">(0.9621)</span><br><span class="cand">dfx_worker_process_remote_local_ub_lane_down</span> <span class="score">(0.9578)</span><br><span class="cand">dfx_worker_process_remote_local_ub_link_loss</span> <span class="score">(0.9365)</span><br><span class="cand">dfx_worker_process_remote_local_ub_flash_down</span> <span class="score">(0.8897)</span><br><span class="cand">dfx_worker_process_remote_remote_ub_single_port_down</span> <span class="score">(0.8785)</span></td>
+</tr><tr>
+<td>11</td>
+<td class="gt-name">dfx_worker_process_remote_local_ub_flash_down</td>
+<td class="pred-name">dfx_worker_process_remote_ub_ce</td>
+<td><span class="conf-bar" style="width:97px;background:#e74c3c"></span> 0.9747</td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>2</td>
+<td>2</td>
+<td><span class="family-tag">Worker远端本地UB故障</span></td>
+<td><span class="family-tag">Worker远端UB信号故障</span></td>
+<td style="font-size:0.82em">kvcache_runtime_949: 183, kvcache_runtime_906: 66, kvcache_runtime_2117: 39, kvcache_runtime_2115: 39, kvcache_runtime_2116: 39, kvcache_runtime_111: 39, kvcache_access_021: 36, kvcache_runtime_1377: 35 ...(+5)</td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_remote_ub_ce</span> <span class="score">(0.9747)</span><br><span class="cand">dfx_worker_process_remote_local_ub_lane_down</span> <span class="score">(0.9664)</span><br><span class="cand">dfx_worker_process_remote_local_ub_flash_down</span> <span class="score">(0.9361)</span><br><span class="cand">dfx_worker_process_remote_ub_fe</span> <span class="score">(0.9348)</span><br><span class="cand">dfx_worker_process_remote_remote_ub_single_port_down</span> <span class="score">(0.9311)</span></td>
+</tr><tr>
+<td>12</td>
+<td class="gt-name">dfx_worker_process_remote_remote_ub_single_port_down</td>
+<td class="pred-name">dfx_worker_process_remote_ub_fe</td>
+<td><span class="conf-bar" style="width:99px;background:#e74c3c"></span> 0.9955</td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>2</td>
+<td>1</td>
+<td><span class="family-tag">Worker远端远端UB故障</span></td>
+<td><span class="family-tag">Worker远端UB信号故障</span></td>
+<td style="font-size:0.82em">kvcache_runtime_949: 15, kvcache_runtime_906: 10, kvcache_runtime_2114: 8, kvcache_runtime_2117: 7, kvcache_runtime_2115: 7, kvcache_runtime_2116: 7, kvcache_runtime_111: 7, kvcache_access_005: 6 ...(+5)</td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_remote_ub_fe</span> <span class="score">(0.9955)</span><br><span class="cand">dfx_worker_process_remote_remote_ub_single_port_down</span> <span class="score">(0.9876)</span><br><span class="cand">dfx_worker_process_remote_get_etcd_main_fail</span> <span class="score">(0.9512)</span><br><span class="cand">dfx_worker_process_remote_ub_ce</span> <span class="score">(0.9204)</span><br><span class="cand">dfx_worker_process_remote_local_ub_lane_down</span> <span class="score">(0.9034)</span></td>
+</tr><tr>
+<td>13</td>
+<td class="gt-name">dfx_worker_process_remote_ub_ce</td>
+<td class="pred-name">dfx_worker_process_remote_local_ub_single_port_down</td>
+<td><span class="conf-bar" style="width:96px;background:#e74c3c"></span> 0.9669</td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>2</td>
+<td>1</td>
+<td><span class="family-tag">Worker远端UB信号故障</span></td>
+<td><span class="family-tag">Worker远端本地UB故障</span></td>
+<td style="font-size:0.82em">kvcache_runtime_949: 5, kvcache_runtime_906: 4, kvcache_runtime_1377: 2, kvcache_runtime_2117: 2, kvcache_runtime_2115: 2, kvcache_runtime_2212: 2, kvcache_runtime_2116: 2, kvcache_runtime_2525: 2 ...(+2)</td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_remote_local_ub_single_port_down</span> <span class="score">(0.9669)</span><br><span class="cand">dfx_worker_process_remote_local_ub_flash_down</span> <span class="score">(0.8340)</span><br><span class="cand">dfx_worker_process_remote_ub_ce</span> <span class="score">(0.8339)</span><br><span class="cand">dfx_worker_process_remote_local_ub_lane_down</span> <span class="score">(0.8124)</span><br><span class="cand">dfx_worker_process_remote_local_ub_link_loss</span> <span class="score">(0.7716)</span></td>
+</tr><tr>
+<td>14</td>
+<td class="gt-name">dfx_worker_process_scale_in_tcp_loss</td>
+<td class="pred-name">dfx_worker_process_set_exit</td>
+<td><span class="conf-bar" style="width:68px;background:#f39c12"></span> 0.6807</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>2</td>
+<td>1</td>
+<td><span class="family-tag">Worker缩容故障</span></td>
+<td><span class="family-tag">Worker进程SET退出</span></td>
+<td style="font-size:0.82em">kvcache_access_003: 6144, kvcache_runtime_1696: 3106, kvcache_runtime_1711: 3106, kvcache_access_022: 2048, kvcache_runtime_2529: 1224</td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_set_exit</span> <span class="score">(0.6807)</span><br><span class="cand">dfx_worker_process_scale_in_tcp_down</span> <span class="score">(0.6435)</span><br><span class="cand">dfx_client_init_etcd_cluster_fail</span> <span class="score">(0.6334)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.6083)</span><br><span class="cand">dfx_worker_process_scale_in_remote_ub_nfe</span> <span class="score">(0.5931)</span></td>
+</tr><tr>
+<td>15</td>
+<td class="gt-name">dfx_write_remote_tcp_dalay</td>
+<td class="pred-name">dfx_local_ub_single_socket_two_port_down</td>
+<td><span class="conf-bar" style="width:88px;background:#e67e22"></span> 0.8876</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>3</td>
+<td>2</td>
+<td><span class="family-tag">写远端TCP时延</span></td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td style="font-size:0.82em">kvcache_runtime_2788: 60, kvcache_runtime_2295: 60, kvcache_runtime_2303: 60, kvcache_runtime_1036: 60, kvcache_runtime_1051: 60, kvcache_runtime_1056: 60, kvcache_runtime_1065: 60, kvcache_runtime_1075: 60 ...(+4)</td>
+<td style="font-size:0.85em"><span class="cand">dfx_local_ub_single_socket_two_port_down</span> <span class="score">(0.8876)</span><br><span class="cand">dfx_r_etcd_fail_client_update</span> <span class="score">(0.8564)</span><br><span class="cand">dfx_client_process_get_ubm_failure</span> <span class="score">(0.8285)</span><br><span class="cand">dfx_client_process_get_ubse_failure</span> <span class="score">(0.8267)</span><br><span class="cand">dfx_client_scale_in_tcp_down</span> <span class="score">(0.7666)</span></td>
+</tr></tbody></table></div><div class="analysis-box" style="border-left-color:#27ae60"><h4>💡 改进建议</h4><h5 style="margin:8px 0 4px;color:#555">特征改进</h5><ul><li><b>新增 fault_scope 特征</b>：标注故障作用域(local_node / cross_node / cluster_wide)。</li><li><b>新增 rpc_direction 特征</b>：标注RPC超时方向(outbound_local / outbound_remote / inbound)。</li><li><b>增强 pod_concentration 权重</b>：local_ub应表现为single_pod或few_pods，remote_ub应涉及多个pod。</li><li><b>新增 ub_instance_type 特征</b>：从日志中提取UB实例的local/remote属性。</li></ul><h5 style="margin:8px 0 4px;color:#555">算法改进</h5><ul><li><b>族门控规则</b>：如果failure_mode_dist包含local_ub特有错误码(如runtime_1036/runtime_1051)，优先匹配local_ub族。</li><li><b>作用域门控</b>：如果affected_pods_count=1且pod_concentration=single_pod，排除remote_ub族候选。</li><li><b>调整segment_ranking权重</b>：对local_ub vs remote_ub的区分度不足，需降低segment_ranking在该场景下的权重。</li></ul><h5 style="margin:8px 0 4px;color:#555">数据改进</h5><ul><li>为local_ub_all_port_down、remote_ub_single_port_down等类型增加更多训练样本(当前仅1-2个)。</li><li>确保训练集覆盖local_ub和remote_ub的对称场景，避免样本数偏差导致匹配偏向。</li></ul></div></div></div>
+
+<div class="section" id="section-feature_starved">
+<div class="section-header" onclick="toggleSection('feature_starved')">
+    <span class="section-icon" style="color:#8e44ad">●</span>
+    <span class="section-title" style="color:#8e44ad">特征饥饿</span>
+    <span class="section-count">19 例</span>
+    <span class="collapse-toggle">[收起]</span>
+</div>
+<div class="section-body">
+<div class="analysis-box" style="border-left-color:#e74c3c"><h4>🔬 根因分析</h4><h5 style="margin:8px 0 4px;color:#555">核心原因</h5><ul><li><b>训练集仅有1个样本</b>，导致该故障类型的特征模板极不稳定，匹配时容易漂移到样本更丰富的类型。</li><li>1样本训练集无法捕捉故障的时延分布方差，导致test样本的时延特征与训练样本的自然偏差被放大。</li><li>dfx_worker_set_exit(17样本)和dfx_write_remote_tcp_dalay(3样本)作为"样本富集"类型，成为天然吸引子，吸收了大量特征饥饿的案例。</li><li>19个特征饥饿案例中，14个被吸引到高样本类型(worker_set_exit/write_remote_tcp_dalay/local_ub_single_port_down)。</li></ul><h5 style="margin:8px 0 4px;color:#555">失效特征</h5><ul><li>所有特征在1样本训练集上均失效——无法建立合理的特征分布模型。</li><li>confidence分数虚高(最高0.9385)：因为训练样本少，特征模板"刚好"与测试样本在某些维度匹配，但这是过拟合，不是真正的相似。</li></ul><h5 style="margin:8px 0 4px;color:#555">潜在区分特征(未使用)</h5><ul><li><b>故障注入元信息</b>：故障类型名称本身包含丰富语义(如etcd_cluster_fail暗示etcd相关)，可用于规则辅助。</li><li><b>时序特征</b>：故障发生前后的时序变化模式(如etcd故障通常先有etcd日志异常)。</li><li><b>上下文特征</b>：故障发生时的系统状态(如etcd是否可达、UB是否已初始化)。</li></ul></div><h3>📋 案例明细</h3>
+<div style="overflow-x:auto">
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>真实类型</th>
+<th>预测类型</th>
+<th>置信度</th>
+<th>Top-3</th>
+<th>Top-5</th>
+<th>品类</th>
+<th>训练样本数</th>
+<th>预测样本数</th>
+<th>故障族(GT)</th>
+<th>故障族(Pred)</th>
+<th>failure_mode_dist</th>
+<th>Top-5候选</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td class="gt-name">dfx_client_init_etcd_cluster_fail <span class="badge-attractor">吸引子</span></td>
+<td class="pred-name">dfx_worker_set_exit</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9383</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>17</td>
+<td><span class="family-tag">客户端初始化etcd故障</span></td>
+<td><span class="family-tag">Worker SET退出</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.9383)</span><br><span class="cand">dfx_client_process_tcp_down</span> <span class="score">(0.9383)</span><br><span class="cand">dfx_worker_process_local_get_etcd_main_fail</span> <span class="score">(0.9383)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.9383)</span><br><span class="cand">dfx_client_process_get_exit_start</span> <span class="score">(0.9382)</span></td>
+</tr><tr>
+<td>2</td>
+<td class="gt-name">dfx_client_process_get_exit_start</td>
+<td class="pred-name">dfx_worker_process_scale_in_tcp_loss</td>
+<td><span class="conf-bar" style="width:79px;background:#f39c12"></span> 0.7903</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>2</td>
+<td><span class="family-tag">客户端GET进程异常</span></td>
+<td><span class="family-tag">Worker缩容故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_scale_in_tcp_loss</span> <span class="score">(0.7903)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.6959)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.6958)</span><br><span class="cand">dfx_client_process_tcp_down</span> <span class="score">(0.6958)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.6958)</span></td>
+</tr><tr>
+<td>3</td>
+<td class="gt-name">dfx_client_process_set_exit</td>
+<td class="pred-name">dfx_client_process_tcp_down</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9384</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>1</td>
+<td><span class="family-tag">客户端SET进程异常</span></td>
+<td><span class="family-tag">客户端TCP断开</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_client_process_tcp_down</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_worker_process_local_get_etcd_main_fail</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_client_process_get_exit_start</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.9382)</span></td>
+</tr><tr>
+<td>4</td>
+<td class="gt-name">dfx_client_process_tcp_down</td>
+<td class="pred-name">dfx_worker_pod_reboot</td>
+<td><span class="conf-bar" style="width:66px;background:#f39c12"></span> 0.6605</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>1</td>
+<td>6</td>
+<td><span class="family-tag">客户端TCP断开</span></td>
+<td><span class="family-tag">Worker Pod重启</span></td>
+<td style="font-size:0.82em">kvcache_runtime_1377: 3, kvcache_runtime_2295: 2, kvcache_runtime_2303: 2, kvcache_runtime_1603: 2, kvcache_access_021: 2</td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_pod_reboot</span> <span class="score">(0.6605)</span><br><span class="cand">dfx_client_process_get_ubm_failure</span> <span class="score">(0.6370)</span><br><span class="cand">dfx_client_process_get_ubse_failure</span> <span class="score">(0.6365)</span><br><span class="cand">dfx_local_ub_single_socket_two_port_down</span> <span class="score">(0.6244)</span><br><span class="cand">dfx_client_scale_in_tcp_down</span> <span class="score">(0.6222)</span></td>
+</tr><tr>
+<td>5</td>
+<td class="gt-name">dfx_client_scale_in_tcp_down</td>
+<td class="pred-name">dfx_client_process_get_ubm_failure</td>
+<td><span class="conf-bar" style="width:77px;background:#f39c12"></span> 0.7732</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>1</td>
+<td>2</td>
+<td><span class="family-tag">客户端TCP断开</span></td>
+<td><span class="family-tag">客户端GET-UB故障</span></td>
+<td style="font-size:0.82em">kvcache_access_021: 462, kvcache_runtime_1377: 345, kvcache_runtime_2295: 345, kvcache_runtime_2303: 345, kvcache_runtime_106: 230, kvcache_runtime_241: 115, kvcache_runtime_1691: 7, kvcache_runtime_1699: 7 ...(+3)</td>
+<td style="font-size:0.85em"><span class="cand">dfx_client_process_get_ubm_failure</span> <span class="score">(0.7732)</span><br><span class="cand">dfx_client_process_get_ubse_failure</span> <span class="score">(0.7627)</span><br><span class="cand">dfx_worker_pod_reboot</span> <span class="score">(0.7297)</span><br><span class="cand">dfx_local_ub_single_socket_two_port_down</span> <span class="score">(0.7182)</span><br><span class="cand">dfx_r_etcd_fail_client_update</span> <span class="score">(0.7105)</span></td>
+</tr><tr>
+<td>6</td>
+<td class="gt-name">dfx_client_write_remote_worker_etcd_main_fault <span class="badge-attractor">吸引子</span></td>
+<td class="pred-name">dfx_write_remote_tcp_dalay</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9385</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>3</td>
+<td><span class="family-tag">客户端写远端故障</span></td>
+<td><span class="family-tag">写远端TCP时延</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_write_remote_tcp_dalay</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_write_remote_tcp_dalay</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_local_ub_all_port_link_loss</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_remote_ub_two_socket_single_port_down</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_remote_ub_single_port_down</span> <span class="score">(0.9384)</span></td>
+</tr><tr>
+<td>7</td>
+<td class="gt-name">dfx_etcd_cluster_exit</td>
+<td class="pred-name">dfx_client_write_remote_after_ubse_fault</td>
+<td><span class="conf-bar" style="width:91px;background:#e74c3c"></span> 0.9120</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>3</td>
+<td><span class="family-tag">etcd集群故障</span></td>
+<td><span class="family-tag">客户端写远端故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_client_write_remote_after_ubse_fault</span> <span class="score">(0.9120)</span><br><span class="cand">dfx_client_write_remote_after_ubse_fault</span> <span class="score">(0.9120)</span><br><span class="cand">dfx_client_write_remote_after_ubm_fault</span> <span class="score">(0.9120)</span><br><span class="cand">dfx_etcd_cluster_exit</span> <span class="score">(0.9107)</span><br><span class="cand">dfx_client_write_remote_worker_etcd_main_fault</span> <span class="score">(0.9083)</span></td>
+</tr><tr>
+<td>8</td>
+<td class="gt-name">dfx_etcd_cluster_exit_before_set</td>
+<td class="pred-name">dfx_client_write_remote_after_ubse_fault</td>
+<td><span class="conf-bar" style="width:91px;background:#e74c3c"></span> 0.9120</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>3</td>
+<td><span class="family-tag">etcd集群故障</span></td>
+<td><span class="family-tag">客户端写远端故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_client_write_remote_after_ubse_fault</span> <span class="score">(0.9120)</span><br><span class="cand">dfx_client_write_remote_after_ubse_fault</span> <span class="score">(0.9120)</span><br><span class="cand">dfx_client_write_remote_after_ubm_fault</span> <span class="score">(0.9119)</span><br><span class="cand">dfx_etcd_cluster_exit</span> <span class="score">(0.9111)</span><br><span class="cand">dfx_client_write_remote_worker_etcd_main_fault</span> <span class="score">(0.9094)</span></td>
+</tr><tr>
+<td>9</td>
+<td class="gt-name">dfx_local_ub_all_port_down <span class="badge-attractor">吸引子</span></td>
+<td class="pred-name">dfx_write_remote_tcp_dalay</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9385</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>3</td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td><span class="family-tag">写远端TCP时延</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_write_remote_tcp_dalay</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_write_remote_tcp_dalay</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_local_ub_all_port_link_loss</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_remote_ub_two_socket_single_port_down</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_remote_ub_single_port_down</span> <span class="score">(0.9384)</span></td>
+</tr><tr>
+<td>10</td>
+<td class="gt-name">dfx_local_ub_all_port_link_loss</td>
+<td class="pred-name">dfx_remote_ub_single_port_down</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9385</td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>2</td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td><span class="family-tag">远端UB端口故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_remote_ub_single_port_down</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_remote_ub_two_socket_single_port_down</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_local_ub_all_port_link_loss</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_local_ub_all_port_lanedown</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_local_ub_single_port_down</span> <span class="score">(0.9385)</span></td>
+</tr><tr>
+<td>11</td>
+<td class="gt-name">dfx_r_etcd_fail_client_update <span class="badge-attractor">吸引子</span></td>
+<td class="pred-name">dfx_write_remote_tcp_dalay</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9385</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>3</td>
+<td><span class="family-tag">R etcd故障</span></td>
+<td><span class="family-tag">写远端TCP时延</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_write_remote_tcp_dalay</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_local_ub_all_port_link_loss</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_remote_ub_two_socket_single_port_down</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_write_remote_tcp_dalay</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_remote_ub_single_port_down</span> <span class="score">(0.9384)</span></td>
+</tr><tr>
+<td>12</td>
+<td class="gt-name">dfx_sdk_install_etcd_unavailable</td>
+<td class="pred-name">dfx_local_ub_single_socket_two_port_down</td>
+<td><span class="conf-bar" style="width:88px;background:#e67e22"></span> 0.8839</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>2</td>
+<td><span class="family-tag">SDK安装etcd故障</span></td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_local_ub_single_socket_two_port_down</span> <span class="score">(0.8839)</span><br><span class="cand">dfx_worker_process_write_net_card_loss</span> <span class="score">(0.8833)</span><br><span class="cand">dfx_remote_ub_single_socket_two_port_down</span> <span class="score">(0.8698)</span><br><span class="cand">dfx_remote_ub_all_port_down</span> <span class="score">(0.8698)</span><br><span class="cand">dfx_client_process_scale_in_worker_hang_up</span> <span class="score">(0.8693)</span></td>
+</tr><tr>
+<td>13</td>
+<td class="gt-name">dfx_worker_process_remote_ub_fe</td>
+<td class="pred-name">dfx_worker_process_remote_get_etcd_main_fail</td>
+<td><span class="conf-bar" style="width:91px;background:#e74c3c"></span> 0.9134</td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>1</td>
+<td>3</td>
+<td><span class="family-tag">Worker远端UB信号故障</span></td>
+<td><span class="family-tag">Worker远端etcd故障</span></td>
+<td style="font-size:0.82em">kvcache_runtime_2114: 8, kvcache_access_005: 6, kvcache_runtime_2117: 4, kvcache_runtime_2115: 4, kvcache_runtime_2116: 4, kvcache_runtime_949: 4, kvcache_runtime_906: 4, kvcache_runtime_111: 4</td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_remote_get_etcd_main_fail</span> <span class="score">(0.9134)</span><br><span class="cand">dfx_worker_process_remote_ub_fe</span> <span class="score">(0.8866)</span><br><span class="cand">dfx_worker_process_remote_remote_ub_single_port_down</span> <span class="score">(0.8758)</span><br><span class="cand">dfx_worker_process_remote_local_ub_flash_down</span> <span class="score">(0.8345)</span><br><span class="cand">dfx_worker_process_remote_ub_ce</span> <span class="score">(0.7683)</span></td>
+</tr><tr>
+<td>14</td>
+<td class="gt-name">dfx_worker_process_remote_ub_nfe</td>
+<td class="pred-name">dfx_worker_process_remote_get_etcd_main_fail</td>
+<td><span class="conf-bar" style="width:88px;background:#e67e22"></span> 0.8868</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>1</td>
+<td>3</td>
+<td><span class="family-tag">Worker远端UB信号故障</span></td>
+<td><span class="family-tag">Worker远端etcd故障</span></td>
+<td style="font-size:0.82em">kvcache_runtime_2114: 8, kvcache_access_005: 6, kvcache_runtime_2117: 4, kvcache_runtime_2115: 4, kvcache_runtime_2116: 4, kvcache_runtime_949: 4, kvcache_runtime_906: 4, kvcache_runtime_111: 4</td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_remote_get_etcd_main_fail</span> <span class="score">(0.8868)</span><br><span class="cand">dfx_worker_process_remote_ub_fe</span> <span class="score">(0.8603)</span><br><span class="cand">dfx_worker_process_remote_remote_ub_single_port_down</span> <span class="score">(0.8512)</span><br><span class="cand">dfx_worker_process_remote_local_ub_flash_down</span> <span class="score">(0.7836)</span><br><span class="cand">dfx_worker_process_remote_local_ub_single_port_down</span> <span class="score">(0.7599)</span></td>
+</tr><tr>
+<td>15</td>
+<td class="gt-name">dfx_worker_process_remote_ub_single_link_down</td>
+<td class="pred-name">dfx_worker_process_net_card_loss</td>
+<td><span class="conf-bar" style="width:80px;background:#e67e22"></span> 0.8001</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>1</td>
+<td><span class="family-tag">Worker远端UB信号故障</span></td>
+<td><span class="family-tag">Worker网卡故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_net_card_loss</span> <span class="score">(0.8001)</span><br><span class="cand">dfx_client_process_get_ubse_failure</span> <span class="score">(0.7440)</span><br><span class="cand">dfx_client_process_get_ubm_failure</span> <span class="score">(0.7440)</span><br><span class="cand">dfx_worker_process_upgrade_etcd_fault</span> <span class="score">(0.7228)</span><br><span class="cand">dfx_worker_process_local_ub_link_down</span> <span class="score">(0.7228)</span></td>
+</tr><tr>
+<td>16</td>
+<td class="gt-name">dfx_worker_process_scale_in_remote_ub_link_down</td>
+<td class="pred-name">dfx_client_init_etcd_cluster_fail</td>
+<td><span class="conf-bar" style="width:91px;background:#e74c3c"></span> 0.9178</td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag tag-yes">✓</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>1</td>
+<td>1</td>
+<td><span class="family-tag">Worker缩容故障</span></td>
+<td><span class="family-tag">客户端初始化etcd故障</span></td>
+<td style="font-size:0.82em">kvcache_access_003: 316, kvcache_runtime_1696: 316, kvcache_runtime_1711: 316, kvcache_runtime_1706: 316, kvcache_runtime_2173: 316, kvcache_runtime_2526: 316, kvcache_runtime_111: 316</td>
+<td style="font-size:0.85em"><span class="cand">dfx_client_init_etcd_cluster_fail</span> <span class="score">(0.9178)</span><br><span class="cand">dfx_worker_process_scale_in_remote_ub_link_down</span> <span class="score">(0.8704)</span><br><span class="cand">dfx_worker_process_scale_in_remote_ub_nfe</span> <span class="score">(0.8698)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.7908)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.7907)</span></td>
+</tr><tr>
+<td>17</td>
+<td class="gt-name">dfx_worker_process_scale_in_tcp_down</td>
+<td class="pred-name">dfx_worker_process_local_get_etcd_main_fail</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9383</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>4</td>
+<td><span class="family-tag">Worker缩容故障</span></td>
+<td><span class="family-tag">Worker本地etcd故障</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_process_local_get_etcd_main_fail</span> <span class="score">(0.9383)</span><br><span class="cand">dfx_client_process_get_exit_start</span> <span class="score">(0.9383)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.9383)</span><br><span class="cand">dfx_client_process_tcp_down</span> <span class="score">(0.9383)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.9381)</span></td>
+</tr><tr>
+<td>18</td>
+<td class="gt-name">dfx_worker_process_write_net_card_loss</td>
+<td class="pred-name">dfx_r_discovery_worker_process_hangup</td>
+<td><span class="conf-bar" style="width:75px;background:#f39c12"></span> 0.7570</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>1</td>
+<td>1</td>
+<td><span class="family-tag">Worker网卡故障</span></td>
+<td><span class="family-tag">R Discovery进程挂起</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_r_discovery_worker_process_hangup</span> <span class="score">(0.7570)</span><br><span class="cand">dfx_client_process_set_exit_start</span> <span class="score">(0.7427)</span><br><span class="cand">dfx_ps_n_n</span> <span class="score">(0.7409)</span><br><span class="cand">dfx_client_process_scale_in_worker_hang_up</span> <span class="score">(0.7408)</span><br><span class="cand">dfx_remote_ub_all_port_down</span> <span class="score">(0.7407)</span></td>
+</tr><tr>
+<td>19</td>
+<td class="gt-name">dfx_worker_reboot_single_node</td>
+<td class="pred-name">dfx_local_ub_single_socket_two_port_down</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9380</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#f39c12">混合</span></td>
+<td>1</td>
+<td>2</td>
+<td><span class="family-tag">Worker单节点重启</span></td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td style="font-size:0.82em">kvcache_access_005: 393, kvcache_runtime_2303: 282, kvcache_runtime_2295: 256, kvcache_runtime_106: 256, kvcache_runtime_2788: 204, kvcache_runtime_241: 128, kvcache_access_003: 78, kvcache_runtime_1377: 52 ...(+1)</td>
+<td style="font-size:0.85em"><span class="cand">dfx_local_ub_single_socket_two_port_down</span> <span class="score">(0.9380)</span><br><span class="cand">dfx_r_etcd_fail_client_update</span> <span class="score">(0.9094)</span><br><span class="cand">dfx_client_process_get_ubm_failure</span> <span class="score">(0.8763)</span><br><span class="cand">dfx_client_process_get_ubse_failure</span> <span class="score">(0.8762)</span><br><span class="cand">dfx_client_scale_in_tcp_down</span> <span class="score">(0.8275)</span></td>
+</tr></tbody></table></div><div class="analysis-box" style="border-left-color:#27ae60"><h4>💡 改进建议</h4><h5 style="margin:8px 0 4px;color:#555">特征改进</h5><ul><li><b>新增 fault_name_semantic 特征</b>：从故障类型名提取语义向量(如"etcd"→etcd域，"ub"→UB域)，用于门控候选范围。</li><li><b>新增 pre_fault_context 特征</b>：提取故障发生前5分钟的日志关键词，用于辅助定位。</li></ul><h5 style="margin:8px 0 4px;color:#555">算法改进</h5><ul><li><b>样本数惩罚</b>：当训练集data_set_count=1时，对该类型的匹配置信度施加惩罚因子(如×0.7)，降低其被选为Top-1的概率。</li><li><b>置信度校准</b>：对1样本类型的匹配分数做温度缩放(temperature scaling)，抑制虚高的confidence。</li><li><b>最少样本门槛</b>：data_set_count<2的类型不参与Top-1匹配，仅参与Top-5候选。</li><li><b>语义门控</b>：如果测试案例的故障语义域(如etcd)与候选类型不匹配(如local_ub)，直接排除。</li></ul><h5 style="margin:8px 0 4px;color:#555">数据改进</h5><ul><li><b>增加训练样本</b>(最优先)：以下类型急需从1增加到至少3个样本：</li><li>  - dfx_client_init_etcd_cluster_fail, dfx_client_process_get_exit_start, dfx_client_process_set_exit</li><li>  - dfx_client_process_tcp_down, dfx_client_scale_in_tcp_down</li><li>  - dfx_client_write_remote_worker_etcd_main_fault, dfx_etcd_cluster_exit, dfx_etcd_cluster_exit_before_set</li><li>  - dfx_local_ub_all_port_down, dfx_local_ub_all_port_link_loss, dfx_r_etcd_fail_client_update</li><li>  - dfx_sdk_install_etcd_unavailable, dfx_worker_process_remote_ub_fe, dfx_worker_process_remote_ub_nfe</li><li>  - dfx_worker_process_remote_ub_single_link_down, dfx_worker_process_scale_in_remote_ub_link_down</li><li>  - dfx_worker_process_scale_in_tcp_down, dfx_worker_process_write_net_card_loss, dfx_worker_reboot_single_node</li><li><b>数据增强</b>：对1样本类型，通过添加高斯噪声到时延特征生成合成样本。</li></ul></div></div></div>
+
+<div class="section" id="section-featureless_attractor">
+<div class="section-header" onclick="toggleSection('featureless_attractor')">
+    <span class="section-icon" style="color:#c0392b">■</span>
+    <span class="section-title" style="color:#c0392b">特征贫乏吸引子</span>
+    <span class="section-count">3 例</span>
+    <span class="collapse-toggle">[收起]</span>
+</div>
+<div class="section-body">
+<div class="analysis-box" style="border-left-color:#e74c3c"><h4>🔬 根因分析</h4><h5 style="margin:8px 0 4px;color:#555">核心原因</h5><ul><li><b>dfx_write_remote_tcp_dalay</b>的特征模板过于宽泛：其3个训练样本的时延特征覆盖了"远端写超时"的整个光谱，导致多种不同故障(ubse_fault/two_port_flashdown)都被吸引。</li><li><b>dfx_worker_set_exit</b>作为17样本的"超级类型"，其特征模板是多种exit场景的平均，丢失了细节特征，成为通用吸引子。</li><li>这两种类型的failure_mode_dist为空(仅时延特征)，意味着它们缺乏"排他性"特征来拒绝不相关的匹配。</li></ul><h5 style="margin:8px 0 4px;color:#555">失效特征</h5><ul><li>failure_mode_dist为空：write_remote_tcp_dalay和worker_set_exit都不产生独特的runtime错误码，无法通过错误码排除不相关候选。</li><li>segment_ranking过于通用：两者都表现为"全链路超时"，无法区分具体故障位置。</li></ul><h5 style="margin:8px 0 4px;color:#555">潜在区分特征(未使用)</h5><ul><li><b>写操作特征</b>：write_remote_tcp_dalay应只在写操作(DS_POSIX_SET)上超时，而ubse_fault/mixed类型应在GET操作上也有表现。</li><li><b>进程退出特征</b>：worker_set_exit应有worker进程退出日志，其他类型不应有。</li><li><b>故障持续时间特征</b>：不同故障的持续时间分布不同，可作为区分。</li></ul></div><h3>📋 案例明细</h3>
+<div style="overflow-x:auto">
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>真实类型</th>
+<th>预测类型</th>
+<th>置信度</th>
+<th>Top-3</th>
+<th>Top-5</th>
+<th>品类</th>
+<th>训练样本数</th>
+<th>预测样本数</th>
+<th>故障族(GT)</th>
+<th>故障族(Pred)</th>
+<th>failure_mode_dist</th>
+<th>Top-5候选</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td class="gt-name">dfx_client_write_remote_after_ubse_fault</td>
+<td class="pred-name">dfx_write_remote_tcp_dalay</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9384</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>3</td>
+<td>3</td>
+<td><span class="family-tag">客户端写远端故障</span></td>
+<td><span class="family-tag">写远端TCP时延</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_write_remote_tcp_dalay</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_write_remote_tcp_dalay</span> <span class="score">(0.9383)</span><br><span class="cand">dfx_local_ub_all_port_link_loss</span> <span class="score">(0.9383)</span><br><span class="cand">dfx_client_write_remote_after_ubm_fault</span> <span class="score">(0.9383)</span><br><span class="cand">dfx_remote_ub_two_socket_single_port_down</span> <span class="score">(0.9383)</span></td>
+</tr><tr>
+<td>2</td>
+<td class="gt-name">dfx_local_ub_two_port_flashdown</td>
+<td class="pred-name">dfx_write_remote_tcp_dalay</td>
+<td><span class="conf-bar" style="width:93px;background:#e74c3c"></span> 0.9385</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>2</td>
+<td>3</td>
+<td><span class="family-tag">本地UB端口故障</span></td>
+<td><span class="family-tag">写远端TCP时延</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_write_remote_tcp_dalay</span> <span class="score">(0.9385)</span><br><span class="cand">dfx_write_remote_tcp_dalay</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_local_ub_all_port_link_loss</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_remote_ub_two_socket_single_port_down</span> <span class="score">(0.9384)</span><br><span class="cand">dfx_remote_ub_single_port_down</span> <span class="score">(0.9384)</span></td>
+</tr><tr>
+<td>3</td>
+<td class="gt-name">dfx_worker_process_scale_in_client_exit</td>
+<td class="pred-name">dfx_worker_set_exit</td>
+<td><span class="conf-bar" style="width:77px;background:#f39c12"></span> 0.7701</td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag tag-no">✗</span></td>
+<td><span class="tag" style="background:#e74c3c">时延</span></td>
+<td>3</td>
+<td>17</td>
+<td><span class="family-tag">Worker缩容故障</span></td>
+<td><span class="family-tag">Worker SET退出</span></td>
+<td style="font-size:0.82em"><span class="empty">无</span></td>
+<td style="font-size:0.85em"><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.7701)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.7700)</span><br><span class="cand">dfx_client_process_get_exit_start</span> <span class="score">(0.7699)</span><br><span class="cand">dfx_worker_process_local_get_etcd_main_fail</span> <span class="score">(0.7699)</span><br><span class="cand">dfx_worker_set_exit</span> <span class="score">(0.7699)</span></td>
+</tr></tbody></table></div><div class="analysis-box" style="border-left-color:#27ae60"><h4>💡 改进建议</h4><h5 style="margin:8px 0 4px;color:#555">特征改进</h5><ul><li><b>新增 operation_specific_latency 特征</b>：分别记录GET和SET操作的时延分布，write_remote_tcp_dalay应仅在SET上超时。</li><li><b>新增 process_exit_signal 特征</b>：记录是否有worker进程退出信号，worker_set_exit应有而其他不应有。</li><li><b>新增 fault_duration_profile 特征</b>：记录故障从发生到恢复的时间轮廓。</li></ul><h5 style="margin:8px 0 4px;color:#555">算法改进</h5><ul><li><b>吸引子惩罚</b>：对data_set_count>10且failure_mode_dist为空的类型，施加"吸引子惩罚"因子，降低其对无关案例的匹配分数。</li><li><b>操作门控</b>：如果测试案例的affected_operation_dist包含GET，排除仅SET超时的write_remote_tcp_dalay。</li><li><b>排他性检查</b>：如果候选类型有特定前置条件(如write_remote_tcp_dalay需要SET操作超时)，验证测试案例是否满足。</li></ul><h5 style="margin:8px 0 4px;color:#555">数据改进</h5><ul><li>dfx_write_remote_tcp_dalay需要增加不同严重程度的训练样本，使特征模板更紧凑。</li><li>dfx_worker_set_exit需要细分为不同exit原因的子类型，避免成为"万能"吸引子。</li></ul></div></div></div>
+
+<div class="section" id="section-cross_category">
+<div class="section-header" onclick="toggleSection('cross_category')">
+    <span class="section-icon" style="color:#e74c3c">▲</span>
+    <span class="section-title" style="color:#e74c3c">跨品类混淆</span>
+    <span class="section-count">0 例</span>
+    <span class="collapse-toggle">[收起]</span>
+</div>
+<div class="section-body">
+<div class="analysis-box" style="border-left-color:#e74c3c"><h4>🔬 根因分析</h4><h5 style="margin:8px 0 4px;color:#555">核心原因</h5><ul><li>真实标签与预测标签属于不同品类(latency vs connectivity vs mixed)，品类门控未能有效拦截。</li><li>当前匹配算法缺少品类级别的硬门控，导致latency类型可以被误匹配到connectivity类型。</li></ul><h5 style="margin:8px 0 4px;color:#555">失效特征</h5><ul><li>fault_category特征未被用作匹配的门控条件，仅作为后置标签。</li></ul><h5 style="margin:8px 0 4px;color:#555">潜在区分特征(未使用)</h5><ul><li>fault_category本身——应作为硬门控使用。</li></ul></div><p style="color:var(--text-muted);text-align:center;padding:20px">本次分析中未发现跨品类混淆案例——所有误分类案例的真实类型与预测类型均属于同一品类。</p><div class="analysis-box" style="border-left-color:#27ae60"><h4>💡 改进建议</h4><h5 style="margin:8px 0 4px;color:#555">算法改进</h5><ul><li><b>品类硬门控</b>：在匹配前，先用fault_category过滤候选集，仅保留与测试案例同品类的类型。</li><li><b>品类软门控</b>：对跨品类匹配的置信度施加惩罚因子(如×0.5)。</li></ul></div></div></div>
+
+<div class="section">
+<div class="section-header">
+    <span class="section-icon" style="color:#0066cc">📊</span>
+    <span class="section-title" style="color:#0066cc">全局改进优先级</span>
+</div>
+<div class="section-body">
+<div class="analysis-box" style="border-left-color:#0066cc">
+<h4>🎯 按影响力排序的改进路线图</h4>
+<ol>
+<li><b>P0 - 增加训练样本</b>（预计提升 ~15-20 个案例）：19个特征饥饿案例是最容易修复的群体——只需将1样本类型增加到3+样本，即可大幅减少漂移。建议优先为以下类型补充数据：<br>
+<code>dfx_client_init_etcd_cluster_fail, dfx_etcd_cluster_exit, dfx_local_ub_all_port_down, dfx_worker_process_scale_in_tcp_down</code> 等19个类型。</li>
+
+<li><b>P1 - 吸引子惩罚机制</b>（预计提升 ~3-5 个案例）：对 dfx_worker_set_exit（17样本）和 dfx_write_remote_tcp_dalay（3样本但特征过于宽泛）施加惩罚，防止它们吸收不相关案例。具体措施：对 data_set_count>10 且 failure_mode_dist 为空的类型施加 0.7 的惩罚因子。</li>
+
+<li><b>P2 - 近亲消歧机制</b>（预计提升 ~3-5 个案例）：当 Top-1 和 Top-2 属于同一故障族且置信度差 <0.01 时，触发二次匹配。新增 ub_error_type、port_failure_topology 等细粒度特征。</li>
+
+<li><b>P3 - 故障作用域特征</b>（预计提升 ~5-8 个案例）：新增 fault_scope(local_node/cross_node/cluster_wide) 特征，解决 local_ub ↔ remote_ub 的4例互混和 worker_process 系列的6例互混。</li>
+
+<li><b>P4 - 语义门控规则</b>（预计提升 ~5-10 个案例）：从故障类型名提取语义域(etcd/ub/worker/client)，如果测试案例的语义域与候选类型不匹配，直接排除或大幅降权。</li>
+</ol>
+</div>
+
+<div class="analysis-box" style="border-left-color:#f39c12">
+<h4>📈 预期效果</h4>
+<ul>
+<li>当前 Top-1 准确率: <b>32.3%</b> (20/62)</li>
+<li>实施 P0 后: 预计 <b>55-65%</b> (+15-20 案例)</li>
+<li>实施 P0+P1 后: 预计 <b>60-70%</b></li>
+<li>实施 P0-P3 后: 预计 <b>70-80%</b></li>
+<li>实施 P0-P4 后: 预计 <b>80-90%</b></li>
+</ul>
+</div>
+
+<div class="analysis-box" style="border-left-color:#27ae60">
+<h4>🏷️ 建议合并的故障类型</h4>
+<p>以下类型对在业务诊断结论上等价，合并后可减少近亲混淆并降低总类型数：</p>
+<ul>
+<li><b>dfx_client_process_get_ubm_failure ↔ dfx_client_process_get_ubse_failure</b>：两者都是"GET请求UB返回故障"，恢复策略相同。→ 合并为 <code>dfx_client_process_get_ub_failure</code></li>
+<li><b>dfx_local_ub_all_port_down / all_port_lanedown / all_port_link_loss</b>：三者都是"本地UB全端口不可用"，宏观表现一致。→ 合并为 <code>dfx_local_ub_all_port_unavailable</code></li>
+<li><b>dfx_worker_process_remote_ub_ce / fe / nfe</b>：三者都是"远端UB信号异常(CE/FE/NFE)"，在当前特征下无法区分。→ 合并为 <code>dfx_worker_process_remote_ub_signal_error</code></li>
+</ul>
+</div>
+</div>
+</div>
+
+<script>
+function toggleSection(id) {
+    const section = document.getElementById('section-' + id);
+    section.classList.toggle('collapsed');
+    const toggle = section.querySelector('.collapse-toggle');
+    toggle.textContent = section.classList.contains('collapsed') ? '[展开]' : '[收起]';
+}
+</script>
+</div>
+</body>
+</html>

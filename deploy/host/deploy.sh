@@ -156,7 +156,11 @@ build_cpp() {
     cd "$BUILD_DIR"
 
     _info "CMake 配置..."
-    cmake "$PROJECT_DIR" -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -3
+    if ! cmake "$PROJECT_DIR" -DCMAKE_BUILD_TYPE=Release 2>&1 | tee "$LOG_DIR/cmake-config.log"; then
+        _err "CMake 配置失败，最近日志:"
+        tail -30 "$LOG_DIR/cmake-config.log"
+        return 1
+    fi
 
     _info "编译 witty-ub-diag-tool 和 witty-ub-brpc-diag (使用 $(nproc) 核)..."
     if ! make -j"$(nproc)" witty-ub-diag-tool witty-ub-brpc-diag 2>&1 | tee "$LOG_DIR/cpp-build.log"; then
@@ -250,6 +254,25 @@ copy_data_files() {
     $SUDO cp "$PROJECT_DIR/data/ubsocket/"*.json "$WITTY_DIR/data/ubsocket/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/data/umq/"*.json "$WITTY_DIR/data/umq/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/config/diagnosis_config.toml" "$WITTY_DIR/config/" 2>/dev/null || true
+
+    # 部署案例库 (case/): 相似案例分析 / 案例管理 功能依赖
+    # 先清空目标目录再拷贝，确保删除的案例不残留（cp -r 只增不删会导致旧案例污染）
+    # 不吞掉错误：复制失败时明确告警，避免后端读到旧数据
+    local SRC_CASE_DIR="$PROJECT_DIR/case"
+    local DST_CASE_DIR="$WITTY_DIR/case"
+    if [ -d "$SRC_CASE_DIR" ] && [ -n "$(ls -A "$SRC_CASE_DIR" 2>/dev/null)" ]; then
+        $SUDO mkdir -p "$DST_CASE_DIR"
+        $SUDO rm -f "$DST_CASE_DIR"/*.json 2>/dev/null || true
+        if $SUDO cp -r "$SRC_CASE_DIR"/* "$DST_CASE_DIR"/; then
+            _log "案例库已部署: $SRC_CASE_DIR -> $DST_CASE_DIR ($(ls "$SRC_CASE_DIR"/*.json 2>/dev/null | wc -l) 个案例)"
+        else
+            _warn "案例库复制失败！检查 $DST_CASE_DIR 的权限 (当前用户=$(id -un), SUDO=$SUDO)"
+            _warn "后端将使用旧案例数据。尝试: sudo bash deploy/host/deploy.sh --start"
+        fi
+    else
+        $SUDO mkdir -p "$DST_CASE_DIR"
+        _warn "案例库目录为空或不存在: $SRC_CASE_DIR (已创建空目录 $DST_CASE_DIR，案例管理功能需上传案例数据)"
+    fi
 
     # Deploy witty_ub_diagnostician into .opencode directory
     # (OpenCode/Agent 随前端角色部署; backend 角色不跑 OpenCode, 跳过)
@@ -1011,6 +1034,7 @@ menu_main() {
         1) main_deploy ;;
         2) install_deps ;;
         3)
+            copy_data_files
             start_services
             show_access_info
             ;;
@@ -1081,6 +1105,7 @@ esac
 case "${1:-menu}" in
 --start | -s | start)
     detect_os
+    copy_data_files
     start_services
     show_access_info
     ;;
