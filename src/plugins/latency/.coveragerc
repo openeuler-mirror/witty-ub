@@ -1,0 +1,6 @@
+# 覆盖率只统计生产代码：test/ 目录、包内错位的 test_*.py、conftest 不计入
+[run]
+omit =
+    */test/*
+    */test_*.py
+    */conftest.py

@@ -15,7 +15,6 @@
 #include <memory>
 #include "rack_error.h"
 #include "rack_module.h"
-#include "http/rack_http_module.h"
 #include "lcne_error.h"
 #include "lcne_node_collector.h"
 #include "lcne_topology.h"
