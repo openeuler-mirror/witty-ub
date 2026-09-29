@@ -85,6 +85,11 @@ vi deploy/deploy.conf
 WITTY_HOST_PORT="32412"              # 宿主机端口
 WITTY_EXTRA_MOUNTS="/home:/home:ro"   # 额外挂载
 
+# 容器运行时
+WITTY_NETWORK_MODE="bridge"           # bridge（默认）| host（共享宿主机网络）
+WITTY_SSL_VERIFY="true"               # 是否校验 OpenCode/LLM 出网 HTTPS 证书
+WITTY_SECCOMP="default"               # default | unconfined（旧版 Docker/libseccomp）
+
 # PostgreSQL
 PG_PORT="15432"                       # 宿主机端口
 PG_HOST_IN_CONTAINER=""               # 容器内访问，留空自动检测
@@ -93,6 +98,10 @@ PG_USER="witty-ub"
 PG_PASSWORD="<CHANGE_ME>"             # 仅占位符，实际口令在 /etc/witty-ub/pg.passwd
 PG_DATABASE="witty-ub"
 ```
+
+> **网络模式**：`WITTY_NETWORK_MODE="host"` 适用于服务器把 Docker 网络视为不可信区域的场景（PG 与 witty-ub 同组网却无法通信），脚本会自动改用宿主机网络并把容器内 PG 地址改为 `127.0.0.1:5432`；此时端口映射失效，Web UI 变为 `http://<宿主机IP>:8080`。详见[容器运行时问题排查 §3](../troubleshooting/02-container-runtime.md)。
+>
+> **SSL 校验**：`WITTY_SSL_VERIFY="false"` 关闭 OpenCode/LLM 出网 HTTPS 证书校验（容器内导出 `NODE_TLS_REJECT_UNAUTHORIZED=0`），仅用于内网自签证书/代理拦截且无法导入 CA 的场景。
 
 > **PG 密码**：Docker 部署时口令存放在 `/etc/witty-ub/pg.passwd`（权限 0440，属主 root；容器内 postgres 用户经 gid 0 读取），由 `deploy_pg.sh --docker` 生成。`deploy_witty.sh` 将该文件只读挂载到 `/run/secrets/pg_password`，容器入口启动后端前才读取并注入进程环境；密码不会写入 `deploy.conf`、运行时 TOML 或 `docker inspect` 可见的容器环境配置。
 >

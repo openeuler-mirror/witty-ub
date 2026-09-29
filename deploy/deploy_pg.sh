@@ -19,6 +19,8 @@ DEPLOY_MODE="docker" # 默认 docker
 # 保留命令行环境变量覆盖；source deploy.conf 会改写同名变量。
 PG_PORT_OVERRIDE="${PG_PORT:-}"
 PG_PORT_RPM_OVERRIDE="${PG_PORT_RPM:-}"
+WITTY_NETWORK_MODE_OVERRIDE="${WITTY_NETWORK_MODE:-}"
+WITTY_NETWORK_MODE_PG_OVERRIDE="${WITTY_NETWORK_MODE_PG:-}"
 
 usage() {
     cat <<EOF
@@ -79,6 +81,27 @@ if [ "$DEPLOY_MODE" = "rpm" ] || [ "$DEPLOY_MODE" = "apt" ]; then
 elif [ -n "$PG_PORT_OVERRIDE" ]; then
     PG_PORT="$PG_PORT_OVERRIDE"
 fi
+
+# 容器网络模式（与 deploy_witty.sh 共用）: bridge（默认，PG 接入 PG_NETWORK 组网）| host（PG 直接监听宿主机 5432）
+WITTY_NETWORK_MODE="${WITTY_NETWORK_MODE_OVERRIDE:-${WITTY_NETWORK_MODE:-bridge}}"
+case "$WITTY_NETWORK_MODE" in
+bridge | host) ;;
+*)
+    echo "[ERROR] Invalid WITTY_NETWORK_MODE '${WITTY_NETWORK_MODE}' (expected: bridge|host)"
+    exit 1
+    ;;
+esac
+
+# PG 容器可单独覆盖网络模式（容器级键，留空继承上面的全局值）
+WITTY_NETWORK_MODE_PG="${WITTY_NETWORK_MODE_PG_OVERRIDE:-${WITTY_NETWORK_MODE_PG:-}}"
+WITTY_NETWORK_MODE_PG="${WITTY_NETWORK_MODE_PG:-$WITTY_NETWORK_MODE}"
+case "$WITTY_NETWORK_MODE_PG" in
+bridge | host) ;;
+*)
+    echo "[ERROR] Invalid WITTY_NETWORK_MODE_PG '${WITTY_NETWORK_MODE_PG}' (expected: bridge|host)"
+    exit 1
+    ;;
+esac
 
 # PG 密码独立密钥文件（Docker 模式 0440，其余 0400）：ensure_pg_password 生成/写入，不回写 deploy.conf。
 # Docker 部署 → /etc/witty-ub/pg.passwd（系统级稳定路径，不依赖仓库目录）；
@@ -332,13 +355,20 @@ deploy_docker() {
 
     # Step 2: Docker 网络
     echo ""
-    echo "[Step 2/6] Preparing Docker network ..."
-    if docker network ls --format '{{.Name}}' | grep -qx "${PG_NETWORK}"; then
-        log_ok "Network ${PG_NETWORK} already exists"
+    if [ "$WITTY_NETWORK_MODE_PG" = "host" ]; then
+        echo "[Step 2/6] Network mode 'host': skipping Docker network creation ..."
+        # host 模式下端口映射被忽略，PG 直接监听宿主机 5432（校验/汇总口径同步）
+        PG_PORT="5432"
+        log_warn "Network mode 'host': PostgreSQL listens on the host port ${PG_PORT}; the host port mapping is disabled"
     else
-        log_info "Creating network ${PG_NETWORK} ..."
-        docker network create "${PG_NETWORK}"
-        log_ok "Network ${PG_NETWORK} created"
+        echo "[Step 2/6] Preparing Docker network ..."
+        if docker network ls --format '{{.Name}}' | grep -qx "${PG_NETWORK}"; then
+            log_ok "Network ${PG_NETWORK} already exists"
+        else
+            log_info "Creating network ${PG_NETWORK} ..."
+            docker network create "${PG_NETWORK}"
+            log_ok "Network ${PG_NETWORK} created"
+        fi
     fi
 
     # Step 3: 数据卷
@@ -369,10 +399,19 @@ deploy_docker() {
     # Step 5: 启动容器
     echo ""
     echo "[Step 5/6] Starting PostgreSQL container ..."
+
+    # 网络/端口参数按网络模式派生（host 模式忽略端口映射，容器直接占用 5432）
+    PG_NET_ARGS=(--network "${PG_NETWORK}")
+    PG_PORT_ARGS=(-p "${PG_PORT}:5432")
+    if [ "$WITTY_NETWORK_MODE_PG" = "host" ]; then
+        PG_NET_ARGS=(--network host)
+        PG_PORT_ARGS=()
+    fi
+
     docker run -d \
         --name "${PG_CONTAINER_NAME}" \
         --restart unless-stopped \
-        -p "${PG_PORT}:5432" \
+        "${PG_PORT_ARGS[@]}" \
         -v "${PG_VOLUME}:${PG_CONTAINER_DATA_DIR}" \
         -v "${PG_SECRET_FILE}:/run/secrets/pg_password:ro" \
         -e "${SELECTED_ENV_USER}=${PG_USER}" \
@@ -382,7 +421,7 @@ deploy_docker() {
         --health-timeout="${PG_HEALTH_TIMEOUT}" \
         --health-retries="${PG_HEALTH_RETRIES}" \
         --health-start-period="${PG_HEALTH_START_PERIOD}" \
-        --network "${PG_NETWORK}" \
+        "${PG_NET_ARGS[@]}" \
         --entrypoint /bin/bash \
         "${SELECTED_IMAGE}" \
         -c 'export POSTGRESQL_PASSWORD="$(tr -d '\''\r\n'\'' </run/secrets/pg_password)"; [ -n "$POSTGRESQL_PASSWORD" ] || exit 1; exec /usr/bin/container-entrypoint /usr/bin/run-postgresql'
@@ -458,7 +497,11 @@ deploy_docker() {
     echo "  Port:       ${PG_PORT} (host) / 5432 (container)"
     echo "  Database:   ${PG_DATABASE}"
     echo "  User:       ${PG_USER}"
-    echo "  Network:    ${PG_NETWORK}"
+    if [ "$WITTY_NETWORK_MODE_PG" = "host" ]; then
+        echo "  Network:    host (shares the host network; port mapping disabled)"
+    else
+        echo "  Network:    ${PG_NETWORK} (bridge)"
+    fi
     echo "  Volume:     ${PG_VOLUME}"
     echo ""
     echo "Useful commands:"
