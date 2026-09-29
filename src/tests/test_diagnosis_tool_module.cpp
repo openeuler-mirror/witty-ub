@@ -25,66 +25,35 @@
 #undef private
 
 #include "logger.h"
+#include "temp_dir.h"
 #include "ubse_context.h"
 
 namespace {
 
 // 被测实现打日志走 log4cplus，必须先初始化，否则崩溃。
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
-// RAII 临时目录
-class TempDir {
-public:
-    explicit TempDir(const std::string &prefix)
-    {
-        static int counter = 0;
-        dir_ = std::filesystem::temp_directory_path() /
-               (prefix + "_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
-                std::to_string(counter++));
-        std::filesystem::create_directories(dir_);
-    }
-    ~TempDir() { std::filesystem::remove_all(dir_); }
-
-    const std::filesystem::path &Path() const { return dir_; }
-
-    void Write(const std::string &relPath, const std::string &content)
-    {
-        std::filesystem::create_directories((dir_ / relPath).parent_path());
-        std::ofstream out(dir_ / relPath);
-        out << content;
-    }
-
-    std::string Read(const std::string &relPath) const
-    {
-        std::ifstream in(dir_ / relPath);
-        std::stringstream buffer;
-        buffer << in.rdbuf();
-        return buffer.str();
-    }
-
-private:
-    std::filesystem::path dir_;
-};
+// RAII 临时目录（公共实现见 temp_dir.h）
 
 // ---- 合法规则集（与引擎测试同构；BuildIndices 要求含条件 access 规则）----
 const char *KVCACHE_JSON = R"([
-    {"故障编号":"kvcache_root","故障名称":"root","文件名":"kvc_root.cpp","故障现象":"向下级匹配",
-     "故障原因":"c1","解决办法":"s1","函数名":"RootFunc","节点类型":"access_log_entry","错误码":1001},
-    {"故障编号":"kvcache_cond","故障名称":"cond","文件名":"kvc_cond.cpp","故障现象":"向下级匹配",
-     "故障原因":"c2","解决办法":"s2","函数名":"CondFunc","节点类型":"access_log_entry",
-     "匹配条件":{"status_code":1002,"resp_msg_nonempty":true}},
-    {"故障编号":"kvcache_runtime","故障名称":"rt","文件名":"kvc_rt.cpp","故障现象":"依次匹配`err`、`timeout`",
-     "故障原因":"c3","解决办法":"s3","函数名":"RtFunc","节点类型":"runtime_log"}
+    {"故障编号":"kvcache_root", "故障名称":"root", "文件名":"kvc_root.cpp", "故障现象":"向下级匹配",
+     "故障原因":"c1", "解决办法":"s1", "函数名":"RootFunc", "节点类型":"access_log_entry", "错误码":1001},
+    {"故障编号":"kvcache_cond", "故障名称":"cond", "文件名":"kvc_cond.cpp", "故障现象":"向下级匹配",
+     "故障原因":"c2", "解决办法":"s2", "函数名":"CondFunc", "节点类型":"access_log_entry",
+     "匹配条件":{"status_code":1002, "resp_msg_nonempty":true}},
+    {"故障编号":"kvcache_runtime", "故障名称":"rt", "文件名":"kvc_rt.cpp", "故障现象":"依次匹配`err`、`timeout`",
+     "故障原因":"c3", "解决办法":"s3", "函数名":"RtFunc", "节点类型":"runtime_log"}
 ])";
 
 const char *URMA_JSON = R"([
-    {"故障编号":"urma_iface","故障名称":"iface","文件名":"u_iface.cpp","故障现象":"向下级匹配",
-     "故障原因":"c4","解决办法":"s4","函数名":"IfaceFunc"},
-    {"故障编号":"urma_fail","故障名称":"ufail","文件名":"u_fail.cpp","故障现象":"依次匹配`urma err`",
-     "故障原因":"c5","解决办法":"s5","函数名":"UfailFunc"}
+    {"故障编号":"urma_iface", "故障名称":"iface", "文件名":"u_iface.cpp", "故障现象":"向下级匹配",
+     "故障原因":"c4", "解决办法":"s4", "函数名":"IfaceFunc"},
+    {"故障编号":"urma_fail", "故障名称":"ufail", "文件名":"u_fail.cpp", "故障现象":"依次匹配`urma err`",
+     "故障原因":"c5", "解决办法":"s5", "函数名":"UfailFunc"}
 ])";
 
 const char *TREE_JSON = R"({
@@ -130,31 +99,38 @@ void SetModuleArgs(const std::vector<std::pair<std::string, std::string>> &args)
         tokens.push_back("--" + arg.first);
         tokens.push_back(arg.second);
     }
+    // C 接口边界：ParseArgs 只接受 char *argv[]，string 数组在此集中转换。
     std::vector<char *> argv;
-    for (const std::string &token : tokens) {
-        argv.push_back(const_cast<char *>(token.c_str()));
+    for (std::string &token : tokens) {
+        argv.push_back(token.data());
     }
     ASSERT_EQ(ubse::context::UbseContext::GetInstance().ParseArgs(static_cast<int>(argv.size()), argv.data()),
               RACK_OK);
 }
 
-// 全量参数模板：全部 8 个 key 都覆盖，避免单例 argMap 残留。
-void SetFullModuleArgs(const std::string &dsLogPath, const std::string &clientAccess = "client_access.log",
-                       const std::string &clientInfo = "client_info.log", const std::string &randomStr = "r1",
-                       const std::string &startTime = "2024-01-15 10:00:00",
-                       const std::string &endTime = "2024-01-15 11:00:00",
-                       const std::string &resource = "")
+// 全量参数模板：全部 8 个 key 都覆盖，避免单例 argMap 残留（字段带默认值，按需覆盖）。
+struct FullModuleArgs {
+    std::string dsLogPath;
+    std::string clientAccess = "client_access.log";
+    std::string clientInfo = "client_info.log";
+    std::string randomStr = "r1";
+    std::string startTime = "2024-01-15 10:00:00";
+    std::string endTime = "2024-01-15 11:00:00";
+    std::string resource;
+};
+
+void SetFullModuleArgs(const FullModuleArgs &a)
 {
     SetModuleArgs({
-        {"ds-log-path", dsLogPath},
-        {"ds-client-access-log-file", clientAccess},
-        {"ds-client-info-log-file", clientInfo},
+        {"ds-log-path", a.dsLogPath},
+        {"ds-client-access-log-file", a.clientAccess},
+        {"ds-client-info-log-file", a.clientInfo},
         {"ds-worker-access-log-file", ""},
         {"ds-worker-info-log-file", ""},
-        {"resource-log-file", resource},
-        {"start-time", startTime},
-        {"end-time", endTime},
-        {"random-str", randomStr},
+        {"resource-log-file", a.resource},
+        {"start-time", a.startTime},
+        {"end-time", a.endTime},
+        {"random-str", a.randomStr},
     });
 }
 
@@ -185,7 +161,7 @@ TEST(DiagnosisToolModuleArgs, MissingRequiredTimeArgsFail)
 TEST(DiagnosisToolModuleArgs, BadDsLogPathFails)
 {
     TempDir ds("diagmod_args_ds");
-    SetFullModuleArgs("/nonexistent/ds/log/dir");
+    SetFullModuleArgs({"/nonexistent/ds/log/dir"});
 
     diag::DiagnosisToolModule module;
     EXPECT_NE(module.ParseDiagArgs(), RACK_OK);
@@ -195,7 +171,7 @@ TEST(DiagnosisToolModuleArgs, DsLogPathNotDirectoryFails)
 {
     TempDir ds("diagmod_args_ds");
     ds.Write("afile.log", "x");
-    SetFullModuleArgs((ds.Path() / "afile.log").string());
+    SetFullModuleArgs({std::filesystem::path(ds.Path()).append("afile.log").string()});
 
     diag::DiagnosisToolModule module;
     EXPECT_NE(module.ParseDiagArgs(), RACK_OK);
@@ -204,8 +180,8 @@ TEST(DiagnosisToolModuleArgs, DsLogPathNotDirectoryFails)
 TEST(DiagnosisToolModuleArgs, BadTimeFormatFails)
 {
     TempDir ds("diagmod_args_ds");
-    SetFullModuleArgs(ds.Path().string(), "client_access.log", "client_info.log", "r1",
-                      "20240115 100000");
+    SetFullModuleArgs({ds.Path().string(), "client_access.log", "client_info.log", "r1",
+                      "20240115 100000"});
 
     diag::DiagnosisToolModule module;
     EXPECT_NE(module.ParseDiagArgs(), RACK_OK);
@@ -214,8 +190,8 @@ TEST(DiagnosisToolModuleArgs, BadTimeFormatFails)
 TEST(DiagnosisToolModuleArgs, StartTimeNotBeforeEndFails)
 {
     TempDir ds("diagmod_args_ds");
-    SetFullModuleArgs(ds.Path().string(), "client_access.log", "client_info.log", "r1",
-                      "2024-01-15 12:00:00", "2024-01-15 10:00:00");
+    SetFullModuleArgs({ds.Path().string(), "client_access.log", "client_info.log", "r1",
+                      "2024-01-15 12:00:00", "2024-01-15 10:00:00"});
 
     diag::DiagnosisToolModule module;
     EXPECT_NE(module.ParseDiagArgs(), RACK_OK);
@@ -224,7 +200,7 @@ TEST(DiagnosisToolModuleArgs, StartTimeNotBeforeEndFails)
 TEST(DiagnosisToolModuleArgs, FullArgsParseSuccessfully)
 {
     TempDir ds("diagmod_args_ds");
-    SetFullModuleArgs(ds.Path().string(), "ca.log", "ci.log", "rnd1");
+    SetFullModuleArgs({ds.Path().string(), "ca.log", "ci.log", "rnd1"});
 
     diag::DiagnosisToolModule module;
     EXPECT_EQ(module.ParseDiagArgs(), RACK_OK);
@@ -344,7 +320,7 @@ TEST(DiagnosisToolModuleLifecycle, UnInitializeClearsEngineForRestart)
     WriteRules(witty);
     TempDir ds("diagmod_life_ds");
     SetWittyDir(witty.Path());
-    SetFullModuleArgs(ds.Path().string());
+    SetFullModuleArgs({ds.Path().string()});
 
     diag::DiagnosisToolModule module;
     ASSERT_EQ(module.Initialize(), RACK_OK);
@@ -370,8 +346,8 @@ TEST(DiagnosisToolModuleRun, InitializeExtractsLogsAndStartWritesTrace)
     ds.Write("resource.log", "2024-01-15T10:40:00 | I | unrelated\n");
 
     SetWittyDir(witty.Path());
-    SetFullModuleArgs(ds.Path().string(), "client_access.log", "client_info.log", "r1",
-                      "2024-01-15 10:00:00", "2024-01-15 11:00:00", "resource.log");
+    SetFullModuleArgs({ds.Path().string(), "client_access.log", "client_info.log", "r1",
+                      "2024-01-15 10:00:00", "2024-01-15 11:00:00", "resource.log"});
 
     diag::DiagnosisToolModule module;
     ASSERT_EQ(module.Initialize(), RACK_OK);
@@ -419,7 +395,7 @@ TEST(DiagnosisToolModuleRun, DualClassifiedLogFeedsRuntimeThroughExtractedFile)
     ds.Write("dual.log", std::string(ACCESS_HIT) + "\n" + RUNTIME_HIT + "\n");
 
     SetWittyDir(witty.Path());
-    SetFullModuleArgs(ds.Path().string(), "dual.log", "dual.log", "rd");
+    SetFullModuleArgs({ds.Path().string(), "dual.log", "dual.log", "rd"});
 
     diag::DiagnosisToolModule module;
     ASSERT_EQ(module.Initialize(), RACK_OK);
@@ -445,8 +421,8 @@ TEST(DiagnosisToolModuleRun, EmptyWindowProducesEmptyTrace)
 
     SetWittyDir(witty.Path());
     // 时间窗在日志之后：所有行早于窗，提取结果为空
-    SetFullModuleArgs(ds.Path().string(), "client_access.log", "client_info.log", "r2",
-                      "2024-01-15 12:00:00", "2024-01-15 13:00:00");
+    SetFullModuleArgs({ds.Path().string(), "client_access.log", "client_info.log", "r2",
+                      "2024-01-15 12:00:00", "2024-01-15 13:00:00"});
 
     diag::DiagnosisToolModule module;
     ASSERT_EQ(module.Initialize(), RACK_OK);
@@ -472,7 +448,7 @@ TEST(DiagnosisToolModuleRun, InitializeFailsWithoutRules)
     TempDir ds("diagmod_norule_ds");
 
     SetWittyDir(witty.Path());
-    SetFullModuleArgs(ds.Path().string());
+    SetFullModuleArgs({ds.Path().string()});
 
     diag::DiagnosisToolModule module;
     EXPECT_NE(module.Initialize(), RACK_OK);
@@ -484,7 +460,7 @@ TEST(DiagnosisToolModuleRun, InitializeFailsWithBadArgs)
     WriteRules(witty);
 
     SetWittyDir(witty.Path());
-    SetFullModuleArgs("/nonexistent/ds/log/dir");
+    SetFullModuleArgs({"/nonexistent/ds/log/dir"});
 
     diag::DiagnosisToolModule module;
     // ParseDiagArgs 失败分支

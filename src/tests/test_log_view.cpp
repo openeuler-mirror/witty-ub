@@ -31,7 +31,7 @@
 namespace {
 // 打日志的库必须先初始化 log4cplus，否则 SEGFAULT
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
@@ -82,27 +82,41 @@ TEST(LogViewBuild, EmptyMetadataYieldsEmptyViews)
     EXPECT_EQ(view.root_["resource_views"].size(), 0u);
 }
 
-TEST(LogViewBuild, ResolvesTopFunctionAndBuildsView)
+// 图：main -> func_a -> func_b 的三函数链；元数据 funcName=func_b，事件覆盖三个函数。
+// events 指针由用例设置（指向本结构成员，须在 RVO 落地后赋值）。
+struct ChainCase {
+    failure::graph::CallGraph graph;
+    failure::FailureEvent evMain;
+    failure::FailureEvent evA;
+    failure::FailureEvent evA2;
+    failure::FailureMetadata meta;
+};
+
+ChainCase MakeChainCase()
 {
+    ChainCase c;
+    c.graph = MakeGraph({{"main", "umq"}, {"func_a", "umq"}, {"func_b", "umq"}},
+                        {{"main", "func_a"}, {"func_a", "func_b"}});
+    c.evMain = MakeEvent({{"function_name", "main"}, {"error_code", "E1"}});
+    c.evA = MakeEvent({{"function_name", "func_a"}});
+    c.evA2 = MakeEvent({{"function_name", "func_a"}, {"errno", "42"}});
+    c.meta = MakeMeta("func_b");
+    c.meta.threadId = "tid_b";
+    c.meta.localEid = "eid_b";
+    c.meta.localJettyId = "j1";
+    c.meta.remoteEid = "re1";
+    c.meta.remoteJettyId = "rj1";
+    return c;
+}
+
+// 顶函数应解析为无上游命中的 main；节点/边视图按序构建
+TEST(LogViewBuild, ResolvesTopFunctionAndBuildsCallstackView)
+{
+    ChainCase c = MakeChainCase();
+    c.meta.events = {&c.evMain, &c.evA, &c.evA2, nullptr}; // 混入空指针验证跳过逻辑
+
     failure::log::LogView view;
-    // 图：main -> func_a -> func_b
-    auto graph = MakeGraph({{"main", "umq"}, {"func_a", "umq"}, {"func_b", "umq"}},
-                           {{"main", "func_a"}, {"func_a", "func_b"}});
-
-    // 元数据 funcName=func_b，事件覆盖 main/func_a/func_b 三个函数，
-    // 顶函数应解析为无上游命中的 main
-    failure::FailureEvent evMain = MakeEvent({{"function_name", "main"}, {"error_code", "E1"}});
-    failure::FailureEvent evA = MakeEvent({{"function_name", "func_a"}});
-    failure::FailureEvent evA2 = MakeEvent({{"function_name", "func_a"}, {"errno", "42"}});
-    auto meta = MakeMeta("func_b");
-    meta.events = {&evMain, &evA, &evA2, nullptr}; // 混入空指针验证跳过逻辑
-    meta.threadId = "tid_b";
-    meta.localEid = "eid_b";
-    meta.localJettyId = "j1";
-    meta.remoteEid = "re1";
-    meta.remoteJettyId = "rj1";
-
-    EXPECT_EQ(view.Build({meta}, graph), RACK_OK);
+    EXPECT_EQ(view.Build({c.meta}, c.graph), RACK_OK);
     ASSERT_EQ(view.root_["callstack_views"].size(), 1u);
     const Json::Value &cv = view.root_["callstack_views"][0];
     EXPECT_EQ(cv["top_function"].asString(), "main");
@@ -132,8 +146,16 @@ TEST(LogViewBuild, ResolvesTopFunctionAndBuildsView)
     EXPECT_DOUBLE_EQ(cv["edges"][2]["ratio"].asDouble(), 0.5); // 1 / (1+1)
     EXPECT_EQ(cv["edges"][3]["dst"].asString(), "func_a#42");
     EXPECT_DOUBLE_EQ(cv["edges"][3]["ratio"].asDouble(), 0.5);
+}
 
-    // 资源视图层级：tid -> eid -> jetty -> remote_jetty -> remote_eid
+// 资源视图层级：tid -> eid -> jetty -> remote_jetty -> remote_eid
+TEST(LogViewBuild, BuildsResourceViewHierarchy)
+{
+    ChainCase c = MakeChainCase();
+    c.meta.events = {&c.evMain, &c.evA, &c.evA2, nullptr};
+
+    failure::log::LogView view;
+    EXPECT_EQ(view.Build({c.meta}, c.graph), RACK_OK);
     ASSERT_EQ(view.root_["resource_views"].size(), 1u);
     const Json::Value &rv = view.root_["resource_views"][0];
     EXPECT_EQ(rv["top_function"].asString(), "main");

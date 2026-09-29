@@ -11,9 +11,11 @@
  */
 
 #include <gtest/gtest.h>
-#include "failure_log_helper.h"
+
 #include <string>
 #include <vector>
+
+#include "failure_log_helper.h"
 
 // Test WildcardMatch
 TEST(WildcardMatch, StarMatchesAnything) {

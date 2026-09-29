@@ -19,7 +19,6 @@
 
 #include <unistd.h>
 
-#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -27,6 +26,7 @@
 #include <json/json.h>
 
 #include "logger.h"
+#include "temp_dir.h"
 
 // 访问 ViewVisualizer 私有方法（本仓库既有测试模式）
 #define private public
@@ -36,27 +36,19 @@
 namespace {
 // 打日志的库必须先初始化 log4cplus，否则 SEGFAULT
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
-// 每个用例独立的临时目录，析构时清理
-class TempDir {
-public:
-    TempDir()
-    {
-        static int counter = 0;
-        dir_ = std::filesystem::temp_directory_path() /
-               ("witty_b3_view_vis_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-                "_" + std::to_string(counter++));
-        std::filesystem::create_directories(dir_);
-    }
-    ~TempDir() { std::filesystem::remove_all(dir_); }
-    const std::filesystem::path &Path() const { return dir_; }
+// RAII 临时目录（公共实现见 temp_dir.h）
 
-private:
-    std::filesystem::path dir_;
-};
+// 完整模板：包含全部三个占位符
+constexpr const char *FULL_PLACEHOLDER_TEMPLATE =
+    "<head>__LOG_VIEW_CSS__</head><body>__LOG_VIEW_DATA__<b>__LOG_VIEW_JS__</b></body>";
+
+// script 场景模板：数据占位符位于 script 标签内（验证 "</" 转义）
+constexpr const char *SCRIPT_PLACEHOLDER_TEMPLATE =
+    "<style>__LOG_VIEW_CSS__</style><script>__LOG_VIEW_DATA__</script><b>__LOG_VIEW_JS__</b>";
 
 // RAII：用例内切换 cwd（ReadResourceFile 的第一候选为相对工作目录路径），析构还原
 class ScopedChdir {
@@ -163,7 +155,7 @@ TEST_F(ViewVisualizerTest, ReadResourcePrefersCwdRelativePath)
 // 完整模板：数据/CSS/JS 三占位符全部替换，JSON 以两空格缩进嵌入
 TEST_F(ViewVisualizerTest, BuildHtmlReplacesAllPlaceholders)
 {
-    WriteCwdResource("log_view.html", "<head>__LOG_VIEW_CSS__</head><body>__LOG_VIEW_DATA__<b>__LOG_VIEW_JS__</b></body>");
+    WriteCwdResource("log_view.html", FULL_PLACEHOLDER_TEMPLATE);
     WriteCwdResource("log_view.css", "CSS_MARKER_123{}");
     WriteCwdResource("log_view.js", "JS_MARKER_456();");
 
@@ -181,7 +173,7 @@ TEST_F(ViewVisualizerTest, BuildHtmlReplacesAllPlaceholders)
 TEST_F(ViewVisualizerTest, BuildHtmlEscapesClosingScriptTag)
 {
     // 模板须含全部三个占位符（缺任何一个都会在对应检查处返回空串）
-    WriteCwdResource("log_view.html", "<style>__LOG_VIEW_CSS__</style><script>__LOG_VIEW_DATA__</script><b>__LOG_VIEW_JS__</b>");
+    WriteCwdResource("log_view.html", SCRIPT_PLACEHOLDER_TEMPLATE);
     WriteCwdResource("log_view.css", "c");
     WriteCwdResource("log_view.js", "j");
 
@@ -265,9 +257,10 @@ TEST_F(ViewVisualizerTest, WriteHtmlFailsWithoutWritableVarDir)
 // ---------------------------------------------------------------------------
 #include <sys/mman.h>
 
+#include <charconv>
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
+#include <sstream>
 #include <vector>
 
 #include "view_visualizer_module.h"
@@ -279,13 +272,87 @@ struct PatchRegion {
     int prot;
 };
 
+// /proc/self/maps 权限段中 r/w/x 字符的位置。
+constexpr std::size_t PERM_READ_INDEX = 0;
+constexpr std::size_t PERM_WRITE_INDEX = 1;
+constexpr std::size_t PERM_EXEC_INDEX = 2;
+// 单个映射区大小上限（64MB），超出则跳过，避免误扫巨型映射。
+constexpr std::size_t MAX_REGION_BYTES = 64u << 20;
+// /proc/self/exe 路径缓冲长度。
+constexpr std::size_t PATH_BUFFER_SIZE = 4096;
+
 int ParsePerm(const char *perms)
 {
     int prot = 0;
-    if (perms[0] == 'r') prot |= PROT_READ;
-    if (perms[1] == 'w') prot |= PROT_WRITE;
-    if (perms[2] == 'x') prot |= PROT_EXEC;
+    if (perms[PERM_READ_INDEX] == 'r') {
+        prot |= PROT_READ;
+    }
+    if (perms[PERM_WRITE_INDEX] == 'w') {
+        prot |= PROT_WRITE;
+    }
+    if (perms[PERM_EXEC_INDEX] == 'x') {
+        prot |= PROT_EXEC;
+    }
     return prot;
+}
+
+// 收集自身可执行映像的只读映射区。
+std::vector<PatchRegion> CollectSelfExeRegions(const std::string &exe)
+{
+    std::vector<PatchRegion> regions;
+    std::ifstream maps("/proc/self/maps");
+    std::string line;
+    while (std::getline(maps, line)) {
+        std::istringstream row(line);
+        std::string range, perms, offset, dev, inode, mapPath;
+        row >> range >> perms >> offset >> dev >> inode;
+        if (!(row >> mapPath)) {
+            continue; // 匿名映射无路径
+        }
+        const auto dash = range.find('-');
+        uintptr_t start = 0;
+        uintptr_t end = 0;
+        const bool rangeOk = dash != std::string::npos &&
+                             std::from_chars(range.data(), range.data() + dash, start, 16).ec == std::errc{} &&
+                             std::from_chars(range.data() + dash + 1, range.data() + range.size(), end, 16).ec ==
+                                 std::errc{};
+        if (!rangeOk || mapPath != exe || perms[PERM_READ_INDEX] != 'r' || end <= start ||
+            end - start > MAX_REGION_BYTES) {
+            continue;
+        }
+        regions.push_back({start, end, ParsePerm(perms.c_str())});
+    }
+    return regions;
+}
+
+// 把 pos 起长度 len 的区间所在页改为可写（跨页时两页都改）；返回首页是否改写成功。
+bool MakePagesWritable(uintptr_t pos, std::size_t len, std::size_t pageSize)
+{
+    const uintptr_t firstPage = pos & ~(pageSize - 1);
+    const uintptr_t lastPage = (pos + len - 1) & ~(pageSize - 1);
+    if (mprotect(reinterpret_cast<void *>(firstPage), pageSize, PROT_READ | PROT_WRITE) != 0) {
+        return false;
+    }
+    if (lastPage != firstPage) {
+        mprotect(reinterpret_cast<void *>(lastPage), pageSize, PROT_READ | PROT_WRITE);
+    }
+    return true;
+}
+
+// 恢复覆盖 [pos, pos+len) 的所有映射区原始权限。
+void RestorePageProtection(uintptr_t pos, std::size_t len, std::size_t pageSize,
+                           const std::vector<PatchRegion> &regions)
+{
+    const uintptr_t firstPage = pos & ~(pageSize - 1);
+    const uintptr_t lastPage = (pos + len - 1) & ~(pageSize - 1);
+    for (const auto &r : regions) {
+        if (firstPage >= r.start && firstPage < r.end) {
+            mprotect(reinterpret_cast<void *>(firstPage), pageSize, r.prot);
+        }
+        if (lastPage != firstPage && lastPage >= r.start && lastPage < r.end) {
+            mprotect(reinterpret_cast<void *>(lastPage), pageSize, r.prot);
+        }
+    }
 }
 
 // 在自身可执行映像的只读映射中把 from 原地替换为 to（等长），返回替换次数。
@@ -295,54 +362,23 @@ int PatchHardcodedString(const std::string &from, const std::string &to)
     if (from.size() != to.size() || from.empty()) {
         return 0;
     }
-    const size_t pageSize = sysconf(_SC_PAGESIZE);
-    char exe[4096] = {0};
-    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
-    if (n <= 0) {
+    const std::size_t pageSize = static_cast<std::size_t>(sysconf(_SC_PAGESIZE));
+    char exe[PATH_BUFFER_SIZE] = {0};
+    if (readlink("/proc/self/exe", exe, sizeof(exe) - 1) <= 0) {
         return 0;
     }
-    std::ifstream maps("/proc/self/maps");
-    std::string line;
-    std::vector<PatchRegion> regions;
-    while (std::getline(maps, line)) {
-        unsigned long start = 0;
-        unsigned long end = 0;
-        char perms[8] = {0};
-        char path[4096] = {0};
-        if (sscanf(line.c_str(), "%lx-%lx %7s %*s %*s %*s %4095s", &start, &end, perms, path) != 4) {
-            continue;
-        }
-        if (std::string(path) != std::string(exe) || perms[0] != 'r') {
-            continue;
-        }
-        if (end <= start || end - start > (64u << 20)) {
-            continue;
-        }
-        regions.push_back({start, end, ParsePerm(perms)});
-    }
+    const std::vector<PatchRegion> regions = CollectSelfExeRegions(exe);
     int patched = 0;
     for (const auto &region : regions) {
         for (uintptr_t pos = region.start; pos + from.size() <= region.end; ++pos) {
             if (memcmp(reinterpret_cast<void *>(pos), from.data(), from.size()) != 0) {
                 continue;
             }
-            const uintptr_t page1 = pos & ~(pageSize - 1);
-            const uintptr_t page2 = (pos + from.size() - 1) & ~(pageSize - 1);
-            if (mprotect(reinterpret_cast<void *>(page1), pageSize, PROT_READ | PROT_WRITE) != 0) {
+            if (!MakePagesWritable(pos, from.size(), pageSize)) {
                 break;
             }
-            if (page2 != page1) {
-                mprotect(reinterpret_cast<void *>(page2), pageSize, PROT_READ | PROT_WRITE);
-            }
-            memcpy(reinterpret_cast<void *>(pos), to.data(), to.size());
-            for (const auto &r : regions) {
-                if (page1 >= r.start && page1 < r.end) {
-                    mprotect(reinterpret_cast<void *>(page1), pageSize, r.prot);
-                }
-                if (page2 != page1 && page2 >= r.start && page2 < r.end) {
-                    mprotect(reinterpret_cast<void *>(page2), pageSize, r.prot);
-                }
-            }
+            std::copy(to.begin(), to.end(), reinterpret_cast<char *>(pos));
+            RestorePageProtection(pos, from.size(), pageSize, regions);
             ++patched;
             pos += from.size() - 1;
         }
@@ -351,20 +387,20 @@ int PatchHardcodedString(const std::string &from, const std::string &to)
 }
 
 // 与 /var/witty-ub 等长（13 字符）
-constexpr const char *kPatchedRoot = "/tmp/witty-b5";
+constexpr const char *K_PATCHED_ROOT = "/tmp/witty-b5";
 
 void EnsureVarPathPatched()
 {
     static bool patched = [] {
-        std::filesystem::create_directories(kPatchedRoot);
-        PatchHardcodedString("/var/witty-ub", kPatchedRoot);
+        std::filesystem::create_directories(K_PATCHED_ROOT);
+        PatchHardcodedString("/var/witty-ub", K_PATCHED_ROOT);
         return true;
     }();
     (void)patched;
 }
 
-std::string PatchedInputPath() { return std::string(kPatchedRoot) + "/log-view.json"; }
-std::string PatchedOutputPath() { return std::string(kPatchedRoot) + "/log-view-vis.html"; }
+std::string PatchedInputPath() { return std::string(K_PATCHED_ROOT) + "/log-view.json"; }
+std::string PatchedOutputPath() { return std::string(K_PATCHED_ROOT) + "/log-view-vis.html"; }
 
 void WriteInputJson(const std::string &content)
 {

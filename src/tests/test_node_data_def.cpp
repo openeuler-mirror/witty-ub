@@ -11,9 +11,11 @@
  */
 
 #include <gtest/gtest.h>
-#include "node_data_def.h"
+
 #include <string>
 #include <vector>
+
+#include "node_data_def.h"
 
 TEST(Str2ChipType, KnownTypes) {
     EXPECT_EQ(topology::node::Str2ChipType("CPU"), topology::node::ChipType::CPU);

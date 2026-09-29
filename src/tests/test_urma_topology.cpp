@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "temp_dir.h"
 #include "logger.h"
 #include "ubse_context.h"
 #include "urma_topology.h"
@@ -36,7 +37,7 @@ namespace {
 // urma_topology 全链路会打日志，且 URMATopology 构造时从 UbseContext 单例取 JSONModule；
 // 必须先初始化 log4cplus 并注册 JSONModule，否则 CreateTopology 写文件时解引用空指针崩溃。
 struct EnvInit {
-    EnvInit()
+    EnvInit() noexcept
     {
         rack::logger::init(nullptr);
         auto module = std::make_shared<witty_json::module::JSONModule>();
@@ -46,31 +47,7 @@ struct EnvInit {
 };
 static EnvInit g_envInit;
 
-// 每个用例独立的临时目录，析构时清理
-class TempDir {
-public:
-    TempDir()
-    {
-        static int counter = 0;
-        dir_ = std::filesystem::temp_directory_path() /
-               ("witty_urma_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-                "_" + std::to_string(counter++));
-        std::filesystem::create_directories(dir_);
-    }
-    ~TempDir() { std::filesystem::remove_all(dir_); }
-
-    const std::filesystem::path &Path() const { return dir_; }
-
-    std::string Write(const std::string &name, const std::string &content)
-    {
-        std::ofstream out(dir_ / name, std::ios::binary);
-        out << content;
-        return (dir_ / name).string();
-    }
-
-private:
-    std::filesystem::path dir_;
-};
+// 每用例独立临时目录（公共实现见 temp_dir.h）
 
 // 标准格式的 umq 会话日志行
 std::string BindLine(const std::string &localEid, const std::string &localJetty, const std::string &remoteEid,

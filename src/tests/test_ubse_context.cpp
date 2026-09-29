@@ -33,7 +33,7 @@ namespace {
 
 // 被测实现中打日志，log4cplus 必须先初始化
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
@@ -75,8 +75,7 @@ public:
     void Stop() override {}
 };
 
-// 循环依赖：X <-> Y（ModX 构造延后到 ModY 定义之后实现，typeid 需要完整类型）
-class ModY;
+// 循环依赖：X <-> Y（两个构造均延后到双方定义之后实现，typeid 需要完整类型）
 class ModX : public rack::module::RackModule {
 public:
     ModX();
@@ -88,7 +87,7 @@ public:
 
 class ModY : public rack::module::RackModule {
 public:
-    ModY() { dependencies.push_back(typeid(ModX)); }
+    ModY();
     RackResult Initialize() override { return RACK_OK; }
     void UnInitialize() override {}
     RackResult Start() override { return RACK_OK; }
@@ -96,6 +95,7 @@ public:
 };
 
 ModX::ModX() { dependencies.push_back(typeid(ModY)); }
+ModY::ModY() { dependencies.push_back(typeid(ModX)); }
 
 // 把字符串参数转换为 argv（字符串需保持存活）
 std::vector<char *> MakeArgv(std::vector<std::string> &storage, const std::vector<std::string> &args)

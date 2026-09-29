@@ -20,7 +20,7 @@
 
 // 被测实现中打日志（LOG_WARN/LOG_ERROR 路径），log4cplus 必须先初始化，否则崩溃。
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 

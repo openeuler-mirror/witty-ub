@@ -45,7 +45,7 @@ namespace {
 
 // 打日志的库必须先初始化 log4cplus，否则 SEGFAULT。
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 

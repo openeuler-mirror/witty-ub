@@ -49,39 +49,17 @@
 #include "diagnosis_module.h"
 #undef private
 
+#include "temp_dir.h"
+
 namespace {
 
 // 被测实现打日志走 log4cplus，必须先初始化，否则崩溃。
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
-// RAII 临时目录
-class TempDir {
-public:
-    explicit TempDir(const std::string &prefix)
-    {
-        static int counter = 0;
-        dir_ = std::filesystem::temp_directory_path() /
-               (prefix + "_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
-                std::to_string(counter++));
-        std::filesystem::create_directories(dir_);
-    }
-    ~TempDir() { std::filesystem::remove_all(dir_); }
-
-    const std::filesystem::path &Path() const { return dir_; }
-
-    void Write(const std::string &relPath, const std::string &content)
-    {
-        std::filesystem::create_directories((dir_ / relPath).parent_path());
-        std::ofstream out(dir_ / relPath);
-        out << content;
-    }
-
-private:
-    std::filesystem::path dir_;
-};
+// RAII 临时目录（公共实现见 temp_dir.h）
 
 // 日志时间戳格式：[YYYYMMDD HH:MM:SS.uuuuuu]（东八区）
 constexpr const char *TS0_TEXT = "20260101 12:00:00.000000";
@@ -90,13 +68,21 @@ constexpr const char *TS1_TEXT = "20260101 12:00:01.500000"; // TS0 + 1500000
 constexpr const char *TS2_TEXT = "20260101 12:00:02.000000"; // TS0 + 2000000
 constexpr const char *EARLY_TEXT = "20260101 11:59:59.999999"; // TS0 - 1
 
-std::string MakeLogLine(const std::string &timestampText, const std::string &pod = "pod-1",
-                        const std::string &ip = "10.0.0.1", const std::string &component = "UBSOCKET",
-                        const std::string &location = "err.cpp:ErrFunc:42", const std::string &thread = "123",
-                        const std::string &trace = "trace-1", const std::string &message = "an error occurred")
+// 一条 brpc 日志的组成字段（MakeLogLine 的参数集合，避免函数参数过多）
+struct LogLineSpec {
+    std::string pod = "pod-1";
+    std::string ip = "10.0.0.1";
+    std::string component = "UBSOCKET";
+    std::string location = "err.cpp:ErrFunc:42";
+    std::string thread = "123";
+    std::string trace = "trace-1";
+    std::string message = "an error occurred";
+};
+
+std::string MakeLogLine(const std::string &timestampText, const LogLineSpec &spec = {})
 {
-    return "[" + timestampText + "][" + pod + "][" + ip + "][" + component + "][" + location + "][" + thread + "][" +
-           trace + "]" + message;
+    return "[" + timestampText + "][" + spec.pod + "][" + spec.ip + "][" + spec.component + "][" + spec.location +
+           "][" + spec.thread + "][" + spec.trace + "]" + spec.message;
 }
 
 std::vector<brpc::BrpcLog> CollectAll(const brpc::LogCollector &collector, std::int64_t start, std::int64_t end)
@@ -321,7 +307,7 @@ TEST(LogCollectorBrpcFields, ParsesFullLine) {
 
 TEST(LogCollectorBrpcFields, AcceptsDashThreadAndTrace) {
     brpc::BrpcLog logEntry;
-    logEntry.text = MakeLogLine(TS0_TEXT, "pod", "ip", "UBSOCKET", "err.cpp:ErrFunc:42", "-", "-", "msg");
+    logEntry.text = MakeLogLine(TS0_TEXT, {"pod", "ip", "UBSOCKET", "err.cpp:ErrFunc:42", "-", "-", "msg"});
     ASSERT_TRUE(brpc::LogCollector::ParseBrpcLogFields(logEntry));
     EXPECT_FALSE(logEntry.threadId.has_value());
     EXPECT_FALSE(logEntry.traceId.has_value());
@@ -329,8 +315,8 @@ TEST(LogCollectorBrpcFields, AcceptsDashThreadAndTrace) {
 
 TEST(LogCollectorBrpcFields, ParsesUrmaInnerLog) {
     brpc::BrpcLog logEntry;
-    logEntry.text = MakeLogLine(TS0_TEXT, "pod", "ip", "UBSOCKET", "outer.cpp:OuterFunc:9", "5", "outer-trace",
-                                "[URMA][thread_id=42][trace-1][u.cpp:FuncU:7]urma fail detected");
+logEntry.text = MakeLogLine(TS0_TEXT, {"pod", "ip", "UBSOCKET", "outer.cpp:OuterFunc:9", "5", "outer-trace",
+                                          "[URMA][thread_id=42][trace-1][u.cpp:FuncU:7]urma fail detected"});
     ASSERT_TRUE(brpc::LogCollector::ParseBrpcLogFields(logEntry));
     EXPECT_EQ(logEntry.component, "URMA");
     EXPECT_EQ(logEntry.filename, "u.cpp");
@@ -350,17 +336,17 @@ TEST(LogCollectorBrpcFields, RejectsMalformedLines) {
     logEntry.text = "[" + std::string(TS0_TEXT) + "][pod][ip][UBSOCKET][err.cpp:ErrFunc:42][123]";
     EXPECT_FALSE(brpc::LogCollector::ParseBrpcLogFields(logEntry));
     // 位置字段格式错误
-    logEntry.text = MakeLogLine(TS0_TEXT, "pod", "ip", "UBSOCKET", "nocolon", "123", "tr", "msg");
+    logEntry.text = MakeLogLine(TS0_TEXT, {"pod", "ip", "UBSOCKET", "nocolon", "123", "tr", "msg"});
     EXPECT_FALSE(brpc::LogCollector::ParseBrpcLogFields(logEntry));
     // 线程号非数字
-    logEntry.text = MakeLogLine(TS0_TEXT, "pod", "ip", "UBSOCKET", "err.cpp:ErrFunc:42", "abc", "tr", "msg");
+    logEntry.text = MakeLogLine(TS0_TEXT, {"pod", "ip", "UBSOCKET", "err.cpp:ErrFunc:42", "abc", "tr", "msg"});
     EXPECT_FALSE(brpc::LogCollector::ParseBrpcLogFields(logEntry));
     // trace 为空
-    logEntry.text = MakeLogLine(TS0_TEXT, "pod", "ip", "UBSOCKET", "err.cpp:ErrFunc:42", "123", "", "msg");
+    logEntry.text = MakeLogLine(TS0_TEXT, {"pod", "ip", "UBSOCKET", "err.cpp:ErrFunc:42", "123", "", "msg"});
     EXPECT_FALSE(brpc::LogCollector::ParseBrpcLogFields(logEntry));
     // 内层 URMA 日志格式错误
-    logEntry.text = MakeLogLine(TS0_TEXT, "pod", "ip", "UBSOCKET", "outer.cpp:OuterFunc:9", "5", "tr",
-                                "[URMA][thread_id=-][t][u.cpp:F:1]m");
+logEntry.text = MakeLogLine(TS0_TEXT, {"pod", "ip", "UBSOCKET", "outer.cpp:OuterFunc:9", "5", "tr",
+                                          "[URMA][thread_id=-][t][u.cpp:F:1]m"});
     EXPECT_FALSE(brpc::LogCollector::ParseBrpcLogFields(logEntry));
 }
 
@@ -406,8 +392,8 @@ TEST(LogCollectorForEach, ReadsSingleFileWithFiltering) {
                   std::string(MakeLogLine(EARLY_TEXT)) + "\n" +               // 早于窗
                   std::string("garbage line without timestamp") + "\n" +      // 无效时间戳
                   std::string(MakeLogLine(TS2_TEXT)) + "\n" +                 // == end，窗外
-                  std::string(MakeLogLine(TS1_TEXT, "pod-2", "10.0.0.2", "UMQ", "umq.cpp:UmqFunc:7", "9", "t2",
-                                          "umq fail")) + "\n");               // 窗内
+std::string(MakeLogLine(TS1_TEXT, {"pod-2", "10.0.0.2", "UMQ", "umq.cpp:UmqFunc:7", "9", "t2",
+                                                    "umq fail"})) + "\n");               // 窗内
     const brpc::LogCollector collector(dir.Path() / "brpc.log");
     const auto logs = CollectAll(collector, TS0, TS0 + 2000000);
     ASSERT_EQ(logs.size(), 2u);
@@ -432,14 +418,14 @@ TEST(LogCollectorForEach, ReadsSingleFileWithFiltering) {
 
 TEST(LogCollectorForEach, RecursesDirectoryInSortedOrder) {
     TempDir dir("brpclc_dir");
-    dir.Write("b.log", std::string(MakeLogLine(TS0_TEXT, "pod", "ip", "UBSOCKET", "err.cpp:ErrFunc:42", "1", "t",
-                                               "in b")) +
+dir.Write("b.log", std::string(MakeLogLine(TS0_TEXT, {"pod", "ip", "UBSOCKET", "err.cpp:ErrFunc:42", "1", "t",
+                                                         "in b"})) +
                            "\n");
-    dir.Write("a.log", std::string(MakeLogLine(TS0_TEXT, "pod", "ip", "UBSOCKET", "err.cpp:ErrFunc:42", "1", "t",
-                                               "in a")) +
+dir.Write("a.log", std::string(MakeLogLine(TS0_TEXT, {"pod", "ip", "UBSOCKET", "err.cpp:ErrFunc:42", "1", "t",
+                                                         "in a"})) +
                            "\n");
-    dir.Write("sub/c.log", std::string(MakeLogLine(TS0_TEXT, "pod", "ip", "UBSOCKET", "err.cpp:ErrFunc:42", "1", "t",
-                                                   "in c")) +
+dir.Write("sub/c.log", std::string(MakeLogLine(TS0_TEXT, {"pod", "ip", "UBSOCKET", "err.cpp:ErrFunc:42", "1", "t",
+                                                             "in c"})) +
                                "\n");
     const brpc::LogCollector collector(dir.Path());
     const auto logs = CollectAll(collector, TS0, TS0 + 1000000);
@@ -466,8 +452,8 @@ TEST(LogCollectorForEach, RetainsInvalidFormatAsRawText) {
 
 TEST(LogCollectorForEach, ParsesUrmaLines) {
     TempDir dir("brpclc_urma");
-    const std::string line = MakeLogLine(TS0_TEXT, "pod", "ip", "UBSOCKET", "outer.cpp:OuterFunc:9", "5", "tr",
-                                         "[URMA][thread_id=42][trace-1][u.cpp:FuncU:7]urma fail detected");
+const std::string line = MakeLogLine(TS0_TEXT, {"pod", "ip", "UBSOCKET", "outer.cpp:OuterFunc:9", "5", "tr",
+                                                   "[URMA][thread_id=42][trace-1][u.cpp:FuncU:7]urma fail detected"});
     dir.Write("brpc.log", line + "\n");
     const brpc::LogCollector collector(dir.Path() / "brpc.log");
     const auto logs = CollectAll(collector, TS0, TS0 + 1000000);
@@ -488,22 +474,22 @@ namespace {
 
 // 全 local 边规则树：每个故障模式都能经同组件 publicApi 到达（Build 的硬约束）
 const char *MOD_UBSOCKET_JSON = R"([
-    {"故障编号":"ubsocket_root","故障名称":"root","文件名":"root.cpp","故障现象":"向下级匹配",
-     "故障原因":"c1","解决办法":"s1","函数名":"RootFunc","错误码":1001},
-    {"故障编号":"ubsocket_err","故障名称":"err","文件名":"err.cpp","故障现象":"依次匹配`error`、`timeout`",
-     "故障原因":"c2","解决办法":"s2","函数名":"ErrFunc","错误码":"E002"}
+    {"故障编号":"ubsocket_root", "故障名称":"root", "文件名":"root.cpp", "故障现象":"向下级匹配",
+     "故障原因":"c1", "解决办法":"s1", "函数名":"RootFunc", "错误码":1001},
+    {"故障编号":"ubsocket_err", "故障名称":"err", "文件名":"err.cpp", "故障现象":"依次匹配`error`、`timeout`",
+     "故障原因":"c2", "解决办法":"s2", "函数名":"ErrFunc", "错误码":"E002"}
 ])";
 const char *MOD_UMQ_JSON = R"([
-    {"故障编号":"umq_root","故障名称":"uroot","文件名":"umq_root.cpp","故障现象":"向下级匹配",
-     "故障原因":"c3","解决办法":"s3","函数名":"UmqRootFunc"},
-    {"故障编号":"umq_err","故障名称":"uerr","文件名":"umq.cpp","故障现象":"依次匹配`umq fail`",
-     "故障原因":"c4","解决办法":"s4","函数名":"UmqFunc"}
+    {"故障编号":"umq_root", "故障名称":"uroot", "文件名":"umq_root.cpp", "故障现象":"向下级匹配",
+     "故障原因":"c3", "解决办法":"s3", "函数名":"UmqRootFunc"},
+    {"故障编号":"umq_err", "故障名称":"uerr", "文件名":"umq.cpp", "故障现象":"依次匹配`umq fail`",
+     "故障原因":"c4", "解决办法":"s4", "函数名":"UmqFunc"}
 ])";
 const char *MOD_URMA_JSON = R"([
-    {"故障编号":"urma_root","故障名称":"vroot","文件名":"urma_root.cpp","故障现象":"向下级匹配",
-     "故障原因":"c5","解决办法":"s5","函数名":"UrmaRootFunc"},
-    {"故障编号":"urma_err","故障名称":"verr","文件名":"urma.cpp","故障现象":"依次匹配`urma fail`",
-     "故障原因":"c6","解决办法":"s6","函数名":"UrmaFunc"}
+    {"故障编号":"urma_root", "故障名称":"vroot", "文件名":"urma_root.cpp", "故障现象":"向下级匹配",
+     "故障原因":"c5", "解决办法":"s5", "函数名":"UrmaRootFunc"},
+    {"故障编号":"urma_err", "故障名称":"verr", "文件名":"urma.cpp", "故障现象":"依次匹配`urma fail`",
+     "故障原因":"c6", "解决办法":"s6", "函数名":"UrmaFunc"}
 ])";
 const char *MOD_TREE_JSON = R"({
     "ubsocket": {"ubsocket_root": ["ubsocket_err"]},

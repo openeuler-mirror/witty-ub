@@ -22,31 +22,55 @@
 
 #include "logger.h"
 #include "node_collector.h"
+#include "temp_dir.h"
 
 namespace {
 // 打日志的库必须先初始化 log4cplus，否则 SEGFAULT
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
-// 每个用例独立的临时目录（sqlite 库文件也落在这里），析构时清理
-class TempDir {
-public:
-    TempDir()
-    {
-        static int counter = 0;
-        dir_ = std::filesystem::temp_directory_path() /
-               ("witty_node_collector_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-                "_" + std::to_string(counter++));
-        std::filesystem::create_directories(dir_);
-    }
-    ~TempDir() { std::filesystem::remove_all(dir_); }
-    const std::filesystem::path &Path() const { return dir_; }
+// RAII 临时目录（公共实现见 temp_dir.h；sqlite 库文件也落在这里）
 
-private:
-    std::filesystem::path dir_;
-};
+// Node 用例构造参数（deviceId, slotId, chipNum, dieNum）
+constexpr uint32_t NODE_A_ID = 1;
+constexpr uint32_t NODE_A_SLOT = 2;
+constexpr uint32_t NODE_A_CHIP_NUM = 4;
+constexpr uint32_t NODE_A_DIE_NUM = 8;
+constexpr uint32_t NODE_B_ID = 2;
+constexpr uint32_t NODE_B_SLOT = 3;
+constexpr uint32_t NODE_B_CHIP_NUM = 8;
+constexpr uint32_t NODE_B_DIE_NUM = 16;
+// 同主键更新后的字段值
+constexpr uint32_t NODE_UPDATED_SLOT = 9;
+constexpr uint32_t NODE_UPDATED_CHIP_NUM = 1;
+constexpr uint32_t NODE_UPDATED_DIE_NUM = 2;
+
+// UbController 用例构造参数（deviceId, slotId, chipId, dieId, portIds）
+constexpr uint32_t UBC_A_DEVICE_ID = 1;
+constexpr uint32_t UBC_A_SLOT_ID = 2;
+constexpr uint32_t UBC_A_CHIP_ID = 3;
+constexpr uint32_t UBC_A_DIE_ID = 4;
+constexpr uint32_t UBC_A_PORT_ID = 5;
+// 同主键更新后的字段值
+constexpr uint32_t UBC_B_DEVICE_ID = 9;
+constexpr uint32_t UBC_B_SLOT_ID = 8;
+constexpr uint32_t UBC_B_CHIP_ID = 7;
+constexpr uint32_t UBC_B_DIE_ID = 6;
+constexpr uint32_t UBC_B_PORT_ID = 6;
+
+// Port 用例构造参数
+constexpr uint32_t PORT_LOCAL_ID = 101;
+constexpr uint32_t PORT_DEVICE_ID = 1;
+constexpr uint32_t PORT_REMOTE_PORT_ID = 201;
+constexpr uint32_t PORT_REMOTE_DEVICE_ID = 202;
+constexpr uint32_t PORT_REMOTE_SLOT_ID = 203;
+constexpr uint32_t PORT_REMOTE_UBPU_ID = 204;
+constexpr uint32_t PORT_REMOTE_IOU_ID = 205;
+
+// 历史库双写：两次插入需间隔的毫秒数（保证毫秒时间戳不同）
+constexpr int HIS_TIMESTAMP_GAP_MS = 10;
 } // namespace
 
 // 每个用例使用独立的临时 sqlite 库（含 _history 历史库）
@@ -89,10 +113,12 @@ TEST_F(NodeCollectorTest, InitAndStartDb)
 TEST_F(NodeCollectorTest, InsertAndQueryDeviceRoundTrip)
 {
     std::vector<std::shared_ptr<topology::node::Node>> nodes;
-    nodes.push_back(std::make_shared<topology::node::Node>(1, 2, "host-a", std::vector<std::string>{"10.0.0.1"}, 4, 8,
-                                                            topology::node::ChipType::CPU));
-    nodes.push_back(std::make_shared<topology::node::Node>(2, 3, "host-b", std::vector<std::string>{"10.0.0.2"}, 8, 16,
-                                                            topology::node::ChipType::NPU));
+    nodes.push_back(std::make_shared<topology::node::Node>(NODE_A_ID, NODE_A_SLOT, "host-a",
+                                                           std::vector<std::string>{"10.0.0.1"}, NODE_A_CHIP_NUM,
+                                                           NODE_A_DIE_NUM, topology::node::ChipType::CPU));
+    nodes.push_back(std::make_shared<topology::node::Node>(NODE_B_ID, NODE_B_SLOT, "host-b",
+                                                           std::vector<std::string>{"10.0.0.2"}, NODE_B_CHIP_NUM,
+                                                           NODE_B_DIE_NUM, topology::node::ChipType::NPU));
     EXPECT_EQ(collector.InsertDeviceData(nodes), database::OP_RET::SUCCESS);
 
     // 当前库查询
@@ -111,7 +137,7 @@ TEST_F(NodeCollectorTest, InsertAndQueryDeviceRoundTrip)
     EXPECT_EQ(byId[1].chipNum, 4u);
     EXPECT_EQ(byId[1].dieNum, 8u);
     EXPECT_EQ(byId[1].chipType, topology::node::ChipType::CPU);
-    EXPECT_EQ(byId[2].chipType, topology::node::ChipType::NPU);
+    EXPECT_EQ(byId[NODE_B_ID].chipType, topology::node::ChipType::NPU);
 
     // 历史库查询（enableHis 时插入双写）
     std::vector<std::shared_ptr<topology::node::Node>> his;
@@ -122,15 +148,18 @@ TEST_F(NodeCollectorTest, InsertAndQueryDeviceRoundTrip)
 TEST_F(NodeCollectorTest, DeviceSamePrimaryKeyTriggersUpdate)
 {
     std::vector<std::shared_ptr<topology::node::Node>> first;
-    first.push_back(std::make_shared<topology::node::Node>(1, 2, "host-a", std::vector<std::string>{"10.0.0.1"}, 4, 8,
-                                                           topology::node::ChipType::CPU));
+    first.push_back(std::make_shared<topology::node::Node>(NODE_A_ID, NODE_A_SLOT, "host-a",
+                                                           std::vector<std::string>{"10.0.0.1"}, NODE_A_CHIP_NUM,
+                                                           NODE_A_DIE_NUM, topology::node::ChipType::CPU));
     EXPECT_EQ(collector.InsertDeviceData(first), database::OP_RET::SUCCESS);
     // 保证两次插入的毫秒时间戳不同：同毫秒时历史库主键 (deviceId, update_timestamp) 会 UNIQUE 冲突
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(HIS_TIMESTAMP_GAP_MS));
     // 同主键 deviceId 再插入 -> 走更新分支
     std::vector<std::shared_ptr<topology::node::Node>> second;
-    second.push_back(std::make_shared<topology::node::Node>(1, 9, "host-b", std::vector<std::string>{"10.0.0.9"}, 1, 2,
-                                                           topology::node::ChipType::CPULINK));
+    second.push_back(std::make_shared<topology::node::Node>(NODE_A_ID, NODE_UPDATED_SLOT, "host-b",
+                                                            std::vector<std::string>{"10.0.0.9"},
+                                                            NODE_UPDATED_CHIP_NUM, NODE_UPDATED_DIE_NUM,
+                                                            topology::node::ChipType::CPULINK));
     EXPECT_EQ(collector.InsertDeviceData(second), database::OP_RET::SUCCESS);
 
     std::vector<std::shared_ptr<topology::node::Node>> curr;
@@ -163,7 +192,9 @@ TEST_F(NodeCollectorTest, DeviceSamePrimaryKeyTriggersUpdate)
 TEST_F(NodeCollectorTest, InsertAndQueryUbCRoundTrip)
 {
     std::vector<std::shared_ptr<topology::node::UbController>> ubcs;
-    ubcs.push_back(std::make_shared<topology::node::UbController>("guid-1", "eid-1", 1, 2, 3, 4, "cna-1", std::vector<uint32_t>{5},
+    ubcs.push_back(std::make_shared<topology::node::UbController>("guid-1", "eid-1", UBC_A_DEVICE_ID, UBC_A_SLOT_ID,
+                                                                 UBC_A_CHIP_ID, UBC_A_DIE_ID, "cna-1",
+                                                                 std::vector<uint32_t>{UBC_A_PORT_ID},
                                                                  topology::node::DieState::NORMAL,
                                                                  topology::node::UbCState::ONLINE));
     EXPECT_EQ(collector.InsertUbCData(ubcs), database::OP_RET::SUCCESS);
@@ -178,7 +209,7 @@ TEST_F(NodeCollectorTest, InsertAndQueryUbCRoundTrip)
     EXPECT_EQ(curr[0]->chipId, 3u);
     EXPECT_EQ(curr[0]->dieId, 4u);
     EXPECT_EQ(curr[0]->primaryCna, "cna-1");
-    EXPECT_EQ(curr[0]->portIds, std::vector<uint32_t>({5}));
+    EXPECT_EQ(curr[0]->portIds, std::vector<uint32_t>({UBC_A_PORT_ID}));
     EXPECT_EQ(curr[0]->dieState, topology::node::DieState::NORMAL);
     EXPECT_EQ(curr[0]->ubcState, topology::node::UbCState::ONLINE);
 
@@ -190,18 +221,22 @@ TEST_F(NodeCollectorTest, InsertAndQueryUbCRoundTrip)
 TEST_F(NodeCollectorTest, UbCSamePrimaryKeyTriggersUpdate)
 {
     std::vector<std::shared_ptr<topology::node::UbController>> first;
-    first.push_back(std::make_shared<topology::node::UbController>("guid-1", "eid-1", 1, 2, 3, 4, "cna-1", std::vector<uint32_t>{5},
+    first.push_back(std::make_shared<topology::node::UbController>("guid-1", "eid-1", UBC_A_DEVICE_ID, UBC_A_SLOT_ID,
+                                                                   UBC_A_CHIP_ID, UBC_A_DIE_ID, "cna-1",
+                                                                   std::vector<uint32_t>{UBC_A_PORT_ID},
                                                                    topology::node::DieState::NORMAL,
                                                                    topology::node::UbCState::ONLINE));
     EXPECT_EQ(collector.InsertUbCData(first), database::OP_RET::SUCCESS);
     // 保证两次插入的毫秒时间戳不同：同毫秒时历史库主键 (primaryCna, update_timestamp) 会 UNIQUE 冲突，
     // 触发 InsertData 内 UpdateData 分支插入历史库失败，整体返回 FAIL
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(HIS_TIMESTAMP_GAP_MS));
     // UbController 主键为 primaryCna：同 primaryCna 再插入走更新
     std::vector<std::shared_ptr<topology::node::UbController>> second;
-    second.push_back(std::make_shared<topology::node::UbController>("guid-2", "eid-2", 9, 8, 7, 6, "cna-1", std::vector<uint32_t>{6},
-                                                                     topology::node::DieState::ABNORMAL,
-                                                                     topology::node::UbCState::OFFLINE));
+    second.push_back(std::make_shared<topology::node::UbController>("guid-2", "eid-2", UBC_B_DEVICE_ID, UBC_B_SLOT_ID,
+                                                                   UBC_B_CHIP_ID, UBC_B_DIE_ID, "cna-1",
+                                                                   std::vector<uint32_t>{UBC_B_PORT_ID},
+                                                                   topology::node::DieState::ABNORMAL,
+                                                                   topology::node::UbCState::OFFLINE));
     EXPECT_EQ(collector.InsertUbCData(second), database::OP_RET::SUCCESS);
 
     std::vector<std::shared_ptr<topology::node::UbController>> curr;
@@ -235,8 +270,10 @@ TEST_F(NodeCollectorTest, UbCSamePrimaryKeyTriggersUpdate)
 TEST_F(NodeCollectorTest, InsertPortDataFailsOnRemoteIiIdKey)
 {
     std::vector<std::shared_ptr<topology::node::Port>> ports;
-    ports.push_back(std::make_shared<topology::node::Port>(101, "cna-1", "primary-cna", 1,
-                                                           topology::node::PortState::UP, 201, 202, 203, 204, 205));
+    ports.push_back(std::make_shared<topology::node::Port>(PORT_LOCAL_ID, "cna-1", "primary-cna", PORT_DEVICE_ID,
+                                                           topology::node::PortState::UP, PORT_REMOTE_PORT_ID,
+                                                           PORT_REMOTE_DEVICE_ID, PORT_REMOTE_SLOT_ID,
+                                                           PORT_REMOTE_UBPU_ID, PORT_REMOTE_IOU_ID));
     EXPECT_EQ(collector.InsertPortData(ports), database::OP_RET::FAIL);
     // 无任何数据写入
     database::QueryResult res;

@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 
+#include "temp_dir.h"
 #include "failure_def.h"
 #include "rack_error.h"
 
@@ -37,27 +38,11 @@ void SetKeyFunctionRole(const std::string &funcName, EventTypeOption eventType, 
 namespace {
 // 打日志的库必须先初始化 log4cplus，否则 SEGFAULT
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
-// 每个用例独立的临时目录，析构时清理
-class TempDir {
-public:
-    TempDir()
-    {
-        static int counter = 0;
-        dir_ = std::filesystem::temp_directory_path() /
-               ("witty_log_graph_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-                "_" + std::to_string(counter++));
-        std::filesystem::create_directories(dir_);
-    }
-    ~TempDir() { std::filesystem::remove_all(dir_); }
-    const std::filesystem::path &Path() const { return dir_; }
-
-private:
-    std::filesystem::path dir_;
-};
+// 每用例独立临时目录（公共实现见 temp_dir.h）
 
 void WriteFile(const std::filesystem::path &path, const std::string &content)
 {

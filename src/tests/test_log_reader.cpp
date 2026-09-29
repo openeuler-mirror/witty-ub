@@ -22,12 +22,13 @@
 #include <string>
 #include <vector>
 
+#include "temp_dir.h"
 #include "log_reader.h"
 #include "logger.h"
 
 // log_reader 实现中打日志（LOG_ERROR 路径），log4cplus 必须先初始化
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
@@ -43,31 +44,7 @@ FILE *SpawnPipeline(std::vector<std::vector<std::string>> &commands, std::vector
 
 namespace {
 
-// 每个用例独立的临时目录，析构时清理
-class TempDir {
-public:
-    TempDir()
-    {
-        static int counter = 0;
-        dir_ = std::filesystem::temp_directory_path() /
-               ("witty_log_reader_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-                "_" + std::to_string(counter++));
-        std::filesystem::create_directories(dir_);
-    }
-    ~TempDir() { std::filesystem::remove_all(dir_); }
-
-    const std::filesystem::path &Path() const { return dir_; }
-
-    std::string Write(const std::string &name, const std::string &content)
-    {
-        std::ofstream out(dir_ / name, std::ios::binary);
-        out << content;
-        return (dir_ / name).string();
-    }
-
-private:
-    std::filesystem::path dir_;
-};
+// 每用例独立临时目录（公共实现见 temp_dir.h）
 
 // 单行模板：形如 2024-01-15T10:30:01.123456+08:00|W|UMQ|消息
 const char *SINGLE_MANIFEST = "<datetime>|<level>|UMQ|<content>";

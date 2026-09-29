@@ -57,6 +57,7 @@
 #include <sqlite3.h>
 
 #include "logger.h"
+#include "temp_dir.h"
 
 // 打开私有成员用于浅测内部指针状态（本仓库既有测试模式）
 #define private public
@@ -72,32 +73,11 @@ namespace {
 
 // 打日志的库必须先初始化 log4cplus，否则 SEGFAULT。
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
-// 每个用例独立的临时目录，析构时清理。
-class TempDir {
-public:
-    TempDir()
-    {
-        static int counter = 0;
-        dir_ = std::filesystem::temp_directory_path() /
-               ("witty_b4_module_shells_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-                "_" + std::to_string(counter++));
-        std::filesystem::create_directories(dir_);
-    }
-    ~TempDir()
-    {
-        std::error_code ec;
-        std::filesystem::remove_all(dir_, ec);
-    }
-
-    const std::filesystem::path &Path() const { return dir_; }
-
-private:
-    std::filesystem::path dir_;
-};
+// 每个用例独立的临时目录，析构时清理（公共实现见 temp_dir.h）。
 
 // DatabaseModule::Start 打开硬编码路径 /var/witty-ub/euler_copilot_ub：
 // 目录存在且可写时才会成功，否则 sqlite 打开失败走 RACK_FAIL。
@@ -287,7 +267,7 @@ protected:
         ASSERT_EQ(module.GetCollector()->StartDb(), database::OP_RET::SUCCESS);
     }
 
-    TempDir dir;
+    TempDir dir("witty_b4_module_shells");
     topology::node::NodeLocalCollectorModule module;
     std::shared_ptr<database::Database> db;
 };
@@ -456,7 +436,7 @@ TEST(JSONModule, WriteVectorsToFileWritesValidJson)
     witty_json::module::JSONModule module;
     ASSERT_EQ(module.Initialize(), RACK_OK);
 
-    TempDir dir;
+    TempDir dir("witty_b4_module_shells");
     const std::string file = (dir.Path() / "topology.json").string();
     std::vector<topology::node::UbController> ubcs;
     ubcs.push_back(*MakeUbC());
@@ -497,7 +477,7 @@ TEST(JSONModule, WriteVectorsToFileFailsOnInvalidDirectory)
     ASSERT_EQ(module.Initialize(), RACK_OK);
 
     // /tmp 下先放一个普通文件，再以 “文件/xxx” 为目标路径 → open(ENOTDIR) 失败
-    TempDir dir;
+    TempDir dir("witty_b4_module_shells");
     const std::filesystem::path blocker = dir.Path() / "blocker";
     {
         std::ofstream out(blocker);

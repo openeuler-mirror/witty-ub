@@ -69,6 +69,12 @@ void macro_forced_log(Logger const &, LogLevel, tstring const &, char const *, i
 } // namespace log4cplus
 
 namespace {
+// 固定端口/超时：RackHttpServer::Initialize 为 call_once，端口由首次调用决定
+constexpr int K_RACK_HTTP_SERVER_PORT = 28081;
+constexpr int K_TEST_ALT_PORT = 28082;   // Initialize 幂等用例的第二个端口参数（仅首次生效）
+constexpr int K_TEST_REMOTE_PORT = 39000; // 请求来源端口（仅回填，无实际连接语义）
+constexpr int K_CLIENT_TIMEOUT_SEC = 2;   // httplib 客户端连接超时（秒）
+
 // 构造一个返回固定响应的 handler
 rack::com::RackHttpHandler MakeHandler(int status, std::string body)
 {
@@ -306,13 +312,13 @@ TEST(RouteDispatch, ConcurrentRegisterIsSafe)
 // ---------------------------------------------------------------------------
 // RackHttpServer：请求校验与查询串构造（不起服务）
 // ---------------------------------------------------------------------------
-class RackHttpServerUtil : public ::testing::Test {
+class RackHttp : public ::testing::Test {
 public:
-    RackHttpServerUtil()
+    RackHttp()
     {
         // ctest 隔离模式下每个用例单独进程，不能依赖 InitializeCreatesSingletonInstance
-        // 先跑；call_once 幂等，已初始化时无副作用（端口 28081 与既有用例一致）。
-        rack::com::RackHttpServer::Initialize(28081);
+        // 先跑；call_once 幂等，已初始化时无副作用（端口与 B5 回环用例一致）。
+        rack::com::RackHttpServer::Initialize(K_RACK_HTTP_SERVER_PORT);
     }
 
 protected:
@@ -320,16 +326,16 @@ protected:
 };
 
 // Initialize 后 GetInstance 可用；Start 未调用时不监听端口
-TEST_F(RackHttpServerUtil, InitializeCreatesSingletonInstance)
+TEST_F(RackHttp, InitializeCreatesSingletonInstance)
 {
     // call_once 幂等；不同端口参数仅在首次生效
-    EXPECT_TRUE(rack::com::RackHttpServer::Initialize(28081));
-    EXPECT_TRUE(rack::com::RackHttpServer::Initialize(28082));
+    EXPECT_TRUE(rack::com::RackHttpServer::Initialize(K_RACK_HTTP_SERVER_PORT));
+    EXPECT_TRUE(rack::com::RackHttpServer::Initialize(K_TEST_ALT_PORT));
     EXPECT_NO_THROW(rack::com::RackHttpServer::GetInstance());
 }
 
 // GenerateQueryString：空/单项/多项拼接
-TEST_F(RackHttpServerUtil, GenerateQueryString)
+TEST_F(RackHttp, GenerateQueryString)
 {
     EXPECT_EQ(server().GenerateQueryString({}), "");
 
@@ -341,7 +347,7 @@ TEST_F(RackHttpServerUtil, GenerateQueryString)
 }
 
 // ValidateHttpRequest：合法方法、非法方法、body 超限、query 超限
-TEST_F(RackHttpServerUtil, ValidateHttpRequestBranches)
+TEST_F(RackHttp, ValidateHttpRequestBranches)
 {
     rack::com::RackHttpRequest out;
 
@@ -371,10 +377,10 @@ TEST_F(RackHttpServerUtil, ValidateHttpRequestBranches)
 }
 
 // HandlerRequest：非法方法 -> 400
-TEST_F(RackHttpServerUtil, HandlerRequestRejectsInvalidMethod)
+TEST_F(RackHttp, HandlerRequestRejectsInvalidMethod)
 {
     auto &handler = rack::com::RackHttpServerHandler::GetInstance();
-    handler.Register(rack::com::RackHttpMethod::POST, "/b3/hr", MakeHandler(200, "hr"));
+    handler.Register(rack::com::RackHttpMethod::POST, "/b3/hr", MakeHandler(rack::com::OK_200, "hr"));
 
     httplib::Request req;
     req.method = "TRACE";
@@ -386,7 +392,7 @@ TEST_F(RackHttpServerUtil, HandlerRequestRejectsInvalidMethod)
 }
 
 // HandlerRequest：未注册路由 -> 500 route not found
-TEST_F(RackHttpServerUtil, HandlerRequestUnknownRouteReturns500)
+TEST_F(RackHttp, HandlerRequestUnknownRouteReturns500)
 {
     httplib::Request req;
     req.method = "GET";
@@ -398,17 +404,17 @@ TEST_F(RackHttpServerUtil, HandlerRequestUnknownRouteReturns500)
 }
 
 // HandlerRequest：正常分发回填状态码、body 与 Content-Type 头
-TEST_F(RackHttpServerUtil, HandlerRequestFillsResponse)
+TEST_F(RackHttp, HandlerRequestFillsResponse)
 {
     auto &handler = rack::com::RackHttpServerHandler::GetInstance();
     handler.Register(rack::com::RackHttpMethod::GET, "/b3/full",
-                     [](const rack::com::RackComContext &, const rack::com::RackHttpRequest &request) {
-                         rack::com::RackHttpResponse resp;
-                         resp.status = rack::com::Created_201;
-                         resp.body = "{\"k\":\"" + request.queryParams.at("q") + "\"}";
-                         resp.headers["Content-Type"] = "application/json";
-                         return rack::com::RackComResult<rack::com::RackHttpResponse>::Ok(std::move(resp));
-                     });
+        [](const rack::com::RackComContext &, const rack::com::RackHttpRequest &request) {
+            rack::com::RackHttpResponse resp;
+            resp.status = rack::com::Created_201;
+            resp.body = "{\"k\":\"" + request.queryParams.at("q") + "\"}";
+            resp.headers["Content-Type"] = "application/json";
+            return rack::com::RackComResult<rack::com::RackHttpResponse>::Ok(std::move(resp));
+        });
 
     httplib::Request req;
     req.method = "GET";
@@ -417,7 +423,7 @@ TEST_F(RackHttpServerUtil, HandlerRequestFillsResponse)
     req.headers.emplace("X-Custom", "h1");
     req.body = "payload";
     req.remote_addr = "127.0.0.1";
-    req.remote_port = 39000;
+    req.remote_port = K_TEST_REMOTE_PORT;
 
     httplib::Response res;
     server().HandlerRequest(req, res);
@@ -428,14 +434,14 @@ TEST_F(RackHttpServerUtil, HandlerRequestFillsResponse)
 }
 
 // HandlerRequest：handler 返回 Error -> 500 且 body 为错误消息
-TEST_F(RackHttpServerUtil, HandlerRequestPropagatesHandlerError)
+TEST_F(RackHttp, HandlerRequestPropagatesHandlerError)
 {
     auto &handler = rack::com::RackHttpServerHandler::GetInstance();
     handler.Register(rack::com::RackHttpMethod::GET, "/b3/err",
-                     [](const rack::com::RackComContext &, const rack::com::RackHttpRequest &) {
-                         return rack::com::RackComResult<rack::com::RackHttpResponse>::Error(
-                             rack::com::RackComError::INTERNAL, "boom");
-                     });
+        [](const rack::com::RackComContext &, const rack::com::RackHttpRequest &) {
+            return rack::com::RackComResult<rack::com::RackHttpResponse>::Error(rack::com::RackComError::INTERNAL,
+                "boom");
+        });
 
     httplib::Request req;
     req.method = "GET";
@@ -447,15 +453,13 @@ TEST_F(RackHttpServerUtil, HandlerRequestPropagatesHandlerError)
 }
 
 // ---------------------------------------------------------------------------
-// B5 追加：真实 Start/Stop（本机回环）。既有测试已 Initialize(28081)（call_once，
+// B5 追加：真实 Start/Stop（本机回环）。既有测试已 Initialize(K_RACK_HTTP_SERVER_PORT)（call_once，
 // 端口固定），以下仅在回环地址上启动/停止，并经 httplib::Client 走真实 HTTP
 // 请求全链路（Run → ConfigureRoutes → EnsurePortAvailable → HandlerRequest）。
 // 注：不测“端口被占 → Start 超时返回 false”路径——Run 线程异常退出后 thread_
 // 永不 join，进程退出时析构未 join 的 std::thread 会 std::terminate 崩掉二进制。
 // ---------------------------------------------------------------------------
 namespace {
-constexpr int kRackHttpServerPort = 28081; // 与既有 Initialize(28081) 一致
-
 // 占用型 POST handler：回显请求 body，验证真实连接下 body 透传
 rack::com::RackComResult<rack::com::RackHttpResponse> EchoPostHandler(
     const rack::com::RackComContext &, const rack::com::RackHttpRequest &req)
@@ -469,7 +473,7 @@ rack::com::RackComResult<rack::com::RackHttpResponse> EchoPostHandler(
 } // namespace
 
 // Start 成功（回环监听建立）；运行中再次 Start 走 is_running 短路直接返回 true
-TEST_F(RackHttpServerUtil, StartIsIdempotentWhileRunning)
+TEST_F(RackHttp, StartIsIdempotentWhileRunning)
 {
     ASSERT_TRUE(server().Start());
     // 已运行：is_running() 为真分支，不新建线程
@@ -478,16 +482,16 @@ TEST_F(RackHttpServerUtil, StartIsIdempotentWhileRunning)
 }
 
 // 未运行时 Stop：!is_running() 早退分支，无副作用
-TEST_F(RackHttpServerUtil, StopWhenNotRunningIsNoop)
+TEST_F(RackHttp, StopWhenNotRunningIsNoop)
 {
     EXPECT_NO_THROW(server().Stop());
 }
 
 // 停止后可再次 Start：thread_ 已 join，可安全重建监听（重复 ConfigureRoutes 无害）。
-// 注：本用例刻意不发任何客户端请求——服务端先关闭 keep-alive 连接会在 28081 上
+// 注：本用例刻意不发任何客户端请求——服务端先关闭 keep-alive 连接会在服务端口上
 // 留下 TIME-WAIT，使后续 Start() 的 EnsurePortAvailable bind 失败（已实测）。
 // 因此本用例必须放在 RealLoopbackRequestEndToEnd 之前执行。
-TEST_F(RackHttpServerUtil, RestartAfterStopSucceeds)
+TEST_F(RackHttp, RestartAfterStopSucceeds)
 {
     ASSERT_TRUE(server().Start());
     server().Stop();
@@ -497,7 +501,7 @@ TEST_F(RackHttpServerUtil, RestartAfterStopSucceeds)
 }
 
 // 真实回环请求全链路：GET 带 query、POST 带 body/自定义头、未注册路由 500
-TEST_F(RackHttpServerUtil, RealLoopbackRequestEndToEnd)
+TEST_F(RackHttp, RealLoopbackRequestEndToEnd)
 {
     auto &handler = rack::com::RackHttpServerHandler::GetInstance();
     handler.Register(rack::com::RackHttpMethod::GET, "/b5/live", MakeHandler(rack::com::OK_200, "live-ok"));
@@ -505,8 +509,8 @@ TEST_F(RackHttpServerUtil, RealLoopbackRequestEndToEnd)
 
     ASSERT_TRUE(server().Start());
 
-    httplib::Client cli("127.0.0.1", kRackHttpServerPort);
-    cli.set_connection_timeout(2);
+    httplib::Client cli("127.0.0.1", K_RACK_HTTP_SERVER_PORT);
+    cli.set_connection_timeout(K_CLIENT_TIMEOUT_SEC);
 
     // GET + query 经真实 socket：HandlerRequest 解析 params 并精确分发
     auto res = cli.Get("/b5/live?q=1");

@@ -11,10 +11,12 @@
  */
 
 #include <gtest/gtest.h>
-#include "failure_def.h"
+
 #include <json/json.h>
 #include <string>
 #include <vector>
+
+#include "failure_def.h"
 
 TEST(EventTypeOptionFromString, ValidStrings) {
     EXPECT_EQ(failure::EventTypeOptionFromString("bind"), failure::EventTypeOption::BIND);

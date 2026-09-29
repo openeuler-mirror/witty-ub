@@ -40,7 +40,7 @@ namespace {
 
 // 被测实现中大量使用 LOG_ERROR/LOG_INFO，log4cplus 必须先初始化
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
@@ -561,9 +561,11 @@ TEST(LcneDataHandler, GenerateLcnePortBadStateFails)
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <charconv>
 #include <cstdio>
 #include <cstring>
 #include <iterator>
+#include <sstream>
 #include <map>
 #include <thread>
 
@@ -581,13 +583,88 @@ struct PatchRegion {
     int prot;
 };
 
+// /proc/self/maps 权限段中 r/w/x 字符的位置。
+constexpr std::size_t PERM_READ_INDEX = 0;
+constexpr std::size_t PERM_WRITE_INDEX = 1;
+constexpr std::size_t PERM_EXEC_INDEX = 2;
+
 int ParsePerm(const char *perms)
 {
     int prot = 0;
-    if (perms[0] == 'r') prot |= PROT_READ;
-    if (perms[1] == 'w') prot |= PROT_WRITE;
-    if (perms[2] == 'x') prot |= PROT_EXEC;
+    if (perms[PERM_READ_INDEX] == 'r') {
+        prot |= PROT_READ;
+    }
+    if (perms[PERM_WRITE_INDEX] == 'w') {
+        prot |= PROT_WRITE;
+    }
+    if (perms[PERM_EXEC_INDEX] == 'x') {
+        prot |= PROT_EXEC;
+    }
     return prot;
+}
+
+// 单个映射区大小上限（64MB），超出则跳过，避免误扫巨型映射。
+constexpr std::size_t MAX_REGION_BYTES = 64u << 20;
+// /proc/self/exe 路径缓冲长度。
+constexpr std::size_t PATH_BUFFER_SIZE = 4096;
+
+// 扫描 /proc/self/maps，收集本可执行文件自身的可读映射区。
+std::vector<PatchRegion> CollectSelfExeRegions(const std::string &exe)
+{
+    std::vector<PatchRegion> regions;
+    std::ifstream maps("/proc/self/maps");
+    std::string line;
+    while (std::getline(maps, line)) {
+        std::istringstream row(line);
+        std::string range, perms, offset, dev, inode, mapPath;
+        row >> range >> perms >> offset >> dev >> inode;
+        if (!(row >> mapPath)) {
+            continue; // 匿名映射无路径
+        }
+        const auto dash = range.find('-');
+        uintptr_t start = 0;
+        uintptr_t end = 0;
+        const bool rangeOk = dash != std::string::npos &&
+                             std::from_chars(range.data(), range.data() + dash, start, 16).ec == std::errc{} &&
+                             std::from_chars(range.data() + dash + 1, range.data() + range.size(), end, 16).ec ==
+                                 std::errc{};
+        if (!rangeOk || mapPath != exe || perms[PERM_READ_INDEX] != 'r' || end <= start ||
+            end - start > MAX_REGION_BYTES) {
+            continue;
+        }
+        regions.push_back({start, end, ParsePerm(perms.c_str())});
+    }
+    return regions;
+}
+
+// 把 pos 起长度 len 的区间所在页改为可写（跨页时两页都改）；返回首页是否改写成功。
+bool MakePagesWritable(uintptr_t pos, std::size_t len, std::size_t pageSize)
+{
+    const uintptr_t firstPage = pos & ~(pageSize - 1);
+    const uintptr_t lastPage = (pos + len - 1) & ~(pageSize - 1);
+    if (mprotect(reinterpret_cast<void *>(firstPage), pageSize, PROT_READ | PROT_WRITE) != 0) {
+        return false;
+    }
+    if (lastPage != firstPage) {
+        mprotect(reinterpret_cast<void *>(lastPage), pageSize, PROT_READ | PROT_WRITE);
+    }
+    return true;
+}
+
+// 恢复覆盖 [pos, pos+len) 的所有映射区原始权限。
+void RestorePageProtection(uintptr_t pos, std::size_t len, std::size_t pageSize,
+                           const std::vector<PatchRegion> &regions)
+{
+    const uintptr_t firstPage = pos & ~(pageSize - 1);
+    const uintptr_t lastPage = (pos + len - 1) & ~(pageSize - 1);
+    for (const auto &r : regions) {
+        if (firstPage >= r.start && firstPage < r.end) {
+            mprotect(reinterpret_cast<void *>(firstPage), pageSize, r.prot);
+        }
+        if (lastPage != firstPage && lastPage >= r.start && lastPage < r.end) {
+            mprotect(reinterpret_cast<void *>(lastPage), pageSize, r.prot);
+        }
+    }
 }
 
 // 在自身可执行映像的只读映射中把 from 原地替换为 to（等长），返回替换次数。
@@ -597,54 +674,23 @@ int PatchHardcodedString(const std::string &from, const std::string &to)
     if (from.size() != to.size() || from.empty()) {
         return 0;
     }
-    const size_t pageSize = sysconf(_SC_PAGESIZE);
-    char exe[4096] = {0};
-    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
-    if (n <= 0) {
+    const std::size_t pageSize = static_cast<std::size_t>(sysconf(_SC_PAGESIZE));
+    char exe[PATH_BUFFER_SIZE] = {0};
+    if (readlink("/proc/self/exe", exe, sizeof(exe) - 1) <= 0) {
         return 0;
     }
-    std::ifstream maps("/proc/self/maps");
-    std::string line;
-    std::vector<PatchRegion> regions;
-    while (std::getline(maps, line)) {
-        unsigned long start = 0;
-        unsigned long end = 0;
-        char perms[8] = {0};
-        char path[4096] = {0};
-        if (sscanf(line.c_str(), "%lx-%lx %7s %*s %*s %*s %4095s", &start, &end, perms, path) != 4) {
-            continue;
-        }
-        if (std::string(path) != std::string(exe) || perms[0] != 'r') {
-            continue;
-        }
-        if (end <= start || end - start > (64u << 20)) {
-            continue;
-        }
-        regions.push_back({start, end, ParsePerm(perms)});
-    }
+    const std::vector<PatchRegion> regions = CollectSelfExeRegions(exe);
     int patched = 0;
     for (const auto &region : regions) {
         for (uintptr_t pos = region.start; pos + from.size() <= region.end; ++pos) {
             if (memcmp(reinterpret_cast<void *>(pos), from.data(), from.size()) != 0) {
                 continue;
             }
-            const uintptr_t page1 = pos & ~(pageSize - 1);
-            const uintptr_t page2 = (pos + from.size() - 1) & ~(pageSize - 1);
-            if (mprotect(reinterpret_cast<void *>(page1), pageSize, PROT_READ | PROT_WRITE) != 0) {
+            if (!MakePagesWritable(pos, from.size(), pageSize)) {
                 break;
             }
-            if (page2 != page1) {
-                mprotect(reinterpret_cast<void *>(page2), pageSize, PROT_READ | PROT_WRITE);
-            }
-            memcpy(reinterpret_cast<void *>(pos), to.data(), to.size());
-            for (const auto &r : regions) {
-                if (page1 >= r.start && page1 < r.end) {
-                    mprotect(reinterpret_cast<void *>(page1), pageSize, r.prot);
-                }
-                if (page2 != page1 && page2 >= r.start && page2 < r.end) {
-                    mprotect(reinterpret_cast<void *>(page2), pageSize, r.prot);
-                }
-            }
+            std::copy(to.begin(), to.end(), reinterpret_cast<char *>(pos));
+            RestorePageProtection(pos, from.size(), pageSize, regions);
             ++patched;
             pos += from.size() - 1;
         }
@@ -653,18 +699,30 @@ int PatchHardcodedString(const std::string &from, const std::string &to)
 }
 
 // 与 /var/witty-ub、/etc/witty-ub 等长（13 字符）
-constexpr const char *kPatchedRoot = "/tmp/witty-b5";
+constexpr const char *K_PATCHED_ROOT = "/tmp/witty-b5";
 
 void EnsureHardcodedPathsPatched()
 {
     static bool patched = [] {
-        std::filesystem::create_directories(kPatchedRoot);
-        PatchHardcodedString("/var/witty-ub", kPatchedRoot);
-        PatchHardcodedString("/etc/witty-ub", kPatchedRoot);
+        std::filesystem::create_directories(K_PATCHED_ROOT);
+        PatchHardcodedString("/var/witty-ub", K_PATCHED_ROOT);
+        PatchHardcodedString("/etc/witty-ub", K_PATCHED_ROOT);
         return true;
     }();
     (void)patched;
 }
+
+// 本地模拟服务器启动等待：最多轮询轮数与单轮间隔。
+constexpr int SERVER_START_ROUNDS = 400;
+constexpr int SERVER_POLL_INTERVAL_MS = 5;
+// HTTP 状态码（httplib 无符号常量可用，此处按语义命名）。
+constexpr int HTTP_OK = 200;
+constexpr int HTTP_CREATED = 201;
+constexpr int HTTP_NOT_FOUND = 404;
+// LCNE 驱动端口（与生产 LCNE_PORT 一致）。
+constexpr int LCNE_TEST_PORT = 34256;
+// topo-tool 命令行参数个数。
+constexpr int TOPO_TOOL_ARGC = 5;
 
 // 本地模拟 LCNE 设备：按请求路径返回可配置的 XML / 状态码
 class FakeLcneServer {
@@ -696,8 +754,8 @@ public:
     void Start()
     {
         thread_ = std::thread([this] { svr_.listen("127.0.0.1", std::stoi(lcne::common::LCNE_PORT)); });
-        for (int i = 0; i < 400 && !svr_.is_running(); ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        for (int i = 0; i < SERVER_START_ROUNDS && !svr_.is_running(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(SERVER_POLL_INTERVAL_MS));
         }
     }
 
@@ -711,7 +769,7 @@ public:
 
     bool IsRunning() const { return svr_.is_running(); }
 
-    void SetXml(const char *path, const std::string &xml, int status = 200)
+    void SetXml(const char *path, const std::string &xml, int status = HTTP_OK)
     {
         std::lock_guard<std::mutex> lock(mtx_);
         gets_[path] = std::make_pair(status, xml);
@@ -729,7 +787,7 @@ private:
         std::lock_guard<std::mutex> lock(mtx_);
         auto it = gets_.find(path);
         if (it == gets_.end()) {
-            res.status = 404;
+            res.status = HTTP_NOT_FOUND;
             res.set_content("not found", "text/plain");
             return;
         }
@@ -741,11 +799,11 @@ private:
     std::thread thread_;
     std::mutex mtx_;
     std::map<std::string, std::pair<int, std::string>> gets_;
-    int postStatus_ = 201;
+    int postStatus_ = HTTP_CREATED;
 };
 
 // 各 RESTCONF 端点的合法样例
-const char *kLcneNodesXml = R"(<topology>
+const char *K_LCNE_NODES_XML = R"(<topology>
   <nodes>
     <node>
       <slot>1</slot>
@@ -766,7 +824,7 @@ const char *kLcneNodesXml = R"(<topology>
   </nodes>
 </topology>)";
 
-const char *kLcneIouXml = R"(<vbussw-service>
+const char *K_LCNE_IOU_XML = R"(<vbussw-service>
   <iou-infos>
     <iou-info>
       <guid>guid-1</guid>
@@ -780,7 +838,7 @@ const char *kLcneIouXml = R"(<vbussw-service>
   </iou-infos>
 </vbussw-service>)";
 
-const char *kLcneAddressXml = R"(<topology>
+const char *K_LCNE_ADDRESS_XML = R"(<topology>
   <addresses>
     <address>
       <slot>1</slot>
@@ -798,7 +856,7 @@ const char *kLcneAddressXml = R"(<topology>
   </addresses>
 </topology>)";
 
-const char *kLcneLogicXml = R"(<inventory>
+const char *K_LCNE_LOGIC_XML = R"(<inventory>
   <logic-entities>
     <logic-entity>
       <state>online</state>
@@ -833,10 +891,10 @@ protected:
 
 TEST_F(LcneServerTest, GetHttpDataSucceedsWithServer)
 {
-    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, kLcneNodesXml);
+    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, K_LCNE_NODES_XML);
     std::string body;
     EXPECT_EQ(lcne::common::GetHttpData(body, lcne::common::LCNE_NODES_REQ_PATH), lcne::LCNE_SUCCESS);
-    EXPECT_EQ(body, kLcneNodesXml);
+    EXPECT_EQ(body, K_LCNE_NODES_XML);
 }
 
 TEST_F(LcneServerTest, GetHttpDataFailsOnEmptyBody)
@@ -849,7 +907,7 @@ TEST_F(LcneServerTest, GetHttpDataFailsOnEmptyBody)
 TEST_F(LcneServerTest, PostLinkInfoNotifyStatusBranches)
 {
     // 201：订阅成功
-    server_->SetPostStatus(201);
+    server_->SetPostStatus(HTTP_CREATED);
     EXPECT_EQ(lcne::common::PostLinkInfoNotify(), lcne::LCNE_SUCCESS);
     // 412：重复订阅，仍按成功处理
     server_->SetPostStatus(412);
@@ -879,7 +937,7 @@ TEST(LcneCommon, MkdirRecursiveFailsWhenParentCreationFails)
 TEST(LcneCommon, SaveIpToConfigFileSucceedsAfterPatch)
 {
     EnsureHardcodedPathsPatched();
-    std::string configPath = std::string(kPatchedRoot) + "/config.xml";
+    std::string configPath = std::string(K_PATCHED_ROOT) + "/config.xml";
 
     // 文件不存在：创建声明、根元素并新建 ip 子元素
     std::filesystem::remove(configPath);
@@ -915,7 +973,7 @@ TEST(LcneCommon, SaveIpToConfigFileSucceedsAfterPatch)
 TEST(LcneCommon, SaveIpToConfigFileFailsOnCorruptConfig)
 {
     EnsureHardcodedPathsPatched();
-    std::string configPath = std::string(kPatchedRoot) + "/config.xml";
+    std::string configPath = std::string(K_PATCHED_ROOT) + "/config.xml";
     {
         std::ofstream out(configPath);
         out << "not-an-xml";
@@ -929,7 +987,7 @@ TEST(LcneCommon, SaveIpToConfigFileFailsOnCorruptConfig)
 
 TEST_F(LcneServerTest, GetXMLNodesParsesServerResponse)
 {
-    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, kLcneNodesXml);
+    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, K_LCNE_NODES_XML);
     std::map<lcne::handler::LcneKey, lcne::handler::XmlNode> nodes;
     EXPECT_EQ(lcne::handler::getXMLNodes(lcne::common::LCNE_NODES_REQ_PATH, nodes), lcne::LCNE_SUCCESS);
     ASSERT_EQ(nodes.size(), 1u);
@@ -979,7 +1037,7 @@ TEST_F(LcneServerTest, GetXMLNodesBadResponsesStillReportSuccess)
 
 TEST_F(LcneServerTest, GetXMLIouInfoParsesServerResponse)
 {
-    server_->SetXml(lcne::common::LCNE_IOU_INFOS_REQ_PATH, kLcneIouXml);
+    server_->SetXml(lcne::common::LCNE_IOU_INFOS_REQ_PATH, K_LCNE_IOU_XML);
     std::map<lcne::handler::LcneKey, lcne::handler::XmlIouInfo> ious;
     EXPECT_EQ(lcne::handler::getXMLIouInfo(lcne::common::LCNE_IOU_INFOS_REQ_PATH, ious), lcne::LCNE_SUCCESS);
     ASSERT_EQ(ious.size(), 1u);
@@ -1027,7 +1085,7 @@ TEST_F(LcneServerTest, GetXMLIouInfoBadResponsesStillReportSuccess)
 
 TEST_F(LcneServerTest, GetXMLAddressParsesServerResponse)
 {
-    server_->SetXml(lcne::common::LCNE_ADDRESS_REQ_PATH, kLcneAddressXml);
+    server_->SetXml(lcne::common::LCNE_ADDRESS_REQ_PATH, K_LCNE_ADDRESS_XML);
     std::map<lcne::handler::LcneKey, lcne::handler::XmlAddress> addresses;
     EXPECT_EQ(lcne::handler::getXMLAddress(lcne::common::LCNE_ADDRESS_REQ_PATH, addresses), lcne::LCNE_SUCCESS);
     ASSERT_EQ(addresses.size(), 1u);
@@ -1076,10 +1134,10 @@ TEST_F(LcneServerTest, GetXMLAddressBadResponsesStillReportSuccess)
 
 TEST_F(LcneServerTest, GetXmlLogicEntitiesParsesServerResponse)
 {
-    server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, kLcneLogicXml);
+    server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, K_LCNE_LOGIC_XML);
     std::shared_ptr<lcne::handler::XmlLogicEntity> entity;
     EXPECT_EQ(lcne::handler::GetXmlLogicEntities(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, entity),
-              lcne::LCNE_SUCCESS);
+             lcne::LCNE_SUCCESS);
     ASSERT_NE(entity, nullptr);
     EXPECT_EQ(entity->state, "online");
 }
@@ -1091,18 +1149,18 @@ TEST_F(LcneServerTest, GetXmlLogicEntitiesBadResponsesStillReportSuccess)
     // 坏 XML
     server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, "<unclosed>");
     EXPECT_EQ(lcne::handler::GetXmlLogicEntities(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, entity),
-              lcne::LCNE_SUCCESS);
+             lcne::LCNE_SUCCESS);
     EXPECT_EQ(entity, nullptr);
     // 缺 logic-entity 子元素（实现中 logic-entities 缺失会对空指针链式调用，避免触发）
     server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, "<root><logic-entities/></root>");
     EXPECT_EQ(lcne::handler::GetXmlLogicEntities(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, entity),
-              lcne::LCNE_SUCCESS);
+             lcne::LCNE_SUCCESS);
     EXPECT_EQ(entity, nullptr);
     // state 元素无文本
     server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH,
                      "<root><logic-entities><logic-entity><state/></logic-entity></logic-entities></root>");
     EXPECT_EQ(lcne::handler::GetXmlLogicEntities(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, entity),
-              lcne::LCNE_SUCCESS);
+             lcne::LCNE_SUCCESS);
     EXPECT_EQ(entity, nullptr);
 }
 
@@ -1112,7 +1170,7 @@ TEST_F(LcneServerTest, GetXmlLogicEntitiesBadResponsesStillReportSuccess)
 
 TEST_F(LcneServerTest, LcneNodeCollectorDeviceDataMap)
 {
-    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, kLcneNodesXml);
+    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, K_LCNE_NODES_XML);
     lcne::collector::LcneNodeCollector collector;
     std::vector<std::shared_ptr<topology::node::Node>> nodes;
     EXPECT_EQ(collector.GetCurrNodeDeviceDataMap(nodes), lcne::LCNE_SUCCESS);
@@ -1125,9 +1183,9 @@ TEST_F(LcneServerTest, LcneNodeCollectorDeviceDataMap)
 
 TEST_F(LcneServerTest, LcneNodeCollectorUbCDataMap)
 {
-    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, kLcneNodesXml);
-    server_->SetXml(lcne::common::LCNE_IOU_INFOS_REQ_PATH, kLcneIouXml);
-    server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, kLcneLogicXml);
+    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, K_LCNE_NODES_XML);
+    server_->SetXml(lcne::common::LCNE_IOU_INFOS_REQ_PATH, K_LCNE_IOU_XML);
+    server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, K_LCNE_LOGIC_XML);
     lcne::collector::LcneNodeCollector collector;
     std::vector<std::shared_ptr<topology::node::UbController>> ubcs;
     EXPECT_EQ(collector.GetCurrNodeUbCDataMap(ubcs), lcne::LCNE_SUCCESS);
@@ -1140,8 +1198,8 @@ TEST_F(LcneServerTest, LcneNodeCollectorUbCDataMap)
 
 TEST_F(LcneServerTest, LcneNodeCollectorPortDataMap)
 {
-    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, kLcneNodesXml);
-    server_->SetXml(lcne::common::LCNE_ADDRESS_REQ_PATH, kLcneAddressXml);
+    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, K_LCNE_NODES_XML);
+    server_->SetXml(lcne::common::LCNE_ADDRESS_REQ_PATH, K_LCNE_ADDRESS_XML);
     lcne::collector::LcneNodeCollector collector;
     std::vector<std::shared_ptr<topology::node::Port>> ports;
     EXPECT_EQ(collector.GetCurrNodePortDataMap(ports), lcne::LCNE_SUCCESS);
@@ -1158,10 +1216,10 @@ TEST_F(LcneServerTest, LcneNodeCollectorPortDataMap)
 
 TEST_F(LcneServerTest, LcneNodeCollectorAllDataMap)
 {
-    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, kLcneNodesXml);
-    server_->SetXml(lcne::common::LCNE_IOU_INFOS_REQ_PATH, kLcneIouXml);
-    server_->SetXml(lcne::common::LCNE_ADDRESS_REQ_PATH, kLcneAddressXml);
-    server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, kLcneLogicXml);
+    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, K_LCNE_NODES_XML);
+    server_->SetXml(lcne::common::LCNE_IOU_INFOS_REQ_PATH, K_LCNE_IOU_XML);
+    server_->SetXml(lcne::common::LCNE_ADDRESS_REQ_PATH, K_LCNE_ADDRESS_XML);
+    server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, K_LCNE_LOGIC_XML);
     lcne::collector::LcneNodeCollector collector;
     std::vector<std::shared_ptr<topology::node::Node>> nodes;
     std::vector<std::shared_ptr<topology::node::UbController>> ubcs;
@@ -1210,13 +1268,13 @@ TEST_F(LcneServerTest, LcneNodeCollectorDataMapsFailOnEmptyBodiesAndBadStates)
     std::vector<std::shared_ptr<topology::node::Port>> ports;
 
     // nodes 有效但 iou 响应体为空：GetHttpData 失败 → UbCDataMap 失败
-    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, kLcneNodesXml);
+    server_->SetXml(lcne::common::LCNE_NODES_REQ_PATH, K_LCNE_NODES_XML);
     server_->SetXml(lcne::common::LCNE_IOU_INFOS_REQ_PATH, "");
-    server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, kLcneLogicXml);
+    server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, K_LCNE_LOGIC_XML);
     EXPECT_EQ(collector.GetCurrNodeUbCDataMap(ubcs), lcne::LCNE_FAIL);
 
     // nodes/iou 有效但 logic 响应体为空 → 失败
-    server_->SetXml(lcne::common::LCNE_IOU_INFOS_REQ_PATH, kLcneIouXml);
+    server_->SetXml(lcne::common::LCNE_IOU_INFOS_REQ_PATH, K_LCNE_IOU_XML);
     server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, "");
     ubcs.clear();
     EXPECT_EQ(collector.GetCurrNodeUbCDataMap(ubcs), lcne::LCNE_FAIL);
@@ -1226,12 +1284,12 @@ TEST_F(LcneServerTest, LcneNodeCollectorDataMapsFailOnEmptyBodiesAndBadStates)
                     "<root><iou-infos><iou-info><guid>g</guid><bus-controller-eid>e</bus-controller-eid>"
                     "<slot-id>1</slot-id><ubpu-id>2</ubpu-id><iou-id>3</iou-id><primary-cna>c</primary-cna>"
                     "<iou-status>weird</iou-status></iou-info></iou-infos></root>");
-    server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, kLcneLogicXml);
+    server_->SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, K_LCNE_LOGIC_XML);
     ubcs.clear();
     EXPECT_EQ(collector.GetCurrNodeUbCDataMap(ubcs), lcne::LCNE_FAIL);
 
     // nodes 有效但 address 响应体为空：PortDataMap 失败
-    server_->SetXml(lcne::common::LCNE_IOU_INFOS_REQ_PATH, kLcneIouXml);
+    server_->SetXml(lcne::common::LCNE_IOU_INFOS_REQ_PATH, K_LCNE_IOU_XML);
     server_->SetXml(lcne::common::LCNE_ADDRESS_REQ_PATH, "");
     EXPECT_EQ(collector.GetCurrNodePortDataMap(ports), lcne::LCNE_FAIL);
 
@@ -1243,7 +1301,7 @@ TEST_F(LcneServerTest, LcneNodeCollectorDataMapsFailOnEmptyBodiesAndBadStates)
                     "<remote-ubpu>5</remote-ubpu><remote-iou>6</remote-iou>"
                     "<remote-physical-port-id>11</remote-physical-port-id></physical-port>"
                     "</physical-ports></node></nodes></topology>");
-    server_->SetXml(lcne::common::LCNE_ADDRESS_REQ_PATH, kLcneAddressXml);
+    server_->SetXml(lcne::common::LCNE_ADDRESS_REQ_PATH, K_LCNE_ADDRESS_XML);
     ports.clear();
     EXPECT_EQ(collector.GetCurrNodePortDataMap(ports), lcne::LCNE_FAIL);
 }
@@ -1277,10 +1335,10 @@ std::shared_ptr<topology::node::NodeLocalCollectorModule> SetupLcneTopologyModul
 
 void ServeAllLcneXml(FakeLcneServer &server)
 {
-    server.SetXml(lcne::common::LCNE_NODES_REQ_PATH, kLcneNodesXml);
-    server.SetXml(lcne::common::LCNE_IOU_INFOS_REQ_PATH, kLcneIouXml);
-    server.SetXml(lcne::common::LCNE_ADDRESS_REQ_PATH, kLcneAddressXml);
-    server.SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, kLcneLogicXml);
+    server.SetXml(lcne::common::LCNE_NODES_REQ_PATH, K_LCNE_NODES_XML);
+    server.SetXml(lcne::common::LCNE_IOU_INFOS_REQ_PATH, K_LCNE_IOU_XML);
+    server.SetXml(lcne::common::LCNE_ADDRESS_REQ_PATH, K_LCNE_ADDRESS_XML);
+    server.SetXml(lcne::common::LCNE_LOGIC_ENTITIES_REQ_PATH, K_LCNE_LOGIC_XML);
 }
 
 } // namespace
@@ -1291,7 +1349,7 @@ TEST_F(LcneServerTest, LcneTopologyCreateTopolgyWritesJson)
     SetupLcneTopologyModules((dir.Path() / "topo.db").string(), true);
     ServeAllLcneXml(*server_);
 
-    const std::string outputPath = std::string(kPatchedRoot) + "/lcne-topology.json";
+    const std::string outputPath = std::string(K_PATCHED_ROOT) + "/lcne-topology.json";
     std::filesystem::remove(outputPath);
 
     lcne::topo::LcneTopology topo;
@@ -1312,7 +1370,7 @@ TEST_F(LcneServerTest, LcneTopologyCreateTopolgyClosModeClearsRemoteFields)
     char arg3[] = "--pod-mode";
     char arg4[] = "off";
     char *argv[] = {arg0, arg1, arg2, arg3, arg4};
-    EXPECT_EQ(ubse::context::UbseContext::GetInstance().ParseTopoToolsArgs(5, argv), RACK_OK);
+    EXPECT_EQ(ubse::context::UbseContext::GetInstance().ParseTopoToolsArgs(TOPO_TOOL_ARGC, argv), RACK_OK);
     EXPECT_EQ(ubse::context::UbseContext::GetInstance().GetTopoToolsArgs().networkMode, "clos");
 
     lcne::topo::LcneTopology topo;
@@ -1321,7 +1379,7 @@ TEST_F(LcneServerTest, LcneTopologyCreateTopolgyClosModeClearsRemoteFields)
     // 恢复 fullmesh，避免影响后续用例
     char mode[] = "fullmesh";
     char *argv2[] = {arg0, arg1, mode, arg3, arg4};
-    EXPECT_EQ(ubse::context::UbseContext::GetInstance().ParseTopoToolsArgs(5, argv2), RACK_OK);
+    EXPECT_EQ(ubse::context::UbseContext::GetInstance().ParseTopoToolsArgs(TOPO_TOOL_ARGC, argv2), RACK_OK);
 }
 
 TEST_F(LcneServerTest, LcneTopologyCreateTopolgyFailsWithoutServer)
@@ -1383,7 +1441,7 @@ TEST_F(LcneServerTest, LcneTopologyRegLinkNotifyHandlerAndSubChanges)
     TempDir dir;
     SetupLcneTopologyModules((dir.Path() / "topo.db").string(), true);
     ServeAllLcneXml(*server_);
-    server_->SetPostStatus(201);
+    server_->SetPostStatus(HTTP_CREATED);
 
     lcne::topo::LcneTopology topo;
     EXPECT_EQ(topo.RegLinkNotifyHttpHandler(), lcne::LCNE_SUCCESS);
@@ -1414,7 +1472,7 @@ TEST_F(LcneServerTest, LcneTopologyInitHandlerFuncStatusBranches)
     ServeAllLcneXml(*server_);
 
     // 保证 SaveIpToConfigFile 走成功路径
-    std::string configPath = std::string(kPatchedRoot) + "/config.xml";
+    std::string configPath = std::string(K_PATCHED_ROOT) + "/config.xml";
     {
         std::ofstream out(configPath);
         out << "<root/>";
@@ -1424,7 +1482,7 @@ TEST_F(LcneServerTest, LcneTopologyInitHandlerFuncStatusBranches)
     rack::com::RackComContext comCtx;
     rack::com::RackHttpRequest req;
     req.remote_addr = "127.0.0.1";
-    req.remote_port = 34256;
+    req.remote_port = LCNE_TEST_PORT;
 
     // SaveIp 成功 + GetCurTopolgy 成功 → 200
     auto res = topo.GetLcneTopologyInitHandlerFunc(comCtx, req);
@@ -1453,7 +1511,7 @@ TEST_F(LcneServerTest, LcneTopologyInitHandlerReturns404WhenQueryFails)
     SetupLcneTopologyModules((dir.Path() / "notables.db").string(), false);
     ServeAllLcneXml(*server_);
 
-    std::string configPath = std::string(kPatchedRoot) + "/config.xml";
+    std::string configPath = std::string(K_PATCHED_ROOT) + "/config.xml";
     {
         std::ofstream out(configPath);
         out << "<root/>";
@@ -1463,7 +1521,7 @@ TEST_F(LcneServerTest, LcneTopologyInitHandlerReturns404WhenQueryFails)
     rack::com::RackComContext comCtx;
     rack::com::RackHttpRequest req;
     req.remote_addr = "127.0.0.1";
-    req.remote_port = 34256;
+    req.remote_port = LCNE_TEST_PORT;
     auto res = topo.GetLcneTopologyInitHandlerFunc(comCtx, req);
     ASSERT_TRUE(res.Ok());
     EXPECT_EQ(res.value->status, rack::com::NotFound_404);

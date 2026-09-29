@@ -21,12 +21,14 @@
 #undef private
 
 #include "logger.h"
+#include "temp_witty_dir.h"
 
 namespace {
 
 // 诊断引擎加载规则时会打日志，log4cplus 必须先初始化，否则崩溃。
+// noexcept：静态存储期对象初始化不允许抛出（G.ERR.10）。
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
@@ -34,51 +36,28 @@ static LoggerInit g_loggerInit;
 
 namespace {
 
-// 每个用例独立的临时 witty 目录，析构时清理。
-class TempWittyDir {
-public:
-    TempWittyDir()
-    {
-        static int counter = 0;
-        dir_ = std::filesystem::temp_directory_path() /
-               ("witty_diag_tool_test_" +
-                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-                "_" + std::to_string(counter++));
-        std::filesystem::create_directories(dir_ / "data/kvcache");
-        std::filesystem::create_directories(dir_ / "data/urma");
-    }
-    ~TempWittyDir() { std::filesystem::remove_all(dir_); }
-
-    const std::filesystem::path &Path() const { return dir_; }
-
-    void Write(const std::string &relPath, const std::string &content)
-    {
-        std::filesystem::create_directories((dir_ / relPath).parent_path());
-        std::ofstream out(dir_ / relPath);
-        out << content;
-    }
-
-private:
-    std::filesystem::path dir_;
-};
+// 每个用例独立的临时 witty 目录，析构时清理（公共实现见 temp_witty_dir.h）。
+// 预建 data/kvcache、data/urma 业务子目录。
+constexpr const char *WITTY_DIR_PREFIX = "witty_diag_tool_test";
+constexpr const char *DATA_SUBDIRS[] = {"kvcache", "urma"};
 
 // ---- 合法数据集 ----
 // kvcache: 访问入口 + 运行时日志故障
 const char *KVCACHE_JSON = R"([
-    {"故障编号":"kvcache_root","故障名称":"root","文件名":"kvc_root.cpp","故障现象":"向下级匹配",
-     "故障原因":"c1","解决办法":"s1","函数名":"RootFunc","节点类型":"access_log_entry","错误码":1001},
-    {"故障编号":"kvcache_cond","故障名称":"cond","文件名":"kvc_cond.cpp","故障现象":"向下级匹配",
-     "故障原因":"c2","解决办法":"s2","函数名":"CondFunc","节点类型":"access_log_entry",
-     "匹配条件":{"status_code":1002,"resp_msg_nonempty":true}},
-    {"故障编号":"kvcache_runtime","故障名称":"rt","文件名":"kvc_rt.cpp","故障现象":"依次匹配`err`、`timeout`",
-     "故障原因":"c3","解决办法":"s3","函数名":"RtFunc","节点类型":"runtime_log"}
+    {"故障编号":"kvcache_root", "故障名称":"root", "文件名":"kvc_root.cpp", "故障现象":"向下级匹配",
+     "故障原因":"c1", "解决办法":"s1", "函数名":"RootFunc", "节点类型":"access_log_entry", "错误码":1001},
+    {"故障编号":"kvcache_cond", "故障名称":"cond", "文件名":"kvc_cond.cpp", "故障现象":"向下级匹配",
+     "故障原因":"c2", "解决办法":"s2", "函数名":"CondFunc", "节点类型":"access_log_entry",
+     "匹配条件":{"status_code":1002, "resp_msg_nonempty":true}},
+    {"故障编号":"kvcache_runtime", "故障名称":"rt", "文件名":"kvc_rt.cpp", "故障现象":"依次匹配`err`、`timeout`",
+     "故障原因":"c3", "解决办法":"s3", "函数名":"RtFunc", "节点类型":"runtime_log"}
 ])";
 
 const char *URMA_JSON = R"([
-    {"故障编号":"urma_iface","故障名称":"iface","文件名":"u_iface.cpp","故障现象":"向下级匹配",
-     "故障原因":"c4","解决办法":"s4","函数名":"IfaceFunc"},
-    {"故障编号":"urma_fail","故障名称":"ufail","文件名":"u_fail.cpp","故障现象":"依次匹配`urma err`",
-     "故障原因":"c5","解决办法":"s5","函数名":"UfailFunc"}
+    {"故障编号":"urma_iface", "故障名称":"iface", "文件名":"u_iface.cpp", "故障现象":"向下级匹配",
+     "故障原因":"c4", "解决办法":"s4", "函数名":"IfaceFunc"},
+    {"故障编号":"urma_fail", "故障名称":"ufail", "文件名":"u_fail.cpp", "故障现象":"依次匹配`urma err`",
+     "故障原因":"c5", "解决办法":"s5", "函数名":"UfailFunc"}
 ])";
 
 // 故障模式树：kvcache_root -> kvcache_runtime / kvcache_cond；urma_iface -> urma_fail
@@ -96,7 +75,7 @@ const char *TREE_JSON = R"({
 std::filesystem::path MakeRuleDir(const char *kvcacheJson = nullptr, const char *urmaJson = nullptr,
                                   const char *treeJson = nullptr)
 {
-    static TempWittyDir dir;
+    static TempWittyDir dir(WITTY_DIR_PREFIX, std::vector<std::string>(DATA_SUBDIRS, DATA_SUBDIRS + 2));
     dir.Write("data/kvcache/kvcache_failure_mode.json", kvcacheJson ? kvcacheJson : KVCACHE_JSON);
     dir.Write("data/urma/urma_failure_mode.json", urmaJson ? urmaJson : URMA_JSON);
     dir.Write("data/failure_mode_tree.json", treeJson ? treeJson : TREE_JSON);
@@ -183,26 +162,26 @@ TEST(DiagnosisToolEngineCreate, FailsOnEmptyIdEntry)
 {
     // 故障编号为空 → 失败
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"","故障名称":"n","文件名":"f.cpp","故障现象":"依次匹配`k`",
-             "故障原因":"c","解决办法":"s","函数名":"F","节点类型":"runtime_log"}])"));
+        R"([{"故障编号":"", "故障名称":"n", "文件名":"f.cpp", "故障现象":"依次匹配`k`",
+             "故障原因":"c", "解决办法":"s", "函数名":"F", "节点类型":"runtime_log"}])"));
     EXPECT_EQ(engine, nullptr);
 }
 
 TEST(DiagnosisToolEngineCreate, FailsOnDuplicateId)
 {
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"dup","故障名称":"n","文件名":"f.cpp","故障现象":"依次匹配`k`",
-             "故障原因":"c","解决办法":"s","函数名":"F","节点类型":"runtime_log"},
-            {"故障编号":"dup","故障名称":"n2","文件名":"g.cpp","故障现象":"依次匹配`m`",
-             "故障原因":"c","解决办法":"s","函数名":"G","节点类型":"runtime_log"}])"));
+        R"([{"故障编号":"dup", "故障名称":"n", "文件名":"f.cpp", "故障现象":"依次匹配`k`",
+             "故障原因":"c", "解决办法":"s", "函数名":"F", "节点类型":"runtime_log"},
+            {"故障编号":"dup", "故障名称":"n2", "文件名":"g.cpp", "故障现象":"依次匹配`m`",
+             "故障原因":"c", "解决办法":"s", "函数名":"G", "节点类型":"runtime_log"}])"));
     EXPECT_EQ(engine, nullptr);
 }
 
 TEST(DiagnosisToolEngineCreate, FailsOnUnknownKvcacheNodeType)
 {
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"kvc_x","故障名称":"n","文件名":"f.cpp","故障现象":"依次匹配`k`",
-             "故障原因":"c","解决办法":"s","函数名":"F","节点类型":"bogus_type"}])"));
+        R"([{"故障编号":"kvc_x", "故障名称":"n", "文件名":"f.cpp", "故障现象":"依次匹配`k`",
+             "故障原因":"c", "解决办法":"s", "函数名":"F", "节点类型":"bogus_type"}])"));
     EXPECT_EQ(engine, nullptr);
 }
 
@@ -210,8 +189,8 @@ TEST(DiagnosisToolEngineCreate, FailsOnInvalidMatchCondition)
 {
     // match_condition 非 object → 失败
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"kvc_x","故障名称":"n","文件名":"f.cpp","故障现象":"向下级匹配",
-             "故障原因":"c","解决办法":"s","函数名":"F","节点类型":"access_log_entry",
+        R"([{"故障编号":"kvc_x", "故障名称":"n", "文件名":"f.cpp", "故障现象":"向下级匹配",
+             "故障原因":"c", "解决办法":"s", "函数名":"F", "节点类型":"access_log_entry",
              "匹配条件":"not_object"}])"));
     EXPECT_EQ(engine, nullptr);
 }
@@ -220,8 +199,8 @@ TEST(DiagnosisToolEngineCreate, FailsOnInvalidLogMatchConfig)
 {
     // log_match 非 object → 失败
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"kvc_x","故障名称":"n","文件名":"f.cpp","故障现象":"依次匹配`k`",
-             "故障原因":"c","解决办法":"s","函数名":"F","节点类型":"runtime_log",
+        R"([{"故障编号":"kvc_x", "故障名称":"n", "文件名":"f.cpp", "故障现象":"依次匹配`k`",
+             "故障原因":"c", "解决办法":"s", "函数名":"F", "节点类型":"runtime_log",
              "日志匹配":"not_object"}])"));
     EXPECT_EQ(engine, nullptr);
 }
@@ -230,8 +209,8 @@ TEST(DiagnosisToolEngineCreate, DisabledLogMatchWithoutReasonFails)
 {
     // log_match enabled=false 但 reason 缺失 → 失败
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"kvc_x","故障名称":"n","文件名":"f.cpp","故障现象":"依次匹配`k`",
-             "故障原因":"c","解决办法":"s","函数名":"F","节点类型":"runtime_log",
+        R"([{"故障编号":"kvc_x", "故障名称":"n", "文件名":"f.cpp", "故障现象":"依次匹配`k`",
+             "故障原因":"c", "解决办法":"s", "函数名":"F", "节点类型":"runtime_log",
              "日志匹配":{"enabled":false}}])"));
     EXPECT_EQ(engine, nullptr);
 }
@@ -240,8 +219,8 @@ TEST(DiagnosisToolEngineCreate, EnabledLogMatchWithoutKeywordsFails)
 {
     // log_match enabled=true 但无关键字（故障现象无反引号）→ 失败
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"kvc_x","故障名称":"n","文件名":"f.cpp","故障现象":"no keywords here",
-             "故障原因":"c","解决办法":"s","函数名":"F","节点类型":"runtime_log",
+        R"([{"故障编号":"kvc_x", "故障名称":"n", "文件名":"f.cpp", "故障现象":"no keywords here",
+             "故障原因":"c", "解决办法":"s", "函数名":"F", "节点类型":"runtime_log",
              "日志匹配":{"enabled":true}}])"));
     EXPECT_EQ(engine, nullptr);
 }
@@ -251,18 +230,18 @@ TEST(DiagnosisToolEngineCreate, DisabledLogMatchSkipped)
     // log_match enabled=false + reason 合法 → 该 runtime 规则不进入索引。
     // BuildIndices 要求全部索引非空，因此同 JSON 中补齐条件 access 规则与启用的 runtime 规则。
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"kvc_root","故障名称":"r","文件名":"r.cpp","故障现象":"向下级匹配",
-             "故障原因":"c","解决办法":"s","函数名":"RF","节点类型":"access_log_entry","错误码":1},
-            {"故障编号":"kvc_cond","故障名称":"cd","文件名":"cd.cpp","故障现象":"向下级匹配",
-             "故障原因":"c","解决办法":"s","函数名":"CF","节点类型":"access_log_entry",
-             "匹配条件":{"status_code":1002,"resp_msg_nonempty":true}},
-            {"故障编号":"kvc_rt","故障名称":"rt","文件名":"rt.cpp","故障现象":"依次匹配`k`",
-             "故障原因":"c","解决办法":"s","函数名":"RTF","节点类型":"runtime_log"},
-            {"故障编号":"kvc_x","故障名称":"n","文件名":"f.cpp","故障现象":"依次匹配`k`",
-             "故障原因":"c","解决办法":"s","函数名":"F","节点类型":"runtime_log",
-             "日志匹配":{"enabled":false,"reason":"disabled"}}])",
+        R"([{"故障编号":"kvc_root", "故障名称":"r", "文件名":"r.cpp", "故障现象":"向下级匹配",
+             "故障原因":"c", "解决办法":"s", "函数名":"RF", "节点类型":"access_log_entry", "错误码":1},
+            {"故障编号":"kvc_cond", "故障名称":"cd", "文件名":"cd.cpp", "故障现象":"向下级匹配",
+             "故障原因":"c", "解决办法":"s", "函数名":"CF", "节点类型":"access_log_entry",
+             "匹配条件":{"status_code":1002, "resp_msg_nonempty":true}},
+            {"故障编号":"kvc_rt", "故障名称":"rt", "文件名":"rt.cpp", "故障现象":"依次匹配`k`",
+             "故障原因":"c", "解决办法":"s", "函数名":"RTF", "节点类型":"runtime_log"},
+            {"故障编号":"kvc_x", "故障名称":"n", "文件名":"f.cpp", "故障现象":"依次匹配`k`",
+             "故障原因":"c", "解决办法":"s", "函数名":"F", "节点类型":"runtime_log",
+             "日志匹配":{"enabled":false, "reason":"disabled"}}])",
         nullptr,
-        R"({"kvcache":{"kvc_root":["kvc_rt","kvc_x"]},"urma":{"urma_iface":["urma_fail"]}})"));
+        R"({"kvcache":{"kvc_root":["kvc_rt", "kvc_x"]}, "urma":{"urma_iface":["urma_fail"]}})"));
     ASSERT_NE(engine, nullptr);
     EXPECT_EQ(engine->kvcacheFilenameToRuleIndices_.count("f.cpp"), 0u);
     // 启用的 runtime 规则正常进入索引
@@ -279,28 +258,28 @@ TEST(DiagnosisToolEngineCreate, FailsOnTreeMissingModule)
 TEST(DiagnosisToolEngineCreate, FailsOnTreeUnknownParent)
 {
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(nullptr, nullptr,
-        R"({"kvcache":{"ghost":["kvcache_runtime"]},"urma":{"urma_iface":["urma_fail"]}})"));
+        R"({"kvcache":{"ghost":["kvcache_runtime"]}, "urma":{"urma_iface":["urma_fail"]}})"));
     EXPECT_EQ(engine, nullptr);
 }
 
 TEST(DiagnosisToolEngineCreate, FailsOnTreeUnknownChild)
 {
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(nullptr, nullptr,
-        R"({"kvcache":{"kvcache_root":["ghost_child"]},"urma":{"urma_iface":["urma_fail"]}})"));
+        R"({"kvcache":{"kvcache_root":["ghost_child"]}, "urma":{"urma_iface":["urma_fail"]}})"));
     EXPECT_EQ(engine, nullptr);
 }
 
 TEST(DiagnosisToolEngineCreate, FailsOnTreeNonArrayChildren)
 {
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(nullptr, nullptr,
-        R"({"kvcache":{"kvcache_root":"not_array"},"urma":{"urma_iface":["urma_fail"]}})"));
+        R"({"kvcache":{"kvcache_root":"not_array"}, "urma":{"urma_iface":["urma_fail"]}})"));
     EXPECT_EQ(engine, nullptr);
 }
 
 TEST(DiagnosisToolEngineCreate, FailsOnTreeNonStringChild)
 {
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(nullptr, nullptr,
-        R"({"kvcache":{"kvcache_root":[123]},"urma":{"urma_iface":["urma_fail"]}})"));
+        R"({"kvcache":{"kvcache_root":[123]}, "urma":{"urma_iface":["urma_fail"]}})"));
     EXPECT_EQ(engine, nullptr);
 }
 
@@ -308,14 +287,14 @@ TEST(DiagnosisToolEngineCreate, FailsOnDuplicateAccessStatusCode)
 {
     // 两条 access 规则带相同错误码 1001 → BuildIndices 失败
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"kvc_root","故障名称":"r","文件名":"r.cpp","故障现象":"向下级匹配",
-             "故障原因":"c","解决办法":"s","函数名":"RF","节点类型":"access_log_entry","错误码":1001},
-            {"故障编号":"kvc_dup","故障名称":"d","文件名":"d.cpp","故障现象":"向下级匹配",
-             "故障原因":"c","解决办法":"s","函数名":"DF","节点类型":"access_log_entry","错误码":1001},
-            {"故障编号":"kvc_rt","故障名称":"rt","文件名":"rt.cpp","故障现象":"依次匹配`k`",
-             "故障原因":"c","解决办法":"s","函数名":"RTF","节点类型":"runtime_log"}])",
+        R"([{"故障编号":"kvc_root", "故障名称":"r", "文件名":"r.cpp", "故障现象":"向下级匹配",
+             "故障原因":"c", "解决办法":"s", "函数名":"RF", "节点类型":"access_log_entry", "错误码":1001},
+            {"故障编号":"kvc_dup", "故障名称":"d", "文件名":"d.cpp", "故障现象":"向下级匹配",
+             "故障原因":"c", "解决办法":"s", "函数名":"DF", "节点类型":"access_log_entry", "错误码":1001},
+            {"故障编号":"kvc_rt", "故障名称":"rt", "文件名":"rt.cpp", "故障现象":"依次匹配`k`",
+             "故障原因":"c", "解决办法":"s", "函数名":"RTF", "节点类型":"runtime_log"}])",
         nullptr,
-        R"({"kvcache":{"kvcache_root":["kvc_dup","kvc_rt"]}})"));
+        R"({"kvcache":{"kvcache_root":["kvc_dup", "kvc_rt"]}})"));
     EXPECT_EQ(engine, nullptr);
 }
 
@@ -323,10 +302,10 @@ TEST(DiagnosisToolEngineCreate, FailsOnUnreachableRuntimeRule)
 {
     // runtime 规则未在 failure_mode_tree 中出现 → RegisterRuleIndex 拒绝
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"kvc_root","故障名称":"r","文件名":"r.cpp","故障现象":"向下级匹配",
-             "故障原因":"c","解决办法":"s","函数名":"RF","节点类型":"access_log_entry","错误码":1},
-            {"故障编号":"kvc_rt","故障名称":"rt","文件名":"rt.cpp","故障现象":"依次匹配`k`",
-             "故障原因":"c","解决办法":"s","函数名":"RTF","节点类型":"runtime_log"}])",
+        R"([{"故障编号":"kvc_root", "故障名称":"r", "文件名":"r.cpp", "故障现象":"向下级匹配",
+             "故障原因":"c", "解决办法":"s", "函数名":"RF", "节点类型":"access_log_entry", "错误码":1},
+            {"故障编号":"kvc_rt", "故障名称":"rt", "文件名":"rt.cpp", "故障现象":"依次匹配`k`",
+             "故障原因":"c", "解决办法":"s", "函数名":"RTF", "节点类型":"runtime_log"}])",
         nullptr,
         R"({"urma":{"urma_iface":["urma_fail"]}})"));
     EXPECT_EQ(engine, nullptr);
@@ -337,17 +316,17 @@ TEST(DiagnosisToolEngineCreate, AccessNodeWithoutStatusOrConditionWarns)
     // access 节点无 status_code 也无 match_condition → 跳过（仅 WARN，不进任何索引）。
     // BuildIndices 要求条件索引非空，因此补一条带匹配条件的 access 规则。
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"kvc_root","故障名称":"r","文件名":"r.cpp","故障现象":"向下级匹配",
-             "故障原因":"c","解决办法":"s","函数名":"RF","节点类型":"access_log_entry","错误码":1},
-            {"故障编号":"kvc_cond","故障名称":"cd","文件名":"cd.cpp","故障现象":"向下级匹配",
-             "故障原因":"c","解决办法":"s","函数名":"CF","节点类型":"access_log_entry",
-             "匹配条件":{"status_code":1002,"resp_msg_nonempty":true}},
-            {"故障编号":"kvc_naked","故障名称":"n","文件名":"n.cpp","故障现象":"向下级匹配",
-             "故障原因":"c","解决办法":"s","函数名":"NF","节点类型":"access_log_entry"},
-            {"故障编号":"kvc_rt","故障名称":"rt","文件名":"rt.cpp","故障现象":"依次匹配`k`",
-             "故障原因":"c","解决办法":"s","函数名":"RTF","节点类型":"runtime_log"}])",
+        R"([{"故障编号":"kvc_root", "故障名称":"r", "文件名":"r.cpp", "故障现象":"向下级匹配",
+             "故障原因":"c", "解决办法":"s", "函数名":"RF", "节点类型":"access_log_entry", "错误码":1},
+            {"故障编号":"kvc_cond", "故障名称":"cd", "文件名":"cd.cpp", "故障现象":"向下级匹配",
+             "故障原因":"c", "解决办法":"s", "函数名":"CF", "节点类型":"access_log_entry",
+             "匹配条件":{"status_code":1002, "resp_msg_nonempty":true}},
+            {"故障编号":"kvc_naked", "故障名称":"n", "文件名":"n.cpp", "故障现象":"向下级匹配",
+             "故障原因":"c", "解决办法":"s", "函数名":"NF", "节点类型":"access_log_entry"},
+            {"故障编号":"kvc_rt", "故障名称":"rt", "文件名":"rt.cpp", "故障现象":"依次匹配`k`",
+             "故障原因":"c", "解决办法":"s", "函数名":"RTF", "节点类型":"runtime_log"}])",
         nullptr,
-        R"({"kvcache":{"kvc_root":["kvc_rt"]},"urma":{"urma_iface":["urma_fail"]}})"));
+        R"({"kvcache":{"kvc_root":["kvc_rt"]}, "urma":{"urma_iface":["urma_fail"]}})"));
     ASSERT_NE(engine, nullptr);
     // kvcache 4 条 + unknown 兜底 1 + urma 2 = 7
     ASSERT_EQ(engine->rules_.size(), 7u);

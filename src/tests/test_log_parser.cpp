@@ -19,7 +19,7 @@
 
 // 解析器内部构造 LogTemplate 时可能触发日志路径，log4cplus 必须先初始化
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 

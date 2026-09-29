@@ -20,6 +20,7 @@
 #include <thread>
 #include <vector>
 
+#include "temp_dir.h"
 #include "database.h"
 #include "logger.h"
 
@@ -34,28 +35,11 @@ namespace {
 
 // 被测实现中打日志，log4cplus 必须先初始化
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
-// 每个用例独立的临时目录，析构时清理
-class TempDir {
-public:
-    TempDir()
-    {
-        static int counter = 0;
-        dir_ = std::filesystem::temp_directory_path() /
-               ("witty_db_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-                "_" + std::to_string(counter++));
-        std::filesystem::create_directories(dir_);
-    }
-    ~TempDir() { std::filesystem::remove_all(dir_); }
-
-    std::string DbPath(const std::string &name = "test.db") const { return (dir_ / name).string(); }
-
-private:
-    std::filesystem::path dir_;
-};
+// 每用例独立临时目录（公共实现见 temp_dir.h）
 
 // 通用三列表：id 为主键，name 可空
 database::TableParams MakeParams()
@@ -144,7 +128,7 @@ TEST(DatabaseHelpers, GetNowTimestampMirrorsWallClockWrapped)
 TEST(DatabaseLifecycle, OpenCreatesFilesAndCloseSucceeds)
 {
     TempDir dir;
-    const std::string path = dir.DbPath();
+    const std::string path = std::filesystem::path(dir.Path()).append("test.db").string();
     {
         database::Database db;
         EXPECT_EQ(db.OpenDb(path, false), database::OP_RET::SUCCESS);
@@ -160,7 +144,7 @@ TEST(DatabaseLifecycle, OpenCreatesFilesAndCloseSucceeds)
 TEST(DatabaseLifecycle, OpenWithHistoryCreatesHistoryFile)
 {
     TempDir dir;
-    const std::string path = dir.DbPath("his.db");
+    const std::string path = std::filesystem::path(dir.Path()).append("his.db").string();
     database::Database db;
     EXPECT_EQ(db.OpenDb(path, true), database::OP_RET::SUCCESS);
     EXPECT_EQ(db.CreateTable("items", MakeParams()), database::OP_RET::SUCCESS);
@@ -186,7 +170,7 @@ TEST(DatabaseCreateTable, ValidDefinitionRegistersColumns)
 {
     TempDir dir;
     database::Database db;
-    ASSERT_EQ(db.OpenDb(dir.DbPath(), false), database::OP_RET::SUCCESS);
+    ASSERT_EQ(db.OpenDb(std::filesystem::path(dir.Path()).append("test.db").string(), false), database::OP_RET::SUCCESS);
     EXPECT_EQ(db.CreateTable("items", MakeParams()), database::OP_RET::SUCCESS);
     // 重复建表（IF NOT EXISTS）仍成功
     EXPECT_EQ(db.CreateTable("items", MakeParams()), database::OP_RET::SUCCESS);
@@ -204,7 +188,7 @@ TEST(DatabaseCreateTable, RejectsInvalidDefinitions)
 {
     TempDir dir;
     database::Database db;
-    ASSERT_EQ(db.OpenDb(dir.DbPath(), false), database::OP_RET::SUCCESS);
+    ASSERT_EQ(db.OpenDb(std::filesystem::path(dir.Path()).append("test.db").string(), false), database::OP_RET::SUCCESS);
     // 空列定义
     EXPECT_EQ(db.CreateTable("items", {}), database::OP_RET::FAIL);
     // 非法表名
@@ -237,7 +221,7 @@ TEST(DatabaseCreateTable, RejectsInvalidDefinitions)
 TEST(DatabaseInsertQuery, InsertAndQueryAll)
 {
     TempDir dir;
-    SimpleDb simple(dir.DbPath());
+    SimpleDb simple(std::filesystem::path(dir.Path()).append("test.db").string());
     database::DataMap row1 = {{"id", "a"}, {"name", "alpha"}, {"count", "1"}};
     database::DataMap row2 = {{"id", "b"}, {"name", "beta"}, {"count", "2"}};
     EXPECT_EQ(simple.db.InsertData("items", row1), database::OP_RET::SUCCESS);
@@ -256,7 +240,7 @@ TEST(DatabaseInsertQuery, InsertAndQueryAll)
 TEST(DatabaseInsertQuery, InsertWithDuplicatePrimaryKeyUpdates)
 {
     TempDir dir;
-    SimpleDb simple(dir.DbPath());
+    SimpleDb simple(std::filesystem::path(dir.Path()).append("test.db").string());
     database::DataMap row = {{"id", "a"}, {"name", "alpha"}, {"count", "1"}};
     ASSERT_EQ(simple.db.InsertData("items", row), database::OP_RET::SUCCESS);
 
@@ -274,7 +258,7 @@ TEST(DatabaseInsertQuery, InsertWithDuplicatePrimaryKeyUpdates)
 TEST(DatabaseInsertQuery, InsertRejectsInvalidTableAndColumn)
 {
     TempDir dir;
-    SimpleDb simple(dir.DbPath());
+    SimpleDb simple(std::filesystem::path(dir.Path()).append("test.db").string());
     database::DataMap row = {{"id", "a"}};
     // 未注册的表
     EXPECT_EQ(simple.db.InsertData("ghost", row), database::OP_RET::FAIL);
@@ -286,7 +270,7 @@ TEST(DatabaseInsertQuery, InsertRejectsInvalidTableAndColumn)
 TEST(DatabaseInsertQuery, NullColumnsReadAsNullString)
 {
     TempDir dir;
-    SimpleDb simple(dir.DbPath());
+    SimpleDb simple(std::filesystem::path(dir.Path()).append("test.db").string());
     // 只插主键：其余可空列为 SQL NULL，查询时表示为 "NULL"
     database::DataMap row = {{"id", "n"}};
     ASSERT_EQ(simple.db.InsertData("items", row), database::OP_RET::SUCCESS);
@@ -300,7 +284,7 @@ TEST(DatabaseInsertQuery, NullColumnsReadAsNullString)
 TEST(DatabaseInsertQuery, QueryWithAllComparisonOperators)
 {
     TempDir dir;
-    SimpleDb simple(dir.DbPath());
+    SimpleDb simple(std::filesystem::path(dir.Path()).append("test.db").string());
     database::DataMap row1 = {{"id", "a"}, {"name", "alpha"}, {"count", "1"}};
     database::DataMap row2 = {{"id", "b"}, {"name", "beta"}, {"count", "2"}};
     ASSERT_EQ(simple.db.InsertData("items", row1), database::OP_RET::SUCCESS);
@@ -338,7 +322,7 @@ TEST(DatabaseInsertQuery, QueryWithAllComparisonOperators)
 TEST(DatabaseInsertQuery, QueryRejectsInvalidInputs)
 {
     TempDir dir;
-    SimpleDb simple(dir.DbPath());
+    SimpleDb simple(std::filesystem::path(dir.Path()).append("test.db").string());
     database::QueryResult res;
     // 未注册表
     EXPECT_EQ(simple.db.QueryCurrData("ghost", {}, &res), database::OP_RET::FAIL);
@@ -357,7 +341,7 @@ TEST(DatabaseInsertQuery, QueryRejectsInvalidInputs)
 TEST(DatabaseUpdate, UpdatesMatchingRows)
 {
     TempDir dir;
-    SimpleDb simple(dir.DbPath());
+    SimpleDb simple(std::filesystem::path(dir.Path()).append("test.db").string());
     database::DataMap row1 = {{"id", "a"}, {"name", "alpha"}, {"count", "1"}};
     database::DataMap row2 = {{"id", "b"}, {"name", "beta"}, {"count", "1"}};
     ASSERT_EQ(simple.db.InsertData("items", row1), database::OP_RET::SUCCESS);
@@ -378,7 +362,7 @@ TEST(DatabaseUpdate, UpdatesMatchingRows)
 TEST(DatabaseUpdate, RejectsInvalidInputs)
 {
     TempDir dir;
-    SimpleDb simple(dir.DbPath());
+    SimpleDb simple(std::filesystem::path(dir.Path()).append("test.db").string());
     database::DataMap row = {{"id", "a"}, {"name", "alpha"}, {"count", "1"}};
     ASSERT_EQ(simple.db.InsertData("items", row), database::OP_RET::SUCCESS);
 
@@ -402,7 +386,7 @@ TEST(DatabaseHistory, DeleteExpiresHistoryRows)
 {
     TempDir dir;
     database::Database db;
-    ASSERT_EQ(db.OpenDb(dir.DbPath("his.db"), true), database::OP_RET::SUCCESS);
+    ASSERT_EQ(db.OpenDb(std::filesystem::path(dir.Path()).append("his.db").string(), true), database::OP_RET::SUCCESS);
     ASSERT_EQ(db.CreateTable("items", MakeParams()), database::OP_RET::SUCCESS);
 
     database::DataMap row = {{"id", "a"}, {"name", "alpha"}, {"count", "1"}};
@@ -442,7 +426,7 @@ TEST(DatabaseHistory, UpdateAppendsHistoryRow)
 {
     TempDir dir;
     database::Database db;
-    ASSERT_EQ(db.OpenDb(dir.DbPath("his.db"), true), database::OP_RET::SUCCESS);
+    ASSERT_EQ(db.OpenDb(std::filesystem::path(dir.Path()).append("his.db").string(), true), database::OP_RET::SUCCESS);
     ASSERT_EQ(db.CreateTable("items", MakeParams()), database::OP_RET::SUCCESS);
 
     database::DataMap row = {{"id", "a"}, {"name", "alpha"}, {"count", "1"}};
@@ -475,7 +459,7 @@ TEST(DatabaseHistory, QueryHisDataRejectsUnknownTable)
 {
     TempDir dir;
     database::Database db;
-    ASSERT_EQ(db.OpenDb(dir.DbPath("his.db"), true), database::OP_RET::SUCCESS);
+    ASSERT_EQ(db.OpenDb(std::filesystem::path(dir.Path()).append("his.db").string(), true), database::OP_RET::SUCCESS);
     ASSERT_EQ(db.CreateTable("items", MakeParams()), database::OP_RET::SUCCESS);
     database::QueryResult res;
     EXPECT_EQ(db.QueryHisData("ghost", {}, &res, 0, 1000), database::OP_RET::FAIL);

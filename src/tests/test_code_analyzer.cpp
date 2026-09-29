@@ -26,6 +26,7 @@
 #include <json/json.h>
 
 #include "logger.h"
+#include "temp_dir.h"
 #include "ubse_context.h"
 
 // rack_http 类型（rack_http 经 code_analyzer PUBLIC 链接传递 include 路径）
@@ -39,27 +40,24 @@
 namespace {
 // 打日志的库必须先初始化 log4cplus，否则 SEGFAULT
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
-// 每个用例独立的临时目录，析构时清理
-class TempDir {
-public:
-    TempDir()
-    {
-        static int counter = 0;
-        dir_ = std::filesystem::temp_directory_path() /
-               ("witty_b3_code_analyzer_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-                "_" + std::to_string(counter++));
-        std::filesystem::create_directories(dir_);
-    }
-    ~TempDir() { std::filesystem::remove_all(dir_); }
-    const std::filesystem::path &Path() const { return dir_; }
+// RAII 临时目录（公共实现见 temp_dir.h）
 
-private:
-    std::filesystem::path dir_;
-};
+// opencode 连接测试端口常量
+constexpr int OPENCODE_TEST_PORT = 4096; // FullArgs 默认端口（字符串形式）
+constexpr int PARTIAL_NUMERIC_PORT = 12; // "12abc" 经 stoi 前缀解析得到的端口
+
+// 测试用消息时间戳（ms）：值本身无业务含义，仅保证相对先后
+constexpr Json::Int64 MSG_TS_1 = 100;
+constexpr Json::Int64 MSG_TS_2 = 150;
+constexpr Json::Int64 MSG_TS_3 = 200;
+constexpr Json::Int64 MSG_TS_4 = 250;
+constexpr Json::Int64 MSG_TS_5 = 300;
+constexpr Json::Int64 MSG_TS_6 = 500;
+constexpr Json::Int64 MSG_TS_SAMPLE = 1234;
 
 // 全量覆盖单例 argMap（GetArgMap 返回 const 引用，对象本身非 const，const_cast 安全）
 void SetArgMap(std::unordered_map<std::string, std::string> m)
@@ -136,8 +134,8 @@ TEST(AssistantMessageTest, CreatedTimeMissingFormsReturnZero)
     timeNotObj["info"]["time"] = "bad";
     EXPECT_EQ(code_analyzer::GetMessageCreatedTimeMs(timeNotObj), 0);
 
-    Json::Value ok = MakeMessage("assistant", 1234);
-    EXPECT_EQ(code_analyzer::GetMessageCreatedTimeMs(ok), 1234);
+    Json::Value ok = MakeMessage("assistant", MSG_TS_SAMPLE);
+    EXPECT_EQ(code_analyzer::GetMessageCreatedTimeMs(ok), MSG_TS_SAMPLE);
 }
 
 TEST(AssistantMessageTest, EmptyOrNullptrWhenNoAssistant)
@@ -146,41 +144,41 @@ TEST(AssistantMessageTest, EmptyOrNullptrWhenNoAssistant)
     EXPECT_EQ(code_analyzer::FindPreferredAssistantMessage(emptyArr, 0), nullptr);
 
     Json::Value onlyUser(Json::arrayValue);
-    onlyUser.append(MakeMessage("user", 100));
+    onlyUser.append(MakeMessage("user", MSG_TS_1));
     EXPECT_EQ(code_analyzer::FindPreferredAssistantMessage(onlyUser, 0), nullptr);
 }
 
 TEST(AssistantMessageTest, FallsBackToLatestOlderAssistant)
 {
     Json::Value arr(Json::arrayValue);
-    arr.append(MakeMessage("assistant", 100));
-    arr.append(MakeMessage("assistant", 200));
-    const Json::Value *res = code_analyzer::FindPreferredAssistantMessage(arr, 500);
+    arr.append(MakeMessage("assistant", MSG_TS_1));
+    arr.append(MakeMessage("assistant", MSG_TS_3));
+    const Json::Value *res = code_analyzer::FindPreferredAssistantMessage(arr, MSG_TS_6);
     ASSERT_NE(res, nullptr);
-    EXPECT_EQ((*res)["info"]["time"]["created"].asInt64(), 200);
+    EXPECT_EQ((*res)["info"]["time"]["created"].asInt64(), MSG_TS_3);
 }
 
 TEST(AssistantMessageTest, PrefersReplyAfterPromptSubmission)
 {
     Json::Value arr(Json::arrayValue);
-    arr.append(MakeMessage("user", 100));
-    arr.append(MakeMessage("assistant", 150)); // 提交前的旧回复
-    arr.append(MakeMessage("assistant", 300)); // 提交后的新回复
-    arr.append(MakeMessage("assistant", 250)); // 提交后但更早
-    const Json::Value *res = code_analyzer::FindPreferredAssistantMessage(arr, 200);
+    arr.append(MakeMessage("user", MSG_TS_1));
+    arr.append(MakeMessage("assistant", MSG_TS_2)); // 提交前的旧回复
+    arr.append(MakeMessage("assistant", MSG_TS_5)); // 提交后的新回复
+    arr.append(MakeMessage("assistant", MSG_TS_4)); // 提交后但更早
+    const Json::Value *res = code_analyzer::FindPreferredAssistantMessage(arr, MSG_TS_3);
     ASSERT_NE(res, nullptr);
-    EXPECT_EQ((*res)["info"]["time"]["created"].asInt64(), 300);
+    EXPECT_EQ((*res)["info"]["time"]["created"].asInt64(), MSG_TS_5);
 }
 
 TEST(AssistantMessageTest, EqualTimestampsLaterWins)
 {
     // >= 比较：created 相同时后出现的胜出
     Json::Value arr(Json::arrayValue);
-    arr.append(MakeMessage("assistant", 100));
-    Json::Value second = MakeMessage("assistant", 100);
+    arr.append(MakeMessage("assistant", MSG_TS_1));
+    Json::Value second = MakeMessage("assistant", MSG_TS_1);
     second["tag"] = "second";
     arr.append(second);
-    const Json::Value *res = code_analyzer::FindPreferredAssistantMessage(arr, 200);
+    const Json::Value *res = code_analyzer::FindPreferredAssistantMessage(arr, MSG_TS_3);
     ASSERT_NE(res, nullptr);
     EXPECT_EQ((*res)["tag"].asString(), "second");
 }
@@ -295,7 +293,7 @@ TEST_F(CodeAnalyzerParse, FullArgumentsFillConnection)
 {
     EXPECT_EQ(analyzer.ParseOpencodeConn(FullArgs()), RACK_OK);
     EXPECT_EQ(analyzer.conn_.url, "http://127.0.0.1");
-    EXPECT_EQ(analyzer.conn_.port, 4096);
+    EXPECT_EQ(analyzer.conn_.port, OPENCODE_TEST_PORT);
     ASSERT_TRUE(analyzer.conn_.username.has_value());
     EXPECT_EQ(analyzer.conn_.username.value(), "user-1");
     ASSERT_TRUE(analyzer.conn_.passwd.has_value());
@@ -306,7 +304,7 @@ TEST_F(CodeAnalyzerParse, FullArgumentsFillConnection)
 TEST_F(CodeAnalyzerParse, PartialNumericPortIsAcceptedByStoi)
 {
     EXPECT_EQ(analyzer.ParseOpencodeConn({{"opencode-url", "http://127.0.0.1"}, {"opencode-port", "12abc"}}), RACK_OK);
-    EXPECT_EQ(analyzer.conn_.port, 12);
+    EXPECT_EQ(analyzer.conn_.port, PARTIAL_NUMERIC_PORT);
 }
 
 TEST_F(CodeAnalyzerParse, UsernameFallsBackToEmptyOptional)
@@ -464,7 +462,7 @@ TEST(CodeAnalyzerLifecycle, InitializeSucceedsWithFullArguments)
     SetArgMap(FullArgs());
     code_analyzer::CodeAnalyzer analyzer;
     EXPECT_EQ(analyzer.Initialize(), RACK_OK);
-    EXPECT_EQ(analyzer.conn_.port, 4096);
+    EXPECT_EQ(analyzer.conn_.port, OPENCODE_TEST_PORT);
     EXPECT_EQ(analyzer.input_.componentsPaths.size(), 4u);
 
     analyzer.Stop();
@@ -508,6 +506,14 @@ TEST(CodeAnalyzerLifecycle, StartFailsFastOnUnreachableOpencode)
 
 namespace {
 
+// fake 服务启动轮询与 HTTP 状态码
+constexpr int SERVER_START_ROUNDS = 400;
+constexpr int SERVER_POLL_INTERVAL_MS = 5;
+constexpr int HTTP_OK = 200;
+constexpr int HTTP_NO_CONTENT = 204;
+constexpr int HTTP_NOT_FOUND = 404;
+constexpr int HTTP_SERVER_ERROR = 500;
+
 // 本地模拟 opencode：会话创建/查询、异步 prompt、消息拉取
 class FakeOpencodeServer {
 public:
@@ -546,8 +552,8 @@ public:
             return -1;
         }
         thread_ = std::thread([this] { svr_.listen_after_bind(); });
-        for (int i = 0; i < 400 && !svr_.is_running(); ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        for (int i = 0; i < SERVER_START_ROUNDS && !svr_.is_running(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(SERVER_POLL_INTERVAL_MS));
         }
         return svr_.is_running() ? port : -1;
     }
@@ -590,11 +596,11 @@ private:
     httplib::Server svr_;
     std::thread thread_;
     std::mutex mtx_;
-    int sessionPostStatus_ = 200;
+    int sessionPostStatus_ = HTTP_OK;
     std::string sessionPostBody_ = R"({"id":"sess-1"})";
-    int sessionGetStatus_ = 200;
-    int promptStatus_ = 204;
-    int messageStatus_ = 200;
+    int sessionGetStatus_ = HTTP_OK;
+    int promptStatus_ = HTTP_NO_CONTENT;
+    int messageStatus_ = HTTP_OK;
     std::string messageBody_;
 };
 
@@ -602,9 +608,9 @@ private:
 std::string MakeCompletedMessages()
 {
     Json::Value arr(Json::arrayValue);
-    Json::Value user = MakeMessage("user", 100);
-    Json::Value assistant = MakeMessage("assistant", 200);
-    assistant["info"]["time"]["completed"] = 300;
+    Json::Value user = MakeMessage("user", MSG_TS_1);
+    Json::Value assistant = MakeMessage("assistant", MSG_TS_3);
+    assistant["info"]["time"]["completed"] = MSG_TS_5;
     Json::Value p1(Json::objectValue);
     p1["type"] = "text";
     p1["text"] = "answer part 1";
@@ -631,7 +637,7 @@ protected:
         server_ = std::make_unique<FakeOpencodeServer>();
         port_ = server_->Start();
         ASSERT_GT(port_, 0);
-        server_->SetMessageResponse(200, MakeCompletedMessages());
+        server_->SetMessageResponse(HTTP_OK, MakeCompletedMessages());
     }
 
     void TearDown() override
@@ -667,7 +673,7 @@ TEST_F(OpencodeServerTest, CreateSessionFailsOnServerError)
 {
     code_analyzer::CodeAnalyzer analyzer;
     PointToServer(analyzer);
-    server_->SetSessionPostResponse(500, R"({"id":"x"})");
+    server_->SetSessionPostResponse(HTTP_SERVER_ERROR, R"({"id":"x"})");
     EXPECT_EQ(analyzer.CreateSession(), RACK_FAIL);
 }
 
@@ -675,7 +681,7 @@ TEST_F(OpencodeServerTest, CreateSessionFailsOnBadJson)
 {
     code_analyzer::CodeAnalyzer analyzer;
     PointToServer(analyzer);
-    server_->SetSessionPostResponse(200, "not-a-json");
+    server_->SetSessionPostResponse(HTTP_OK, "not-a-json");
     EXPECT_EQ(analyzer.CreateSession(), RACK_FAIL);
 }
 
@@ -701,7 +707,7 @@ TEST_F(OpencodeServerTest, WaitForSessionVisibleTimesOutOnServerError)
 {
     code_analyzer::CodeAnalyzer analyzer;
     PointToServer(analyzer);
-    server_->SetSessionGetStatus(500);
+    server_->SetSessionGetStatus(HTTP_SERVER_ERROR);
     // 非就绪状态轮询约 5 秒后超时
     EXPECT_EQ(analyzer.WaitForSessionVisible(), RACK_FAIL);
 }
@@ -731,7 +737,7 @@ TEST_F(OpencodeServerTest, SendMessageAsyncFailsOnBadStatus)
 {
     code_analyzer::CodeAnalyzer analyzer;
     PointToServer(analyzer);
-    server_->SetPromptStatus(500);
+    server_->SetPromptStatus(HTTP_SERVER_ERROR);
     EXPECT_EQ(analyzer.SendMessageAsync("analyze this"), RACK_FAIL);
 }
 
@@ -758,7 +764,7 @@ TEST_F(OpencodeServerTest, WaitForAssistantMessageCompletedFailsOnBadStatus)
 {
     code_analyzer::CodeAnalyzer analyzer;
     PointToServer(analyzer);
-    server_->SetMessageResponse(404, "{}");
+    server_->SetMessageResponse(HTTP_NOT_FOUND, "{}");
     EXPECT_EQ(analyzer.WaitForAssistantMessageCompleted(), RACK_FAIL);
 }
 
@@ -766,7 +772,7 @@ TEST_F(OpencodeServerTest, WaitForAssistantMessageCompletedFailsOnBadJson)
 {
     code_analyzer::CodeAnalyzer analyzer;
     PointToServer(analyzer);
-    server_->SetMessageResponse(200, "not-a-json");
+    server_->SetMessageResponse(HTTP_OK, "not-a-json");
     EXPECT_EQ(analyzer.WaitForAssistantMessageCompleted(), RACK_FAIL);
 }
 
@@ -774,7 +780,7 @@ TEST_F(OpencodeServerTest, WaitForAssistantMessageCompletedFailsOnNonArray)
 {
     code_analyzer::CodeAnalyzer analyzer;
     PointToServer(analyzer);
-    server_->SetMessageResponse(200, R"({"a":1})");
+    server_->SetMessageResponse(HTTP_OK, R"({"a":1})");
     EXPECT_EQ(analyzer.WaitForAssistantMessageCompleted(), RACK_FAIL);
 }
 
@@ -792,8 +798,8 @@ TEST_F(OpencodeServerTest, FetchLatestAssistantMessageEmptyTextStillOk)
 {
     // assistant 消息无 text part：text 为空，仅打日志，仍返回成功
     Json::Value arr(Json::arrayValue);
-    Json::Value assistant = MakeMessage("assistant", 200);
-    assistant["info"]["time"]["completed"] = 300;
+    Json::Value assistant = MakeMessage("assistant", MSG_TS_3);
+    assistant["info"]["time"]["completed"] = MSG_TS_5;
     Json::Value part(Json::objectValue);
     part["type"] = "image";
     part["url"] = "http://x";
@@ -801,17 +807,17 @@ TEST_F(OpencodeServerTest, FetchLatestAssistantMessageEmptyTextStillOk)
     arr.append(assistant);
     code_analyzer::CodeAnalyzer analyzer;
     PointToServer(analyzer);
-    server_->SetMessageResponse(200, Json::writeString(Json::StreamWriterBuilder(), arr));
+    server_->SetMessageResponse(HTTP_OK, Json::writeString(Json::StreamWriterBuilder(), arr));
     EXPECT_EQ(analyzer.FetchLatestAssistantMessage(), RACK_OK);
 }
 
 TEST_F(OpencodeServerTest, FetchLatestAssistantMessageFailsWhenNoAssistant)
 {
     Json::Value arr(Json::arrayValue);
-    arr.append(MakeMessage("user", 100));
+    arr.append(MakeMessage("user", MSG_TS_1));
     code_analyzer::CodeAnalyzer analyzer;
     PointToServer(analyzer);
-    server_->SetMessageResponse(200, Json::writeString(Json::StreamWriterBuilder(), arr));
+    server_->SetMessageResponse(HTTP_OK, Json::writeString(Json::StreamWriterBuilder(), arr));
     EXPECT_EQ(analyzer.FetchLatestAssistantMessage(), RACK_FAIL);
 }
 
@@ -819,7 +825,7 @@ TEST_F(OpencodeServerTest, FetchLatestAssistantMessageFailsOnBadStatus)
 {
     code_analyzer::CodeAnalyzer analyzer;
     PointToServer(analyzer);
-    server_->SetMessageResponse(500, "[]");
+    server_->SetMessageResponse(HTTP_SERVER_ERROR, "[]");
     EXPECT_EQ(analyzer.FetchLatestAssistantMessage(), RACK_FAIL);
 }
 
@@ -827,7 +833,7 @@ TEST_F(OpencodeServerTest, FetchLatestAssistantMessageFailsOnBadJson)
 {
     code_analyzer::CodeAnalyzer analyzer;
     PointToServer(analyzer);
-    server_->SetMessageResponse(200, "not-a-json");
+    server_->SetMessageResponse(HTTP_OK, "not-a-json");
     EXPECT_EQ(analyzer.FetchLatestAssistantMessage(), RACK_FAIL);
 }
 
@@ -835,7 +841,7 @@ TEST_F(OpencodeServerTest, FetchLatestAssistantMessageFailsOnNonArray)
 {
     code_analyzer::CodeAnalyzer analyzer;
     PointToServer(analyzer);
-    server_->SetMessageResponse(200, R"({"a":1})");
+    server_->SetMessageResponse(HTTP_OK, R"({"a":1})");
     EXPECT_EQ(analyzer.FetchLatestAssistantMessage(), RACK_FAIL);
 }
 
@@ -854,7 +860,7 @@ TEST_F(OpencodeServerTest, RunFailsWhenPromptRejected)
 {
     code_analyzer::CodeAnalyzer analyzer;
     PointToServer(analyzer);
-    server_->SetPromptStatus(500);
+    server_->SetPromptStatus(HTTP_SERVER_ERROR);
     EXPECT_EQ(analyzer.Run("my-skill", "do analysis"), RACK_FAIL);
 }
 
@@ -874,7 +880,7 @@ TEST_F(OpencodeServerTest, CodeAnalyzerStartFailsWhenSkillRunFails)
     SetArgMap(FullArgs(std::to_string(port_)));
     code_analyzer::CodeAnalyzer analyzer;
     ASSERT_EQ(analyzer.Initialize(), RACK_OK);
-    server_->SetPromptStatus(500);
+    server_->SetPromptStatus(HTTP_SERVER_ERROR);
     EXPECT_EQ(analyzer.Start(), RACK_FAIL);
 }
 

@@ -25,61 +25,36 @@
 
 #include "diagnosis_model.h"
 #include "logger.h"
+#include "temp_witty_dir.h"
 
 namespace {
 
 // 诊断引擎加载规则时会打日志，log4cplus 必须先初始化，否则崩溃。
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
-} // namespace
-
-namespace {
-
-// 每个用例独立的临时 witty 目录，析构时清理。
-class TempWittyDir {
-public:
-    TempWittyDir()
-    {
-        static int counter = 0;
-        dir_ = std::filesystem::temp_directory_path() /
-               ("witty_diag_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-                "_" + std::to_string(counter++));
-        std::filesystem::create_directories(dir_ / "data/ubsocket");
-        std::filesystem::create_directories(dir_ / "data/umq");
-        std::filesystem::create_directories(dir_ / "data/urma");
-    }
-    ~TempWittyDir() { std::filesystem::remove_all(dir_); }
-
-    const std::filesystem::path &Path() const { return dir_; }
-
-    void Write(const std::string &relPath, const std::string &content)
-    {
-        std::ofstream out(dir_ / relPath);
-        out << content;
-    }
-
-private:
-    std::filesystem::path dir_;
-};
+// 每个用例独立的临时 witty 目录，析构时清理（公共实现见 temp_witty_dir.h）。
+// 预建 data/ubsocket、data/umq、data/urma 业务子目录。
+constexpr const char *WITTY_DIR_PREFIX = "witty_diag_test";
+constexpr const char *DATA_SUBDIRS[] = {"ubsocket", "umq", "urma"};
 
 const char *UBSOCKET_JSON = R"([
-    {"故障编号":"ubsocket_root","故障名称":"root mode","文件名":"root.cpp","故障现象":"向下级匹配",
-     "故障原因":"c1","解决办法":"s1","函数名":"RootFunc","错误码":1001},
-    {"故障编号":"ubsocket_err","故障名称":"err mode","文件名":"err.cpp","故障现象":"依次匹配`error`、`timeout`",
-     "故障原因":"c2","解决办法":"s2","函数名":"ErrFunc","错误码":"E002"}
+    {"故障编号":"ubsocket_root", "故障名称":"root mode", "文件名":"root.cpp", "故障现象":"向下级匹配",
+     "故障原因":"c1", "解决办法":"s1", "函数名":"RootFunc", "错误码":1001},
+    {"故障编号":"ubsocket_err", "故障名称":"err mode", "文件名":"err.cpp", "故障现象":"依次匹配`error`、`timeout`",
+     "故障原因":"c2", "解决办法":"s2", "函数名":"ErrFunc", "错误码":"E002"}
 ])";
 
 const char *UMQ_JSON = R"([
-    {"故障编号":"umq_err","故障名称":"umq err","文件名":"umq.cpp","故障现象":"依次匹配`umq fail`",
-     "故障原因":"c3","解决办法":"s3","函数名":"UmqFunc"}
+    {"故障编号":"umq_err", "故障名称":"umq err", "文件名":"umq.cpp", "故障现象":"依次匹配`umq fail`",
+     "故障原因":"c3", "解决办法":"s3", "函数名":"UmqFunc"}
 ])";
 
 const char *URMA_JSON = R"([
-    {"故障编号":"urma_err","故障名称":"urma err","文件名":"urma.cpp","故障现象":"依次匹配`urma fail`",
-     "故障原因":"c4","解决办法":"s4","函数名":"UrmaFunc"}
+    {"故障编号":"urma_err", "故障名称":"urma err", "文件名":"urma.cpp", "故障现象":"依次匹配`urma fail`",
+     "故障原因":"c4", "解决办法":"s4", "函数名":"UrmaFunc"}
 ])";
 
 const char *TREE_JSON = R"({
@@ -90,7 +65,7 @@ const char *TREE_JSON = R"({
 std::filesystem::path MakeRuleDir(const char *ubsocketJson = nullptr, const char *umqJson = nullptr,
                                   const char *urmaJson = nullptr, const char *treeJson = nullptr)
 {
-    static TempWittyDir dir;
+    static TempWittyDir dir(WITTY_DIR_PREFIX, std::vector<std::string>(DATA_SUBDIRS, DATA_SUBDIRS + 3));
     dir.Write("data/ubsocket/ubsocket_failure_mode.json", ubsocketJson ? ubsocketJson : UBSOCKET_JSON);
     dir.Write("data/umq/umq_failure_mode.json", umqJson ? umqJson : UMQ_JSON);
     dir.Write("data/urma/urma_failure_mode.json", urmaJson ? urmaJson : URMA_JSON);
@@ -185,7 +160,8 @@ TEST(GetDiagnosisComponent, Prefixes) {
 TEST(IsSupportedCrossComponentEdge, ValidEdges) {
     EXPECT_TRUE(brpc::IsSupportedCrossComponentEdge(brpc::DiagnosisComponent::UBSOCKET, brpc::DiagnosisComponent::UMQ));
     EXPECT_TRUE(brpc::IsSupportedCrossComponentEdge(brpc::DiagnosisComponent::UMQ, brpc::DiagnosisComponent::URMA));
-    EXPECT_FALSE(brpc::IsSupportedCrossComponentEdge(brpc::DiagnosisComponent::UBSOCKET, brpc::DiagnosisComponent::URMA));
+    EXPECT_FALSE(
+        brpc::IsSupportedCrossComponentEdge(brpc::DiagnosisComponent::UBSOCKET, brpc::DiagnosisComponent::URMA));
     EXPECT_FALSE(brpc::IsSupportedCrossComponentEdge(brpc::DiagnosisComponent::URMA, brpc::DiagnosisComponent::UMQ));
 }
 
@@ -258,25 +234,25 @@ TEST(DiagnosisEngineCreate, FailsOnNonArrayFailureModeJson) {
 TEST(DiagnosisEngineCreate, FailsOnInvalidEntry) {
     // 函数名为空 → IsValidRule 拒绝
     auto engine = brpc::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"ubsocket_x","故障名称":"n","文件名":"f.cpp","故障现象":"依次匹配`k`",
-             "故障原因":"c","解决办法":"s","函数名":""}])"));
+        R"([{"故障编号":"ubsocket_x", "故障名称":"n", "文件名":"f.cpp", "故障现象":"依次匹配`k`",
+             "故障原因":"c", "解决办法":"s", "函数名":""}])"));
     EXPECT_EQ(engine, nullptr);
 }
 
 TEST(DiagnosisEngineCreate, FailsOnUnknownComponentPrefix) {
     // id 无已知组件前缀 → component UNKNOWN → IsValidRule 拒绝
     auto engine = brpc::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"foo_x","故障名称":"n","文件名":"f.cpp","故障现象":"依次匹配`k`",
-             "故障原因":"c","解决办法":"s","函数名":"F"}])"));
+        R"([{"故障编号":"foo_x", "故障名称":"n", "文件名":"f.cpp", "故障现象":"依次匹配`k`",
+             "故障原因":"c", "解决办法":"s", "函数名":"F"}])"));
     EXPECT_EQ(engine, nullptr);
 }
 
 TEST(DiagnosisEngineCreate, FailsOnDuplicateId) {
     auto engine = brpc::DiagnosisEngine::Create(MakeRuleDir(
-        R"([{"故障编号":"ubsocket_a","故障名称":"n","文件名":"f.cpp","故障现象":"依次匹配`k`",
-             "故障原因":"c","解决办法":"s","函数名":"F"},
-            {"故障编号":"ubsocket_a","故障名称":"n2","文件名":"g.cpp","故障现象":"依次匹配`m`",
-             "故障原因":"c","解决办法":"s","函数名":"G"}])"));
+        R"([{"故障编号":"ubsocket_a", "故障名称":"n", "文件名":"f.cpp", "故障现象":"依次匹配`k`",
+             "故障原因":"c", "解决办法":"s", "函数名":"F"},
+            {"故障编号":"ubsocket_a", "故障名称":"n2", "文件名":"g.cpp", "故障现象":"依次匹配`m`",
+             "故障原因":"c", "解决办法":"s", "函数名":"G"}])"));
     EXPECT_EQ(engine, nullptr);
 }
 

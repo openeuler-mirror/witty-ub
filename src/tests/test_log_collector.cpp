@@ -19,6 +19,7 @@
 #include <fstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "failure_def.h"
@@ -43,7 +44,7 @@ bool MatchUmqEndpoints(FailureEvent &event, const FailureMetadata &meta);
 namespace {
 // 打日志的库必须先初始化 log4cplus，否则 SEGFAULT
 struct LoggerInit {
-    LoggerInit() { rack::logger::init(nullptr); }
+    LoggerInit() noexcept { rack::logger::init(nullptr); }
 };
 static LoggerInit g_loggerInit;
 
@@ -127,6 +128,52 @@ failure::FailureEvent MakeEvent(const std::string &component, int64_t ts,
     ev.pathCell.podId = std::move(podId);
     ev.pathCell.path = "/var/log/" + component;
     return ev;
+}
+
+// 生成一条故障模式 JSON 项（单行，version 固定 1、非多行）
+std::string MakeModeJson(const std::string &component, const std::string &manifest, const std::string &logPath)
+{
+    return R"({"component":")" + component + R"(", "version":"1", "is_multiline":false, "manifest":")" + manifest +
+           R"(", "log_path":")" + logPath + R"("})";
+}
+
+// 四类 umq 事件：告警级别不符 / 非关键函数 / post(带端点) / bind(无端点)
+std::unordered_map<std::string, std::vector<failure::FailureEvent>> MakeUmqEventsMap()
+{
+    failure::FailureEvent evWarn = MakeUmqEvent(T0, "umq_ub_post_tx");
+    evWarn.attributes["alarm_level"] = "warn";
+    return {{"umq", {evWarn, MakeUmqEvent(T0, "not_a_key_func"), MakeBiEndpointUmqEvent(T0),
+                     MakeUmqEvent(T0 + 1000, "umq_ub_bind_inner_impl")}}};
+}
+
+// 绑定关键函数映射表（CollectMetadata 依赖）
+void BindKeyFuncMaps(failure::log::LogCollector &collector)
+{
+    collector.keyFuncEventTypeMap_ = &failure::keyFuncEventTypeMap;
+    collector.keyFuncRoleMap_ = &failure::keyFuncRoleMap;
+}
+
+// 以指定 pod 模式与允许表构造 collector 并解析 pod-id；可选输出解析到的 pod id 数
+auto ParsePodIdsWith(bool podMode, const std::unordered_map<std::string, std::unordered_set<std::string>> &allowedPodIds,
+                     const std::unordered_map<std::string, std::string> &args, std::size_t *podIdCount = nullptr)
+{
+    failure::log::LogCollector collector;
+    collector.podMode_ = podMode;
+    collector.allowedPodIds_ = allowedPodIds;
+    const auto ret = collector.ParsePodIds(args);
+    if (podIdCount != nullptr) {
+        *podIdCount = collector.query_.podIds.size();
+    }
+    return ret;
+}
+
+// 以指定 pod 模式构造 collector 并直接调用 HandleLogPath（pod 域 + 必填组件）
+auto HandleLogPathWith(bool podMode, const std::string &component,
+                       const std::unordered_map<std::string, std::string> &args)
+{
+    failure::log::LogCollector collector;
+    collector.podMode_ = podMode;
+    return collector.HandleLogPath(args, component, true, true);
 }
 } // namespace
 
@@ -399,66 +446,30 @@ TEST(CollectorParse, PodIds)
     const auto &argMap = ubse::context::UbseContext::GetInstance().argMap;
     // 缺省：不解析
     SetArgMap({});
-    {
-        failure::log::LogCollector collector;
-        EXPECT_EQ(collector.ParsePodIds(argMap), RACK_OK);
-        EXPECT_TRUE(collector.query_.podIds.empty());
-    }
+    std::size_t podIdCount = 1;
+    EXPECT_EQ(ParsePodIdsWith(false, {}, argMap, &podIdCount), RACK_OK);
+    EXPECT_EQ(podIdCount, 0u);
     // 非 pod 模式出现 pod-id：报错
     SetArgMap({{"pod-id", "pod-1"}});
-    {
-        failure::log::LogCollector collector;
-        collector.podMode_ = false;
-        EXPECT_EQ(collector.ParsePodIds(argMap), RACK_FAIL);
-    }
+    EXPECT_EQ(ParsePodIdsWith(false, {}, argMap), RACK_FAIL);
     // 空值
     SetArgMap({{"pod-id", ""}});
-    {
-        failure::log::LogCollector collector;
-        collector.podMode_ = true;
-        EXPECT_EQ(collector.ParsePodIds(argMap), RACK_FAIL);
-    }
-    SetArgMap({{"pod-id", "pod-1"}});
+    EXPECT_EQ(ParsePodIdsWith(true, {}, argMap), RACK_FAIL);
     // 非法 pod id
     SetArgMap({{"pod-id", "Pod1"}});
-    {
-        failure::log::LogCollector collector;
-        collector.podMode_ = true;
-        EXPECT_EQ(collector.ParsePodIds(argMap), RACK_FAIL);
-    }
+    EXPECT_EQ(ParsePodIdsWith(true, {}, argMap), RACK_FAIL);
     // pod id 不在任何组件的日志路径中
     SetArgMap({{"pod-id", "pod-1"}});
-    {
-        failure::log::LogCollector collector;
-        collector.podMode_ = true;
-        collector.allowedPodIds_["umq"] = {"pod-2"};
-        EXPECT_EQ(collector.ParsePodIds(argMap), RACK_FAIL);
-    }
+    EXPECT_EQ(ParsePodIdsWith(true, {{"umq", {"pod-2"}}}, argMap), RACK_FAIL);
     // 部分组件未提供该 pod id
-    {
-        failure::log::LogCollector collector;
-        collector.podMode_ = true;
-        collector.allowedPodIds_["umq"] = {"pod-1"};
-        collector.allowedPodIds_["ubsocket"] = {"pod-2"};
-        EXPECT_EQ(collector.ParsePodIds(argMap), RACK_FAIL);
-    }
+    EXPECT_EQ(ParsePodIdsWith(true, {{"umq", {"pod-1"}}, {"ubsocket", {"pod-2"}}}, argMap), RACK_FAIL);
     // 合法：所有组件都提供
-    {
-        failure::log::LogCollector collector;
-        collector.podMode_ = true;
-        collector.allowedPodIds_["umq"] = {"pod-1"};
-        collector.allowedPodIds_["ubsocket"] = {"pod-1", "pod-2"};
-        EXPECT_EQ(collector.ParsePodIds(argMap), RACK_OK);
-        EXPECT_EQ(collector.query_.podIds.size(), 1u);
-    }
+    EXPECT_EQ(ParsePodIdsWith(true, {{"umq", {"pod-1"}}, {"ubsocket", {"pod-1", "pod-2"}}}, argMap, &podIdCount),
+              RACK_OK);
+    EXPECT_EQ(podIdCount, 1u);
     // 重复 pod id
     SetArgMap({{"pod-id", "pod-1,pod-1"}});
-    {
-        failure::log::LogCollector collector;
-        collector.podMode_ = true;
-        collector.allowedPodIds_["umq"] = {"pod-1"};
-        EXPECT_EQ(collector.ParsePodIds(argMap), RACK_FAIL);
-    }
+    EXPECT_EQ(ParsePodIdsWith(true, {{"umq", {"pod-1"}}}, argMap), RACK_FAIL);
 }
 
 TEST(CollectorParse, LocalEidsAndJettyIds)
@@ -603,14 +614,22 @@ TEST(CollectorParse, LogPathPodModeOn)
         ASSERT_EQ(collector.customizedLogPath_["urmacore"].size(), 1u);
         EXPECT_FALSE(collector.customizedLogPath_["urmacore"][0].podId.has_value());
     }
+}
+
+// pod 模式多 pod 与非法输入
+TEST(CollectorParse, LogPathPodModeOnMultiPodAndInvalid)
+{
+    const auto &argMap = ubse::context::UbseContext::GetInstance().argMap;
+    TempDir dir;
+    auto pathA = (dir.Path() / "a.log").string();
+    auto pathB = (dir.Path() / "b.log").string();
+    WriteFile(pathA, "x");
+    WriteFile(pathB, "x");
+
     // 多 pod 逗号分隔 + 重复 pod id：失败
     SetArgMap({{"ubsocket-log-path", "pod-1:" + pathA + ",pod-1:" + pathB}});
-    {
-        failure::log::LogCollector collector;
-        collector.podMode_ = true;
-        EXPECT_EQ(collector.HandleLogPath(argMap, "ubsocket", true, true), RACK_FAIL);
-    }
-    // 多 pod 合法
+    EXPECT_EQ(HandleLogPathWith(true, "ubsocket", argMap), RACK_FAIL);
+    // 多 pod 合法：展开为两个 cell
     SetArgMap({{"ubsocket-log-path", "pod-1:" + pathA + ",pod-2:" + pathB}});
     {
         failure::log::LogCollector collector;
@@ -618,31 +637,18 @@ TEST(CollectorParse, LogPathPodModeOn)
         EXPECT_EQ(collector.HandleLogPath(argMap, "ubsocket", true, true), RACK_OK);
         EXPECT_EQ(collector.customizedLogPath_["ubsocket"].size(), 2u);
     }
-    // 空串 / 缺冒号 / 非法 pod / 相对路径
+    // 空串
     SetArgMap({{"umq-log-path", ""}});
-    {
-        failure::log::LogCollector collector;
-        collector.podMode_ = true;
-        EXPECT_EQ(collector.HandleLogPath(argMap, "umq", true, true), RACK_FAIL);
-    }
+    EXPECT_EQ(HandleLogPathWith(true, "umq", argMap), RACK_FAIL);
+    // 缺冒号
     SetArgMap({{"umq-log-path", "no-colon-here"}});
-    {
-        failure::log::LogCollector collector;
-        collector.podMode_ = true;
-        EXPECT_EQ(collector.HandleLogPath(argMap, "umq", true, true), RACK_FAIL);
-    }
+    EXPECT_EQ(HandleLogPathWith(true, "umq", argMap), RACK_FAIL);
+    // 非法 pod
     SetArgMap({{"umq-log-path", "Pod1:" + pathA}});
-    {
-        failure::log::LogCollector collector;
-        collector.podMode_ = true;
-        EXPECT_EQ(collector.HandleLogPath(argMap, "umq", true, true), RACK_FAIL);
-    }
+    EXPECT_EQ(HandleLogPathWith(true, "umq", argMap), RACK_FAIL);
+    // 相对路径
     SetArgMap({{"umq-log-path", "pod-1:relative/path"}});
-    {
-        failure::log::LogCollector collector;
-        collector.podMode_ = true;
-        EXPECT_EQ(collector.HandleLogPath(argMap, "umq", true, true), RACK_FAIL);
-    }
+    EXPECT_EQ(HandleLogPathWith(true, "umq", argMap), RACK_FAIL);
 }
 
 TEST(CollectorParse, ParseArgsFullSuccess)
@@ -702,8 +708,8 @@ TEST(CollectorFailureModes, ParseFailureModesAndOverridePaths)
     TempDir dir;
     auto modeFile = dir.Path() / "modes.json";
     WriteFile(modeFile, R"([
-        {"component":"umq","version":"1.0","is_multiline":false,"manifest":"<a>|<b>","log_path":"/var/log/umdk/umq/"},
-        {"component":"hardware","version":"1.0","is_multiline":false,"manifest":"<a>","log_path":"/var/log/message"}
+        {"component":"umq", "version":"1.0", "is_multiline":false, "manifest":"<a>|<b>", "log_path":"/var/log/umdk/umq/"},
+        {"component":"hardware", "version":"1.0", "is_multiline":false, "manifest":"<a>", "log_path":"/var/log/message"}
     ])");
     std::ifstream ifs(modeFile);
     ASSERT_TRUE(ifs.is_open());
@@ -793,10 +799,9 @@ TEST(CollectorFailureModes, CreateReaders)
     WriteFile(kernLog, "x");
     std::filesystem::create_directories(dir.Path() / "data");
     WriteFile(dir.Path() / "data/failure_mode.json",
-              R"([{"component":"umq","version":"1","is_multiline":false,"manifest":"<a>","log_path":")" + sharedLog.string() +
-                  R"("},{"component":"liburma","version":"1","is_multiline":false,"manifest":"<b>","log_path":")" +
-                  sharedLog.string() + R"("},{"component":"hardware","version":"1","is_multiline":false,"manifest":"<c>","log_path":")" +
-                  kernLog.string() + R"("}])");
+              "[" + MakeModeJson("umq", "<a>", sharedLog.string()) + ", " + MakeModeJson("liburma", "<b>",
+                                                                                          sharedLog.string()) +
+                  ", " + MakeModeJson("hardware", "<c>", kernLog.string()) + "]");
     {
         ScopedChdir chdir(dir.Path());
         failure::log::LogCollector collector2;
@@ -829,17 +834,9 @@ TEST(CollectorBuildGraph, FailsWhenCallstackMissing)
 TEST(CollectorMetadata, CollectMetadataFiltersAndMaps)
 {
     failure::log::LogCollector collector;
-    collector.keyFuncEventTypeMap_ = &failure::keyFuncEventTypeMap;
-    collector.keyFuncRoleMap_ = &failure::keyFuncRoleMap;
+    BindKeyFuncMaps(collector);
 
-    failure::FailureEvent evWarn = MakeUmqEvent(T0, "umq_ub_post_tx");
-    evWarn.attributes["alarm_level"] = "warn"; // 非error被跳过
-    failure::FailureEvent evUnknownFunc = MakeUmqEvent(T0, "not_a_key_func");
-    failure::FailureEvent evPost = MakeBiEndpointUmqEvent(T0);
-    failure::FailureEvent evBind = MakeUmqEvent(T0 + 1000, "umq_ub_bind_inner_impl"); // 无端点内容
-
-    std::unordered_map<std::string, std::vector<failure::FailureEvent>> eventsMap;
-    eventsMap["umq"] = {evWarn, evUnknownFunc, evPost, evBind};
+    std::unordered_map<std::string, std::vector<failure::FailureEvent>> eventsMap = MakeUmqEventsMap();
 
     std::vector<failure::FailureMetadata> metadata;
     collector.CollectMetadata(eventsMap, metadata);
@@ -865,30 +862,33 @@ TEST(CollectorMetadata, CollectMetadataFiltersAndMaps)
     EXPECT_FALSE(bind.role.has_value());
     EXPECT_TRUE(bind.localEid.empty());
     EXPECT_FALSE(bind.remoteEid.has_value());
+}
 
-    // 查询条件过滤：仅 BIND
+// 查询条件过滤：event-type / local-eid / jetty-id
+TEST(CollectorMetadata, CollectMetadataQueryFilters)
+{
+    std::unordered_map<std::string, std::vector<failure::FailureEvent>> eventsMap = MakeUmqEventsMap();
+
+    // 仅 BIND
     failure::log::LogCollector bindOnly;
-    bindOnly.keyFuncEventTypeMap_ = &failure::keyFuncEventTypeMap;
-    bindOnly.keyFuncRoleMap_ = &failure::keyFuncRoleMap;
+    BindKeyFuncMaps(bindOnly);
     bindOnly.query_.eventTypes = {failure::EventTypeOption::BIND};
     std::vector<failure::FailureMetadata> filtered;
     bindOnly.CollectMetadata(eventsMap, filtered);
     ASSERT_EQ(filtered.size(), 1u);
     EXPECT_EQ(filtered[0].eventType, failure::EventTypeOption::BIND);
 
-    // 查询条件过滤：local-eid 不匹配
+    // local-eid 不匹配
     failure::log::LogCollector eidFilter;
-    eidFilter.keyFuncEventTypeMap_ = &failure::keyFuncEventTypeMap;
-    eidFilter.keyFuncRoleMap_ = &failure::keyFuncRoleMap;
+    BindKeyFuncMaps(eidFilter);
     eidFilter.query_.localEids = {EID2};
     std::vector<failure::FailureMetadata> filteredByEid;
     eidFilter.CollectMetadata(eventsMap, filteredByEid);
     EXPECT_TRUE(filteredByEid.empty());
 
-    // 查询条件过滤：jetty-id 不匹配
+    // jetty-id 不匹配
     failure::log::LogCollector jettyFilter;
-    jettyFilter.keyFuncEventTypeMap_ = &failure::keyFuncEventTypeMap;
-    jettyFilter.keyFuncRoleMap_ = &failure::keyFuncRoleMap;
+    BindKeyFuncMaps(jettyFilter);
     jettyFilter.query_.jettyIds = {"999"};
     std::vector<failure::FailureMetadata> filteredByJetty;
     jettyFilter.CollectMetadata(eventsMap, filteredByJetty);
@@ -947,17 +947,27 @@ TEST(CollectorMetadata, CollectCorrelatedLogsWindowsAndMatching)
         EXPECT_GE(ev->timestamp, prev);
         prev = ev->timestamp;
     }
+}
 
-    // pod 模式下 pod 不一致的事件被剔除
+// pod 模式下 pod 不一致的事件被剔除
+TEST(CollectorMetadata, CollectCorrelatedLogsPodFiltering)
+{
     failure::log::LogCollector podCollector;
     podCollector.podMode_ = true;
-    failure::FailureMetadata podMeta = meta;
+    failure::FailureMetadata meta;
+    meta.timestamp = T0;
+    meta.programName = "umq_proc";
+    meta.procId = "123";
+    meta.localEid = EID1;
+    meta.localJettyId = "7";
+    meta.podId = "pod-1";
+
     failure::FailureEvent ubPod2 = MakeEvent("ubsocket", T0, "pod-2");
     failure::FailureEvent ubPod1 = MakeEvent("ubsocket", T0, "pod-1");
     failure::FailureEvent ubNoPod = MakeEvent("ubsocket", T0); // 无 pod：不比较
     std::unordered_map<std::string, std::vector<failure::FailureEvent>> podMap;
     podMap["ubsocket"] = {ubPod2, ubPod1, ubNoPod};
-    std::vector<failure::FailureMetadata> podMetadata = {podMeta};
+    std::vector<failure::FailureMetadata> podMetadata = {meta};
     podCollector.CollectCorrelatedLogs(podMap, podMetadata);
     // pod-2 剔除，pod-1 与无 pod 保留
     ASSERT_EQ(podMetadata[0].events.size(), 2u);
