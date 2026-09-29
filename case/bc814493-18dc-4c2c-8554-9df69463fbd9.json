@@ -1,0 +1,72 @@
+{
+  "id": "bc814493-18dc-4c2c-8554-9df69463fbd9",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker进程退出",
+  "description": "自动导入: dfx_r_worker_process_set_exit",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new/lingqu_kvcache_dfx_r_worker_process_set_exit_001_20260522_07_08_12"
+  ],
+  "log_file_id": "4f96cb21-e19e-4d6c-8be5-39a546134a3b",
+  "log_file_name": "lingqu_kvcache_dfx_r_worker_process_set_exit_001_20260522_07_08_12",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "Worker-退出/崩溃",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          6.205699999999999
+        ],
+        [
+          "c2w_latency",
+          6.180599999999999
+        ],
+        [
+          "c2w_urma_latency",
+          6.180599999999999
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          6.205699999999999
+        ],
+        [
+          "c2w_latency",
+          6.180599999999999
+        ],
+        [
+          "c2w_urma_latency",
+          6.180599999999999
+        ],
+        [
+          "worker_total_latency",
+          0.025099999999999983
+        ]
+      ],
+      "p99_p50_ratio": 5.759134973900075,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_SET": 5.759
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 2,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_SET": 80
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 2,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 80,
+      "failure_event_count": 0,
+      "total_parse_result_count": 80
+    }
+  },
+  "created_at": "2026-09-28 17:23:59"
+}

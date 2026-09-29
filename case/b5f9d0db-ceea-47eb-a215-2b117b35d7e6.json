@@ -1,0 +1,72 @@
+{
+  "id": "b5f9d0db-ceea-47eb-a215-2b117b35d7e6",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "远端写入TCP延迟",
+  "description": "自动导入: dfx_write_remote_tcp_dalay",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new/lingqu_kvcache_dfx_write_remote_tcp_dalay_001_20260520_07_06_05"
+  ],
+  "log_file_id": "7198deba-3050-459a-8dcf-e612f3f85dae",
+  "log_file_name": "lingqu_kvcache_dfx_write_remote_tcp_dalay_001_20260520_07_06_05",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "网络/TCP故障",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          174.25866666666664
+        ],
+        [
+          "c2w_latency",
+          174.22800000000004
+        ],
+        [
+          "c2w_urma_latency",
+          174.22800000000004
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          174.25866666666664
+        ],
+        [
+          "c2w_latency",
+          174.22800000000004
+        ],
+        [
+          "c2w_urma_latency",
+          174.22800000000004
+        ],
+        [
+          "worker_total_latency",
+          0.030666666666666665
+        ]
+      ],
+      "p99_p50_ratio": 1.0026481503837872,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_SET": 1.003
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 2,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_SET": 6
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 2,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 6,
+      "failure_event_count": 0,
+      "total_parse_result_count": 6
+    }
+  },
+  "created_at": "2026-09-28 17:24:07"
+}

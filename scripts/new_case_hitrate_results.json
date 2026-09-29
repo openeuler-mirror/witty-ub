@@ -1,0 +1,239 @@
+{
+  "total": 10,
+  "top1_hit": 2,
+  "top3_hit": 5,
+  "top5_hit": 5,
+  "top1_rate": 0.2,
+  "top3_rate": 0.5,
+  "top5_rate": 0.5,
+  "cat_stats": {
+    "Worker-缩容/挂死": {
+      "total": 2,
+      "hit1": 1,
+      "hit3": 2,
+      "hit5": 2
+    },
+    "UB-UBSe/UBM管理进程故障": {
+      "total": 1,
+      "hit1": 0,
+      "hit3": 0,
+      "hit5": 0
+    },
+    "UB-端口故障": {
+      "total": 3,
+      "hit1": 1,
+      "hit3": 1,
+      "hit5": 1
+    },
+    "UB-链路故障": {
+      "total": 2,
+      "hit1": 0,
+      "hit3": 0,
+      "hit5": 0
+    },
+    "网络/TCP故障": {
+      "total": 1,
+      "hit1": 0,
+      "hit3": 1,
+      "hit5": 1
+    },
+    "Worker-退出/崩溃": {
+      "total": 1,
+      "hit1": 0,
+      "hit3": 1,
+      "hit5": 1
+    }
+  },
+  "results": [
+    {
+      "file": "18b1f8fe-3eb5-40af-93f5-410f85b42859.json",
+      "root_cause_type": "CPU挂死",
+      "gt_cat": "Worker-缩容/挂死",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "Worker-重启",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃",
+        "Client-挂死/网络"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker远端本地UB链路丢失",
+      "best_cat": "UB-链路故障",
+      "best_sim": 0.4191,
+      "library_size": 174
+    },
+    {
+      "file": "282ec9a1-f966-4ea4-b868-3ab9ac8b189c.json",
+      "root_cause_type": "SDK初始化配置错误",
+      "gt_cat": "UB-UBSe/UBM管理进程故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "Worker-重启",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃",
+        "Client-挂死/网络"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Worker本地UB链路down",
+      "best_cat": "UB-链路故障",
+      "best_sim": 0.5305,
+      "library_size": 174
+    },
+    {
+      "file": "5c264a23-89fd-411e-be1a-14e83b935094.json",
+      "root_cause_type": "UB端口down",
+      "gt_cat": "UB-端口故障",
+      "predicted_top5_cats": [
+        "UB-端口故障",
+        "Worker-退出/崩溃",
+        "Worker-重启",
+        "Client-挂死/网络",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": true,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "远端UB全部端口down",
+      "best_cat": "UB-端口故障",
+      "best_sim": 0.564,
+      "library_size": 174
+    },
+    {
+      "file": "8d0ecae9-8a56-48f5-b3ba-3bcb82624ce3.json",
+      "root_cause_type": "UB链路故障",
+      "gt_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "Client-挂死/网络",
+        "Worker-缩容/挂死",
+        "网络/TCP故障",
+        "Worker-退出/崩溃",
+        "UB-端口故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Client获取挂死",
+      "best_cat": "Client-挂死/网络",
+      "best_sim": 0.5738,
+      "library_size": 174
+    },
+    {
+      "file": "b8a2bfc9-ad70-43f2-9e23-d124b37e5f1e.json",
+      "root_cause_type": "端侧到L1端口故障",
+      "gt_cat": "UB-端口故障",
+      "predicted_top5_cats": [
+        "Worker-缩容/挂死",
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "Client-退出",
+        "Client-挂死/网络"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Worker缩容TCP丢包",
+      "best_cat": "Worker-缩容/挂死",
+      "best_sim": 0.4785,
+      "library_size": 174
+    },
+    {
+      "file": "c5b142c8-abe8-405a-aebd-587f736cf585.json",
+      "root_cause_type": "CPU挂死",
+      "gt_cat": "Worker-缩容/挂死",
+      "predicted_top5_cats": [
+        "Worker-缩容/挂死",
+        "Worker-重启",
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "Client-挂死/网络"
+      ],
+      "top1_hit": true,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker缩容Client退出",
+      "best_cat": "Worker-缩容/挂死",
+      "best_sim": 0.4528,
+      "library_size": 174
+    },
+    {
+      "file": "cb9b7dc5-863d-4788-b455-f2788d022bb6.json",
+      "root_cause_type": "TCPdown",
+      "gt_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "Worker-退出/崩溃",
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker获取退出启动",
+      "best_cat": "Worker-退出/崩溃",
+      "best_sim": 0.1059,
+      "library_size": 174
+    },
+    {
+      "file": "e8620e4d-e6d2-43e5-ba60-b287fdab5c0c.json",
+      "root_cause_type": "UB交换机L1的上行端口闪断",
+      "gt_cat": "UB-端口故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "Worker-缩容/挂死",
+        "Worker-重启",
+        "Client-挂死/网络"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Worker本地UB链路down",
+      "best_cat": "UB-链路故障",
+      "best_sim": 0.4813,
+      "library_size": 174
+    },
+    {
+      "file": "ee515adb-b415-47a3-8a0d-31df4237bdb0.json",
+      "root_cause_type": "worker进程异常退出",
+      "gt_cat": "Worker-退出/崩溃",
+      "predicted_top5_cats": [
+        "Worker-重启",
+        "Client-挂死/网络",
+        "Worker-退出/崩溃",
+        "网络/TCP故障",
+        "UB-端口故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker单节点重启",
+      "best_cat": "Worker-重启",
+      "best_sim": 0.637,
+      "library_size": 174
+    },
+    {
+      "file": "f012208a-243f-457a-a45c-f164a9c4072f.json",
+      "root_cause_type": "L1-L2互联链路反复shutdown模拟链路闪断",
+      "gt_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-端口故障",
+        "Client-退出",
+        "Worker-缩容/挂死",
+        "Client-挂死/网络",
+        "UB-UBSe/UBM管理进程故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "本地UB双端口闪断",
+      "best_cat": "UB-端口故障",
+      "best_sim": 0.7154,
+      "library_size": 174
+    }
+  ]
+}

@@ -583,3 +583,45 @@ export const fetchBrpcThreadLogs = (
   request<{ total: number; hits: any[] }>(
     `/brpc-diagnosis/batch/${encodeURIComponent(batchId)}/thread-logs?${toQueryString(params)}`,
   )
+
+// 相似案例分析：检索案例库中最相似的 Top-K 故障类型
+export interface SimilarityDimension {
+  name: string
+  label: string
+  score: number
+  weight: number
+  weighted_score: number
+}
+
+export interface SimilarityMatch {
+  rank: number
+  root_cause_type: string
+  fault_category: string
+  case_id: string
+  log_file_id: string
+  log_file_name: string
+  attachment_path: string
+  description: string
+  similarity: number
+  base_score: number
+  cat_gate: number
+  reason: string
+  breakdown: SimilarityDimension[]
+}
+
+export interface SimilarityResult {
+  top_matches: SimilarityMatch[]
+  library_size: number
+  unique_types_count: number
+}
+
+export const fetchSimilarFaultTypes = async (
+  logFileId: string,
+  topK = 3,
+): Promise<SimilarityResult> => {
+  const result = await request<SimilarityResult>('/similarity_analysis', {
+    method: 'POST',
+    body: JSON.stringify({ log_file_id: logFileId, top_k: topK }),
+  })
+  return result
+}

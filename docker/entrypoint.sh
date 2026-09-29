@@ -90,6 +90,18 @@ sync_backend_data() {
         exit 1
     fi
     echo "[OK] BRPC diagnosis tool and data are ready"
+
+    # Sync case library (similarity analysis / case management)
+    # 先删除旧 case 文件再拷贝，确保删除的案例不残留（cp 只增不删会导致旧案例污染）
+    local CASE_SEED_DIR="/usr/share/witty-ub/case"
+    local CASE_RUNTIME_DIR="${WITTY_DIR}/case"
+    mkdir -p "${CASE_RUNTIME_DIR}"
+    if [ -d "${CASE_SEED_DIR}" ]; then
+        echo "Syncing case library..."
+        rm -f "${CASE_RUNTIME_DIR}"/*.json 2>/dev/null || true
+        cp -a "${CASE_SEED_DIR}/." "${CASE_RUNTIME_DIR}/"
+        echo "[OK] Case library synced: $(find "${CASE_RUNTIME_DIR}" -name '*.json' | wc -l) files"
+    fi
 }
 
 # ── Agent 配置布局检测 ──────────────────────────────────────────────

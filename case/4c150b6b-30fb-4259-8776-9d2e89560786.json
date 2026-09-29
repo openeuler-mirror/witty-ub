@@ -1,0 +1,82 @@
+{
+  "id": "4c150b6b-30fb-4259-8776-9d2e89560786",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker进程退出",
+  "description": "自动导入: dfx_worker_set_exit",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new_0530/lingqu_kvcache_dfx_worker_set_exit_002_20260528_03_09_48"
+  ],
+  "log_file_id": "ca04015c-c55a-424b-b6dd-f08ef87cf98e",
+  "log_file_name": "lingqu_kvcache_dfx_worker_set_exit_002_20260528_03_09_48",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "Worker-退出/崩溃",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "remote_worker_cost",
+          386.698
+        ],
+        [
+          "urma_total_latency",
+          386.503
+        ],
+        [
+          "total_latency",
+          141.95899999999997
+        ],
+        [
+          "worker_total_latency",
+          129.79966666666667
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "remote_worker_cost",
+          386.698
+        ],
+        [
+          "urma_total_latency",
+          386.503
+        ],
+        [
+          "total_latency",
+          141.95899999999997
+        ],
+        [
+          "worker_total_latency",
+          129.79966666666667
+        ],
+        [
+          "c2w_latency",
+          12.159333333333334
+        ]
+      ],
+      "p99_p50_ratio": 12.329505076142132,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 67.811,
+        "DS_KV_CLIENT_SET": 1.0
+      },
+      "pod_concentration": "multi_pod",
+      "affected_pods_count": 4,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 4,
+        "DS_KV_CLIENT_SET": 2
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 5,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 6,
+      "failure_event_count": 0,
+      "total_parse_result_count": 6
+    }
+  },
+  "created_at": "2026-09-28 17:24:14"
+}

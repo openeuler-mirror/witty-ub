@@ -621,7 +621,7 @@ if [ "$ROLE" = "frontend" ]; then
     # 容器重建后日志丢失且残留孤儿卷（与文档"witty-ub-logs 通用"的描述保持一致）。
     ROLE_VOLUMES=(witty-ub-logs witty-ub-experience-data witty-ub-reports)
 else
-    ROLE_VOLUMES=(witty-ub-data witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports)
+    ROLE_VOLUMES=(witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports)
 fi
 for vol in "${ROLE_VOLUMES[@]}"; do
     if docker volume ls --format '{{.Name}}' | grep -qx "$vol"; then
@@ -765,6 +765,7 @@ backend)
         --restart unless-stopped \
         "${PORT_ARGS[@]}" \
         -v witty-ub-data:/var/witty-ub/data \
+        -v witty-ub-case:/var/witty-ub/case \
         -v witty-ub-logs:/var/log/witty-ub \
         -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
         -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
@@ -811,6 +812,7 @@ frontend)
         --restart unless-stopped \
         "${PORT_ARGS[@]}" \
         -v witty-ub-data:/var/witty-ub/data \
+        -v witty-ub-case:/var/witty-ub/case \
         -v witty-ub-logs:/var/log/witty-ub \
         -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
         -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \

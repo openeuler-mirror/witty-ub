@@ -1,0 +1,86 @@
+{
+  "id": "9da4472f-cd53-4f78-ba4a-d492efbb52b8",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker跨节点网卡丢包",
+  "description": "自动导入: dfx_worker_process_cross_node_net_card_loss",
+  "task_ids": [],
+  "task_names": [
+    "lingqu_kvcache_dfx_worker_process_cross_node_net_card_loss_001_20260528_16_29_17"
+  ],
+  "log_file_id": "056d7fbc-962c-4f90-83f0-0d409c8bb6f7",
+  "log_file_name": "lingqu_kvcache_dfx_worker_process_cross_node_net_card_loss_001_20260528_16_29_17",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "网络/TCP故障",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "urma_total_latency",
+          386.568
+        ],
+        [
+          "master_rpc_total",
+          195.46860000000004
+        ],
+        [
+          "total_latency",
+          191.4230719999999
+        ],
+        [
+          "c2w_latency",
+          188.14964
+        ],
+        [
+          "c2w_urma_latency",
+          188.14964
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "urma_total_latency",
+          386.568
+        ],
+        [
+          "master_rpc_total",
+          195.46860000000004
+        ],
+        [
+          "total_latency",
+          191.4230719999999
+        ],
+        [
+          "c2w_latency",
+          188.14964
+        ],
+        [
+          "c2w_urma_latency",
+          188.14964
+        ]
+      ],
+      "p99_p50_ratio": 1.9482511393267679,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 1.948,
+        "DS_KV_CLIENT_SET": 1.0
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 3,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 248,
+        "DS_KV_CLIENT_SET": 2
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 3,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 250,
+      "failure_event_count": 0,
+      "total_parse_result_count": 250
+    }
+  },
+  "created_at": "2026-09-28 18:29:44"
+}

@@ -1,0 +1,102 @@
+{
+  "id": "c2446bdb-da72-4925-acf5-09010c45e6cd",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "远端UB单socket双端口down",
+  "description": "自动导入: dfx_remote_ub_single_socket_two_port_down",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new_0530/lingqu_kvcache_dfx_remote_ub_single_socket_two_port_down_001_20260529_22_44_16"
+  ],
+  "log_file_id": "ae730dfe-829f-4b51-b5f5-402271549b9d",
+  "log_file_name": "lingqu_kvcache_dfx_remote_ub_single_socket_two_port_down_001_20260529_22_44_16",
+  "attachment_path": null,
+  "fault_category": "mixed",
+  "case_category": "UB-端口故障",
+  "features": {
+    "fault_category": "mixed",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          49.99328571428572
+        ],
+        [
+          "c2w_latency",
+          49.98404761904761
+        ],
+        [
+          "c2w_urma_latency",
+          49.98404761904761
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          49.99328571428572
+        ],
+        [
+          "c2w_latency",
+          49.98404761904761
+        ],
+        [
+          "c2w_urma_latency",
+          49.98404761904761
+        ],
+        [
+          "worker_total_latency",
+          0.009238095238095243
+        ]
+      ],
+      "p99_p50_ratio": 24.10556621880998,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_SET": 1.193
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 2,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_SET": 42
+      },
+      "anomalous_ratio": 0.021,
+      "trace_context_pods_count": 1,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": {
+      "failure_mode_dist": {
+        "kvcache_access_022": 16664,
+        "kvcache_runtime_1036": 12288,
+        "kvcache_runtime_1051": 12288,
+        "kvcache_runtime_1056": 12288,
+        "kvcache_runtime_1065": 12288,
+        "kvcache_runtime_1075": 12288,
+        "kvcache_runtime_048": 12288,
+        "kvcache_runtime_241": 12288
+      },
+      "status_code_dist": {
+        "1004": 16664
+      },
+      "spatial_pod": {
+        "unique_count": 2,
+        "scope": "few_pods"
+      },
+      "spatial_host": {
+        "unique_count": 1,
+        "scope": "single_host"
+      },
+      "spatial_cluster": {
+        "unique_count": 1,
+        "scope": "single_cluster"
+      },
+      "affected_operation_dist": {
+        "SET": 12288
+      },
+      "src_dst_pair_count": 1
+    },
+    "summary": {
+      "anomalous_event_count": 42,
+      "failure_event_count": 16664,
+      "total_parse_result_count": 2000
+    }
+  },
+  "created_at": "2026-09-28 17:24:09"
+}

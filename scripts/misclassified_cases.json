@@ -1,0 +1,4551 @@
+[
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_init_etcd_cluster_fail_001_20260528_17_23_20",
+    "ground_truth": "dfx_client_init_etcd_cluster_fail",
+    "predicted": "dfx_worker_set_exit",
+    "confidence": 0.9383,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_client_process_tcp_down",
+    "second_sim": 0.9383,
+    "top5_candidates": [
+      [
+        "dfx_worker_set_exit",
+        0.9383
+      ],
+      [
+        "dfx_client_process_tcp_down",
+        0.9383
+      ],
+      [
+        "dfx_worker_process_local_get_etcd_main_fail",
+        0.9383
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.9383
+      ],
+      [
+        "dfx_client_process_get_exit_start",
+        0.9382
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            388.176
+          ],
+          [
+            "sdk_process",
+            387.416
+          ],
+          [
+            "worker_total_latency",
+            387.416
+          ],
+          [
+            "remote_worker_rpc",
+            387.256
+          ],
+          [
+            "remote_worker_cost",
+            386.848
+          ],
+          [
+            "urma_total_latency",
+            386.608
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            388.176
+          ],
+          [
+            "sdk_process",
+            387.416
+          ],
+          [
+            "worker_total_latency",
+            387.416
+          ],
+          [
+            "remote_worker_rpc",
+            387.256
+          ],
+          [
+            "remote_worker_cost",
+            386.848
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_get_exit_start_001_20260528_22_51_28",
+    "ground_truth": "dfx_client_process_get_exit_start",
+    "predicted": "dfx_worker_process_scale_in_tcp_loss",
+    "confidence": 0.7903,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_worker_set_exit",
+    "second_sim": 0.6959,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_scale_in_tcp_loss",
+        0.7903
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.6959
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.6958
+      ],
+      [
+        "dfx_client_process_tcp_down",
+        0.6958
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.6958
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "remote_worker_cost",
+            386.711
+          ],
+          [
+            "urma_total_latency",
+            386.456
+          ],
+          [
+            "total_latency",
+            198.40400000000002
+          ],
+          [
+            "sdk_process",
+            197.3905
+          ],
+          [
+            "worker_total_latency",
+            197.388
+          ],
+          [
+            "remote_worker_rpc",
+            196.93449999999999
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "remote_worker_cost",
+            386.711
+          ],
+          [
+            "urma_total_latency",
+            386.456
+          ],
+          [
+            "total_latency",
+            198.40400000000002
+          ],
+          [
+            "sdk_process",
+            197.3905
+          ],
+          [
+            "worker_total_latency",
+            197.388
+          ]
+        ],
+        "p99_p50_ratio": 49.89239451070925,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 49.892
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 4
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 4,
+        "failure_event_count": 0,
+        "total_parse_result_count": 4
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_get_ubm_failure_001_20260528_21_20_30",
+    "ground_truth": "dfx_client_process_get_ubm_failure",
+    "predicted": "dfx_client_process_get_ubse_failure",
+    "confidence": 0.9385,
+    "correct": false,
+    "top3_correct": true,
+    "top5_correct": true,
+    "second_type": "dfx_client_process_get_ubm_failure",
+    "second_sim": 0.9385,
+    "top5_candidates": [
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.9385
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.9385
+      ],
+      [
+        "dfx_client_process_get_exit_start",
+        0.7487
+      ],
+      [
+        "dfx_worker_process_local_get_etcd_main_fail",
+        0.7486
+      ],
+      [
+        "dfx_client_process_tcp_down",
+        0.7486
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            515.96
+          ],
+          [
+            "sdk_process",
+            514.936
+          ],
+          [
+            "worker_total_latency",
+            514.933
+          ],
+          [
+            "worker_query_meta_latency",
+            514.414
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            515.96
+          ],
+          [
+            "sdk_process",
+            514.936
+          ],
+          [
+            "worker_total_latency",
+            514.933
+          ],
+          [
+            "worker_query_meta_latency",
+            514.414
+          ],
+          [
+            "c2w_latency",
+            1.0270000000000437
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_get_ubse_failure_001_20260529_00_47_11",
+    "ground_truth": "dfx_client_process_get_ubse_failure",
+    "predicted": "dfx_worker_process_net_card_loss",
+    "confidence": 0.7707,
+    "correct": false,
+    "top3_correct": true,
+    "top5_correct": true,
+    "second_type": "dfx_client_process_get_ubse_failure",
+    "second_sim": 0.7409,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_net_card_loss",
+        0.7707
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.7409
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.7409
+      ],
+      [
+        "dfx_worker_process_local_ub_link_down",
+        0.6533
+      ],
+      [
+        "dfx_worker_process_upgrade_etcd_fault",
+        0.6532
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "worker_query_meta_latency",
+            514.458
+          ],
+          [
+            "total_latency",
+            261.0335
+          ],
+          [
+            "sdk_process",
+            260.0025
+          ],
+          [
+            "worker_total_latency",
+            260.00149999999996
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "worker_query_meta_latency",
+            514.458
+          ],
+          [
+            "total_latency",
+            261.0335
+          ],
+          [
+            "sdk_process",
+            260.0025
+          ],
+          [
+            "worker_total_latency",
+            260.00149999999996
+          ],
+          [
+            "remote_worker_rpc",
+            4.133
+          ]
+        ],
+        "p99_p50_ratio": 85.17811158798284,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 85.178
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 4
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 4,
+        "failure_event_count": 0,
+        "total_parse_result_count": 4
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_scale_in_worker_hang_up_001_20260528_19_41_02",
+    "ground_truth": "dfx_client_process_scale_in_worker_hang_up",
+    "predicted": "dfx_worker_process_write_net_card_loss",
+    "confidence": 0.8984,
+    "correct": false,
+    "top3_correct": true,
+    "top5_correct": true,
+    "second_type": "dfx_client_process_scale_in_worker_hang_up",
+    "second_sim": 0.8849,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_write_net_card_loss",
+        0.8984
+      ],
+      [
+        "dfx_client_process_scale_in_worker_hang_up",
+        0.8849
+      ],
+      [
+        "dfx_ps_n_n",
+        0.8848
+      ],
+      [
+        "dfx_remote_ub_all_port_down",
+        0.8845
+      ],
+      [
+        "dfx_remote_ub_single_socket_two_port_down",
+        0.8845
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            6.920999999999999
+          ],
+          [
+            "c2w_latency",
+            6.9085
+          ],
+          [
+            "c2w_urma_latency",
+            6.9085
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            6.920999999999999
+          ],
+          [
+            "c2w_latency",
+            6.9085
+          ],
+          [
+            "c2w_urma_latency",
+            6.9085
+          ],
+          [
+            "worker_total_latency",
+            0.0125
+          ]
+        ],
+        "p99_p50_ratio": 1.0855808347144795,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.086
+        },
+        "pod_concentration": "multi_pod",
+        "affected_pods_count": 4,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 4
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 4,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 4,
+        "failure_event_count": 0,
+        "total_parse_result_count": 4
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_set_exit_002_20260528_16_57_35",
+    "ground_truth": "dfx_client_process_set_exit",
+    "predicted": "dfx_client_process_tcp_down",
+    "confidence": 0.9384,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_worker_process_local_get_etcd_main_fail",
+    "second_sim": 0.9384,
+    "top5_candidates": [
+      [
+        "dfx_client_process_tcp_down",
+        0.9384
+      ],
+      [
+        "dfx_worker_process_local_get_etcd_main_fail",
+        0.9384
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.9384
+      ],
+      [
+        "dfx_client_process_get_exit_start",
+        0.9384
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.9382
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            388.98
+          ],
+          [
+            "sdk_process",
+            387.959
+          ],
+          [
+            "worker_total_latency",
+            387.956
+          ],
+          [
+            "remote_worker_rpc",
+            387.5
+          ],
+          [
+            "remote_worker_cost",
+            386.799
+          ],
+          [
+            "urma_total_latency",
+            386.597
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            388.98
+          ],
+          [
+            "sdk_process",
+            387.959
+          ],
+          [
+            "worker_total_latency",
+            387.956
+          ],
+          [
+            "remote_worker_rpc",
+            387.5
+          ],
+          [
+            "remote_worker_cost",
+            386.799
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_set_exit_start_001_20260528_22_22_56",
+    "ground_truth": "dfx_client_process_set_exit_start",
+    "predicted": "dfx_r_discovery_worker_process_hangup",
+    "confidence": 0.9147,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_remote_ub_single_socket_two_port_down",
+    "second_sim": 0.9009,
+    "top5_candidates": [
+      [
+        "dfx_r_discovery_worker_process_hangup",
+        0.9147
+      ],
+      [
+        "dfx_remote_ub_single_socket_two_port_down",
+        0.9009
+      ],
+      [
+        "dfx_remote_ub_all_port_down",
+        0.9008
+      ],
+      [
+        "dfx_client_process_scale_in_worker_hang_up",
+        0.9004
+      ],
+      [
+        "dfx_ps_n_n",
+        0.9001
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            388.329
+          ],
+          [
+            "c2w_latency",
+            388.315
+          ],
+          [
+            "c2w_urma_latency",
+            388.315
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            388.329
+          ],
+          [
+            "c2w_latency",
+            388.315
+          ],
+          [
+            "c2w_urma_latency",
+            388.315
+          ],
+          [
+            "worker_total_latency",
+            0.014
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_tcp_down_001_20260529_11_58_30",
+    "ground_truth": "dfx_client_process_tcp_down",
+    "predicted": "dfx_worker_pod_reboot",
+    "confidence": 0.6605,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_client_process_get_ubm_failure",
+    "second_sim": 0.637,
+    "top5_candidates": [
+      [
+        "dfx_worker_pod_reboot",
+        0.6605
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.637
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.6365
+      ],
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.6244
+      ],
+      [
+        "dfx_client_scale_in_tcp_down",
+        0.6222
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            14694.008999999998
+          ],
+          [
+            "c2w_latency",
+            14500.148
+          ],
+          [
+            "c2w_urma_latency",
+            14500.148
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            14694.008999999998
+          ],
+          [
+            "c2w_latency",
+            14500.148
+          ],
+          [
+            "c2w_urma_latency",
+            14500.148
+          ],
+          [
+            "sdk_process",
+            387.664
+          ],
+          [
+            "remote_worker_rpc",
+            387.177
+          ]
+        ],
+        "p99_p50_ratio": 74.59560440691133,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.0,
+          "DS_POSIX_GET": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 2,
+          "DS_POSIX_GET": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_runtime_1377": 3,
+          "kvcache_runtime_2295": 2,
+          "kvcache_runtime_2303": 2,
+          "kvcache_runtime_1603": 2,
+          "kvcache_access_021": 2
+        },
+        "status_code_dist": {
+          "1002": 2
+        },
+        "spatial_pod": {
+          "unique_count": 2,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "SET": 1
+        },
+        "src_dst_pair_count": 1
+      },
+      "summary": {
+        "anomalous_event_count": 4,
+        "failure_event_count": 7,
+        "total_parse_result_count": 4
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_scale_in_tcp_down_001_20260529_08_51_37",
+    "ground_truth": "dfx_client_scale_in_tcp_down",
+    "predicted": "dfx_client_process_get_ubm_failure",
+    "confidence": 0.7732,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_client_process_get_ubse_failure",
+    "second_sim": 0.7627,
+    "top5_candidates": [
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.7732
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.7627
+      ],
+      [
+        "dfx_worker_pod_reboot",
+        0.7297
+      ],
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.7182
+      ],
+      [
+        "dfx_r_etcd_fail_client_update",
+        0.7105
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            94.20750434782612
+          ],
+          [
+            "c2w_latency",
+            94.19436521739127
+          ],
+          [
+            "c2w_urma_latency",
+            94.19436521739127
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            94.20750434782612
+          ],
+          [
+            "c2w_latency",
+            94.19436521739127
+          ],
+          [
+            "c2w_urma_latency",
+            94.19436521739127
+          ],
+          [
+            "worker_total_latency",
+            0.013139130434782596
+          ],
+          [
+            "urma_total_latency",
+            0.0
+          ]
+        ],
+        "p99_p50_ratio": 1.002707494983171,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.003
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 230
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_021": 462,
+          "kvcache_runtime_1377": 345,
+          "kvcache_runtime_2295": 345,
+          "kvcache_runtime_2303": 345,
+          "kvcache_runtime_106": 230,
+          "kvcache_runtime_1691": 7,
+          "kvcache_runtime_1699": 7,
+          "kvcache_runtime_1735": 7,
+          "kvcache_runtime_1584": 7,
+          "kvcache_runtime_015": 2,
+          "kvcache_runtime_241": 115
+        },
+        "status_code_dist": {
+          "1002": 462
+        },
+        "spatial_pod": {
+          "unique_count": 3,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "SET": 115,
+          "": 1
+        },
+        "src_dst_pair_count": 2
+      },
+      "summary": {
+        "anomalous_event_count": 230,
+        "failure_event_count": 1391,
+        "total_parse_result_count": 230
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_write_remote_after_ubse_fault_001_20260528_22_03_41",
+    "ground_truth": "dfx_client_write_remote_after_ubse_fault",
+    "predicted": "dfx_write_remote_tcp_dalay",
+    "confidence": 0.9384,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_write_remote_tcp_dalay",
+    "second_sim": 0.9383,
+    "top5_candidates": [
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9384
+      ],
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9383
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9383
+      ],
+      [
+        "dfx_client_write_remote_after_ubm_fault",
+        0.9383
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9383
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            256.96500000000003
+          ],
+          [
+            "c2w_latency",
+            256.9515
+          ],
+          [
+            "c2w_urma_latency",
+            256.9515
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            256.96500000000003
+          ],
+          [
+            "c2w_latency",
+            256.9515
+          ],
+          [
+            "c2w_urma_latency",
+            256.9515
+          ],
+          [
+            "worker_total_latency",
+            0.0135
+          ]
+        ],
+        "p99_p50_ratio": 1.0010045320749428,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.001
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 4
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 4,
+        "failure_event_count": 0,
+        "total_parse_result_count": 4
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_write_remote_worker_etcd_main_fault_001_20260529_01_12_47",
+    "ground_truth": "dfx_client_write_remote_worker_etcd_main_fault",
+    "predicted": "dfx_write_remote_tcp_dalay",
+    "confidence": 0.9385,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_write_remote_tcp_dalay",
+    "second_sim": 0.9385,
+    "top5_candidates": [
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9385
+      ],
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9384
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            513.606
+          ],
+          [
+            "c2w_latency",
+            513.553
+          ],
+          [
+            "c2w_urma_latency",
+            513.553
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            513.606
+          ],
+          [
+            "c2w_latency",
+            513.553
+          ],
+          [
+            "c2w_urma_latency",
+            513.553
+          ],
+          [
+            "worker_total_latency",
+            0.053
+          ],
+          [
+            "urma_total_latency",
+            0.0
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_etcd_cluster_exit_001_20260528_20_10_49",
+    "ground_truth": "dfx_etcd_cluster_exit",
+    "predicted": "dfx_client_write_remote_after_ubse_fault",
+    "confidence": 0.912,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": true,
+    "second_type": "dfx_client_write_remote_after_ubse_fault",
+    "second_sim": 0.912,
+    "top5_candidates": [
+      [
+        "dfx_client_write_remote_after_ubse_fault",
+        0.912
+      ],
+      [
+        "dfx_client_write_remote_after_ubse_fault",
+        0.912
+      ],
+      [
+        "dfx_client_write_remote_after_ubm_fault",
+        0.912
+      ],
+      [
+        "dfx_etcd_cluster_exit",
+        0.9107
+      ],
+      [
+        "dfx_client_write_remote_worker_etcd_main_fault",
+        0.9083
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            7.595
+          ],
+          [
+            "c2w_latency",
+            7.562666666666668
+          ],
+          [
+            "c2w_urma_latency",
+            7.562666666666668
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            7.595
+          ],
+          [
+            "c2w_latency",
+            7.562666666666668
+          ],
+          [
+            "c2w_urma_latency",
+            7.562666666666668
+          ],
+          [
+            "worker_total_latency",
+            0.03233333333333333
+          ]
+        ],
+        "p99_p50_ratio": 1.5203647416413373,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.52
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 6
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 6,
+        "failure_event_count": 0,
+        "total_parse_result_count": 6
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_etcd_cluster_exit_before_set_001_20260528_22_15_39",
+    "ground_truth": "dfx_etcd_cluster_exit_before_set",
+    "predicted": "dfx_client_write_remote_after_ubse_fault",
+    "confidence": 0.912,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_client_write_remote_after_ubse_fault",
+    "second_sim": 0.912,
+    "top5_candidates": [
+      [
+        "dfx_client_write_remote_after_ubse_fault",
+        0.912
+      ],
+      [
+        "dfx_client_write_remote_after_ubse_fault",
+        0.912
+      ],
+      [
+        "dfx_client_write_remote_after_ubm_fault",
+        0.9119
+      ],
+      [
+        "dfx_etcd_cluster_exit",
+        0.9111
+      ],
+      [
+        "dfx_client_write_remote_worker_etcd_main_fault",
+        0.9094
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            7.59
+          ],
+          [
+            "c2w_latency",
+            7.5695
+          ],
+          [
+            "c2w_urma_latency",
+            7.5695
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            7.59
+          ],
+          [
+            "c2w_latency",
+            7.5695
+          ],
+          [
+            "c2w_urma_latency",
+            7.5695
+          ],
+          [
+            "worker_total_latency",
+            0.0205
+          ]
+        ],
+        "p99_p50_ratio": 1.5070189925681257,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.507
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 4
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 4,
+        "failure_event_count": 0,
+        "total_parse_result_count": 4
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_local_ub_all_port_down_001_20260529_17_21_48",
+    "ground_truth": "dfx_local_ub_all_port_down",
+    "predicted": "dfx_write_remote_tcp_dalay",
+    "confidence": 0.9385,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_write_remote_tcp_dalay",
+    "second_sim": 0.9384,
+    "top5_candidates": [
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9385
+      ],
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9384
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9384
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            388.132
+          ],
+          [
+            "c2w_latency",
+            388.087
+          ],
+          [
+            "c2w_urma_latency",
+            388.087
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            388.132
+          ],
+          [
+            "c2w_latency",
+            388.087
+          ],
+          [
+            "c2w_urma_latency",
+            388.087
+          ],
+          [
+            "worker_total_latency",
+            0.045
+          ],
+          [
+            "urma_total_latency",
+            0.0
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_local_ub_all_port_lanedown_001_20260528_23_25_48",
+    "ground_truth": "dfx_local_ub_all_port_lanedown",
+    "predicted": "dfx_local_ub_all_port_down",
+    "confidence": 0.9092,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_local_ub_two_socket_single_port_down",
+    "second_sim": 0.8839,
+    "top5_candidates": [
+      [
+        "dfx_local_ub_all_port_down",
+        0.9092
+      ],
+      [
+        "dfx_local_ub_two_socket_single_port_down",
+        0.8839
+      ],
+      [
+        "dfx_client_write_remote_worker_etcd_main_fault",
+        0.8769
+      ],
+      [
+        "dfx_client_write_remote_after_ubse_fault",
+        0.8769
+      ],
+      [
+        "dfx_local_ub_single_port_down",
+        0.8769
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            134.86033333333333
+          ],
+          [
+            "c2w_latency",
+            134.823
+          ],
+          [
+            "c2w_urma_latency",
+            134.823
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            134.86033333333333
+          ],
+          [
+            "c2w_latency",
+            134.823
+          ],
+          [
+            "c2w_urma_latency",
+            134.823
+          ],
+          [
+            "worker_total_latency",
+            0.03733333333333333
+          ],
+          [
+            "urma_total_latency",
+            0.0
+          ]
+        ],
+        "p99_p50_ratio": 36.43579876102872,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 36.436
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 6
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 6,
+        "failure_event_count": 0,
+        "total_parse_result_count": 6
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_local_ub_all_port_link_loss_001_20260529_20_14_42",
+    "ground_truth": "dfx_local_ub_all_port_link_loss",
+    "predicted": "dfx_remote_ub_single_port_down",
+    "confidence": 0.9385,
+    "correct": false,
+    "top3_correct": true,
+    "top5_correct": true,
+    "second_type": "dfx_remote_ub_two_socket_single_port_down",
+    "second_sim": 0.9385,
+    "top5_candidates": [
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_lanedown",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_single_port_down",
+        0.9385
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            388.272
+          ],
+          [
+            "c2w_latency",
+            388.206
+          ],
+          [
+            "c2w_urma_latency",
+            388.206
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            388.272
+          ],
+          [
+            "c2w_latency",
+            388.206
+          ],
+          [
+            "c2w_urma_latency",
+            388.206
+          ],
+          [
+            "worker_total_latency",
+            0.066
+          ],
+          [
+            "urma_total_latency",
+            0.0
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_local_ub_single_port_down_001_20260529_16_57_47",
+    "ground_truth": "dfx_local_ub_single_port_down",
+    "predicted": "dfx_remote_ub_two_socket_single_port_down",
+    "confidence": 0.9385,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": true,
+    "second_type": "dfx_remote_ub_single_port_down",
+    "second_sim": 0.9385,
+    "top5_candidates": [
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_lanedown",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_single_port_down",
+        0.9385
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            388.067
+          ],
+          [
+            "c2w_latency",
+            388.002
+          ],
+          [
+            "c2w_urma_latency",
+            388.002
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            388.067
+          ],
+          [
+            "c2w_latency",
+            388.002
+          ],
+          [
+            "c2w_urma_latency",
+            388.002
+          ],
+          [
+            "worker_total_latency",
+            0.065
+          ],
+          [
+            "urma_total_latency",
+            0.0
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_local_ub_two_port_flashdown_001_20260528_19_25_02",
+    "ground_truth": "dfx_local_ub_two_port_flashdown",
+    "predicted": "dfx_write_remote_tcp_dalay",
+    "confidence": 0.9385,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_write_remote_tcp_dalay",
+    "second_sim": 0.9384,
+    "top5_candidates": [
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9385
+      ],
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9384
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9384
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            388.199
+          ],
+          [
+            "c2w_latency",
+            388.15500000000003
+          ],
+          [
+            "c2w_urma_latency",
+            388.15500000000003
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            388.199
+          ],
+          [
+            "c2w_latency",
+            388.15500000000003
+          ],
+          [
+            "c2w_urma_latency",
+            388.15500000000003
+          ],
+          [
+            "worker_total_latency",
+            0.044
+          ],
+          [
+            "urma_total_latency",
+            0.0
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_local_ub_two_socket_single_port_down_001_20260529_23_17_57",
+    "ground_truth": "dfx_local_ub_two_socket_single_port_down",
+    "predicted": "dfx_local_ub_two_port_flashdown",
+    "confidence": 0.9943,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_remote_ub_single_socket_two_port_down",
+    "second_sim": 0.9171,
+    "top5_candidates": [
+      [
+        "dfx_local_ub_two_port_flashdown",
+        0.9943
+      ],
+      [
+        "dfx_remote_ub_single_socket_two_port_down",
+        0.9171
+      ],
+      [
+        "dfx_remote_ub_all_port_down",
+        0.9083
+      ],
+      [
+        "dfx_ps_n_n",
+        0.7703
+      ],
+      [
+        "dfx_worker_reboot_single_node",
+        0.5675
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            44.97047619047619
+          ],
+          [
+            "c2w_latency",
+            44.960047619047614
+          ],
+          [
+            "c2w_urma_latency",
+            44.960047619047614
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            44.97047619047619
+          ],
+          [
+            "c2w_latency",
+            44.960047619047614
+          ],
+          [
+            "c2w_urma_latency",
+            44.960047619047614
+          ],
+          [
+            "worker_total_latency",
+            0.010428571428571435
+          ]
+        ],
+        "p99_p50_ratio": 34.373660030627875,
+        "op_p99_p50_ratio": {
+          "DS_KV_CLIENT_SET": 1.12
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_KV_CLIENT_SET": 42
+        },
+        "anomalous_ratio": 0.021,
+        "trace_context_pods_count": 1,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_022": 12288,
+          "kvcache_runtime_1036": 12288,
+          "kvcache_runtime_1051": 12288,
+          "kvcache_runtime_1056": 12288,
+          "kvcache_runtime_1065": 12288,
+          "kvcache_runtime_1075": 12288,
+          "kvcache_runtime_048": 12288,
+          "kvcache_runtime_241": 12288
+        },
+        "status_code_dist": {
+          "1004": 12288
+        },
+        "spatial_pod": {
+          "unique_count": 2,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "SET": 12288
+        },
+        "src_dst_pair_count": 1
+      },
+      "summary": {
+        "anomalous_event_count": 42,
+        "failure_event_count": 12288,
+        "total_parse_result_count": 2000
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_r_etcd_fail_client_update_001_20260528_18_26_42",
+    "ground_truth": "dfx_r_etcd_fail_client_update",
+    "predicted": "dfx_write_remote_tcp_dalay",
+    "confidence": 0.9385,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_local_ub_all_port_link_loss",
+    "second_sim": 0.9384,
+    "top5_candidates": [
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9384
+      ],
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9384
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            388.251
+          ],
+          [
+            "c2w_latency",
+            388.203
+          ],
+          [
+            "c2w_urma_latency",
+            388.203
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            388.251
+          ],
+          [
+            "c2w_latency",
+            388.203
+          ],
+          [
+            "c2w_urma_latency",
+            388.203
+          ],
+          [
+            "worker_total_latency",
+            0.048
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_remote_ub_single_port_down_001_20260528_20_24_32",
+    "ground_truth": "dfx_remote_ub_single_port_down",
+    "predicted": "dfx_local_ub_all_port_down",
+    "confidence": 0.8803,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_r_worker_process_set_exit",
+    "second_sim": 0.879,
+    "top5_candidates": [
+      [
+        "dfx_local_ub_all_port_down",
+        0.8803
+      ],
+      [
+        "dfx_r_worker_process_set_exit",
+        0.879
+      ],
+      [
+        "dfx_local_ub_two_socket_single_port_down",
+        0.8777
+      ],
+      [
+        "dfx_client_write_remote_after_ubse_fault",
+        0.8772
+      ],
+      [
+        "dfx_client_write_remote_after_ubm_fault",
+        0.8772
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            205.7885
+          ],
+          [
+            "c2w_latency",
+            205.752
+          ],
+          [
+            "c2w_urma_latency",
+            205.752
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            205.7885
+          ],
+          [
+            "c2w_latency",
+            205.752
+          ],
+          [
+            "c2w_urma_latency",
+            205.752
+          ],
+          [
+            "worker_total_latency",
+            0.036500000000000005
+          ],
+          [
+            "urma_total_latency",
+            0.0
+          ]
+        ],
+        "p99_p50_ratio": 16.71137791548326,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 16.711
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 4
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 4,
+        "failure_event_count": 0,
+        "total_parse_result_count": 4
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_remote_ub_single_socket_two_port_down_001_20260528_19_14_14",
+    "ground_truth": "dfx_remote_ub_single_socket_two_port_down",
+    "predicted": "dfx_local_ub_single_port_down",
+    "confidence": 0.9385,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_local_ub_all_port_lanedown",
+    "second_sim": 0.9385,
+    "top5_candidates": [
+      [
+        "dfx_local_ub_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_lanedown",
+        0.9385
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9384
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9384
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            388.445
+          ],
+          [
+            "c2w_latency",
+            388.364
+          ],
+          [
+            "c2w_urma_latency",
+            388.364
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            388.445
+          ],
+          [
+            "c2w_latency",
+            388.364
+          ],
+          [
+            "c2w_urma_latency",
+            388.364
+          ],
+          [
+            "worker_total_latency",
+            0.081
+          ],
+          [
+            "urma_total_latency",
+            0.0
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_remote_ub_two_socket_single_port_down_001_20260529_16_43_36",
+    "ground_truth": "dfx_remote_ub_two_socket_single_port_down",
+    "predicted": "dfx_local_ub_all_port_link_loss",
+    "confidence": 0.9385,
+    "correct": false,
+    "top3_correct": true,
+    "top5_correct": true,
+    "second_type": "dfx_remote_ub_two_socket_single_port_down",
+    "second_sim": 0.9385,
+    "top5_candidates": [
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9385
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_lanedown",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_single_port_down",
+        0.9385
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            388.213
+          ],
+          [
+            "c2w_latency",
+            388.151
+          ],
+          [
+            "c2w_urma_latency",
+            388.151
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            388.213
+          ],
+          [
+            "c2w_latency",
+            388.151
+          ],
+          [
+            "c2w_urma_latency",
+            388.151
+          ],
+          [
+            "worker_total_latency",
+            0.062
+          ],
+          [
+            "urma_total_latency",
+            0.0
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_sdk_install_etcd_down_001_20260528_11_40_44",
+    "ground_truth": "dfx_sdk_install_etcd_down",
+    "predicted": "dfx_local_ub_single_port_down",
+    "confidence": 0.3503,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_worker_reboot_single_node",
+    "second_sim": 0.1121,
+    "top5_candidates": [
+      [
+        "dfx_local_ub_single_port_down",
+        0.3503
+      ],
+      [
+        "dfx_worker_reboot_single_node",
+        0.1121
+      ],
+      [
+        "dfx_r_etcd_fail_client_update",
+        0.1118
+      ],
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.1078
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.103
+      ]
+    ],
+    "test_features": {
+      "fault_category": "connectivity",
+      "latency": null,
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_005": 351,
+          "kvcache_runtime_2788": 90,
+          "kvcache_runtime_2295": 90,
+          "kvcache_runtime_2303": 90,
+          "kvcache_runtime_106": 90,
+          "kvcache_runtime_241": 45
+        },
+        "status_code_dist": {
+          "5": 351
+        },
+        "spatial_pod": {
+          "unique_count": 2,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "SET": 117
+        },
+        "src_dst_pair_count": 1
+      },
+      "summary": {
+        "anomalous_event_count": 0,
+        "failure_event_count": 576,
+        "total_parse_result_count": 234
+      }
+    },
+    "test_fault_category": "connectivity"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_sdk_install_etcd_unavailable_001_20260529_17_12_46",
+    "ground_truth": "dfx_sdk_install_etcd_unavailable",
+    "predicted": "dfx_local_ub_single_socket_two_port_down",
+    "confidence": 0.8839,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_worker_process_write_net_card_loss",
+    "second_sim": 0.8833,
+    "top5_candidates": [
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.8839
+      ],
+      [
+        "dfx_worker_process_write_net_card_loss",
+        0.8833
+      ],
+      [
+        "dfx_remote_ub_single_socket_two_port_down",
+        0.8698
+      ],
+      [
+        "dfx_remote_ub_all_port_down",
+        0.8698
+      ],
+      [
+        "dfx_client_process_scale_in_worker_hang_up",
+        0.8693
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            296.36379999999997
+          ],
+          [
+            "c2w_latency",
+            296.34839999999997
+          ],
+          [
+            "c2w_urma_latency",
+            296.34839999999997
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            296.36379999999997
+          ],
+          [
+            "c2w_latency",
+            296.34839999999997
+          ],
+          [
+            "c2w_urma_latency",
+            296.34839999999997
+          ],
+          [
+            "worker_total_latency",
+            0.0154
+          ]
+        ],
+        "p99_p50_ratio": 1.3276151263665337,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.328
+        },
+        "pod_concentration": "multi_pod",
+        "affected_pods_count": 4,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 10
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 4,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 10,
+        "failure_event_count": 0,
+        "total_parse_result_count": 10
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_exit_single_node_001_20260529_22_15_43",
+    "ground_truth": "dfx_worker_process_exit_single_node",
+    "predicted": "dfx_local_ub_single_socket_two_port_down",
+    "confidence": 0.936,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_r_etcd_fail_client_update",
+    "second_sim": 0.9098,
+    "top5_candidates": [
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.936
+      ],
+      [
+        "dfx_r_etcd_fail_client_update",
+        0.9098
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.8745
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.8741
+      ],
+      [
+        "dfx_client_scale_in_tcp_down",
+        0.8269
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            86.74746428571427
+          ],
+          [
+            "c2w_latency",
+            86.73810714285712
+          ],
+          [
+            "c2w_urma_latency",
+            86.73810714285712
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            86.74746428571427
+          ],
+          [
+            "c2w_latency",
+            86.73810714285712
+          ],
+          [
+            "c2w_urma_latency",
+            86.73810714285712
+          ],
+          [
+            "worker_total_latency",
+            0.009357142857142864
+          ]
+        ],
+        "p99_p50_ratio": 72.02904564315352,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.001
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 56
+        },
+        "anomalous_ratio": 0.17721518987341772,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_003": 84,
+          "kvcache_runtime_1377": 56,
+          "kvcache_runtime_2295": 242,
+          "kvcache_runtime_2303": 270,
+          "kvcache_access_021": 56,
+          "kvcache_runtime_106": 242,
+          "kvcache_access_005": 390,
+          "kvcache_runtime_2788": 186,
+          "kvcache_runtime_241": 121
+        },
+        "status_code_dist": {
+          "3": 84,
+          "1002": 56,
+          "5": 390
+        },
+        "spatial_pod": {
+          "unique_count": 2,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "SET": 158
+        },
+        "src_dst_pair_count": 1
+      },
+      "summary": {
+        "anomalous_event_count": 56,
+        "failure_event_count": 1135,
+        "total_parse_result_count": 316
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_local_ub_link_down_002_20260528_16_11_16",
+    "ground_truth": "dfx_worker_process_local_ub_link_down",
+    "predicted": "dfx_worker_process_remote_ub_ce",
+    "confidence": 0.9621,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_worker_process_remote_local_ub_lane_down",
+    "second_sim": 0.9578,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_ub_ce",
+        0.9621
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_lane_down",
+        0.9578
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_link_loss",
+        0.9365
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_flash_down",
+        0.8897
+      ],
+      [
+        "dfx_worker_process_remote_remote_ub_single_port_down",
+        0.8785
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            9.735466019417474
+          ],
+          [
+            "sdk_process",
+            9.518592233009706
+          ],
+          [
+            "worker_total_latency",
+            9.515368932038834
+          ],
+          [
+            "remote_worker_rpc",
+            9.180456310679613
+          ],
+          [
+            "remote_worker_cost",
+            7.107281553398058
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            9.735466019417474
+          ],
+          [
+            "sdk_process",
+            9.518592233009706
+          ],
+          [
+            "worker_total_latency",
+            9.515368932038834
+          ],
+          [
+            "remote_worker_rpc",
+            9.180456310679613
+          ],
+          [
+            "remote_worker_cost",
+            7.107281553398058
+          ]
+        ],
+        "p99_p50_ratio": 1.0340662743883555,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 1.034
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 206
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_021": 297,
+          "kvcache_runtime_1377": 246,
+          "kvcache_runtime_2115": 198,
+          "kvcache_runtime_2117": 198,
+          "kvcache_runtime_2212": 198,
+          "kvcache_runtime_2116": 198,
+          "kvcache_runtime_2525": 198,
+          "kvcache_runtime_949": 297,
+          "kvcache_runtime_111": 198,
+          "kvcache_runtime_272": 198
+        },
+        "status_code_dist": {
+          "1002": 297
+        },
+        "spatial_pod": {
+          "unique_count": 3,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "GET": 99
+        },
+        "src_dst_pair_count": 1
+      },
+      "summary": {
+        "anomalous_event_count": 206,
+        "failure_event_count": 1335,
+        "total_parse_result_count": 206
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_local_ub_flash_down_001_20260529_23_23_56",
+    "ground_truth": "dfx_worker_process_remote_local_ub_flash_down",
+    "predicted": "dfx_worker_process_remote_ub_ce",
+    "confidence": 0.9747,
+    "correct": false,
+    "top3_correct": true,
+    "top5_correct": true,
+    "second_type": "dfx_worker_process_remote_local_ub_lane_down",
+    "second_sim": 0.9664,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_ub_ce",
+        0.9747
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_lane_down",
+        0.9664
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_flash_down",
+        0.9361
+      ],
+      [
+        "dfx_worker_process_remote_ub_fe",
+        0.9348
+      ],
+      [
+        "dfx_worker_process_remote_remote_ub_single_port_down",
+        0.9311
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            87.16699999999999
+          ],
+          [
+            "sdk_process",
+            79.6452
+          ],
+          [
+            "worker_total_latency",
+            79.64339999999999
+          ],
+          [
+            "remote_worker_rpc",
+            78.81713333333333
+          ],
+          [
+            "remote_worker_cost",
+            73.23866666666666
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            87.16699999999999
+          ],
+          [
+            "sdk_process",
+            79.6452
+          ],
+          [
+            "worker_total_latency",
+            79.64339999999999
+          ],
+          [
+            "remote_worker_rpc",
+            78.81713333333333
+          ],
+          [
+            "remote_worker_cost",
+            73.23866666666666
+          ]
+        ],
+        "p99_p50_ratio": 1.0111572208927797,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 1.011
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 30
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_021": 36,
+          "kvcache_runtime_1377": 35,
+          "kvcache_runtime_2117": 39,
+          "kvcache_runtime_2115": 39,
+          "kvcache_runtime_2212": 27,
+          "kvcache_runtime_2116": 39,
+          "kvcache_runtime_2525": 27,
+          "kvcache_runtime_949": 183,
+          "kvcache_runtime_906": 66,
+          "kvcache_runtime_111": 39,
+          "kvcache_runtime_272": 18,
+          "kvcache_access_005": 18,
+          "kvcache_runtime_2114": 24
+        },
+        "status_code_dist": {
+          "1002": 36,
+          "5": 18
+        },
+        "spatial_pod": {
+          "unique_count": 3,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "GET": 15
+        },
+        "src_dst_pair_count": 2
+      },
+      "summary": {
+        "anomalous_event_count": 30,
+        "failure_event_count": 440,
+        "total_parse_result_count": 30
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_local_ub_single_port_down_001_20260529_00_41_49",
+    "ground_truth": "dfx_worker_process_remote_local_ub_single_port_down",
+    "predicted": "dfx_worker_process_remote_local_ub_link_loss",
+    "confidence": 0.9819,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_worker_process_remote_local_ub_lane_down",
+    "second_sim": 0.9658,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_local_ub_link_loss",
+        0.9819
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_lane_down",
+        0.9658
+      ],
+      [
+        "dfx_worker_process_remote_ub_ce",
+        0.9394
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_flash_down",
+        0.88
+      ],
+      [
+        "dfx_worker_process_remote_ub_fe",
+        0.8437
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            97.67632743362834
+          ],
+          [
+            "sdk_process",
+            86.08928318584067
+          ],
+          [
+            "worker_total_latency",
+            86.08564601769915
+          ],
+          [
+            "remote_worker_rpc",
+            85.65396460176991
+          ],
+          [
+            "remote_worker_cost",
+            84.68171681415924
+          ],
+          [
+            "c2w_latency",
+            11.590681415929197
+          ],
+          [
+            "c2w_urma_latency",
+            11.590681415929197
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            97.67632743362834
+          ],
+          [
+            "sdk_process",
+            86.08928318584067
+          ],
+          [
+            "worker_total_latency",
+            86.08564601769915
+          ],
+          [
+            "remote_worker_rpc",
+            85.65396460176991
+          ],
+          [
+            "remote_worker_cost",
+            84.68171681415924
+          ]
+        ],
+        "p99_p50_ratio": 1.0035709227750014,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 1.004
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 226
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_021": 218,
+          "kvcache_runtime_1377": 443,
+          "kvcache_runtime_2117": 335,
+          "kvcache_runtime_2115": 335,
+          "kvcache_runtime_2212": 327,
+          "kvcache_runtime_2116": 335,
+          "kvcache_runtime_2525": 327,
+          "kvcache_runtime_949": 878,
+          "kvcache_runtime_906": 278,
+          "kvcache_runtime_111": 113,
+          "kvcache_runtime_272": 109,
+          "kvcache_access_005": 8,
+          "kvcache_runtime_2114": 16
+        },
+        "status_code_dist": {
+          "1002": 218,
+          "5": 8
+        },
+        "spatial_pod": {
+          "unique_count": 3,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "GET": 113
+        },
+        "src_dst_pair_count": 2
+      },
+      "summary": {
+        "anomalous_event_count": 226,
+        "failure_event_count": 2592,
+        "total_parse_result_count": 226
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_remote_ub_single_port_down_001_20260528_18_47_43",
+    "ground_truth": "dfx_worker_process_remote_remote_ub_single_port_down",
+    "predicted": "dfx_worker_process_remote_ub_fe",
+    "confidence": 0.9955,
+    "correct": false,
+    "top3_correct": true,
+    "top5_correct": true,
+    "second_type": "dfx_worker_process_remote_remote_ub_single_port_down",
+    "second_sim": 0.9876,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_ub_fe",
+        0.9955
+      ],
+      [
+        "dfx_worker_process_remote_remote_ub_single_port_down",
+        0.9876
+      ],
+      [
+        "dfx_worker_process_remote_get_etcd_main_fail",
+        0.9512
+      ],
+      [
+        "dfx_worker_process_remote_ub_ce",
+        0.9204
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_lane_down",
+        0.9034
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            79.67433333333334
+          ],
+          [
+            "sdk_process",
+            75.26633333333335
+          ],
+          [
+            "worker_total_latency",
+            75.26266666666668
+          ],
+          [
+            "remote_worker_rpc",
+            73.56666666666666
+          ],
+          [
+            "remote_worker_cost",
+            73.03466666666667
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            79.67433333333334
+          ],
+          [
+            "sdk_process",
+            75.26633333333335
+          ],
+          [
+            "worker_total_latency",
+            75.26266666666668
+          ],
+          [
+            "remote_worker_rpc",
+            73.56666666666666
+          ],
+          [
+            "remote_worker_cost",
+            73.03466666666667
+          ]
+        ],
+        "p99_p50_ratio": 1.4487277445397535,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 1.449
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 6
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_021": 4,
+          "kvcache_runtime_1377": 4,
+          "kvcache_runtime_2117": 7,
+          "kvcache_runtime_2115": 7,
+          "kvcache_runtime_2116": 7,
+          "kvcache_runtime_2525": 3,
+          "kvcache_runtime_2212": 2,
+          "kvcache_runtime_949": 15,
+          "kvcache_runtime_906": 10,
+          "kvcache_runtime_111": 7,
+          "kvcache_runtime_272": 2,
+          "kvcache_access_005": 6,
+          "kvcache_runtime_2114": 8
+        },
+        "status_code_dist": {
+          "1002": 4,
+          "5": 6
+        },
+        "spatial_pod": {
+          "unique_count": 3,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "GET": 3
+        },
+        "src_dst_pair_count": 2
+      },
+      "summary": {
+        "anomalous_event_count": 6,
+        "failure_event_count": 52,
+        "total_parse_result_count": 6
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_ub_ce_001_20260529_22_11_17",
+    "ground_truth": "dfx_worker_process_remote_ub_ce",
+    "predicted": "dfx_worker_process_remote_local_ub_single_port_down",
+    "confidence": 0.9669,
+    "correct": false,
+    "top3_correct": true,
+    "top5_correct": true,
+    "second_type": "dfx_worker_process_remote_local_ub_flash_down",
+    "second_sim": 0.834,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_local_ub_single_port_down",
+        0.9669
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_flash_down",
+        0.834
+      ],
+      [
+        "dfx_worker_process_remote_ub_ce",
+        0.8339
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_lane_down",
+        0.8124
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_link_loss",
+        0.7716
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "remote_worker_rpc",
+            86.351
+          ],
+          [
+            "remote_worker_cost",
+            80.346
+          ],
+          [
+            "total_latency",
+            48.0965
+          ],
+          [
+            "sdk_process",
+            44.059999999999995
+          ],
+          [
+            "worker_total_latency",
+            44.059
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "remote_worker_rpc",
+            86.351
+          ],
+          [
+            "remote_worker_cost",
+            80.346
+          ],
+          [
+            "total_latency",
+            48.0965
+          ],
+          [
+            "sdk_process",
+            44.059999999999995
+          ],
+          [
+            "worker_total_latency",
+            44.059
+          ]
+        ],
+        "p99_p50_ratio": 16.502365356623,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 16.502
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 4
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_runtime_1377": 2,
+          "kvcache_runtime_2117": 2,
+          "kvcache_runtime_2115": 2,
+          "kvcache_runtime_2212": 2,
+          "kvcache_runtime_2116": 2,
+          "kvcache_runtime_2525": 2,
+          "kvcache_runtime_949": 5,
+          "kvcache_runtime_906": 4,
+          "kvcache_access_021": 2,
+          "kvcache_runtime_111": 2
+        },
+        "status_code_dist": {
+          "1002": 2
+        },
+        "spatial_pod": {
+          "unique_count": 3,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "GET": 1
+        },
+        "src_dst_pair_count": 1
+      },
+      "summary": {
+        "anomalous_event_count": 4,
+        "failure_event_count": 16,
+        "total_parse_result_count": 4
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_ub_fe_001_20260528_23_00_14",
+    "ground_truth": "dfx_worker_process_remote_ub_fe",
+    "predicted": "dfx_worker_process_remote_get_etcd_main_fail",
+    "confidence": 0.9134,
+    "correct": false,
+    "top3_correct": true,
+    "top5_correct": true,
+    "second_type": "dfx_worker_process_remote_ub_fe",
+    "second_sim": 0.8866,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_get_etcd_main_fail",
+        0.9134
+      ],
+      [
+        "dfx_worker_process_remote_ub_fe",
+        0.8866
+      ],
+      [
+        "dfx_worker_process_remote_remote_ub_single_port_down",
+        0.8758
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_flash_down",
+        0.8345
+      ],
+      [
+        "dfx_worker_process_remote_ub_ce",
+        0.7683
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "remote_worker_cost",
+            71.66466666666668
+          ],
+          [
+            "total_latency",
+            70.21466666666667
+          ],
+          [
+            "sdk_process",
+            69.65466666666667
+          ],
+          [
+            "worker_total_latency",
+            69.648
+          ],
+          [
+            "remote_worker_rpc",
+            68.28966666666666
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "remote_worker_cost",
+            71.66466666666668
+          ],
+          [
+            "total_latency",
+            70.21466666666667
+          ],
+          [
+            "sdk_process",
+            69.65466666666667
+          ],
+          [
+            "worker_total_latency",
+            69.648
+          ],
+          [
+            "remote_worker_rpc",
+            68.28966666666666
+          ]
+        ],
+        "p99_p50_ratio": 1.017972691770474,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 1.018
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 6
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_005": 6,
+          "kvcache_runtime_2117": 4,
+          "kvcache_runtime_2114": 8,
+          "kvcache_runtime_2115": 4,
+          "kvcache_runtime_2116": 4,
+          "kvcache_runtime_949": 4,
+          "kvcache_runtime_906": 4,
+          "kvcache_runtime_111": 4
+        },
+        "status_code_dist": {
+          "5": 6
+        },
+        "spatial_pod": {
+          "unique_count": 3,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "GET": 2
+        },
+        "src_dst_pair_count": 1
+      },
+      "summary": {
+        "anomalous_event_count": 6,
+        "failure_event_count": 18,
+        "total_parse_result_count": 6
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_ub_nfe_001_20260528_16_05_56",
+    "ground_truth": "dfx_worker_process_remote_ub_nfe",
+    "predicted": "dfx_worker_process_remote_get_etcd_main_fail",
+    "confidence": 0.8868,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_worker_process_remote_ub_fe",
+    "second_sim": 0.8603,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_get_etcd_main_fail",
+        0.8868
+      ],
+      [
+        "dfx_worker_process_remote_ub_fe",
+        0.8603
+      ],
+      [
+        "dfx_worker_process_remote_remote_ub_single_port_down",
+        0.8512
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_flash_down",
+        0.7836
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_single_port_down",
+        0.7599
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "remote_worker_rpc",
+            67.7795
+          ],
+          [
+            "remote_worker_cost",
+            67.3125
+          ],
+          [
+            "total_latency",
+            49.105333333333334
+          ],
+          [
+            "sdk_process",
+            47.96233333333333
+          ],
+          [
+            "worker_total_latency",
+            47.95566666666665
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "remote_worker_rpc",
+            67.7795
+          ],
+          [
+            "remote_worker_cost",
+            67.3125
+          ],
+          [
+            "total_latency",
+            49.105333333333334
+          ],
+          [
+            "sdk_process",
+            47.96233333333333
+          ],
+          [
+            "worker_total_latency",
+            47.95566666666665
+          ]
+        ],
+        "p99_p50_ratio": 1.0002431037194868,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 6
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_005": 6,
+          "kvcache_runtime_2117": 4,
+          "kvcache_runtime_2114": 8,
+          "kvcache_runtime_2115": 4,
+          "kvcache_runtime_2116": 4,
+          "kvcache_runtime_949": 4,
+          "kvcache_runtime_906": 4,
+          "kvcache_runtime_111": 4
+        },
+        "status_code_dist": {
+          "5": 6
+        },
+        "spatial_pod": {
+          "unique_count": 3,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "GET": 2
+        },
+        "src_dst_pair_count": 1
+      },
+      "summary": {
+        "anomalous_event_count": 6,
+        "failure_event_count": 18,
+        "total_parse_result_count": 6
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_ub_single_link_down_001_20260529_22_32_34",
+    "ground_truth": "dfx_worker_process_remote_ub_single_link_down",
+    "predicted": "dfx_worker_process_net_card_loss",
+    "confidence": 0.8001,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_client_process_get_ubse_failure",
+    "second_sim": 0.744,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_net_card_loss",
+        0.8001
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.744
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.744
+      ],
+      [
+        "dfx_worker_process_upgrade_etcd_fault",
+        0.7228
+      ],
+      [
+        "dfx_worker_process_local_ub_link_down",
+        0.7228
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            5.626
+          ],
+          [
+            "worker_total_latency",
+            4.883
+          ],
+          [
+            "sdk_process",
+            4.882
+          ],
+          [
+            "worker_query_meta_latency",
+            4.307
+          ],
+          [
+            "master_rpc_total",
+            4.222
+          ],
+          [
+            "c2w_latency",
+            0.7430000000000003
+          ],
+          [
+            "c2w_urma_latency",
+            0.7430000000000003
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            5.626
+          ],
+          [
+            "worker_total_latency",
+            4.883
+          ],
+          [
+            "sdk_process",
+            4.882
+          ],
+          [
+            "worker_query_meta_latency",
+            4.307
+          ],
+          [
+            "master_rpc_total",
+            4.222
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_scale_in_client_exit_001_20260529_21_26_04",
+    "ground_truth": "dfx_worker_process_scale_in_client_exit",
+    "predicted": "dfx_worker_set_exit",
+    "confidence": 0.7701,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_worker_set_exit",
+    "second_sim": 0.77,
+    "top5_candidates": [
+      [
+        "dfx_worker_set_exit",
+        0.7701
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.77
+      ],
+      [
+        "dfx_client_process_get_exit_start",
+        0.7699
+      ],
+      [
+        "dfx_worker_process_local_get_etcd_main_fail",
+        0.7699
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.7699
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "worker_query_meta_latency",
+            511.873
+          ],
+          [
+            "total_latency",
+            451.1155
+          ],
+          [
+            "worker_total_latency",
+            450.3875
+          ],
+          [
+            "remote_worker_rpc",
+            387.756
+          ],
+          [
+            "remote_worker_cost",
+            386.978
+          ],
+          [
+            "urma_total_latency",
+            386.732
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "worker_query_meta_latency",
+            511.873
+          ],
+          [
+            "total_latency",
+            451.1155
+          ],
+          [
+            "worker_total_latency",
+            450.3875
+          ],
+          [
+            "remote_worker_rpc",
+            387.756
+          ],
+          [
+            "remote_worker_cost",
+            386.978
+          ]
+        ],
+        "p99_p50_ratio": 1.3192346942710034,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 1.319
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 4
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 4,
+        "failure_event_count": 0,
+        "total_parse_result_count": 4
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_scale_in_remote_ub_link_down_001_20260528_15_41_52",
+    "ground_truth": "dfx_worker_process_scale_in_remote_ub_link_down",
+    "predicted": "dfx_client_init_etcd_cluster_fail",
+    "confidence": 0.9178,
+    "correct": false,
+    "top3_correct": true,
+    "top5_correct": true,
+    "second_type": "dfx_worker_process_scale_in_remote_ub_link_down",
+    "second_sim": 0.8704,
+    "top5_candidates": [
+      [
+        "dfx_client_init_etcd_cluster_fail",
+        0.9178
+      ],
+      [
+        "dfx_worker_process_scale_in_remote_ub_link_down",
+        0.8704
+      ],
+      [
+        "dfx_worker_process_scale_in_remote_ub_nfe",
+        0.8698
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.7908
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.7907
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            1800.47464556962
+          ],
+          [
+            "worker_total_latency",
+            1800.2167483870974
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            1800.47464556962
+          ],
+          [
+            "worker_total_latency",
+            1800.2167483870974
+          ],
+          [
+            "c2w_latency",
+            0.2548903225806557
+          ],
+          [
+            "c2w_urma_latency",
+            0.2548903225806557
+          ],
+          [
+            "sdk_process",
+            0.13787341772151884
+          ]
+        ],
+        "p99_p50_ratio": 1.000325985787686,
+        "op_p99_p50_ratio": {
+          "DS_KV_CLIENT_GET": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_KV_CLIENT_GET": 316
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_003": 316,
+          "kvcache_runtime_1696": 316,
+          "kvcache_runtime_1711": 316,
+          "kvcache_runtime_1706": 316,
+          "kvcache_runtime_2173": 316,
+          "kvcache_runtime_2526": 316,
+          "kvcache_runtime_111": 316
+        },
+        "status_code_dist": {
+          "3": 316
+        },
+        "spatial_pod": {
+          "unique_count": 2,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "GET": 158
+        },
+        "src_dst_pair_count": 1
+      },
+      "summary": {
+        "anomalous_event_count": 316,
+        "failure_event_count": 1106,
+        "total_parse_result_count": 316
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_scale_in_remote_ub_nfe_001_20260528_15_18_39",
+    "ground_truth": "dfx_worker_process_scale_in_remote_ub_nfe",
+    "predicted": "dfx_worker_process_scale_in_remote_ub_link_down",
+    "confidence": 0.9547,
+    "correct": false,
+    "top3_correct": true,
+    "top5_correct": true,
+    "second_type": "dfx_worker_process_scale_in_remote_ub_nfe",
+    "second_sim": 0.9541,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_scale_in_remote_ub_link_down",
+        0.9547
+      ],
+      [
+        "dfx_worker_process_scale_in_remote_ub_nfe",
+        0.9541
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.9022
+      ],
+      [
+        "dfx_client_init_etcd_cluster_fail",
+        0.8907
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.8739
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            1791.0841261829655
+          ],
+          [
+            "worker_total_latency",
+            1790.4742900000003
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            1791.0841261829655
+          ],
+          [
+            "worker_total_latency",
+            1790.4742900000003
+          ],
+          [
+            "sdk_process",
+            0.42685173501577284
+          ],
+          [
+            "c2w_latency",
+            0.29074999999999757
+          ],
+          [
+            "c2w_urma_latency",
+            0.29074999999999757
+          ]
+        ],
+        "p99_p50_ratio": 1.0005759923067463,
+        "op_p99_p50_ratio": {
+          "DS_KV_CLIENT_GET": 1.001
+        },
+        "pod_concentration": "multi_pod",
+        "affected_pods_count": 4,
+        "affected_operation_dist": {
+          "DS_KV_CLIENT_GET": 634
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 4,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_003": 632,
+          "kvcache_runtime_1696": 632,
+          "kvcache_runtime_1711": 632,
+          "kvcache_runtime_1706": 632,
+          "kvcache_runtime_2173": 632,
+          "kvcache_runtime_2526": 632,
+          "kvcache_runtime_111": 316
+        },
+        "status_code_dist": {
+          "3": 632
+        },
+        "spatial_pod": {
+          "unique_count": 4,
+          "scope": "multi_pod"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "GET": 316
+        },
+        "src_dst_pair_count": 1
+      },
+      "summary": {
+        "anomalous_event_count": 634,
+        "failure_event_count": 1896,
+        "total_parse_result_count": 634
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_scale_in_tcp_down_001_20260528_19_30_06",
+    "ground_truth": "dfx_worker_process_scale_in_tcp_down",
+    "predicted": "dfx_worker_process_local_get_etcd_main_fail",
+    "confidence": 0.9383,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_client_process_get_exit_start",
+    "second_sim": 0.9383,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_local_get_etcd_main_fail",
+        0.9383
+      ],
+      [
+        "dfx_client_process_get_exit_start",
+        0.9383
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.9383
+      ],
+      [
+        "dfx_client_process_tcp_down",
+        0.9383
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.9381
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            389.711
+          ],
+          [
+            "sdk_process",
+            387.633
+          ],
+          [
+            "worker_total_latency",
+            387.63
+          ],
+          [
+            "remote_worker_rpc",
+            387.199
+          ],
+          [
+            "remote_worker_cost",
+            386.848
+          ],
+          [
+            "urma_total_latency",
+            386.65
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            389.711
+          ],
+          [
+            "sdk_process",
+            387.633
+          ],
+          [
+            "worker_total_latency",
+            387.63
+          ],
+          [
+            "remote_worker_rpc",
+            387.199
+          ],
+          [
+            "remote_worker_cost",
+            386.848
+          ]
+        ],
+        "p99_p50_ratio": 1.0,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_GET": 1.0
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_GET": 2
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 2,
+        "failure_event_count": 0,
+        "total_parse_result_count": 2
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_scale_in_tcp_loss_001_20260529_19_57_17",
+    "ground_truth": "dfx_worker_process_scale_in_tcp_loss",
+    "predicted": "dfx_worker_process_set_exit",
+    "confidence": 0.6807,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_worker_process_scale_in_tcp_down",
+    "second_sim": 0.6435,
+    "top5_candidates": [
+      [
+        "dfx_worker_process_set_exit",
+        0.6807
+      ],
+      [
+        "dfx_worker_process_scale_in_tcp_down",
+        0.6435
+      ],
+      [
+        "dfx_client_init_etcd_cluster_fail",
+        0.6334
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.6083
+      ],
+      [
+        "dfx_worker_process_scale_in_remote_ub_nfe",
+        0.5931
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            9.593999999999998
+          ],
+          [
+            "sdk_process",
+            6.232875000000001
+          ],
+          [
+            "worker_total_latency",
+            6.226875000000001
+          ],
+          [
+            "c2w_latency",
+            3.3671249999999997
+          ],
+          [
+            "c2w_urma_latency",
+            3.3671249999999997
+          ],
+          [
+            "urma_total_latency",
+            1.7917614285714287
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            9.593999999999998
+          ],
+          [
+            "sdk_process",
+            6.232875000000001
+          ],
+          [
+            "worker_total_latency",
+            6.226875000000001
+          ],
+          [
+            "c2w_latency",
+            3.3671249999999997
+          ],
+          [
+            "c2w_urma_latency",
+            3.3671249999999997
+          ]
+        ],
+        "p99_p50_ratio": 1.273949579831933,
+        "op_p99_p50_ratio": {
+          "DS_KV_CLIENT_GET": 1.038
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_KV_CLIENT_GET": 16
+        },
+        "anomalous_ratio": 0.008,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_022": 2048,
+          "kvcache_runtime_2529": 1224,
+          "kvcache_access_003": 6144,
+          "kvcache_runtime_1696": 3106,
+          "kvcache_runtime_1711": 3106
+        },
+        "status_code_dist": {
+          "1004": 2048,
+          "3": 6144
+        },
+        "spatial_pod": {
+          "unique_count": 2,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "GET": 4096
+        },
+        "src_dst_pair_count": 1
+      },
+      "summary": {
+        "anomalous_event_count": 16,
+        "failure_event_count": 8426,
+        "total_parse_result_count": 2000
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_write_net_card_loss_001_20260528_17_02_31",
+    "ground_truth": "dfx_worker_process_write_net_card_loss",
+    "predicted": "dfx_r_discovery_worker_process_hangup",
+    "confidence": 0.757,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_client_process_set_exit_start",
+    "second_sim": 0.7427,
+    "top5_candidates": [
+      [
+        "dfx_r_discovery_worker_process_hangup",
+        0.757
+      ],
+      [
+        "dfx_client_process_set_exit_start",
+        0.7427
+      ],
+      [
+        "dfx_ps_n_n",
+        0.7409
+      ],
+      [
+        "dfx_client_process_scale_in_worker_hang_up",
+        0.7408
+      ],
+      [
+        "dfx_remote_ub_all_port_down",
+        0.7407
+      ]
+    ],
+    "test_features": {
+      "fault_category": "latency",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            192.89768421052625
+          ],
+          [
+            "c2w_latency",
+            192.88989473684208
+          ],
+          [
+            "c2w_urma_latency",
+            192.88989473684208
+          ],
+          [
+            "master_rpc_total",
+            192.2382631578947
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            192.89768421052625
+          ],
+          [
+            "c2w_latency",
+            192.88989473684208
+          ],
+          [
+            "c2w_urma_latency",
+            192.88989473684208
+          ],
+          [
+            "master_rpc_total",
+            192.2382631578947
+          ],
+          [
+            "worker_total_latency",
+            0.00778947368421053
+          ]
+        ],
+        "p99_p50_ratio": 1.013611658433041,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.014
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 3,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 38
+        },
+        "anomalous_ratio": 1.0,
+        "trace_context_pods_count": 3,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": null,
+      "summary": {
+        "anomalous_event_count": 38,
+        "failure_event_count": 0,
+        "total_parse_result_count": 38
+      }
+    },
+    "test_fault_category": "latency"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_reboot_single_node_001_20260529_00_18_45",
+    "ground_truth": "dfx_worker_reboot_single_node",
+    "predicted": "dfx_local_ub_single_socket_two_port_down",
+    "confidence": 0.938,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_r_etcd_fail_client_update",
+    "second_sim": 0.9094,
+    "top5_candidates": [
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.938
+      ],
+      [
+        "dfx_r_etcd_fail_client_update",
+        0.9094
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.8763
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.8762
+      ],
+      [
+        "dfx_client_scale_in_tcp_down",
+        0.8275
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            86.81657692307695
+          ],
+          [
+            "c2w_latency",
+            86.79715384615386
+          ],
+          [
+            "c2w_urma_latency",
+            86.79715384615386
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            86.81657692307695
+          ],
+          [
+            "c2w_latency",
+            86.79715384615386
+          ],
+          [
+            "c2w_urma_latency",
+            86.79715384615386
+          ],
+          [
+            "worker_total_latency",
+            0.019423076923076932
+          ]
+        ],
+        "p99_p50_ratio": 73.44378698224851,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.001
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 52
+        },
+        "anomalous_ratio": 0.16560509554140126,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_access_003": 78,
+          "kvcache_runtime_1377": 52,
+          "kvcache_runtime_2295": 256,
+          "kvcache_runtime_2303": 282,
+          "kvcache_access_021": 52,
+          "kvcache_runtime_106": 256,
+          "kvcache_access_005": 393,
+          "kvcache_runtime_2788": 204,
+          "kvcache_runtime_241": 128
+        },
+        "status_code_dist": {
+          "3": 78,
+          "1002": 52,
+          "5": 393
+        },
+        "spatial_pod": {
+          "unique_count": 2,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "SET": 157
+        },
+        "src_dst_pair_count": 1
+      },
+      "summary": {
+        "anomalous_event_count": 52,
+        "failure_event_count": 1163,
+        "total_parse_result_count": 314
+      }
+    },
+    "test_fault_category": "mixed"
+  },
+  {
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_write_remote_tcp_dalay_001_20260529_22_55_07",
+    "ground_truth": "dfx_write_remote_tcp_dalay",
+    "predicted": "dfx_local_ub_single_socket_two_port_down",
+    "confidence": 0.8876,
+    "correct": false,
+    "top3_correct": false,
+    "top5_correct": false,
+    "second_type": "dfx_r_etcd_fail_client_update",
+    "second_sim": 0.8564,
+    "top5_candidates": [
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.8876
+      ],
+      [
+        "dfx_r_etcd_fail_client_update",
+        0.8564
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.8285
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.8267
+      ],
+      [
+        "dfx_client_scale_in_tcp_down",
+        0.7666
+      ]
+    ],
+    "test_features": {
+      "fault_category": "mixed",
+      "latency": {
+        "timeout_segments": [
+          [
+            "total_latency",
+            43.00521428571428
+          ],
+          [
+            "c2w_latency",
+            42.9935
+          ],
+          [
+            "c2w_urma_latency",
+            42.9935
+          ]
+        ],
+        "segment_ranking": [
+          [
+            "total_latency",
+            43.00521428571428
+          ],
+          [
+            "c2w_latency",
+            42.9935
+          ],
+          [
+            "c2w_urma_latency",
+            42.9935
+          ],
+          [
+            "worker_total_latency",
+            0.011714285714285719
+          ]
+        ],
+        "p99_p50_ratio": 71.83094555873926,
+        "op_p99_p50_ratio": {
+          "DS_POSIX_CREATE": 1.103
+        },
+        "pod_concentration": "few_pods",
+        "affected_pods_count": 2,
+        "affected_operation_dist": {
+          "DS_POSIX_CREATE": 28
+        },
+        "anomalous_ratio": 0.3181818181818182,
+        "trace_context_pods_count": 2,
+        "trace_context_hosts_count": 1,
+        "trace_context_clusters_count": 1
+      },
+      "connectivity": {
+        "failure_mode_dist": {
+          "kvcache_runtime_2788": 60,
+          "kvcache_runtime_2295": 60,
+          "kvcache_runtime_2303": 60,
+          "kvcache_runtime_1036": 60,
+          "kvcache_runtime_1051": 60,
+          "kvcache_runtime_1056": 60,
+          "kvcache_runtime_1065": 60,
+          "kvcache_runtime_1075": 60,
+          "kvcache_runtime_048": 60,
+          "kvcache_runtime_106": 60,
+          "kvcache_access_005": 60,
+          "kvcache_runtime_241": 30
+        },
+        "status_code_dist": {
+          "5": 90
+        },
+        "spatial_pod": {
+          "unique_count": 2,
+          "scope": "few_pods"
+        },
+        "spatial_host": {
+          "unique_count": 1,
+          "scope": "single_host"
+        },
+        "spatial_cluster": {
+          "unique_count": 1,
+          "scope": "single_cluster"
+        },
+        "affected_operation_dist": {
+          "SET": 30
+        },
+        "src_dst_pair_count": 1
+      },
+      "summary": {
+        "anomalous_event_count": 28,
+        "failure_event_count": 300,
+        "total_parse_result_count": 88
+      }
+    },
+    "test_fault_category": "mixed"
+  }
+]
