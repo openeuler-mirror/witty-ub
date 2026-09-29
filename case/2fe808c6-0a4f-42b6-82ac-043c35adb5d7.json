@@ -1,0 +1,98 @@
+{
+  "id": "2fe808c6-0a4f-42b6-82ac-043c35adb5d7",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker进程退出",
+  "description": "自动导入: dfx_worker_set_exit",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new_0530/lingqu_kvcache_dfx_worker_set_exit_003_20260529_17_50_15"
+  ],
+  "log_file_id": "7792f90e-4adc-462f-b507-4c948e7d4d6f",
+  "log_file_name": "lingqu_kvcache_dfx_worker_set_exit_003_20260529_17_50_15",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "Worker-退出/崩溃",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          450.6135
+        ],
+        [
+          "sdk_process",
+          387.996
+        ],
+        [
+          "remote_worker_rpc",
+          387.446
+        ],
+        [
+          "remote_worker_cost",
+          386.771
+        ],
+        [
+          "urma_total_latency",
+          386.499
+        ],
+        [
+          "c2w_latency",
+          256.61300000000006
+        ],
+        [
+          "c2w_urma_latency",
+          256.61300000000006
+        ],
+        [
+          "worker_total_latency",
+          194.0005
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          450.6135
+        ],
+        [
+          "sdk_process",
+          387.996
+        ],
+        [
+          "remote_worker_rpc",
+          387.446
+        ],
+        [
+          "remote_worker_cost",
+          386.771
+        ],
+        [
+          "urma_total_latency",
+          386.499
+        ]
+      ],
+      "p99_p50_ratio": 1.3177501112291268,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_SET": 1.0,
+        "DS_KV_CLIENT_GET": 1.0
+      },
+      "pod_concentration": "multi_pod",
+      "affected_pods_count": 4,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_SET": 2,
+        "DS_KV_CLIENT_GET": 2
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 4,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 4,
+      "failure_event_count": 0,
+      "total_parse_result_count": 4
+    }
+  },
+  "created_at": "2026-09-28 17:24:14"
+}

@@ -1,0 +1,100 @@
+{
+  "id": "1f7b059d-039f-4d86-b786-f4727461ea59",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Client进程挂死(r)",
+  "description": "自动导入: dfx_r_client_process_set_hangup",
+  "task_ids": [],
+  "task_names": [
+    "lingqu_kvcache_dfx_r_client_process_set_hangup_001_20260522_05_25_30"
+  ],
+  "log_file_id": "7d05950a-c201-404b-a654-dfcdce946371",
+  "log_file_name": "lingqu_kvcache_dfx_r_client_process_set_hangup_001_20260522_05_25_30",
+  "attachment_path": null,
+  "fault_category": "mixed",
+  "case_category": "Client-挂死/网络",
+  "features": {
+    "fault_category": "mixed",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          1796.8941084337355
+        ],
+        [
+          "worker_total_latency",
+          1796.577993548387
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          1796.8941084337355
+        ],
+        [
+          "worker_total_latency",
+          1796.577993548387
+        ],
+        [
+          "c2w_latency",
+          0.2916064516129007
+        ],
+        [
+          "c2w_urma_latency",
+          0.2916064516129007
+        ],
+        [
+          "worker_query_meta_latency",
+          0.25374096385542144
+        ]
+      ],
+      "p99_p50_ratio": 1.0005748907957923,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 1.001
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 3,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 166
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 4,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": {
+      "failure_mode_dist": {
+        "kvcache_access_003": 332,
+        "kvcache_runtime_1696": 332,
+        "kvcache_runtime_1711": 332,
+        "kvcache_runtime_1706": 332,
+        "kvcache_runtime_2173": 332,
+        "kvcache_runtime_2526": 332
+      },
+      "status_code_dist": {
+        "3": 332
+      },
+      "spatial_pod": {
+        "unique_count": 5,
+        "scope": "multi_pod"
+      },
+      "spatial_host": {
+        "unique_count": 1,
+        "scope": "single_host"
+      },
+      "spatial_cluster": {
+        "unique_count": 1,
+        "scope": "single_cluster"
+      },
+      "affected_operation_dist": {
+        "GET": 166
+      },
+      "src_dst_pair_count": 1
+    },
+    "summary": {
+      "anomalous_event_count": 166,
+      "failure_event_count": 996,
+      "total_parse_result_count": 166
+    }
+  },
+  "created_at": "2026-09-28 18:29:39"
+}

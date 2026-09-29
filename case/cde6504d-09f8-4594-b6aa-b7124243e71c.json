@@ -1,0 +1,93 @@
+{
+  "id": "cde6504d-09f8-4594-b6aa-b7124243e71c",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker进程退出",
+  "description": "自动导入: dfx_r_worker_process_set_exit",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new/lingqu_kvcache_dfx_r_worker_process_set_exit_001_20260521_13_35_43"
+  ],
+  "log_file_id": "cb71d3b4-a9e9-45dd-9cd3-84b8b5d2beeb",
+  "log_file_name": "lingqu_kvcache_dfx_r_worker_process_set_exit_001_20260521_13_35_43",
+  "attachment_path": null,
+  "fault_category": "mixed",
+  "case_category": "Worker-退出/崩溃",
+  "features": {
+    "fault_category": "mixed",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          10263.994666666667
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          10263.994666666667
+        ],
+        [
+          "urma_total_latency",
+          779.835
+        ],
+        [
+          "worker_total_latency",
+          312.222
+        ],
+        [
+          "c2w_latency",
+          4.374000000000011
+        ],
+        [
+          "c2w_urma_latency",
+          4.374000000000011
+        ]
+      ],
+      "p99_p50_ratio": 7892.789792159957,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_SET": 8923.407,
+        "DS_KV_CLIENT_GET": 1.0
+      },
+      "pod_concentration": "multi_pod",
+      "affected_pods_count": 5,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_SET": 8,
+        "DS_KV_CLIENT_GET": 4
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 6,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": {
+      "failure_mode_dist": {
+        "kvcache_access_021": 3
+      },
+      "status_code_dist": {
+        "1002": 3
+      },
+      "spatial_pod": {
+        "unique_count": 1,
+        "scope": "single_pod"
+      },
+      "spatial_host": {
+        "unique_count": 1,
+        "scope": "single_host"
+      },
+      "spatial_cluster": {
+        "unique_count": 0,
+        "scope": "single_cluster"
+      },
+      "affected_operation_dist": {
+        "SET": 1
+      },
+      "src_dst_pair_count": 1
+    },
+    "summary": {
+      "anomalous_event_count": 12,
+      "failure_event_count": 3,
+      "total_parse_result_count": 12
+    }
+  },
+  "created_at": "2026-09-28 17:23:59"
+}

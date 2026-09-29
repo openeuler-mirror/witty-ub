@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>故障模式匹配验证报告</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:20px;background:#f5f5f5;color:#333}
+h1{color:#1a1a2e;border-bottom:2px solid #16213e;padding-bottom:10px}
+h2{color:#16213e;margin-top:30px}
+.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin:20px 0}
+.summary-card{background:#fff;border-radius:8px;padding:15px;box-shadow:0 2px 4px rgba(0,0,0,.1);text-align:center}
+.summary-card .value{font-size:28px;font-weight:bold}
+.summary-card .label{font-size:13px;color:#666;margin-top:5px}
+.good{color:#27ae60}.bad{color:#e74c3c}.medium{color:#f39c12}
+.case-card{background:#fff;border-radius:8px;margin:15px 0;box-shadow:0 2px 4px rgba(0,0,0,.1);overflow:hidden}
+.case-header{padding:12px 20px;display:flex;justify-content:space-between;align-items:center}
+.case-header.correct{background:#e8f5e9;border-left:4px solid #27ae60}
+.case-header.incorrect{background:#ffebee;border-left:4px solid #e74c3c}
+.case-body{padding:15px 20px}
+.case-name{font-weight:bold;font-size:14px}
+.confidence{font-size:12px;color:#888}
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}
+th{background:#16213e;color:#fff;padding:8px 12px;text-align:left}
+td{padding:6px 12px;border-bottom:1px solid #eee}
+tr:hover td{background:#f0f4f8}
+.match-exact{background:#e8f5e9}.match-close{background:#fff8e1}.match-empty{background:#f5f5f5;color:#999}.mismatch{background:#ffebee}
+.top5-list{font-size:12px;color:#555;margin-top:8px}
+.top5-item{display:inline-block;margin:2px 8px 2px 0;padding:2px 8px;border-radius:3px;background:#e8eaf6}
+.top5-item.gt{background:#c8e6c9;font-weight:bold}.top5-item.pred{background:#ffcdd2}
+.tag{display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:bold;margin-left:8px}
+.tag-latency{background:#e3f2fd;color:#1565c0}.tag-mixed{background:#fff3e0;color:#e65100}.tag-connectivity{background:#fce4ec;color:#c62828}.tag-unknown{background:#f5f5f5;color:#666}
+.filter-bar{margin:15px 0}
+.filter-bar button{padding:6px 15px;margin-right:8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer}
+.filter-bar button.active{background:#16213e;color:#fff;border-color:#16213e}
+</style>
+</head>
+<body>
+<h1>故障模式匹配验证报告</h1>
+
+<div class="summary-grid">
+  <div class="summary-card"><div class="value">37</div><div class="label">有效测试案例</div></div>
+  <div class="summary-card"><div class="value bad">24.3%</div><div class="label">Top-1 准确率 (9/37)</div></div>
+  <div class="summary-card"><div class="value medium">40.5%</div><div class="label">Top-3 准确率</div></div>
+  <div class="summary-card"><div class="value bad">45.9%</div><div class="label">Top-5 准确率</div></div>
+</div>
+
+<h2>按故障类别统计</h2>
+<table>
+<tr><th>故障类别</th><th>正确</th><th>总数</th><th>Top-1 准确率</th></tr>
+<tr><td><span class="tag tag-connectivity">connectivity</span></td><td>1</td><td>1</td><td class="good">100.0%</td></tr>
+<tr><td><span class="tag tag-latency">latency</span></td><td>2</td><td>17</td><td class="bad">11.8%</td></tr>
+<tr><td><span class="tag tag-mixed">mixed</span></td><td>6</td><td>19</td><td class="medium">31.6%</td></tr>
+</table>
+
+<h2>案例详情</h2>
+<div class="filter-bar">
+  <button class="active" onclick="filter('all')">全部</button>
+  <button onclick="filter('correct')">正确</button>
+  <button onclick="filter('incorrect')">错误</button>
+  <button onclick="filter('latency')">latency</button>
+  <button onclick="filter('mixed')">mixed</button>
+  <button onclick="filter('connectivity')">connectivity</button>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_client_init_etcd_cluster_fail</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.6554</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_process_cross_node_net_card_loss (置信度 0.6554)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_process_cross_node_net_card_loss (0.6554)</span><span class="top5-item ">dfx_worker_process_remote_ub_single_link_down (0.6187)</span><span class="top5-item ">dfx_client_process_set_exit (0.6101)</span><span class="top5-item ">dfx_worker_set_exit (0.6101)</span><span class="top5-item ">dfx_worker_process_local_get_etcd_main_fail (0.6002)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>mixed</td><td class="mismatch">&#10007;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.000</td><td>1.000</td><td class="match-close">~</td><td>1.000</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:1.000</td><td>DS_KV_CLIENT_GET:1.000</td><td class="mismatch">&#10007;</td><td>DS_POSIX_GET:1.000</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>3</td><td>3</td><td class="match-exact">&#10003;</td><td>3</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(20%) &gt; sdk_process(20%) &gt; worker_total_latency(20%) &gt; remote_worker_rpc(20%) &gt; remote_worker_cost(20%)</td><td>total_latency(50%) &gt; worker_total_latency(50%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td><td>urma_total_latency(42%) &gt; total_latency(29%) &gt; worker_total_latency(28%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:2</td><td>DS_KV_CLIENT_GET:328</td><td class="mismatch">&#10007;</td><td>DS_POSIX_GET:6</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>3</td><td class="match-exact">&#10003;</td><td>4</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td>kvcache_access_003:328, kvcache_runtime_1696:328, kvcache_runtime_1711:328, kvcache_runtime_1706:328, kvcache_runtime_2173:328 +1</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td>3:328</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td>multi_pod</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td>single_host</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td>GET:164</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_client_process_get_ubm_failure</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.6526</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_process_remote_ub_ce (置信度 0.6526)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_process_remote_ub_ce (0.6526)</span><span class="top5-item ">dfx_worker_process_cross_node_net_card_loss (0.6119)</span><span class="top5-item ">dfx_worker_process_local_get_etcd_main_fail (0.6031)</span><span class="top5-item ">dfx_worker_process_remote_ub_nfe (0.5946)</span><span class="top5-item ">dfx_worker_process_remote_local_ub_flash_down (0.5937)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>mixed</td><td class="mismatch">&#10007;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.000</td><td>1.104</td><td class="match-close">~</td><td>1.014</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:1.000</td><td>DS_POSIX_CREATE:1.000</td><td class="mismatch">&#10007;</td><td>DS_POSIX_GET:1.014</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>3</td><td class="mismatch">&#10007;</td><td>4</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>0.004</td><td class="mismatch">&#10007;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(25%) &gt; sdk_process(25%) &gt; worker_total_latency(25%) &gt; worker_query_meta_latency(25%) &gt; c2w_latency(0%)</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(34%) &gt; worker_total_latency(32%) &gt; worker_query_meta_latency(31%) &gt; c2w_latency(2%) &gt; c2w_urma_latency(2%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:2</td><td>DS_POSIX_CREATE:2</td><td class="mismatch">&#10007;</td><td>DS_POSIX_GET:4</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>3</td><td class="match-exact">&#10003;</td><td>5</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td>kvcache_access_005:1378, kvcache_runtime_2295:1080, kvcache_runtime_2303:1080, kvcache_runtime_106:1078, kvcache_runtime_2788:1076 +3</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td>5:1378, 1002:6</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td>multi_pod</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td>single_host</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td>SET:539</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_client_process_get_ubse_failure</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.6526</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_process_remote_ub_ce (置信度 0.6526)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_process_remote_ub_ce (0.6526)</span><span class="top5-item ">dfx_worker_process_cross_node_net_card_loss (0.6119)</span><span class="top5-item ">dfx_worker_process_local_get_etcd_main_fail (0.6031)</span><span class="top5-item ">dfx_worker_process_remote_ub_nfe (0.5946)</span><span class="top5-item ">dfx_worker_process_remote_local_ub_flash_down (0.5937)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>mixed</td><td class="mismatch">&#10007;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.000</td><td>1.206</td><td class="match-close">~</td><td>1.014</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:1.000</td><td>DS_POSIX_CREATE:1.111</td><td class="mismatch">&#10007;</td><td>DS_POSIX_GET:1.014</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>3</td><td class="mismatch">&#10007;</td><td>4</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>0.004</td><td class="mismatch">&#10007;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(25%) &gt; sdk_process(25%) &gt; worker_total_latency(25%) &gt; worker_query_meta_latency(25%) &gt; c2w_latency(0%)</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(34%) &gt; worker_total_latency(32%) &gt; worker_query_meta_latency(31%) &gt; c2w_latency(2%) &gt; c2w_urma_latency(2%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:2</td><td>DS_POSIX_CREATE:4</td><td class="mismatch">&#10007;</td><td>DS_POSIX_GET:4</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>3</td><td class="match-exact">&#10003;</td><td>5</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td>kvcache_access_005:1607, kvcache_runtime_2295:1080, kvcache_runtime_2303:1080, kvcache_runtime_2788:1076, kvcache_runtime_106:889 +3</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td>5:1607, 1002:6</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td>multi_pod</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td>single_host</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td>SET:539</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_client_process_scale_in_worker_hang_up</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.9376</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_client_write_remote_after_ubm_fault (置信度 0.9376)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_client_write_remote_after_ubm_fault (0.9376)</span><span class="top5-item ">dfx_write_remote_tcp_dalay (0.9375)</span><span class="top5-item ">dfx_client_write_remote_after_ubse_fault (0.8945)</span><span class="top5-item ">dfx_remote_ub_all_port_down (0.8774)</span><span class="top5-item ">dfx_remote_ub_single_socket_two_port_down (0.8774)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>latency</td><td class="match-exact">&#10003;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.000</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>1.002</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_CREATE:1.000</td><td></td><td class="mismatch">&#10007;</td><td>DS_POSIX_CREATE:1.002</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>3</td><td class="mismatch">&#10007;</td><td>2</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_CREATE:2</td><td>DS_POSIX_CREATE:1</td><td class="match-close">~</td><td>DS_POSIX_CREATE:8</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td>4</td><td class="mismatch">&#10007;</td><td>2</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_client_process_set_exit</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.6553</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_process_cross_node_net_card_loss (置信度 0.6553)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_process_cross_node_net_card_loss (0.6553)</span><span class="top5-item ">dfx_worker_process_remote_ub_single_link_down (0.6188)</span><span class="top5-item gt">dfx_client_process_set_exit (0.61)</span><span class="top5-item ">dfx_worker_set_exit (0.61)</span><span class="top5-item ">dfx_worker_process_local_get_etcd_main_fail (0.6003)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>latency</td><td class="match-exact">&#10003;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.000</td><td>1.000</td><td class="match-close">~</td><td>1.000</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:1.000</td><td>DS_POSIX_GET:1.000</td><td class="match-close">~</td><td>DS_POSIX_GET:1.000</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>3</td><td>4</td><td class="match-close">~</td><td>3</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(20%) &gt; sdk_process(20%) &gt; worker_total_latency(20%) &gt; remote_worker_rpc(20%) &gt; remote_worker_cost(20%)</td><td>total_latency(33%) &gt; worker_total_latency(33%) &gt; urma_total_latency(33%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td class="mismatch">&#10007;</td><td>urma_total_latency(42%) &gt; total_latency(29%) &gt; worker_total_latency(28%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:2</td><td>DS_POSIX_GET:4</td><td class="match-close">~</td><td>DS_POSIX_GET:6</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>5</td><td class="mismatch">&#10007;</td><td>4</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_client_process_set_exit_start</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.8091</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_remote_ub_two_socket_single_port_down (置信度 0.8091)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_remote_ub_two_socket_single_port_down (0.8091)</span><span class="top5-item ">dfx_local_ub_two_port_flashdown (0.8058)</span><span class="top5-item ">dfx_local_ub_single_socket_two_port_down (0.8056)</span><span class="top5-item ">dfx_remote_ub_all_port_down (0.8053)</span><span class="top5-item ">dfx_remote_ub_single_socket_two_port_down (0.8053)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>latency</td><td class="match-exact">&#10003;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>49.943</td><td>1.000</td><td class="mismatch">&#10007;</td><td>127.517</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_CREATE:49.943</td><td>DS_POSIX_CREATE:1.000</td><td class="match-close">~</td><td>DS_POSIX_CREATE:127.517</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>multi_pod</td><td>few_pods</td><td class="mismatch">&#10007;</td><td>few_pods</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>4</td><td>3</td><td class="match-close">~</td><td>3</td><td class="match-close">~</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; master_rpc_total(0%) &gt; worker_total_latency(0%)</td><td>total_latency(34%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(1%)</td><td class="mismatch">&#10007;</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_CREATE:6</td><td>DS_POSIX_CREATE:2</td><td class="match-close">~</td><td>DS_POSIX_CREATE:8</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>4</td><td>4</td><td class="match-exact">&#10003;</td><td>4</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_client_write_remote_after_ubm_fault</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.9384</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_client_write_remote_after_ubse_fault (置信度 0.9384)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_client_write_remote_after_ubse_fault (0.9384)</span><span class="top5-item gt">dfx_client_write_remote_after_ubm_fault (0.8952)</span><span class="top5-item ">dfx_write_remote_tcp_dalay (0.8952)</span><span class="top5-item ">dfx_local_ub_two_port_flashdown (0.8746)</span><span class="top5-item ">dfx_local_ub_single_socket_two_port_down (0.8413)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>latency</td><td class="match-exact">&#10003;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.999</td><td>1.002</td><td class="mismatch">&#10007;</td><td>1.998</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_CREATE:1.999</td><td>DS_POSIX_CREATE:1.002</td><td class="match-close">~</td><td>DS_POSIX_CREATE:1.998</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>2</td><td class="match-exact">&#10003;</td><td>2</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_CREATE:10</td><td>DS_POSIX_CREATE:8</td><td class="match-close">~</td><td>DS_POSIX_CREATE:6</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td>2</td><td class="match-exact">&#10003;</td><td>2</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_client_write_remote_after_ubse_fault</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.9383</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_client_write_remote_after_ubm_fault (置信度 0.9383)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_client_write_remote_after_ubm_fault (0.9383)</span><span class="top5-item ">dfx_write_remote_tcp_dalay (0.9382)</span><span class="top5-item gt">dfx_client_write_remote_after_ubse_fault (0.8952)</span><span class="top5-item ">dfx_remote_ub_single_socket_two_port_down (0.8781)</span><span class="top5-item ">dfx_remote_ub_all_port_down (0.8781)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>latency</td><td class="match-exact">&#10003;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.000</td><td>1.998</td><td class="mismatch">&#10007;</td><td>1.002</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_CREATE:1.000</td><td>DS_POSIX_CREATE:1.998</td><td class="match-close">~</td><td>DS_POSIX_CREATE:1.002</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>2</td><td class="match-exact">&#10003;</td><td>2</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_CREATE:4</td><td>DS_POSIX_CREATE:6</td><td class="match-close">~</td><td>DS_POSIX_CREATE:8</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td>2</td><td class="match-exact">&#10003;</td><td>2</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_local_ub_single_port_down</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.9383</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_client_write_remote_after_ubm_fault (置信度 0.9383)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_client_write_remote_after_ubm_fault (0.9383)</span><span class="top5-item ">dfx_write_remote_tcp_dalay (0.9382)</span><span class="top5-item ">dfx_client_write_remote_after_ubse_fault (0.8952)</span><span class="top5-item ">dfx_remote_ub_all_port_down (0.8781)</span><span class="top5-item ">dfx_remote_ub_single_socket_two_port_down (0.8781)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>connectivity</td><td class="mismatch">&#10007;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.000</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>1.002</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_CREATE:1.000</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>DS_POSIX_CREATE:1.002</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>2</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_CREATE:2</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>DS_POSIX_CREATE:8</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>2</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td>kvcache_access_005:42, kvcache_runtime_2788:28, kvcache_runtime_2295:28, kvcache_runtime_2303:28, kvcache_runtime_106:28 +1</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td>5:42</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td>multi_pod</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td>single_host</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td>SET:14</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="mixed">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_local_ub_single_socket_two_port_down</span><span class="tag tag-mixed">mixed</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.8906</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_client_process_get_ubm_failure (置信度 0.8906)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_client_process_get_ubm_failure (0.8906)</span><span class="top5-item ">dfx_client_process_get_ubse_failure (0.8904)</span><span class="top5-item ">dfx_remote_ub_single_port_down (0.7846)</span><span class="top5-item ">dfx_client_process_set_hangs (0.6968)</span><span class="top5-item ">dfx_worker_pod_reboot (0.4035)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>latency</td><td class="mismatch">&#10007;</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>317.225</td><td>1.221</td><td class="mismatch">&#10007;</td><td>1.104</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_CREATE:1.000</td><td>DS_POSIX_CREATE:1.221</td><td class="match-close">~</td><td>DS_POSIX_CREATE:1.000</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>3</td><td class="mismatch">&#10007;</td><td>3</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>0.048</td><td>1.000</td><td class="mismatch">&#10007;</td><td>0.004</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_CREATE:2</td><td>DS_POSIX_CREATE:6</td><td class="match-close">~</td><td>DS_POSIX_CREATE:2</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td>4</td><td class="mismatch">&#10007;</td><td>3</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_005:60, kvcache_runtime_2788:40, kvcache_runtime_2295:40, kvcache_runtime_2303:40, kvcache_runtime_106:40 +1</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>kvcache_access_005:1378, kvcache_runtime_2295:1080, kvcache_runtime_2303:1080, kvcache_runtime_106:1078, kvcache_runtime_2788:1076 +3</td><td class="match-close">~</td></tr>
+      <tr><td>status_code</td><td>5:60</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>5:1378, 1002:6</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>SET:20</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>SET:539</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="mixed">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_local_ub_two_port_flashdown</span><span class="tag tag-mixed">mixed</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.5596</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_pod_reboot (置信度 0.5596)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_pod_reboot (0.5596)</span><span class="top5-item ">dfx_client_process_get_ubm_failure (0.4859)</span><span class="top5-item ">dfx_client_process_get_ubse_failure (0.4824)</span><span class="top5-item ">dfx_remote_ub_single_port_down (0.4177)</span><span class="top5-item ">dfx_client_process_set_hangs (0.4048)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>latency</td><td class="mismatch">&#10007;</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>32.887</td><td>2.050</td><td class="mismatch">&#10007;</td><td>16688.333</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_KV_CLIENT_SET:1.123</td><td>DS_POSIX_CREATE:2.050</td><td class="mismatch">&#10007;</td><td>DS_KV_CLIENT_SET:1.001</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>3</td><td class="mismatch">&#10007;</td><td>4</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>0.021</td><td>1.000</td><td class="mismatch">&#10007;</td><td>0.118</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(46%) &gt; c2w_latency(27%) &gt; c2w_urma_latency(27%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_KV_CLIENT_SET:42</td><td>DS_POSIX_CREATE:12</td><td class="mismatch">&#10007;</td><td>DS_KV_CLIENT_SET:114</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>1</td><td>4</td><td class="mismatch">&#10007;</td><td>5</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_022:16630, kvcache_runtime_1036:12288, kvcache_runtime_1051:12288, kvcache_runtime_1056:12288, kvcache_runtime_1065:12288 +3</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>kvcache_runtime_035:852, kvcache_access_021:520, kvcache_access_020:12, kvcache_runtime_106:8, kvcache_runtime_2295:8 +2</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>status_code</td><td>1004:16630</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>1002:946, 1001:12</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>SET:12288</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>SET:477</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="mixed">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_remote_ub_all_port_down</span><span class="tag tag-mixed">mixed</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.5633</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_pod_reboot (置信度 0.5633)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_pod_reboot (0.5633)</span><span class="top5-item ">dfx_client_process_get_ubm_failure (0.5505)</span><span class="top5-item ">dfx_client_process_get_ubse_failure (0.5409)</span><span class="top5-item ">dfx_client_process_set_hangs (0.4457)</span><span class="top5-item ">dfx_worker_process_set_exit (0.4347)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>latency</td><td class="mismatch">&#10007;</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.079</td><td>1.000</td><td class="match-close">~</td><td>16688.333</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_KV_CLIENT_SET:48.622</td><td>DS_POSIX_CREATE:1.000</td><td class="mismatch">&#10007;</td><td>DS_KV_CLIENT_SET:1.001</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>3</td><td class="mismatch">&#10007;</td><td>4</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>0.003</td><td>1.000</td><td class="mismatch">&#10007;</td><td>0.118</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(46%) &gt; c2w_latency(27%) &gt; c2w_urma_latency(27%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_KV_CLIENT_SET:6</td><td>DS_POSIX_CREATE:6</td><td class="mismatch">&#10007;</td><td>DS_KV_CLIENT_SET:114</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td>4</td><td class="mismatch">&#10007;</td><td>5</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_022:2036, kvcache_runtime_1036:1512, kvcache_runtime_1051:1512, kvcache_runtime_1056:1512, kvcache_runtime_1065:1512 +3</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>kvcache_runtime_035:852, kvcache_access_021:520, kvcache_access_020:12, kvcache_runtime_106:8, kvcache_runtime_2295:8 +2</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>status_code</td><td>1004:2036</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>1002:946, 1001:12</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>SET:1018</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>SET:477</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_remote_ub_single_port_down</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.9383</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_client_write_remote_after_ubm_fault (置信度 0.9383)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_client_write_remote_after_ubm_fault (0.9383)</span><span class="top5-item ">dfx_write_remote_tcp_dalay (0.9382)</span><span class="top5-item ">dfx_client_write_remote_after_ubse_fault (0.8952)</span><span class="top5-item ">dfx_remote_ub_all_port_down (0.8781)</span><span class="top5-item ">dfx_remote_ub_single_socket_two_port_down (0.8781)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>mixed</td><td class="mismatch">&#10007;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.000</td><td>92.552</td><td class="mismatch">&#10007;</td><td>1.002</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_CREATE:1.000</td><td>DS_POSIX_CREATE:64.220, DS_KV_CLIENT_SET:1.000</td><td class="mismatch">&#10007;</td><td>DS_POSIX_CREATE:1.002</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>3</td><td class="mismatch">&#10007;</td><td>2</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>0.857</td><td class="match-close">~</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>c2w_latency(35%) &gt; c2w_urma_latency(35%) &gt; total_latency(30%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_CREATE:2</td><td>DS_POSIX_CREATE:10, DS_KV_CLIENT_SET:2</td><td class="mismatch">&#10007;</td><td>DS_POSIX_CREATE:8</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td>4</td><td class="mismatch">&#10007;</td><td>2</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td>kvcache_access_005:3, kvcache_runtime_106:2, kvcache_runtime_2788:2, kvcache_runtime_2295:2, kvcache_runtime_2303:2 +1</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td>5:3</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td>multi_pod</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td>single_host</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td>SET:1</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="mixed">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_remote_ub_single_socket_two_port_down</span><span class="tag tag-mixed">mixed</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.5596</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_pod_reboot (置信度 0.5596)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_pod_reboot (0.5596)</span><span class="top5-item ">dfx_client_process_get_ubm_failure (0.4859)</span><span class="top5-item ">dfx_client_process_get_ubse_failure (0.4824)</span><span class="top5-item ">dfx_remote_ub_single_port_down (0.4163)</span><span class="top5-item ">dfx_client_process_set_hangs (0.4048)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>latency</td><td class="mismatch">&#10007;</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>24.106</td><td>1.000</td><td class="mismatch">&#10007;</td><td>16688.333</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_KV_CLIENT_SET:1.193</td><td>DS_POSIX_CREATE:1.000</td><td class="mismatch">&#10007;</td><td>DS_KV_CLIENT_SET:1.001</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>3</td><td class="mismatch">&#10007;</td><td>4</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>0.021</td><td>1.000</td><td class="mismatch">&#10007;</td><td>0.118</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(46%) &gt; c2w_latency(27%) &gt; c2w_urma_latency(27%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_KV_CLIENT_SET:42</td><td>DS_POSIX_CREATE:4</td><td class="mismatch">&#10007;</td><td>DS_KV_CLIENT_SET:114</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>1</td><td>4</td><td class="mismatch">&#10007;</td><td>5</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_022:16663, kvcache_runtime_1036:12288, kvcache_runtime_1051:12288, kvcache_runtime_1056:12288, kvcache_runtime_1065:12288 +3</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>kvcache_runtime_035:852, kvcache_access_021:520, kvcache_access_020:12, kvcache_runtime_106:8, kvcache_runtime_2295:8 +2</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>status_code</td><td>1004:16663</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>1002:946, 1001:12</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>SET:12288</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>SET:477</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_remote_ub_two_socket_single_port_down</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.9383</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_client_write_remote_after_ubm_fault (置信度 0.9383)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_client_write_remote_after_ubm_fault (0.9383)</span><span class="top5-item ">dfx_write_remote_tcp_dalay (0.9382)</span><span class="top5-item ">dfx_client_write_remote_after_ubse_fault (0.8952)</span><span class="top5-item ">dfx_remote_ub_all_port_down (0.8781)</span><span class="top5-item ">dfx_remote_ub_single_socket_two_port_down (0.8781)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>latency</td><td class="match-exact">&#10003;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.000</td><td>127.517</td><td class="mismatch">&#10007;</td><td>1.002</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_CREATE:1.000</td><td>DS_POSIX_CREATE:127.517</td><td class="match-close">~</td><td>DS_POSIX_CREATE:1.002</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>3</td><td class="mismatch">&#10007;</td><td>2</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_CREATE:2</td><td>DS_POSIX_CREATE:8</td><td class="match-close">~</td><td>DS_POSIX_CREATE:8</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td>4</td><td class="mismatch">&#10007;</td><td>2</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="mixed">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_worker_process_exit_single_node</span><span class="tag tag-mixed">mixed</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.8745</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_client_process_get_ubse_failure (置信度 0.8745)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_client_process_get_ubse_failure (0.8745)</span><span class="top5-item ">dfx_client_process_get_ubm_failure (0.8741)</span><span class="top5-item ">dfx_remote_ub_single_port_down (0.8011)</span><span class="top5-item ">dfx_client_process_set_hangs (0.6969)</span><span class="top5-item ">dfx_worker_pod_reboot (0.424)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>latency</td><td class="mismatch">&#10007;</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>72.029</td><td>22.145</td><td class="mismatch">&#10007;</td><td>1.206</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_CREATE:1.001</td><td>DS_POSIX_CREATE:1.511, DS_POSIX_GET:1.000</td><td class="mismatch">&#10007;</td><td>DS_POSIX_CREATE:1.111</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>6</td><td class="mismatch">&#10007;</td><td>3</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>0.177</td><td>1.000</td><td class="mismatch">&#10007;</td><td>0.004</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>total_latency(48%) &gt; worker_total_latency(45%) &gt; c2w_latency(3%) &gt; c2w_urma_latency(3%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_CREATE:56</td><td>DS_POSIX_CREATE:4, DS_POSIX_GET:2</td><td class="mismatch">&#10007;</td><td>DS_POSIX_CREATE:4</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td>7</td><td class="mismatch">&#10007;</td><td>3</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_005:390, kvcache_runtime_2303:270, kvcache_runtime_2295:242, kvcache_runtime_106:242, kvcache_runtime_2788:186 +4</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>kvcache_access_005:1607, kvcache_runtime_2295:1080, kvcache_runtime_2303:1080, kvcache_runtime_2788:1076, kvcache_runtime_106:889 +3</td><td class="match-close">~</td></tr>
+      <tr><td>status_code</td><td>5:390, 3:84, 1002:56</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>5:1607, 1002:6</td><td class="match-close">~</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>SET:158</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>SET:539</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_worker_process_local_get_etcd_main_fail</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.6553</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_process_cross_node_net_card_loss (置信度 0.6553)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_process_cross_node_net_card_loss (0.6553)</span><span class="top5-item ">dfx_worker_process_remote_ub_single_link_down (0.6188)</span><span class="top5-item ">dfx_client_process_set_exit (0.61)</span><span class="top5-item ">dfx_worker_set_exit (0.61)</span><span class="top5-item gt">dfx_worker_process_local_get_etcd_main_fail (0.6003)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>latency</td><td class="match-exact">&#10003;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:1.000</td><td>DS_POSIX_GET:1.000</td><td class="match-close">~</td><td>DS_POSIX_GET:1.000</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>3</td><td>4</td><td class="match-close">~</td><td>3</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(20%) &gt; sdk_process(20%) &gt; worker_total_latency(20%) &gt; remote_worker_rpc(20%) &gt; remote_worker_cost(20%)</td><td>total_latency(48%) &gt; worker_total_latency(44%) &gt; c2w_latency(3%) &gt; c2w_urma_latency(3%) &gt; worker_query_meta_latency(1%)</td><td class="mismatch">&#10007;</td><td>urma_total_latency(42%) &gt; total_latency(29%) &gt; worker_total_latency(28%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:2</td><td>DS_POSIX_GET:2</td><td class="match-close">~</td><td>DS_POSIX_GET:6</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>5</td><td class="mismatch">&#10007;</td><td>4</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="mixed">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_worker_process_local_ub_link_down</span><span class="tag tag-mixed">mixed</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.4449</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_r_worker_process_set_exit (置信度 0.4449)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_r_worker_process_set_exit (0.4449)</span><span class="top5-item ">dfx_worker_process_scale_in_client_exit (0.4256)</span><span class="top5-item ">dfx_worker_pod_reboot_l2 (0.4246)</span><span class="top5-item ">dfx_client_init_etcd_cluster_fail (0.4032)</span><span class="top5-item ">dfx_worker_set_kill (0.4032)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>latency</td><td class="mismatch">&#10007;</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.034</td><td>1.002</td><td class="match-close">~</td><td>3109.471</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:1.034</td><td>DS_POSIX_GET:1.002</td><td class="match-close">~</td><td>DS_KV_CLIENT_SET:1.000, DS_POSIX_GET:1.000</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>3</td><td>4</td><td class="match-close">~</td><td>4</td><td class="match-close">~</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(22%) &gt; sdk_process(21%) &gt; worker_total_latency(21%) &gt; remote_worker_rpc(20%) &gt; remote_worker_cost(16%)</td><td>urma_total_latency(43%) &gt; total_latency(29%) &gt; worker_total_latency(29%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(100%) &gt; worker_total_latency(0%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:206</td><td>DS_POSIX_GET:6</td><td class="match-close">~</td><td>DS_KV_CLIENT_SET:2, DS_POSIX_GET:2</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>5</td><td class="mismatch">&#10007;</td><td>5</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_021:297, kvcache_runtime_949:297, kvcache_runtime_1377:246, kvcache_runtime_2115:198, kvcache_runtime_2117:198 +5</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>kvcache_access_021:2</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>status_code</td><td>1002:297</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>1002:2</td><td class="match-close">~</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>single_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>GET:99</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>SET:1</td><td class="mismatch">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="mixed">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_worker_process_remote_local_ub_flash_down</span><span class="tag tag-mixed">mixed</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.43</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_process_scale_in_client_exit (置信度 0.43)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_process_scale_in_client_exit (0.43)</span><span class="top5-item ">dfx_worker_pod_reboot_l2 (0.411)</span><span class="top5-item ">dfx_client_init_etcd_cluster_fail (0.4032)</span><span class="top5-item ">dfx_worker_set_kill (0.4032)</span><span class="top5-item ">dfx_r_worker_process_set_exit (0.4009)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>latency</td><td class="mismatch">&#10007;</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.011</td><td>1.005</td><td class="match-close">~</td><td>1.000</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:1.011</td><td>DS_POSIX_GET:1.005</td><td class="match-close">~</td><td>DS_POSIX_GET:50.314, DS_KV_CLIENT_GET:1.000</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>3</td><td>4</td><td class="match-close">~</td><td>6</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(22%) &gt; sdk_process(20%) &gt; worker_total_latency(20%) &gt; remote_worker_rpc(20%) &gt; remote_worker_cost(18%)</td><td>total_latency(49%) &gt; worker_total_latency(47%) &gt; c2w_latency(2%) &gt; c2w_urma_latency(2%) &gt; worker_query_meta_latency(1%)</td><td class="mismatch">&#10007;</td><td>total_latency(41%) &gt; worker_total_latency(41%) &gt; urma_total_latency(18%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:30</td><td>DS_POSIX_GET:6</td><td class="match-close">~</td><td>DS_KV_CLIENT_GET:332, DS_POSIX_GET:8</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>5</td><td class="mismatch">&#10007;</td><td>6</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_runtime_949:183, kvcache_runtime_906:66, kvcache_runtime_2117:39, kvcache_runtime_2115:39, kvcache_runtime_2116:39 +8</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>kvcache_runtime_1696:331, kvcache_runtime_1711:331, kvcache_access_003:330, kvcache_runtime_1706:330, kvcache_runtime_2173:330 +8</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>status_code</td><td>1002:36, 5:18</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>3:330, 1002:2</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>GET:15</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>GET:165</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="mixed">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_worker_process_remote_remote_ub_single_port_down</span><span class="tag tag-mixed">mixed</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.4262</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_pod_reboot_l2 (置信度 0.4262)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_pod_reboot_l2 (0.4262)</span><span class="top5-item ">dfx_worker_process_scale_in_client_exit (0.4058)</span><span class="top5-item ">dfx_client_init_etcd_cluster_fail (0.3849)</span><span class="top5-item ">dfx_worker_set_kill (0.3849)</span><span class="top5-item ">dfx_worker_process_scale_in_remote_ub_nfe (0.3496)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>latency</td><td class="mismatch">&#10007;</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.443</td><td>1.005</td><td class="match-close">~</td><td>489.075</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:1.443</td><td>DS_POSIX_GET:1.005</td><td class="match-close">~</td><td>DS_POSIX_GET:1.001, DS_KV_CLIENT_GET:1.000</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>3</td><td>4</td><td class="match-close">~</td><td>7</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>0.500</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(22%) &gt; sdk_process(21%) &gt; worker_total_latency(21%) &gt; remote_worker_rpc(21%) &gt; remote_worker_cost(16%)</td><td>total_latency(49%) &gt; worker_total_latency(49%) &gt; c2w_latency(1%) &gt; c2w_urma_latency(1%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(50%) &gt; worker_total_latency(50%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:8</td><td>DS_POSIX_GET:4</td><td class="match-close">~</td><td>DS_KV_CLIENT_GET:688, DS_POSIX_GET:312</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>5</td><td class="mismatch">&#10007;</td><td>3</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_runtime_949:16, kvcache_runtime_906:12, kvcache_runtime_2114:12, kvcache_runtime_2117:9, kvcache_runtime_2115:9 +8</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>kvcache_access_003:1465, kvcache_runtime_2208:672, kvcache_runtime_2117:672, kvcache_runtime_2115:672, kvcache_runtime_2116:672 +6</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>status_code</td><td>5:9, 1002:4</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>3:1465</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>GET:4</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>GET:1170</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="mixed">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_worker_process_remote_ub_ce</span><span class="tag tag-mixed">mixed</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.4023</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_r_worker_process_set_exit (置信度 0.4023)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_r_worker_process_set_exit (0.4023)</span><span class="top5-item ">dfx_worker_pod_reboot_l2 (0.3786)</span><span class="top5-item ">dfx_worker_process_scale_in_client_exit (0.3386)</span><span class="top5-item ">dfx_worker_set_kill (0.3176)</span><span class="top5-item ">dfx_client_init_etcd_cluster_fail (0.3176)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>latency</td><td class="mismatch">&#10007;</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>16.502</td><td>1.014</td><td class="mismatch">&#10007;</td><td>3109.471</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:16.502</td><td>DS_POSIX_GET:1.014</td><td class="match-close">~</td><td>DS_KV_CLIENT_SET:1.000, DS_POSIX_GET:1.000</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>3</td><td>4</td><td class="match-close">~</td><td>4</td><td class="match-close">~</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>remote_worker_rpc(29%) &gt; remote_worker_cost(27%) &gt; total_latency(16%) &gt; sdk_process(15%) &gt; worker_total_latency(15%)</td><td>total_latency(34%) &gt; worker_total_latency(32%) &gt; worker_query_meta_latency(31%) &gt; c2w_latency(2%) &gt; c2w_urma_latency(2%)</td><td class="mismatch">&#10007;</td><td>total_latency(100%) &gt; worker_total_latency(0%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:4</td><td>DS_POSIX_GET:4</td><td class="match-close">~</td><td>DS_KV_CLIENT_SET:2, DS_POSIX_GET:2</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>5</td><td class="mismatch">&#10007;</td><td>5</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_runtime_949:5, kvcache_runtime_906:4, kvcache_runtime_1377:2, kvcache_runtime_2117:2, kvcache_runtime_2115:2 +5</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>kvcache_access_021:2</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>status_code</td><td>1002:2</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>1002:2</td><td class="match-close">~</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>single_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>GET:1</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>SET:1</td><td class="mismatch">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="mixed">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_worker_process_remote_ub_nfe</span><span class="tag tag-mixed">mixed</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.3955</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_process_scale_in_client_exit (置信度 0.3955)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_process_scale_in_client_exit (0.3955)</span><span class="top5-item ">dfx_worker_pod_reboot_l2 (0.3922)</span><span class="top5-item ">dfx_client_init_etcd_cluster_fail (0.372)</span><span class="top5-item ">dfx_worker_set_kill (0.372)</span><span class="top5-item ">dfx_worker_process_scale_in_remote_ub_nfe (0.3367)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>latency</td><td class="mismatch">&#10007;</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.000</td><td>1.006</td><td class="match-close">~</td><td>1.000</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:1.000</td><td>DS_POSIX_GET:1.006</td><td class="match-close">~</td><td>DS_POSIX_GET:50.314, DS_KV_CLIENT_GET:1.000</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>3</td><td>4</td><td class="match-close">~</td><td>6</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>remote_worker_rpc(24%) &gt; remote_worker_cost(24%) &gt; total_latency(18%) &gt; sdk_process(17%) &gt; worker_total_latency(17%)</td><td>total_latency(49%) &gt; worker_total_latency(47%) &gt; c2w_latency(2%) &gt; c2w_urma_latency(2%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(41%) &gt; worker_total_latency(41%) &gt; urma_total_latency(18%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:6</td><td>DS_POSIX_GET:6</td><td class="match-close">~</td><td>DS_KV_CLIENT_GET:332, DS_POSIX_GET:8</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>5</td><td class="mismatch">&#10007;</td><td>6</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_runtime_2114:8, kvcache_access_005:6, kvcache_runtime_2117:4, kvcache_runtime_2115:4, kvcache_runtime_2116:4 +3</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>kvcache_runtime_1696:331, kvcache_runtime_1711:331, kvcache_access_003:330, kvcache_runtime_1706:330, kvcache_runtime_2173:330 +8</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>status_code</td><td>5:6</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>3:330, 1002:2</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>GET:2</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>GET:165</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_worker_process_remote_ub_single_link_down</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.642</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_process_remote_ub_ce (置信度 0.642)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_process_remote_ub_ce (0.642)</span><span class="top5-item ">dfx_worker_process_local_get_etcd_main_fail (0.6305)</span><span class="top5-item gt">dfx_worker_process_remote_ub_single_link_down (0.63)</span><span class="top5-item ">dfx_ps_n_n (0.6182)</span><span class="top5-item ">dfx_worker_process_remote_ub_nfe (0.6167)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>latency</td><td class="match-exact">&#10003;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.014</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:1.000</td><td>DS_POSIX_GET:1.000</td><td class="match-close">~</td><td>DS_POSIX_GET:1.014</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>4</td><td class="mismatch">&#10007;</td><td>4</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(24%) &gt; worker_total_latency(20%) &gt; sdk_process(20%) &gt; worker_query_meta_latency(18%) &gt; master_rpc_total(18%)</td><td>total_latency(41%) &gt; worker_total_latency(36%) &gt; urma_total_latency(14%) &gt; c2w_latency(5%) &gt; c2w_urma_latency(5%)</td><td class="mismatch">&#10007;</td><td>total_latency(34%) &gt; worker_total_latency(32%) &gt; worker_query_meta_latency(31%) &gt; c2w_latency(2%) &gt; c2w_urma_latency(2%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:2</td><td>DS_POSIX_GET:2</td><td class="match-close">~</td><td>DS_POSIX_GET:4</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td>5</td><td class="mismatch">&#10007;</td><td>5</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_worker_process_scale_in_client_exit</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.6931</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_process_cross_node_net_card_loss (置信度 0.6931)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_process_cross_node_net_card_loss (0.6931)</span><span class="top5-item ">dfx_worker_process_local_ub_link_down (0.632)</span><span class="top5-item ">dfx_worker_process_remote_remote_ub_single_port_down (0.6155)</span><span class="top5-item ">dfx_client_process_set_exit (0.6131)</span><span class="top5-item ">dfx_worker_set_exit (0.6131)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>mixed</td><td class="mismatch">&#10007;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.319</td><td>1.000</td><td class="match-close">~</td><td>1.000</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:1.319</td><td>DS_POSIX_GET:50.314, DS_KV_CLIENT_GET:1.000</td><td class="mismatch">&#10007;</td><td>DS_POSIX_GET:1.000</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>3</td><td>6</td><td class="mismatch">&#10007;</td><td>3</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>worker_query_meta_latency(23%) &gt; total_latency(21%) &gt; worker_total_latency(21%) &gt; remote_worker_rpc(18%) &gt; remote_worker_cost(18%)</td><td>total_latency(41%) &gt; worker_total_latency(41%) &gt; urma_total_latency(18%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td class="mismatch">&#10007;</td><td>urma_total_latency(42%) &gt; total_latency(29%) &gt; worker_total_latency(28%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:4</td><td>DS_KV_CLIENT_GET:332, DS_POSIX_GET:8</td><td class="mismatch">&#10007;</td><td>DS_POSIX_GET:6</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>6</td><td class="mismatch">&#10007;</td><td>4</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td>kvcache_runtime_1696:331, kvcache_runtime_1711:331, kvcache_access_003:330, kvcache_runtime_1706:330, kvcache_runtime_2173:330 +8</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td>3:330, 1002:2</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td>multi_pod</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td>single_host</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td>GET:165</td><td class="mismatch">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="mixed">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_worker_process_scale_in_remote_ub_link_down</span><span class="tag tag-mixed">mixed</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.9178</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_set_kill (置信度 0.9178)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_set_kill (0.9178)</span><span class="top5-item ">dfx_client_init_etcd_cluster_fail (0.9178)</span><span class="top5-item ">dfx_worker_process_scale_in_remote_ub_nfe (0.882)</span><span class="top5-item gt">dfx_worker_process_scale_in_remote_ub_link_down (0.8704)</span><span class="top5-item ">dfx_worker_pod_reboot_l2 (0.7323)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>mixed</td><td class="match-exact">&#10003;</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.000</td><td>1.001</td><td class="match-close">~</td><td>1.000</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_KV_CLIENT_GET:1.000</td><td>DS_KV_CLIENT_GET:1.001</td><td class="match-close">~</td><td>DS_KV_CLIENT_GET:1.000</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>6</td><td class="mismatch">&#10007;</td><td>3</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(50%) &gt; worker_total_latency(50%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%) &gt; sdk_process(0%)</td><td>total_latency(50%) &gt; worker_total_latency(50%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(50%) &gt; worker_total_latency(50%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_KV_CLIENT_GET:316</td><td>DS_KV_CLIENT_GET:632</td><td class="match-close">~</td><td>DS_KV_CLIENT_GET:332</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td>4</td><td class="mismatch">&#10007;</td><td>3</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_003:316, kvcache_runtime_1696:316, kvcache_runtime_1711:316, kvcache_runtime_1706:316, kvcache_runtime_2173:316 +2</td><td>kvcache_runtime_2526:494, kvcache_runtime_1696:478, kvcache_runtime_1711:478, kvcache_runtime_1706:476, kvcache_runtime_2173:476 +1</td><td class="match-close">~</td><td>kvcache_access_003:332, kvcache_runtime_1696:332, kvcache_runtime_1711:332, kvcache_runtime_1706:332, kvcache_runtime_2526:332 +1</td><td class="match-close">~</td></tr>
+      <tr><td>status_code</td><td>3:316</td><td>3:474</td><td class="match-close">~</td><td>3:332</td><td class="match-close">~</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td>single_host</td><td class="match-exact">&#10003;</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>GET:158</td><td>GET:316</td><td class="match-close">~</td><td>GET:166</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="mixed">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_worker_process_scale_in_remote_ub_nfe</span><span class="tag tag-mixed">mixed</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.9547</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_worker_process_scale_in_remote_ub_link_down (置信度 0.9547)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_worker_process_scale_in_remote_ub_link_down (0.9547)</span><span class="top5-item gt">dfx_worker_process_scale_in_remote_ub_nfe (0.9254)</span><span class="top5-item ">dfx_worker_set_kill (0.8907)</span><span class="top5-item ">dfx_client_init_etcd_cluster_fail (0.8907)</span><span class="top5-item ">dfx_worker_process_scale_in_client_exit (0.8241)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>mixed</td><td class="match-exact">&#10003;</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.001</td><td>1.001</td><td class="match-close">~</td><td>1.001</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_KV_CLIENT_GET:1.001</td><td>DS_KV_CLIENT_GET:1.001</td><td class="match-close">~</td><td>DS_KV_CLIENT_GET:1.001</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>multi_pod</td><td>multi_pod</td><td class="match-exact">&#10003;</td><td>multi_pod</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>4</td><td>6</td><td class="mismatch">&#10007;</td><td>6</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(50%) &gt; worker_total_latency(50%) &gt; sdk_process(0%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td>total_latency(50%) &gt; worker_total_latency(50%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(50%) &gt; worker_total_latency(50%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_KV_CLIENT_GET:634</td><td>DS_KV_CLIENT_GET:632</td><td class="match-close">~</td><td>DS_KV_CLIENT_GET:632</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>4</td><td>3</td><td class="match-close">~</td><td>4</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_003:632, kvcache_runtime_1696:632, kvcache_runtime_1711:632, kvcache_runtime_1706:632, kvcache_runtime_2173:632 +2</td><td>kvcache_access_003:632, kvcache_runtime_2526:515, kvcache_runtime_1696:502, kvcache_runtime_1711:502, kvcache_runtime_1706:502 +1</td><td class="match-close">~</td><td>kvcache_runtime_2526:494, kvcache_runtime_1696:478, kvcache_runtime_1711:478, kvcache_runtime_1706:476, kvcache_runtime_2173:476 +1</td><td class="match-close">~</td></tr>
+      <tr><td>status_code</td><td>3:632</td><td>3:632</td><td class="match-close">~</td><td>3:474</td><td class="match-close">~</td></tr>
+      <tr><td>spatial_pod</td><td>multi_pod</td><td>multi_pod</td><td class="match-exact">&#10003;</td><td>multi_pod</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td>single_host</td><td class="match-exact">&#10003;</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>GET:316</td><td>GET:316</td><td class="match-close">~</td><td>GET:316</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="latency">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_worker_set_exit</span><span class="tag tag-latency">latency</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.6571</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_ps_n_n (置信度 0.6571)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_ps_n_n (0.6571)</span><span class="top5-item ">dfx_worker_process_remote_ub_single_link_down (0.6247)</span><span class="top5-item gt">dfx_worker_set_exit (0.6006)</span><span class="top5-item ">dfx_client_process_set_exit (0.6005)</span><span class="top5-item ">dfx_worker_process_local_ub_link_down (0.5729)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>latency</td><td class="match-exact">&#10003;</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.320</td><td>1.000</td><td class="match-close">~</td><td>1.004</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_CREATE:1.000, DS_POSIX_GET:1.000</td><td>DS_POSIX_GET:1.000</td><td class="mismatch">&#10007;</td><td>DS_POSIX_GET:1.005, DS_POSIX_CREATE:1.000</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>multi_pod</td><td>multi_pod</td><td class="match-exact">&#10003;</td><td>multi_pod</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>4</td><td>4</td><td class="match-exact">&#10003;</td><td>5</td><td class="match-close">~</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(22%) &gt; sdk_process(20%) &gt; remote_worker_rpc(20%) &gt; remote_worker_cost(20%) &gt; urma_total_latency(20%)</td><td>total_latency(33%) &gt; worker_total_latency(33%) &gt; urma_total_latency(33%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(34%) &gt; worker_total_latency(23%) &gt; urma_total_latency(20%) &gt; c2w_latency(11%) &gt; c2w_urma_latency(11%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:4, DS_POSIX_CREATE:2</td><td>DS_POSIX_GET:6</td><td class="mismatch">&#10007;</td><td>DS_POSIX_GET:8, DS_POSIX_CREATE:4</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>4</td><td>5</td><td class="match-close">~</td><td>7</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="incorrect" data-cat="mixed">
+  <div class="case-header incorrect">
+    <div><span class="case-name">dfx_write_remote_tcp_dalay</span><span class="tag tag-mixed">mixed</span><span class="bad" style="margin-left:10px">&#10007; 错误</span></div>
+    <div><span class="confidence">置信度: 0.8285</span></div>
+  </div>
+  <div class="case-body">
+    <div style="margin-bottom:10px;color:#c62828"><b>误判为:</b> dfx_client_process_get_ubm_failure (置信度 0.8285)</div>
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item pred">dfx_client_process_get_ubm_failure (0.8285)</span><span class="top5-item ">dfx_client_process_get_ubse_failure (0.8267)</span><span class="top5-item ">dfx_remote_ub_single_port_down (0.7632)</span><span class="top5-item ">dfx_client_process_set_hangs (0.6885)</span><span class="top5-item ">dfx_worker_pod_reboot (0.3939)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th><th>误判训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>latency</td><td class="mismatch">&#10007;</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>71.831</td><td>1.003</td><td class="mismatch">&#10007;</td><td>1.104</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_CREATE:1.103</td><td>DS_POSIX_CREATE:1.003</td><td class="match-close">~</td><td>DS_POSIX_CREATE:1.000</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>2</td><td class="match-exact">&#10003;</td><td>3</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>0.318</td><td>1.000</td><td class="mismatch">&#10007;</td><td>0.004</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_CREATE:28</td><td>DS_POSIX_CREATE:6</td><td class="match-close">~</td><td>DS_POSIX_CREATE:2</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td>2</td><td class="match-exact">&#10003;</td><td>3</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_runtime_2788:60, kvcache_runtime_2295:60, kvcache_runtime_2303:60, kvcache_runtime_1036:60, kvcache_runtime_1051:60 +7</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>kvcache_access_005:1378, kvcache_runtime_2295:1080, kvcache_runtime_2303:1080, kvcache_runtime_106:1078, kvcache_runtime_2788:1076 +3</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>status_code</td><td>5:90</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>5:1378, 1002:6</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>SET:30</td><td><span style='color:#999'>-</span></td><td class="mismatch">&#10007;</td><td>SET:539</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="correct" data-cat="mixed">
+  <div class="case-header correct">
+    <div><span class="case-name">dfx_client_process_set_hangs</span><span class="tag tag-mixed">mixed</span><span class="good" style="margin-left:10px">&#10003; 正确</span></div>
+    <div><span class="confidence">置信度: 0.6592</span></div>
+  </div>
+  <div class="case-body">
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item gt">dfx_client_process_set_hangs (0.6592)</span><span class="top5-item ">dfx_client_process_get_ubse_failure (0.5896)</span><span class="top5-item ">dfx_client_process_get_ubm_failure (0.5858)</span><span class="top5-item ">dfx_worker_pod_reboot (0.5492)</span><span class="top5-item ">dfx_remote_ub_single_port_down (0.5457)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>22.123</td><td>1.274</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_KV_CLIENT_SET:1.170</td><td>DS_POSIX_CREATE:1.271</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>4</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>0.500</td><td>0.750</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_KV_CLIENT_SET:4</td><td>DS_POSIX_CREATE:6</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td>5</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_runtime_2837:8, kvcache_runtime_021:8, kvcache_access_005:4</td><td>kvcache_runtime_2837:6, kvcache_runtime_021:6, kvcache_access_005:3</td><td class="match-close">~</td></tr>
+      <tr><td>status_code</td><td>5:8</td><td>5:6</td><td class="match-close">~</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>SET:4</td><td>SET:3</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="correct" data-cat="latency">
+  <div class="case-header correct">
+    <div><span class="case-name">dfx_ps_n_n</span><span class="tag tag-latency">latency</span><span class="good" style="margin-left:10px">&#10003; 正确</span></div>
+    <div><span class="confidence">置信度: 0.7087</span></div>
+  </div>
+  <div class="case-body">
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item gt">dfx_ps_n_n (0.7087)</span><span class="top5-item ">dfx_worker_process_remote_ub_single_link_down (0.643)</span><span class="top5-item ">dfx_worker_set_exit (0.6145)</span><span class="top5-item ">dfx_client_process_set_exit (0.6145)</span><span class="top5-item ">dfx_worker_process_remote_ub_ce (0.601)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.002</td><td>1.004</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:1.000, DS_POSIX_CREATE:1.000</td><td>DS_POSIX_GET:1.005, DS_POSIX_CREATE:1.000</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>multi_pod</td><td>multi_pod</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>4</td><td>5</td><td class="match-close">~</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(25%) &gt; sdk_process(25%) &gt; urma_total_latency(25%) &gt; c2w_latency(13%) &gt; c2w_urma_latency(13%)</td><td>total_latency(34%) &gt; worker_total_latency(23%) &gt; urma_total_latency(20%) &gt; c2w_latency(11%) &gt; c2w_urma_latency(11%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:2, DS_POSIX_CREATE:2</td><td>DS_POSIX_GET:8, DS_POSIX_CREATE:4</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>4</td><td>7</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="correct" data-cat="mixed">
+  <div class="case-header correct">
+    <div><span class="case-name">dfx_r_worker_process_set_exit</span><span class="tag tag-mixed">mixed</span><span class="good" style="margin-left:10px">&#10003; 正确</span></div>
+    <div><span class="confidence">置信度: 0.6513</span></div>
+  </div>
+  <div class="case-body">
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item gt">dfx_r_worker_process_set_exit (0.6513)</span><span class="top5-item ">dfx_worker_pod_reboot (0.512)</span><span class="top5-item ">dfx_worker_set_kill (0.4395)</span><span class="top5-item ">dfx_client_init_etcd_cluster_fail (0.4395)</span><span class="top5-item ">dfx_worker_process_scale_in_remote_ub_nfe (0.4042)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>154.411</td><td>3109.471</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_KV_CLIENT_SET:1.000, DS_KV_CLIENT_GET:1.000</td><td>DS_KV_CLIENT_SET:1.000, DS_POSIX_GET:1.000</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>3</td><td>4</td><td class="match-close">~</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(95%) &gt; sdk_process(1%) &gt; worker_total_latency(1%) &gt; remote_worker_rpc(1%) &gt; remote_worker_cost(1%)</td><td>total_latency(100%) &gt; worker_total_latency(0%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_KV_CLIENT_SET:2, DS_KV_CLIENT_GET:2</td><td>DS_KV_CLIENT_SET:2, DS_POSIX_GET:2</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>5</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_021:2, kvcache_runtime_106:2, kvcache_runtime_241:1</td><td>kvcache_access_021:2</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>status_code</td><td>1002:2</td><td>1002:2</td><td class="match-close">~</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td>single_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>SET:1</td><td>SET:1</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="correct" data-cat="mixed">
+  <div class="case-header correct">
+    <div><span class="case-name">dfx_worker_pod_reboot</span><span class="tag tag-mixed">mixed</span><span class="good" style="margin-left:10px">&#10003; 正确</span></div>
+    <div><span class="confidence">置信度: 0.6547</span></div>
+  </div>
+  <div class="case-body">
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item gt">dfx_worker_pod_reboot (0.6547)</span><span class="top5-item ">dfx_client_process_get_ubm_failure (0.6306)</span><span class="top5-item ">dfx_client_process_get_ubse_failure (0.6305)</span><span class="top5-item ">dfx_r_worker_process_set_exit (0.584)</span><span class="top5-item ">dfx_remote_ub_single_port_down (0.5714)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>9049.016</td><td>16688.333</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_CREATE:1.207, DS_KV_CLIENT_SET:1.000</td><td>DS_KV_CLIENT_SET:1.001</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>3</td><td>4</td><td class="match-close">~</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>0.118</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>total_latency(46%) &gt; c2w_latency(27%) &gt; c2w_urma_latency(27%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_CREATE:4, DS_KV_CLIENT_SET:2</td><td>DS_KV_CLIENT_SET:114</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>5</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_021:2</td><td>kvcache_runtime_035:852, kvcache_access_021:520, kvcache_access_020:12, kvcache_runtime_106:8, kvcache_runtime_2295:8 +2</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>status_code</td><td>1002:2</td><td>1002:946, 1001:12</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>SET:1</td><td>SET:477</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="correct" data-cat="mixed">
+  <div class="case-header correct">
+    <div><span class="case-name">dfx_worker_pod_reboot_l2</span><span class="tag tag-mixed">mixed</span><span class="good" style="margin-left:10px">&#10003; 正确</span></div>
+    <div><span class="confidence">置信度: 0.8428</span></div>
+  </div>
+  <div class="case-body">
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item gt">dfx_worker_pod_reboot_l2 (0.8428)</span><span class="top5-item ">dfx_worker_process_scale_in_remote_ub_nfe (0.814)</span><span class="top5-item ">dfx_worker_process_scale_in_remote_ub_link_down (0.797)</span><span class="top5-item ">dfx_worker_set_kill (0.7742)</span><span class="top5-item ">dfx_client_init_etcd_cluster_fail (0.7741)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>946.644</td><td>489.075</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_KV_CLIENT_GET:1.001</td><td>DS_POSIX_GET:1.001, DS_KV_CLIENT_GET:1.000</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>pod_concentration</td><td>multi_pod</td><td>multi_pod</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>4</td><td>7</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>0.469</td><td>0.500</td><td class="match-close">~</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(50%) &gt; worker_total_latency(50%) &gt; sdk_process(0%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td>total_latency(50%) &gt; worker_total_latency(50%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_KV_CLIENT_GET:700</td><td>DS_KV_CLIENT_GET:688, DS_POSIX_GET:312</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_pods</td><td>2</td><td>3</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_003:1492, kvcache_runtime_1696:559, kvcache_runtime_1711:559, kvcache_runtime_1706:558, kvcache_runtime_2208:553 +7</td><td>kvcache_access_003:1465, kvcache_runtime_2208:672, kvcache_runtime_2117:672, kvcache_runtime_2115:672, kvcache_runtime_2116:672 +6</td><td class="match-close">~</td></tr>
+      <tr><td>status_code</td><td>3:1492</td><td>3:1465</td><td class="match-close">~</td></tr>
+      <tr><td>spatial_pod</td><td>multi_pod</td><td>multi_pod</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>GET:746</td><td>GET:1170</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="correct" data-cat="latency">
+  <div class="case-header correct">
+    <div><span class="case-name">dfx_worker_process_cross_node_net_card_loss</span><span class="tag tag-latency">latency</span><span class="good" style="margin-left:10px">&#10003; 正确</span></div>
+    <div><span class="confidence">置信度: 0.6136</span></div>
+  </div>
+  <div class="case-body">
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item gt">dfx_worker_process_cross_node_net_card_loss (0.6136)</span><span class="top5-item ">dfx_ps_n_n (0.6054)</span><span class="top5-item ">dfx_worker_process_remote_ub_single_link_down (0.5932)</span><span class="top5-item ">dfx_worker_process_local_ub_link_down (0.5494)</span><span class="top5-item ">dfx_worker_set_exit (0.5309)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>latency</td><td>latency</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.948</td><td>1.000</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_POSIX_GET:1.948, DS_POSIX_CREATE:1.000</td><td>DS_POSIX_GET:1.000</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>few_pods</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>3</td><td>3</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>anomalous_ratio</td><td>1.000</td><td>1.000</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>urma_total_latency(34%) &gt; master_rpc_total(17%) &gt; total_latency(17%) &gt; c2w_latency(16%) &gt; c2w_urma_latency(16%)</td><td>urma_total_latency(42%) &gt; total_latency(29%) &gt; worker_total_latency(28%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:248, DS_POSIX_CREATE:2</td><td>DS_POSIX_GET:6</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>4</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>status_code</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_pod</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>conn_ops</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="correct" data-cat="mixed">
+  <div class="case-header correct">
+    <div><span class="case-name">dfx_worker_process_scale_in_client_hang_up</span><span class="tag tag-mixed">mixed</span><span class="good" style="margin-left:10px">&#10003; 正确</span></div>
+    <div><span class="confidence">置信度: 0.8426</span></div>
+  </div>
+  <div class="case-body">
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item gt">dfx_worker_process_scale_in_client_hang_up (0.8426)</span><span class="top5-item ">dfx_worker_pod_reboot_l2 (0.735)</span><span class="top5-item ">dfx_worker_process_scale_in_remote_ub_nfe (0.6685)</span><span class="top5-item ">dfx_worker_process_scale_in_remote_ub_link_down (0.628)</span><span class="top5-item ">dfx_client_init_etcd_cluster_fail (0.6221)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>2865.884</td><td>2945.805</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_KV_CLIENT_GET:1.995, DS_POSIX_GET:1.000</td><td>DS_KV_CLIENT_GET:4.479, DS_POSIX_GET:1.000</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>multi_pod</td><td>multi_pod</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>affected_pods</td><td>4</td><td>6</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>0.171</td><td>0.177</td><td class="match-close">~</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(38%) &gt; worker_total_latency(38%) &gt; worker_query_meta_latency(11%) &gt; urma_total_latency(7%) &gt; remote_worker_rpc(6%)</td><td>total_latency(50%) &gt; worker_total_latency(50%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_POSIX_GET:334, DS_KV_CLIENT_GET:8</td><td>DS_POSIX_GET:314, DS_KV_CLIENT_GET:40</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>6</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_003:44078, kvcache_runtime_1696:2390, kvcache_runtime_1711:2390, kvcache_runtime_1706:167, kvcache_runtime_2173:167 +2</td><td>kvcache_access_003:40832, kvcache_runtime_1696:2434, kvcache_runtime_1711:2434, kvcache_runtime_1706:167, kvcache_runtime_2173:167 +1</td><td class="match-close">~</td></tr>
+      <tr><td>status_code</td><td>3:44078</td><td>3:40832</td><td class="match-close">~</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>GET:39078</td><td>GET:40665</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="correct" data-cat="connectivity">
+  <div class="case-header correct">
+    <div><span class="case-name">dfx_worker_process_scale_in_tcp_loss</span><span class="tag tag-connectivity">connectivity</span><span class="good" style="margin-left:10px">&#10003; 正确</span></div>
+    <div><span class="confidence">置信度: 0.3573</span></div>
+  </div>
+  <div class="case-body">
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item gt">dfx_worker_process_scale_in_tcp_loss (0.3573)</span><span class="top5-item ">dfx_worker_process_set_exit (0.1023)</span><span class="top5-item ">dfx_worker_process_scale_in_client_hang_up (0.0953)</span><span class="top5-item ">dfx_worker_process_scale_in_remote_ub_nfe (0.0862)</span><span class="top5-item ">dfx_worker_pod_reboot_l2 (0.0862)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>connectivity</td><td>connectivity</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>op_p99/p50</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>pod_concentration</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>segment_ranking</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>trace_ctx_pods</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td><span style='color:#999'>-</span></td><td><span style='color:#999'>-</span></td><td class="match-empty">&#10007;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_003:6144, kvcache_runtime_1696:3148, kvcache_runtime_1711:3148, kvcache_access_022:2048, kvcache_runtime_2529:1192</td><td>kvcache_access_003:3072, kvcache_runtime_1696:3072, kvcache_runtime_1711:3072, kvcache_access_022:1024, kvcache_runtime_2529:1024</td><td class="match-close">~</td></tr>
+      <tr><td>status_code</td><td>3:6144, 1004:2048</td><td>3:3072, 1004:1024</td><td class="match-close">~</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>GET:4096</td><td>GET:4096</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="case-card" data-status="correct" data-cat="mixed">
+  <div class="case-header correct">
+    <div><span class="case-name">dfx_worker_process_set_exit</span><span class="tag tag-mixed">mixed</span><span class="good" style="margin-left:10px">&#10003; 正确</span></div>
+    <div><span class="confidence">置信度: 0.8753</span></div>
+  </div>
+  <div class="case-body">
+    <div class="top5-list"><b>Top-5:</b> <span class="top5-item gt">dfx_worker_process_set_exit (0.8753)</span><span class="top5-item ">dfx_client_init_etcd_cluster_fail (0.6441)</span><span class="top5-item ">dfx_worker_set_kill (0.6441)</span><span class="top5-item ">dfx_worker_process_scale_in_remote_ub_nfe (0.6156)</span><span class="top5-item ">dfx_worker_process_scale_in_remote_ub_link_down (0.5795)</span></div>
+    <table>
+      <tr><th>特征</th><th>测试案例</th><th>正确训练案例</th><th>匹配</th></tr>
+      <tr><td>fault_category</td><td>mixed</td><td>mixed</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>p99/p50 ratio</td><td>1.094</td><td>1.207</td><td class="match-close">~</td></tr>
+      <tr><td>op_p99/p50</td><td>DS_KV_CLIENT_GET:1.000</td><td>DS_KV_CLIENT_GET:1.000</td><td class="match-close">~</td></tr>
+      <tr><td>pod_concentration</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_pods</td><td>2</td><td>4</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>anomalous_ratio</td><td>0.001</td><td>0.001</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; sdk_process(0%)</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; worker_query_meta_latency(0%)</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>affected_ops</td><td>DS_KV_CLIENT_GET:2</td><td>DS_KV_CLIENT_GET:2</td><td class="match-close">~</td></tr>
+      <tr><td>trace_ctx_pods</td><td>3</td><td>5</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>trace_ctx_hosts</td><td>1</td><td>1</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>failure_mode</td><td>kvcache_access_003:13869, kvcache_runtime_1696:7656, kvcache_runtime_1711:7656</td><td>kvcache_access_003:9084, kvcache_runtime_1696:7870, kvcache_runtime_1711:7870</td><td class="match-close">~</td></tr>
+      <tr><td>status_code</td><td>3:13869</td><td>3:9084</td><td class="match-close">~</td></tr>
+      <tr><td>spatial_pod</td><td>few_pods</td><td>multi_pod</td><td class="mismatch">&#10007;</td></tr>
+      <tr><td>spatial_host</td><td>single_host</td><td>single_host</td><td class="match-exact">&#10003;</td></tr>
+      <tr><td>conn_ops</td><td>GET:8884</td><td>GET:9084</td><td class="match-close">~</td></tr>
+    </table>
+  </div>
+</div>
+
+<script>
+function filter(type){
+  document.querySelectorAll('.filter-bar button').forEach(b=>b.classList.remove('active'));
+  event.target.classList.add('active');
+  document.querySelectorAll('.case-card').forEach(card=>{
+    if(type==='all'){card.style.display='';return}
+    if(type==='correct'||type==='incorrect'){card.style.display=card.dataset.status===type?'':'none'}
+    else{card.style.display=card.dataset.cat===type?'':'none'}
+  })
+}
+</script>
+</body>
+</html>

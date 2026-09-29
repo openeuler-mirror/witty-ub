@@ -46,7 +46,11 @@ witty_ub_diagnostician/skills/experience-skill/scripts/src/experience_skill_cli/
 
 # 日志解析预处理产物（运行时数据，不入库）
 log_preprocessed_*/
+log_*/
 
 # 设计文档渲染测试产物
 docs/design/_render_test.html
+
+# 上传文件目录（运行时数据，不入库）
+src/plugins/latency/latency/file/
 

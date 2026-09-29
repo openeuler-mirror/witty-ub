@@ -96,6 +96,10 @@ export default defineConfig(({ mode }) => {
           target: 'http://127.0.0.1:9772',
           changeOrigin: true,
         },
+        '/similarity_analysis': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
       },
     },
   }

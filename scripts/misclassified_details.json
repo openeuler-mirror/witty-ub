@@ -1,0 +1,1220 @@
+[
+  {
+    "ground_truth": "dfx_client_init_etcd_cluster_fail",
+    "predicted": "dfx_worker_set_exit",
+    "confidence": 0.9383,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_init_etcd_cluster_fail_001_20260528_17_23_20",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_worker_set_exit",
+        0.9383
+      ],
+      [
+        "dfx_client_process_tcp_down",
+        0.9383
+      ],
+      [
+        "dfx_worker_process_local_get_etcd_main_fail",
+        0.9383
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.9383
+      ],
+      [
+        "dfx_client_process_get_exit_start",
+        0.9382
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_client_process_get_exit_start",
+    "predicted": "dfx_worker_process_scale_in_tcp_loss",
+    "confidence": 0.7903,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_get_exit_start_001_20260528_22_51_28",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_scale_in_tcp_loss",
+        0.7903
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.6959
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.6958
+      ],
+      [
+        "dfx_client_process_tcp_down",
+        0.6958
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.6958
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_client_process_get_ubm_failure",
+    "predicted": "dfx_client_process_get_ubse_failure",
+    "confidence": 0.9385,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_get_ubm_failure_001_20260528_21_20_30",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.9385
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.9385
+      ],
+      [
+        "dfx_client_process_get_exit_start",
+        0.7487
+      ],
+      [
+        "dfx_worker_process_local_get_etcd_main_fail",
+        0.7486
+      ],
+      [
+        "dfx_client_process_tcp_down",
+        0.7486
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_client_process_get_ubse_failure",
+    "predicted": "dfx_worker_process_net_card_loss",
+    "confidence": 0.7707,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_get_ubse_failure_001_20260529_00_47_11",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_net_card_loss",
+        0.7707
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.7409
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.7409
+      ],
+      [
+        "dfx_worker_process_local_ub_link_down",
+        0.6533
+      ],
+      [
+        "dfx_worker_process_upgrade_etcd_fault",
+        0.6532
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_client_process_scale_in_worker_hang_up",
+    "predicted": "dfx_worker_process_write_net_card_loss",
+    "confidence": 0.8984,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_scale_in_worker_hang_up_001_20260528_19_41_02",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_write_net_card_loss",
+        0.8984
+      ],
+      [
+        "dfx_client_process_scale_in_worker_hang_up",
+        0.8849
+      ],
+      [
+        "dfx_ps_n_n",
+        0.8848
+      ],
+      [
+        "dfx_remote_ub_all_port_down",
+        0.8845
+      ],
+      [
+        "dfx_remote_ub_single_socket_two_port_down",
+        0.8845
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_client_process_set_exit",
+    "predicted": "dfx_client_process_tcp_down",
+    "confidence": 0.9384,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_set_exit_002_20260528_16_57_35",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_client_process_tcp_down",
+        0.9384
+      ],
+      [
+        "dfx_worker_process_local_get_etcd_main_fail",
+        0.9384
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.9384
+      ],
+      [
+        "dfx_client_process_get_exit_start",
+        0.9384
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.9382
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_client_process_set_exit_start",
+    "predicted": "dfx_r_discovery_worker_process_hangup",
+    "confidence": 0.9147,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_set_exit_start_001_20260528_22_22_56",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_r_discovery_worker_process_hangup",
+        0.9147
+      ],
+      [
+        "dfx_remote_ub_single_socket_two_port_down",
+        0.9009
+      ],
+      [
+        "dfx_remote_ub_all_port_down",
+        0.9008
+      ],
+      [
+        "dfx_client_process_scale_in_worker_hang_up",
+        0.9004
+      ],
+      [
+        "dfx_ps_n_n",
+        0.9001
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_client_process_tcp_down",
+    "predicted": "dfx_worker_pod_reboot",
+    "confidence": 0.6605,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_process_tcp_down_001_20260529_11_58_30",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_worker_pod_reboot",
+        0.6605
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.637
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.6365
+      ],
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.6244
+      ],
+      [
+        "dfx_client_scale_in_tcp_down",
+        0.6222
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_client_scale_in_tcp_down",
+    "predicted": "dfx_client_process_get_ubm_failure",
+    "confidence": 0.7732,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_scale_in_tcp_down_001_20260529_08_51_37",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.7732
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.7627
+      ],
+      [
+        "dfx_worker_pod_reboot",
+        0.7297
+      ],
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.7182
+      ],
+      [
+        "dfx_r_etcd_fail_client_update",
+        0.7105
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_client_write_remote_after_ubse_fault",
+    "predicted": "dfx_write_remote_tcp_dalay",
+    "confidence": 0.9384,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_write_remote_after_ubse_fault_001_20260528_22_03_41",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9384
+      ],
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9383
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9383
+      ],
+      [
+        "dfx_client_write_remote_after_ubm_fault",
+        0.9383
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9383
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_client_write_remote_worker_etcd_main_fault",
+    "predicted": "dfx_write_remote_tcp_dalay",
+    "confidence": 0.9385,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_client_write_remote_worker_etcd_main_fault_001_20260529_01_12_47",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9385
+      ],
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9384
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_etcd_cluster_exit",
+    "predicted": "dfx_client_write_remote_after_ubse_fault",
+    "confidence": 0.912,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_etcd_cluster_exit_001_20260528_20_10_49",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_client_write_remote_after_ubse_fault",
+        0.912
+      ],
+      [
+        "dfx_client_write_remote_after_ubse_fault",
+        0.912
+      ],
+      [
+        "dfx_client_write_remote_after_ubm_fault",
+        0.912
+      ],
+      [
+        "dfx_etcd_cluster_exit",
+        0.9107
+      ],
+      [
+        "dfx_client_write_remote_worker_etcd_main_fault",
+        0.9083
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_etcd_cluster_exit_before_set",
+    "predicted": "dfx_client_write_remote_after_ubse_fault",
+    "confidence": 0.912,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_etcd_cluster_exit_before_set_001_20260528_22_15_39",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_client_write_remote_after_ubse_fault",
+        0.912
+      ],
+      [
+        "dfx_client_write_remote_after_ubse_fault",
+        0.912
+      ],
+      [
+        "dfx_client_write_remote_after_ubm_fault",
+        0.9119
+      ],
+      [
+        "dfx_etcd_cluster_exit",
+        0.9111
+      ],
+      [
+        "dfx_client_write_remote_worker_etcd_main_fault",
+        0.9094
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_local_ub_all_port_down",
+    "predicted": "dfx_write_remote_tcp_dalay",
+    "confidence": 0.9385,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_local_ub_all_port_down_001_20260529_17_21_48",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9385
+      ],
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9384
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9384
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_local_ub_all_port_lanedown",
+    "predicted": "dfx_local_ub_all_port_down",
+    "confidence": 0.9092,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_local_ub_all_port_lanedown_001_20260528_23_25_48",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_local_ub_all_port_down",
+        0.9092
+      ],
+      [
+        "dfx_local_ub_two_socket_single_port_down",
+        0.8839
+      ],
+      [
+        "dfx_client_write_remote_worker_etcd_main_fault",
+        0.8769
+      ],
+      [
+        "dfx_client_write_remote_after_ubse_fault",
+        0.8769
+      ],
+      [
+        "dfx_local_ub_single_port_down",
+        0.8769
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_local_ub_all_port_link_loss",
+    "predicted": "dfx_remote_ub_single_port_down",
+    "confidence": 0.9385,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_local_ub_all_port_link_loss_001_20260529_20_14_42",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_lanedown",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_single_port_down",
+        0.9385
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_local_ub_single_port_down",
+    "predicted": "dfx_remote_ub_two_socket_single_port_down",
+    "confidence": 0.9385,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_local_ub_single_port_down_001_20260529_16_57_47",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_lanedown",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_single_port_down",
+        0.9385
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_local_ub_two_port_flashdown",
+    "predicted": "dfx_write_remote_tcp_dalay",
+    "confidence": 0.9385,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_local_ub_two_port_flashdown_001_20260528_19_25_02",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9385
+      ],
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9384
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9384
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_local_ub_two_socket_single_port_down",
+    "predicted": "dfx_local_ub_two_port_flashdown",
+    "confidence": 0.9943,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_local_ub_two_socket_single_port_down_001_20260529_23_17_57",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_local_ub_two_port_flashdown",
+        0.9943
+      ],
+      [
+        "dfx_remote_ub_single_socket_two_port_down",
+        0.9171
+      ],
+      [
+        "dfx_remote_ub_all_port_down",
+        0.9083
+      ],
+      [
+        "dfx_ps_n_n",
+        0.7703
+      ],
+      [
+        "dfx_worker_reboot_single_node",
+        0.5675
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_r_etcd_fail_client_update",
+    "predicted": "dfx_write_remote_tcp_dalay",
+    "confidence": 0.9385,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_r_etcd_fail_client_update_001_20260528_18_26_42",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9384
+      ],
+      [
+        "dfx_write_remote_tcp_dalay",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9384
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_remote_ub_single_port_down",
+    "predicted": "dfx_local_ub_all_port_down",
+    "confidence": 0.8803,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_remote_ub_single_port_down_001_20260528_20_24_32",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_local_ub_all_port_down",
+        0.8803
+      ],
+      [
+        "dfx_r_worker_process_set_exit",
+        0.879
+      ],
+      [
+        "dfx_local_ub_two_socket_single_port_down",
+        0.8777
+      ],
+      [
+        "dfx_client_write_remote_after_ubse_fault",
+        0.8772
+      ],
+      [
+        "dfx_client_write_remote_after_ubm_fault",
+        0.8772
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_remote_ub_single_socket_two_port_down",
+    "predicted": "dfx_local_ub_single_port_down",
+    "confidence": 0.9385,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_remote_ub_single_socket_two_port_down_001_20260528_19_14_14",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_local_ub_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_lanedown",
+        0.9385
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9384
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9384
+      ],
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9384
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_remote_ub_two_socket_single_port_down",
+    "predicted": "dfx_local_ub_all_port_link_loss",
+    "confidence": 0.9385,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_remote_ub_two_socket_single_port_down_001_20260529_16_43_36",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_local_ub_all_port_link_loss",
+        0.9385
+      ],
+      [
+        "dfx_remote_ub_two_socket_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_remote_ub_single_port_down",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_all_port_lanedown",
+        0.9385
+      ],
+      [
+        "dfx_local_ub_single_port_down",
+        0.9385
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_sdk_install_etcd_down",
+    "predicted": "dfx_local_ub_single_port_down",
+    "confidence": 0.3503,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_sdk_install_etcd_down_001_20260528_11_40_44",
+    "test_category": "connectivity",
+    "top5_candidates": [
+      [
+        "dfx_local_ub_single_port_down",
+        0.3503
+      ],
+      [
+        "dfx_worker_reboot_single_node",
+        0.1121
+      ],
+      [
+        "dfx_r_etcd_fail_client_update",
+        0.1118
+      ],
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.1078
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.103
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_sdk_install_etcd_unavailable",
+    "predicted": "dfx_local_ub_single_socket_two_port_down",
+    "confidence": 0.8839,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_sdk_install_etcd_unavailable_001_20260529_17_12_46",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.8839
+      ],
+      [
+        "dfx_worker_process_write_net_card_loss",
+        0.8833
+      ],
+      [
+        "dfx_remote_ub_single_socket_two_port_down",
+        0.8698
+      ],
+      [
+        "dfx_remote_ub_all_port_down",
+        0.8698
+      ],
+      [
+        "dfx_client_process_scale_in_worker_hang_up",
+        0.8693
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_exit_single_node",
+    "predicted": "dfx_local_ub_single_socket_two_port_down",
+    "confidence": 0.936,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_exit_single_node_001_20260529_22_15_43",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.936
+      ],
+      [
+        "dfx_r_etcd_fail_client_update",
+        0.9098
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.8745
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.8741
+      ],
+      [
+        "dfx_client_scale_in_tcp_down",
+        0.8269
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_local_ub_link_down",
+    "predicted": "dfx_worker_process_remote_ub_ce",
+    "confidence": 0.9621,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_local_ub_link_down_002_20260528_16_11_16",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_ub_ce",
+        0.9621
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_lane_down",
+        0.9578
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_link_loss",
+        0.9365
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_flash_down",
+        0.8897
+      ],
+      [
+        "dfx_worker_process_remote_remote_ub_single_port_down",
+        0.8785
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_remote_local_ub_flash_down",
+    "predicted": "dfx_worker_process_remote_ub_ce",
+    "confidence": 0.9747,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_local_ub_flash_down_001_20260529_23_23_56",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_ub_ce",
+        0.9747
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_lane_down",
+        0.9664
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_flash_down",
+        0.9361
+      ],
+      [
+        "dfx_worker_process_remote_ub_fe",
+        0.9348
+      ],
+      [
+        "dfx_worker_process_remote_remote_ub_single_port_down",
+        0.9311
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_remote_local_ub_single_port_down",
+    "predicted": "dfx_worker_process_remote_local_ub_link_loss",
+    "confidence": 0.9819,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_local_ub_single_port_down_001_20260529_00_41_49",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_local_ub_link_loss",
+        0.9819
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_lane_down",
+        0.9658
+      ],
+      [
+        "dfx_worker_process_remote_ub_ce",
+        0.9394
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_flash_down",
+        0.88
+      ],
+      [
+        "dfx_worker_process_remote_ub_fe",
+        0.8437
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_remote_remote_ub_single_port_down",
+    "predicted": "dfx_worker_process_remote_ub_fe",
+    "confidence": 0.9955,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_remote_ub_single_port_down_001_20260528_18_47_43",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_ub_fe",
+        0.9955
+      ],
+      [
+        "dfx_worker_process_remote_remote_ub_single_port_down",
+        0.9876
+      ],
+      [
+        "dfx_worker_process_remote_get_etcd_main_fail",
+        0.9512
+      ],
+      [
+        "dfx_worker_process_remote_ub_ce",
+        0.9204
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_lane_down",
+        0.9034
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_remote_ub_ce",
+    "predicted": "dfx_worker_process_remote_local_ub_single_port_down",
+    "confidence": 0.9669,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_ub_ce_001_20260529_22_11_17",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_local_ub_single_port_down",
+        0.9669
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_flash_down",
+        0.834
+      ],
+      [
+        "dfx_worker_process_remote_ub_ce",
+        0.8339
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_lane_down",
+        0.8124
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_link_loss",
+        0.7716
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_remote_ub_fe",
+    "predicted": "dfx_worker_process_remote_get_etcd_main_fail",
+    "confidence": 0.9134,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_ub_fe_001_20260528_23_00_14",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_get_etcd_main_fail",
+        0.9134
+      ],
+      [
+        "dfx_worker_process_remote_ub_fe",
+        0.8866
+      ],
+      [
+        "dfx_worker_process_remote_remote_ub_single_port_down",
+        0.8758
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_flash_down",
+        0.8345
+      ],
+      [
+        "dfx_worker_process_remote_ub_ce",
+        0.7683
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_remote_ub_nfe",
+    "predicted": "dfx_worker_process_remote_get_etcd_main_fail",
+    "confidence": 0.8868,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_ub_nfe_001_20260528_16_05_56",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_remote_get_etcd_main_fail",
+        0.8868
+      ],
+      [
+        "dfx_worker_process_remote_ub_fe",
+        0.8603
+      ],
+      [
+        "dfx_worker_process_remote_remote_ub_single_port_down",
+        0.8512
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_flash_down",
+        0.7836
+      ],
+      [
+        "dfx_worker_process_remote_local_ub_single_port_down",
+        0.7599
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_remote_ub_single_link_down",
+    "predicted": "dfx_worker_process_net_card_loss",
+    "confidence": 0.8001,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_ub_single_link_down_001_20260529_22_32_34",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_net_card_loss",
+        0.8001
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.744
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.744
+      ],
+      [
+        "dfx_worker_process_upgrade_etcd_fault",
+        0.7228
+      ],
+      [
+        "dfx_worker_process_local_ub_link_down",
+        0.7228
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_scale_in_client_exit",
+    "predicted": "dfx_worker_set_exit",
+    "confidence": 0.7701,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_scale_in_client_exit_001_20260529_21_26_04",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_worker_set_exit",
+        0.7701
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.77
+      ],
+      [
+        "dfx_client_process_get_exit_start",
+        0.7699
+      ],
+      [
+        "dfx_worker_process_local_get_etcd_main_fail",
+        0.7699
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.7699
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_scale_in_remote_ub_link_down",
+    "predicted": "dfx_client_init_etcd_cluster_fail",
+    "confidence": 0.9178,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_scale_in_remote_ub_link_down_001_20260528_15_41_52",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_client_init_etcd_cluster_fail",
+        0.9178
+      ],
+      [
+        "dfx_worker_process_scale_in_remote_ub_link_down",
+        0.8704
+      ],
+      [
+        "dfx_worker_process_scale_in_remote_ub_nfe",
+        0.8698
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.7908
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.7907
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_scale_in_remote_ub_nfe",
+    "predicted": "dfx_worker_process_scale_in_remote_ub_link_down",
+    "confidence": 0.9547,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_scale_in_remote_ub_nfe_001_20260528_15_18_39",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_scale_in_remote_ub_link_down",
+        0.9547
+      ],
+      [
+        "dfx_worker_process_scale_in_remote_ub_nfe",
+        0.9541
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.9022
+      ],
+      [
+        "dfx_client_init_etcd_cluster_fail",
+        0.8907
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.8739
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_scale_in_tcp_down",
+    "predicted": "dfx_worker_process_local_get_etcd_main_fail",
+    "confidence": 0.9383,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_scale_in_tcp_down_001_20260528_19_30_06",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_local_get_etcd_main_fail",
+        0.9383
+      ],
+      [
+        "dfx_client_process_get_exit_start",
+        0.9383
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.9383
+      ],
+      [
+        "dfx_client_process_tcp_down",
+        0.9383
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.9381
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_scale_in_tcp_loss",
+    "predicted": "dfx_worker_process_set_exit",
+    "confidence": 0.6807,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_scale_in_tcp_loss_001_20260529_19_57_17",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_worker_process_set_exit",
+        0.6807
+      ],
+      [
+        "dfx_worker_process_scale_in_tcp_down",
+        0.6435
+      ],
+      [
+        "dfx_client_init_etcd_cluster_fail",
+        0.6334
+      ],
+      [
+        "dfx_worker_set_exit",
+        0.6083
+      ],
+      [
+        "dfx_worker_process_scale_in_remote_ub_nfe",
+        0.5931
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_process_write_net_card_loss",
+    "predicted": "dfx_r_discovery_worker_process_hangup",
+    "confidence": 0.757,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_process_write_net_card_loss_001_20260528_17_02_31",
+    "test_category": "latency",
+    "top5_candidates": [
+      [
+        "dfx_r_discovery_worker_process_hangup",
+        0.757
+      ],
+      [
+        "dfx_client_process_set_exit_start",
+        0.7427
+      ],
+      [
+        "dfx_ps_n_n",
+        0.7409
+      ],
+      [
+        "dfx_client_process_scale_in_worker_hang_up",
+        0.7408
+      ],
+      [
+        "dfx_remote_ub_all_port_down",
+        0.7407
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_worker_reboot_single_node",
+    "predicted": "dfx_local_ub_single_socket_two_port_down",
+    "confidence": 0.938,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_worker_reboot_single_node_001_20260529_00_18_45",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.938
+      ],
+      [
+        "dfx_r_etcd_fail_client_update",
+        0.9094
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.8763
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.8762
+      ],
+      [
+        "dfx_client_scale_in_tcp_down",
+        0.8275
+      ]
+    ]
+  },
+  {
+    "ground_truth": "dfx_write_remote_tcp_dalay",
+    "predicted": "dfx_local_ub_single_socket_two_port_down",
+    "confidence": 0.8876,
+    "log_name": "yxh_new_0530/lingqu_kvcache_dfx_write_remote_tcp_dalay_001_20260529_22_55_07",
+    "test_category": "mixed",
+    "top5_candidates": [
+      [
+        "dfx_local_ub_single_socket_two_port_down",
+        0.8876
+      ],
+      [
+        "dfx_r_etcd_fail_client_update",
+        0.8564
+      ],
+      [
+        "dfx_client_process_get_ubm_failure",
+        0.8285
+      ],
+      [
+        "dfx_client_process_get_ubse_failure",
+        0.8267
+      ],
+      [
+        "dfx_client_scale_in_tcp_down",
+        0.7666
+      ]
+    ]
+  }
+]

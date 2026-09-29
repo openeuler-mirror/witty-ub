@@ -1,0 +1,125 @@
+{
+  "id": "988d3a74-f3c2-47ec-a7b4-c3e2f85cf7db",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker远端本地UB单端口down",
+  "description": "自动导入: dfx_worker_process_remote_local_ub_single_port_down",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new_0530/lingqu_kvcache_dfx_worker_process_remote_local_ub_single_port_down_001_20260529_18_06_59"
+  ],
+  "log_file_id": "bc184a31-8742-465c-ae29-566755047d37",
+  "log_file_name": "lingqu_kvcache_dfx_worker_process_remote_local_ub_single_port_down_001_20260529_18_06_59",
+  "attachment_path": null,
+  "fault_category": "mixed",
+  "case_category": "UB-链路故障",
+  "features": {
+    "fault_category": "mixed",
+    "latency": {
+      "timeout_segments": [
+        [
+          "remote_worker_rpc",
+          86.344
+        ],
+        [
+          "remote_worker_cost",
+          80.302
+        ],
+        [
+          "total_latency",
+          53.582499999999996
+        ],
+        [
+          "sdk_process",
+          44.892
+        ],
+        [
+          "worker_total_latency",
+          44.887499999999996
+        ],
+        [
+          "c2w_latency",
+          8.694999999999997
+        ],
+        [
+          "c2w_urma_latency",
+          8.694999999999997
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "remote_worker_rpc",
+          86.344
+        ],
+        [
+          "remote_worker_cost",
+          80.302
+        ],
+        [
+          "total_latency",
+          53.582499999999996
+        ],
+        [
+          "sdk_process",
+          44.892
+        ],
+        [
+          "worker_total_latency",
+          44.887499999999996
+        ]
+      ],
+      "p99_p50_ratio": 14.878648688694621,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 14.879
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 3,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 4
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 3,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": {
+      "failure_mode_dist": {
+        "kvcache_access_021": 4,
+        "kvcache_runtime_1377": 5,
+        "kvcache_runtime_2117": 3,
+        "kvcache_runtime_2115": 3,
+        "kvcache_runtime_2212": 3,
+        "kvcache_runtime_2116": 3,
+        "kvcache_runtime_2525": 3,
+        "kvcache_runtime_949": 9,
+        "kvcache_runtime_906": 6,
+        "kvcache_runtime_111": 3,
+        "kvcache_runtime_272": 2
+      },
+      "status_code_dist": {
+        "1002": 4
+      },
+      "spatial_pod": {
+        "unique_count": 3,
+        "scope": "few_pods"
+      },
+      "spatial_host": {
+        "unique_count": 1,
+        "scope": "single_host"
+      },
+      "spatial_cluster": {
+        "unique_count": 1,
+        "scope": "single_cluster"
+      },
+      "affected_operation_dist": {
+        "GET": 1
+      },
+      "src_dst_pair_count": 1
+    },
+    "summary": {
+      "anomalous_event_count": 4,
+      "failure_event_count": 34,
+      "total_parse_result_count": 4
+    }
+  },
+  "created_at": "2026-09-28 17:24:11"
+}
