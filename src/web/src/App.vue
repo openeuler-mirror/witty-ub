@@ -2717,6 +2717,39 @@ type MonitorProduct = 'KVCache' | 'UBSocket'
 type KnowledgeSection = 'skill' | 'wiki' | 'case'
 const activeMonitorSection = ref<MonitorSection>('latency')
 const activeKnowledgeSection = ref<KnowledgeSection>('skill')
+
+type ExperienceItem = {
+  id: string
+  type: string
+  name: string
+  description: string
+  keywords: string[]
+  source: string
+  is_hot: number
+  status: string
+  created_at: string
+  updated_at: string
+  content?: string
+}
+const experienceList = ref<ExperienceItem[]>([])
+const experienceLoading = ref(false)
+const experienceError = ref('')
+const experienceSearch = ref('')
+const experiencePage = ref(1)
+const experiencePageSize = 12
+const experienceDetailOpen = ref(false)
+const experienceDetailLoading = ref(false)
+const experienceDetailItem = ref<ExperienceItem | null>(null)
+const experienceAddOpen = ref(false)
+const experienceSaving = ref(false)
+const experienceAddError = ref('')
+const experienceAddForm = reactive({
+  name: '',
+  description: '',
+  keywords: '',
+  content: '',
+})
+const experienceApiBase = '/experience_api'
 const activeMonitorProduct = computed<MonitorProduct>(() =>
   activeMonitorSection.value === 'brpc' || activeMonitorSection.value === 'brpc-fault'
     ? 'UBSocket'
@@ -13631,6 +13664,128 @@ const openKnowledgePage = async (section: KnowledgeSection = 'skill') => {
   activePage.value = 'knowledge'
   if (section === 'case') {
     await loadCaseLibrary()
+  } else if (section === 'skill' || section === 'wiki') {
+    await loadExperienceList(section)
+  }
+}
+
+// ---- Experience (Skill/Wiki) 管理 ----
+const experienceFilteredItems = computed(() => {
+  const keyword = experienceSearch.value.trim().toLowerCase()
+  if (!keyword) return experienceList.value
+  return experienceList.value.filter(
+    (item) =>
+      item.name.toLowerCase().includes(keyword) ||
+      item.description.toLowerCase().includes(keyword) ||
+      (item.keywords || []).some((kw) => kw.toLowerCase().includes(keyword)),
+  )
+})
+const experienceTotalPages = computed(() =>
+  Math.max(1, Math.ceil(experienceFilteredItems.value.length / experiencePageSize)),
+)
+const experiencePagedItems = computed(() =>
+  experienceFilteredItems.value.slice(
+    (experiencePage.value - 1) * experiencePageSize,
+    experiencePage.value * experiencePageSize,
+  ),
+)
+
+const loadExperienceList = async (expType: 'skill' | 'wiki') => {
+  experienceLoading.value = true
+  experienceError.value = ''
+  try {
+    const params = new URLSearchParams()
+    params.set('exp_type', expType.toUpperCase())
+    params.set('page', '1')
+    params.set('page_size', '100')
+    const result = await request<{ total: number; items: ExperienceItem[] }>(
+      `${experienceApiBase}/experiences?${params.toString()}`,
+    )
+    experienceList.value = result.items ?? []
+    experiencePage.value = 1
+  } catch (e) {
+    experienceError.value = e instanceof Error ? e.message : '加载失败'
+    experienceList.value = []
+  } finally {
+    experienceLoading.value = false
+  }
+}
+
+const openExperienceDetail = async (item: ExperienceItem) => {
+  experienceDetailOpen.value = true
+  experienceDetailLoading.value = true
+  experienceDetailItem.value = null
+  try {
+    const detail = await request<ExperienceItem>(`${experienceApiBase}/experiences/${item.id}`)
+    experienceDetailItem.value = detail
+  } catch (e) {
+    experienceDetailItem.value = item
+  } finally {
+    experienceDetailLoading.value = false
+  }
+}
+const closeExperienceDetail = () => {
+  experienceDetailOpen.value = false
+  experienceDetailItem.value = null
+}
+
+const openExperienceAdd = () => {
+  experienceAddForm.name = ''
+  experienceAddForm.description = ''
+  experienceAddForm.keywords = ''
+  experienceAddForm.content = ''
+  experienceAddError.value = ''
+  experienceAddOpen.value = true
+}
+const closeExperienceAdd = () => {
+  if (experienceSaving.value) return
+  experienceAddOpen.value = false
+}
+const saveExperienceAdd = async () => {
+  const name = experienceAddForm.name.trim()
+  if (!name) {
+    experienceAddError.value = '请输入名称'
+    return
+  }
+  if (!experienceAddForm.description.trim()) {
+    experienceAddError.value = '请输入描述'
+    return
+  }
+  experienceSaving.value = true
+  experienceAddError.value = ''
+  try {
+    const keywords = experienceAddForm.keywords
+      .split(/[,\n，]/)
+      .map((k) => k.trim())
+      .filter(Boolean)
+    await request<ExperienceItem>(`${experienceApiBase}/experiences`, {
+      method: 'POST',
+      body: JSON.stringify({
+        exp_type: activeKnowledgeSection.value === 'skill' ? 'SKILL' : 'WIKI',
+        name,
+        description: experienceAddForm.description.trim(),
+        keywords,
+        content: experienceAddForm.content,
+      }),
+    })
+    experienceAddOpen.value = false
+    await loadExperienceList(activeKnowledgeSection.value as 'skill' | 'wiki')
+  } catch (e) {
+    experienceAddError.value = e instanceof Error ? e.message : '创建失败'
+  } finally {
+    experienceSaving.value = false
+  }
+}
+
+const deleteExperience = async (item: ExperienceItem) => {
+  if (!window.confirm(`确认删除「${item.name}」？该操作将同时删除源文件，不可恢复。`)) return
+  try {
+    await request<{ id: string; deleted: boolean }>(`${experienceApiBase}/experiences/${item.id}`, {
+      method: 'DELETE',
+    })
+    await loadExperienceList(activeKnowledgeSection.value as 'skill' | 'wiki')
+  } catch (e) {
+    alert(e instanceof Error ? e.message : '删除失败')
   }
 }
 
@@ -14487,11 +14642,61 @@ onBeforeUnmount(() => {
           <h1>{{ activeKnowledgeSection === 'skill' ? 'Skill管理' : activeKnowledgeSection === 'wiki' ? 'Wiki管理' : '案例管理' }}</h1>
         </header>
         <div class="knowledge-page-content">
-          <div v-if="activeKnowledgeSection === 'skill'" class="knowledge-section">
-            <p class="knowledge-placeholder">Skill管理功能开发中，敬请期待...</p>
-          </div>
-          <div v-else-if="activeKnowledgeSection === 'wiki'" class="knowledge-section">
-            <p class="knowledge-placeholder">Wiki管理功能开发中，敬请期待...</p>
+          <div v-if="activeKnowledgeSection === 'skill' || activeKnowledgeSection === 'wiki'" class="knowledge-section knowledge-experience-section">
+            <div class="experience-toolbar">
+              <button class="save-btn experience-add-btn" @click="openExperienceAdd">
+                + 新建{{ activeKnowledgeSection === 'skill' ? 'Skill' : 'Wiki' }}
+              </button>
+              <input
+                v-model="experienceSearch"
+                type="text"
+                class="experience-search-input"
+                placeholder="搜索名称/描述/关键词..."
+                autocomplete="off"
+              />
+            </div>
+            <div v-if="experienceLoading" class="experience-loading">加载中...</div>
+            <div v-else-if="experienceError" class="experience-error">{{ experienceError }}</div>
+            <div v-else-if="experienceFilteredItems.length === 0" class="experience-empty">
+              暂无{{ activeKnowledgeSection === 'skill' ? 'Skill' : 'Wiki' }}，点击上方按钮新建
+            </div>
+            <div v-else class="experience-card-grid">
+              <div
+                v-for="item in experiencePagedItems"
+                :key="item.id"
+                class="experience-card"
+              >
+                <div class="experience-card-head">
+                  <span class="experience-card-name" :title="item.name">{{ item.name }}</span>
+                  <span class="case-card-type-badge">{{ activeKnowledgeSection === 'skill' ? 'Skill' : 'Wiki' }}</span>
+                </div>
+                <div class="experience-card-desc" :title="item.description">
+                  {{ item.description || '—' }}
+                </div>
+                <div class="experience-card-keywords" v-if="item.keywords && item.keywords.length">
+                  <span v-for="kw in item.keywords.slice(0, 5)" :key="kw" class="experience-kw-tag">{{ kw }}</span>
+                  <span v-if="item.keywords.length > 5" class="experience-kw-more">+{{ item.keywords.length - 5 }}</span>
+                </div>
+                <div class="experience-card-footer">
+                  <span class="experience-card-time">{{ item.updated_at || item.created_at || '—' }}</span>
+                  <div class="experience-card-actions">
+                    <button class="case-edit-btn" @click="openExperienceDetail(item)">查看</button>
+                    <button class="case-delete-btn" @click="deleteExperience(item)">删除</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="pagination-pages" v-if="experienceTotalPages > 1">
+              <button
+                v-for="p in experienceTotalPages"
+                :key="p"
+                class="pagination-page-btn"
+                :class="{ active: experiencePage === p }"
+                @click="experiencePage = p"
+              >
+                {{ p }}
+              </button>
+            </div>
           </div>
           <div v-else class="knowledge-section knowledge-case-section">
             <div v-if="caseLibrary.length > 0 || caseCategories.length > 0" class="case-layout">
@@ -20986,6 +21191,70 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </section>
+    </div>
+
+    <!-- Experience (Skill/Wiki) 详情弹窗 -->
+    <div v-if="experienceDetailOpen" class="modal" role="dialog" aria-modal="true">
+      <div class="modal-content experience-detail-content">
+        <header class="modal-header">
+          <h2>{{ experienceDetailItem?.name || '详情' }}</h2>
+          <button class="close-modal" type="button" title="关闭" @click="closeExperienceDetail">x</button>
+        </header>
+        <div class="modal-body">
+          <div v-if="experienceDetailLoading" class="experience-loading">加载中...</div>
+          <div v-else-if="experienceDetailItem">
+            <div class="experience-detail-meta">
+              <div class="experience-detail-row"><span class="experience-detail-label">名称：</span>{{ experienceDetailItem.name }}</div>
+              <div class="experience-detail-row"><span class="experience-detail-label">描述：</span>{{ experienceDetailItem.description || '—' }}</div>
+              <div class="experience-detail-row" v-if="experienceDetailItem.keywords && experienceDetailItem.keywords.length">
+                <span class="experience-detail-label">关键词：</span>
+                <span v-for="kw in experienceDetailItem.keywords" :key="kw" class="experience-kw-tag">{{ kw }}</span>
+              </div>
+              <div class="experience-detail-row"><span class="experience-detail-label">来源：</span>{{ experienceDetailItem.source }}</div>
+              <div class="experience-detail-row"><span class="experience-detail-label">创建时间：</span>{{ experienceDetailItem.created_at || '—' }}</div>
+            </div>
+            <pre class="experience-detail-body">{{ experienceDetailItem.content || '（无正文内容）' }}</pre>
+          </div>
+        </div>
+        <footer class="modal-actions">
+          <button class="ghost-btn" @click="closeExperienceDetail">关闭</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Experience (Skill/Wiki) 新建弹窗 -->
+    <div v-if="experienceAddOpen" class="modal" role="dialog" aria-modal="true">
+      <form class="modal-content experience-add-content" @submit.prevent="saveExperienceAdd">
+        <header class="modal-header">
+          <h2>新建{{ activeKnowledgeSection === 'skill' ? 'Skill' : 'Wiki' }}</h2>
+          <button class="close-modal" type="button" title="关闭" @click="closeExperienceAdd">x</button>
+        </header>
+        <div class="modal-body">
+          <div v-if="experienceAddError" class="dialog-error">{{ experienceAddError }}</div>
+          <div class="form-field">
+            <span>名称 <span class="required">*</span></span>
+            <input v-model="experienceAddForm.name" type="text" placeholder="输入名称（作为文件名/目录名）" autocomplete="off" />
+          </div>
+          <div class="form-field">
+            <span>描述 <span class="required">*</span></span>
+            <textarea v-model="experienceAddForm.description" rows="2" placeholder="简要描述..."></textarea>
+          </div>
+          <div class="form-field">
+            <span>关键词</span>
+            <input v-model="experienceAddForm.keywords" type="text" placeholder="逗号分隔，如: KVCache, 诊断, 日志" autocomplete="off" />
+          </div>
+          <div class="form-field">
+            <span>正文内容（Markdown）</span>
+            <textarea v-model="experienceAddForm.content" rows="10" placeholder="输入 Markdown 正文..."></textarea>
+          </div>
+        </div>
+        <footer class="modal-actions">
+          <button class="ghost-btn" type="button" @click="closeExperienceAdd">取消</button>
+          <button class="save-btn" type="submit" :disabled="experienceSaving">
+            {{ experienceSaving ? '保存中...' : '创建' }}
+          </button>
+        </footer>
+      </form>
     </div>
 
     <div v-if="caseDialog.open" class="modal" role="dialog" aria-modal="true">

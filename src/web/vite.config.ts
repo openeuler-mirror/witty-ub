@@ -33,6 +33,7 @@ export default defineConfig(({ mode }) => {
   // dev/preview proxy 目标可经环境变量指向远程后端（前后端分离部署）
   const apiTarget = process.env.VITE_DEV_API_TARGET || 'http://127.0.0.1:9772'
   const agentTarget = process.env.VITE_DEV_AGENT_TARGET || 'http://127.0.0.1:4096'
+  const experienceTarget = process.env.VITE_DEV_EXPERIENCE_TARGET || 'http://127.0.0.1:8080'
   const apiProxy = (prefix: string) => ({
     [prefix]: { target: apiTarget, changeOrigin: true },
   })
@@ -66,6 +67,11 @@ export default defineConfig(({ mode }) => {
         ...apiProxy('/diagnostic_report'),
         ...apiProxy('/case_library'),
         ...apiProxy('/similarity_analysis'),
+        '/experience_api': {
+          target: experienceTarget,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/experience_api/, '/api'),
+        },
       },
     },
   }
