@@ -9,9 +9,12 @@ import webbrowser
 from pathlib import Path
 from typing import Annotated
 
+import yaml
+
 import uvicorn
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
 
 from experience_skill_cli.common.exprience import SKILL_ROOT
 from experience_skill_cli.console import launch, link, rocket, warn
@@ -239,6 +242,106 @@ async def get_experience(experience_id: str) -> JSONResponse:
     result = _exp_to_dict(exp)
     result["content"] = content
     return JSONResponse(result)
+
+
+# ------------------------------
+# API：创建经验（写文件 + 入库）
+# ------------------------------
+
+class CreateExperienceRequest(BaseModel):
+    """前端创建经验的请求体。"""
+    exp_type: str  # "SKILL" | "WIKI"
+    name: str
+    description: str
+    keywords: list[str] = []
+    content: str = ""  # Markdown 正文（不含 YAML front matter）
+
+
+@app.post("/api/experiences")
+async def create_experience(req: CreateExperienceRequest) -> JSONResponse:
+    """创建经验：写文件到 skill_hub/wiki_hub，再注册到数据库。"""
+    try:
+        experience_type = ExperienceType[req.exp_type.upper()]
+    except KeyError:
+        return JSONResponse({"error": "exp_type 必须是 SKILL 或 WIKI"}, status_code=400)
+
+    name = req.name.strip()
+    if not name:
+        return JSONResponse({"error": "name 不能为空"}, status_code=400)
+
+    # 生成源文件路径
+    if experience_type == ExperienceType.SKILL:
+        # skill: data/skill_hub/<name>/skill_def.md
+        source = f"data/skill_hub/{name}/skill_def.md"
+        target = SKILL_ROOT / source
+    else:
+        # wiki: data/wiki_hub/<name>.md
+        source = f"data/wiki_hub/{name}.md"
+        target = SKILL_ROOT / source
+
+    # 检查是否已存在（DB + 文件双重检查）
+    existing = ExperienceManager.query_experience_by_source(source)
+    if existing:
+        return JSONResponse({"error": f"来源 {source} 已注册"}, status_code=409)
+    if target.exists():
+        return JSONResponse({"error": f"文件 {source} 已存在"}, status_code=409)
+
+    # 组装 YAML front matter + 正文
+    front_matter: dict[str, object] = {
+        "name": name,
+        "description": req.description.strip(),
+    }
+    if req.keywords:
+        front_matter["keywords"] = req.keywords
+    if req.content.strip():
+        front_matter["references"] = ""
+
+    yaml_header = yaml.dump(front_matter, allow_unicode=True, default_flow_style=False, sort_keys=False)
+    md_content = f"---\n{yaml_header}---\n\n{req.content.strip()}\n"
+
+    # 写文件
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(md_content, encoding="utf-8")
+
+    # 注册到数据库
+    try:
+        exp = ExperienceService.add_experiences(experience_type, source)
+    except Exception as e:
+        # 注册失败则回滚文件
+        target.unlink(missing_ok=True)
+        return JSONResponse({"error": f"注册失败：{e}"}, status_code=500)
+
+    exp.keywords = KeyWordManager.get_keywords_by_experience_id(exp.id)
+    return JSONResponse(_exp_to_dict(exp), status_code=201)
+
+
+# ------------------------------
+# API：删除经验（软删除 DB + 删除文件）
+# ------------------------------
+
+@app.delete("/api/experiences/{experience_id}")
+async def delete_experience(experience_id: str) -> JSONResponse:
+    """删除经验：DB 软删除 + 删除源文件。"""
+    exps = ExperienceManager.query_experience_by_ids([experience_id])
+    if not exps:
+        return JSONResponse({"error": "Experience not found"}, status_code=404)
+
+    exp = exps[0]
+    # 软删除 DB 记录
+    ExperienceService.delete_experience_by_ids([experience_id])
+
+    # 删除源文件
+    if exp.type == ExperienceType.SKILL:
+        target = SKILL_ROOT / exp.source
+    else:
+        target = SKILL_ROOT / exp.source
+    if target.exists():
+        target.unlink(missing_ok=True)
+        # skill 目录如果空了也删掉
+        if exp.type == ExperienceType.SKILL and target.parent.exists() and not any(target.parent.iterdir()):
+            target.parent.rmdir()
+
+    return JSONResponse({"id": experience_id, "deleted": True})
 
 
 # ------------------------------
