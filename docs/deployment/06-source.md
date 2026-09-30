@@ -37,6 +37,15 @@ cmake --build build -j$(nproc)
 
 产物：`build/src/witty-ub-log`、`witty-ub-topo`、`witty-ub-diag-tool`
 
+> CMake 选项 `BUILD_TESTING`（默认 `OFF`）控制是否配置单元测试。部署环境不需要 GTest，
+> 保持默认即可。开发环境需要跑测试时加 `-DBUILD_TESTING=ON`（需安装 `gtest-devel`）：
+>
+> ```bash
+> cmake -S . -B build -DBUILD_TESTING=ON
+> cmake --build build -j$(nproc)
+> ctest --test-dir build --output-on-failure
+> ```
+
 ### 安装数据
 
 ```bash

@@ -1717,6 +1717,157 @@ body.agent-panel-resizing-corner {
   text-align: center;
 }
 
+/* ---- Experience (Skill/Wiki) 管理 ---- */
+.knowledge-experience-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 300px;
+}
+.experience-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.experience-add-btn {
+  white-space: nowrap;
+}
+.experience-search-input {
+  flex: 1;
+  max-width: 320px;
+  padding: 8px 12px;
+  border: 1px solid #d9e0e8;
+  border-radius: 6px;
+  font-size: 14px;
+}
+.experience-loading,
+.experience-error,
+.experience-empty {
+  text-align: center;
+  padding: 48px 0;
+  color: #94a3b8;
+  font-size: 15px;
+}
+.experience-error { color: #ef4444; }
+.experience-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+.experience-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  transition: box-shadow 0.15s;
+}
+.experience-card:hover {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+.experience-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.experience-card-name {
+  font-weight: 600;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.experience-card-desc {
+  font-size: 13px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  min-height: 38px;
+}
+.experience-card-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 22px;
+}
+.experience-kw-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #ebf2ff;
+  color: #1e6fff;
+  white-space: nowrap;
+}
+.experience-kw-more {
+  font-size: 11px;
+  color: #b0bac5;
+  align-self: center;
+}
+.experience-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid #f1f5f9;
+}
+.experience-card-time {
+  font-size: 12px;
+  color: #b0bac5;
+}
+.experience-card-actions {
+  display: flex;
+  gap: 8px;
+}
+.experience-detail-content {
+  width: min(720px, calc(100vw - 48px));
+  max-width: 100%;
+  max-height: 80vh;
+}
+.experience-add-content {
+  width: min(560px, 100%);
+  max-width: 100%;
+}
+.experience-detail-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.experience-detail-row {
+  font-size: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.experience-detail-label {
+  color: #64748b;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.experience-detail-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.6;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  max-height: 45vh;
+  overflow: auto;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
 .add-case-btn {
   background: #3b82f6;
   color: white;
