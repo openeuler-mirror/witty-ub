@@ -22,7 +22,7 @@ import {
   isAssetReportButtonDisabled,
   resolveAssetReportButtonState,
 } from './utils/assetReport'
-import { displayServerTime } from './utils/serverTime'
+import { displayServerTime, formatAssetTimeFilter } from './utils/serverTime'
 import {
   buildTaskLanes,
   buildTimelineTicks,
@@ -9748,8 +9748,8 @@ const submitQuery = async () => {
     const result = await listLogKbs({
       name: queryDialog.name.trim() || undefined,
       description: queryDialog.description.trim() || undefined,
-      created_at_start: formatDateTime(queryDialog.createdAtStart),
-      created_at_end: formatDateTime(queryDialog.createdAtEnd),
+      created_at_start: formatAssetTimeFilter(queryDialog.createdAtStart),
+      created_at_end: formatAssetTimeFilter(queryDialog.createdAtEnd),
       created_sorted_desc: queryDialog.sortOrder === 'desc',
     })
     resultsDialog.assets = result.assets

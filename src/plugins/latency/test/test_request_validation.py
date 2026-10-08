@@ -9,7 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from latency.access.fastapi_server import request_validation_exception_handler
 from latency.routers import log_file, log_knowledge
 from latency.schemas.request import UpdateLogFileRequest
-from latency.schemas.response import UpdateLogFileMsg
+from latency.schemas.response import ListLogKnowledgeMsg, UpdateLogFileMsg
 
 
 @pytest.fixture
@@ -22,6 +22,28 @@ def validation_app():
         request_validation_exception_handler,
     )
     return app
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "timestamp",
+    ["2026-01-01T00:30:00.000Z", "2026-01-01T08:30:00+08:00", "2026-01-01 08:30:00"],
+)
+async def test_asset_query_accepts_browser_and_legacy_time_filters(validation_app, timestamp):
+    transport = httpx.ASGITransport(app=validation_app, raise_app_exceptions=False)
+    with patch(
+        "latency.routers.log_knowledge.LogKnowledgeService.list_log_kbs",
+        new=AsyncMock(return_value=ListLogKnowledgeMsg(total=0)),
+    ) as service:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/log_kb/list",
+                json={"created_at_start": timestamp, "created_at_end": timestamp},
+            )
+
+    assert response.status_code == 200, response.text
+    req = service.await_args.args[0]
+    assert req.created_at_start == req.created_at_end == timestamp
 
 
 @pytest.mark.asyncio

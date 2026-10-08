@@ -2,11 +2,12 @@ from datetime import datetime
 import os
 
 from pydantic import (
+    AfterValidator,
     Field,
     ValidationInfo,
     field_validator,
 )
-from typing import Optional, Any, List, Union
+from typing import Annotated, Optional, Any, List, Union
 from fastapi import UploadFile
 from latency.ENUM.general import DiagnosisConfigLogType, SourceType
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
@@ -22,6 +23,22 @@ from latency.schemas.parse_config import (  # noqa: F401
     StrictRequestModel,
     TimeStr,
 )
+
+
+def _validate_asset_time_str(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            # Keep supporting old clients whose filters use server-local time.
+            datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError as exc:
+        raise ValueError(
+            "时间必须使用 YYYY-MM-DD HH:MM:SS 或带时区的 ISO 8601 格式"
+        ) from exc
+    return value
+
+
+AssetTimeStr = Annotated[str, AfterValidator(_validate_asset_time_str)]
 
 
 class RunBrpcDiagnosisRequest(StrictRequestModel):
@@ -67,13 +84,13 @@ class ListLogKnowledgeRequest(StrictRequestModel):
     description: Optional[str] = Field(
         default=None, description="知识描述，支持模糊查询"
     )
-    created_at_start: Optional[TimeStr] = Field(
+    created_at_start: Optional[AssetTimeStr] = Field(
         default=None,
-        description="知识创建时间范围查询的开始时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="知识创建时间范围查询的开始时间：带时区的 ISO 8601；兼容旧格式 YYYY-MM-DD HH:MM:SS（后端本地时间）",
     )
-    created_at_end: Optional[TimeStr] = Field(
+    created_at_end: Optional[AssetTimeStr] = Field(
         default=None,
-        description="知识创建时间范围查询的结束时间，格式为YYYY-MM-DD HH:MM:SS",
+        description="知识创建时间范围查询的结束时间：带时区的 ISO 8601；兼容旧格式 YYYY-MM-DD HH:MM:SS（后端本地时间）",
     )
     created_sorted_desc: bool = Field(
         default=True,
