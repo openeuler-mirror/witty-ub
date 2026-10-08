@@ -6,8 +6,8 @@ Witty-UB 是一个用于超节点故障定位的工具，前后端默认分离�
 
 | 节点 | 部署位置 | 网络要求 | 运行组件 |
 | ------ | --------- | --------- | --------- |
-| 后端节点 | 有数据的机器 | 无出网要求，仅对前端节点开放 9772 | FastAPI、C++ 工具链、PostgreSQL |
-| 前端节点 | 能访问大模型服务的机器 | 需出网访问 LLM API | Nginx、OpenCode AI Agent |
+| 后端节点 | 有数据的机器 | 无出网要求，仅对前端节点开放 9772 | FastAPI、C++ 工具链、PostgreSQL、experience-skill Web 服务 |
+| 前端节点 | 能访问大模型服务的机器 | 需出网访问 LLM API | Nginx、OpenCode AI Agent、experience-skill Web 服务 |
 
 ```text
 ┌─ 前端节点 ─────────────────────────────┐      ┌─ 后端节点 ──────────────────────────────┐
@@ -22,7 +22,11 @@ Witty-UB 是一个用于超节点故障定位的工具，前后端默认分离�
 │  │   OpenCode   │                       │      │  └──────────────┘                         │
 │  │   (4096)     │── curl 只读诊断 API ──────────────▶ FastAPI (9772)                      │
 │  └──────────────┘                       │      │                                           │
-│  LLM key 与经验库保存在本机               │      │  数据卷 /var/witty-ub，仅暴露 9772          │
+│  ┌──────────────┐                       │      │  ┌──────────────────────┐                │
+│  │experience-skill│  Skill/Wiki 管理 API │      │  │ experience-skill Web  │                │
+│  │ Web (8082)    │  ← /experience_api/   │      │  │ (8082)               │                │
+│  └──────────────┘  反代                  │      │  └──────────────────────┘                │
+│  LLM key 与经验库保存在本机               │      │  数据卷 /var/witty-ub，暴露 9772 + 8082    │
 └─────────────────────────────────────────┘      └──────────────────────────────────────────┘
 ```
 
@@ -45,6 +49,7 @@ Witty-UB 是一个用于超节点故障定位的工具，前后端默认分离�
 | ------ | ------ | ------ |
 | **Web 前端** | Nginx 静态托管 + API/Agent 反代 | 前端节点 |
 | **OpenCode** | AI Agent 服务，提供 AI 辅助故障诊断 | 前端节点 |
+| **experience-skill Web 服务** | 知识库 Skill/Wiki 管理 API（端口 8082），提供增删改查接口 | 所有节点 |
 | **FastAPI 后端** | 诊断 API，只读，供 Web 与 Agent 调用 | 后端节点 |
 | **C++ 工具链** | witty-ub-log、witty-ub-topo、witty-ub-diag-tool | 后端节点 |
 | **PostgreSQL** | 关系型数据库，存储故障诊断数据 | 后端节点 |
@@ -66,7 +71,9 @@ Witty-UB 是一个用于超节点故障定位的工具，前后端默认分离�
 | 节点 | 端口 | 协议 | 用途 |
 | ------ | ------ | ------ | ------ |
 | 后端节点 | 9772 | TCP | FastAPI（绑 `0.0.0.0`，仅对前端节点开放） |
+| 后端节点 | 8082 | TCP | experience-skill Web 服务（知识库 Skill/Wiki 管理 API） |
 | 前端节点 | 8080 / 32413 | TCP | Web UI（Nginx 静态托管 + 反代后端与本机 OpenCode） |
+| 前端节点 | 8082 | TCP | experience-skill Web 服务（知识库 Skill/Wiki 管理 API） |
 | 前端节点 | 4096 | TCP | OpenCode（仅本机/容器内，经 `/agent-api/` 反代） |
 
 ### 单机 All-in-One（前后端同机）

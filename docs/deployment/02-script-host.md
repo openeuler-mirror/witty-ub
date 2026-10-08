@@ -4,8 +4,8 @@
 
 使用 `deploy/host/deploy.sh` 一键完成宿主机部署。脚本按 `--role`（或环境变量 `WITTY_ROLE`）区分角色：
 
-- **后端节点**（`--role backend`，有数据的机器）：PostgreSQL + Python 依赖 + C++ 工具链编译 + 数据文件 + FastAPI(9772)，不需要 Node.js/出网
-- **前端节点**（`--role frontend`，能访问 Agent/LLM 的机器）：前端编译 + Nginx 托管(8080) + 反代远端后端 + OpenCode Agent
+- **后端节点**（`--role backend`，有数据的机器）：PostgreSQL + Python 依赖 + C++ 工具链编译 + 数据文件 + FastAPI(9772) + experience-skill Web 服务(8082)，不需要 Node.js/出网
+- **前端节点**（`--role frontend`，能访问 Agent/LLM 的机器）：前端编译 + Nginx 托管(8080) + 反代远端后端 + OpenCode Agent + experience-skill Web 服务(8082)
 - **单机**（`--role all`，默认）：两个角色叠加在同一台机器
 
 两台机器都从同一份源码仓库部署，前端节点通过 `WITTY_BACKEND_URL` 指向后端节点。
@@ -54,6 +54,7 @@ NONINTERACTIVE=1 bash deploy/host/deploy.sh --deploy --role backend
 
 ```bash
 curl http://127.0.0.1:9772/health_check   # 200
+curl http://127.0.0.1:8082/api/keywords   # 200, 返回关键词列表
 ```
 
 ### ② 前端节点
@@ -101,12 +102,12 @@ bash deploy/host/deploy.sh --deploy
 | ② 系统依赖 | 安装 cmake, gcc-c++, PostgreSQL, Python3, Node.js, nginx 等 |
 | ③ PostgreSQL | 调用 `deploy_pg.sh` 初始化，创建 `witty-ub` 数据库和用户，监听 5432 端口 |
 | ④ Python 环境 | 创建 `.venv` 虚拟环境，安装 FastAPI/SQLAlchemy/asyncpg/polars 等依赖 |
-| ④' Agent 运行时 | 前端节点额外准备 Agent 技能工具链：安装 `uv`、编译 simple 分词器、`uv sync`、同步经验库（`experience-skill sync`） |
+| ④' experience-skill 运行时 | 安装 `uv`、编译 simple 分词器、`uv sync`、同步经验库（`experience-skill sync`）。所有角色均需安装（知识库管理 API 依赖此环境） |
 | ⑤ 前端编译 | `npm run build-only` 构建 `dist/`（失败回退 dev server，不阻塞部署） |
 | ⑥ C++ 编译 | 编译 `witty-ub-diag-tool` 诊断工具（已存在则跳过） |
 | ⑦ 数据文件 | 将故障模式、配置文件复制到 `/var/witty-ub/` |
-| ⑧ 凭据同步 | 仅将 host/port/user/db 写入 `diagnosis_config.toml`；后端启动时从 `deploy/pg.passwd` 读取密码并注入进程环境 |
-| ⑨ 启动服务 | FastAPI(9772) + 前端（vite preview 5173；`--role frontend` 时改为 nginx 8080）+ OpenCode(4096) |
+| ⑧ 凭据同步 | 仅将 PG 非敏感连接参数写入 `diagnosis_config.toml`；密码由后端启动器从 `deploy/pg.passwd` 读取并注入进程环境 |
+| ⑨ 启动服务 | FastAPI(9772) + experience-skill Web 服务(8082) + 前端（vite preview 5173；`--role frontend` 时改为 nginx 8080）+ OpenCode(4096) |
 
 ### 验证部署
 
@@ -268,7 +269,8 @@ PG_HOST=10.0.0.5 PG_PORT_RPM=5432 bash deploy/host/deploy.sh --start
 
 ## 已知问题
 
-- **AI 助手一直卡在 `uv: command not found`**：前端节点缺 `uv`（Agent 技能全部经由 `uv run experience-skill ...` 检索经验库）。执行 `bash deploy/host/install_deps.sh` 补装；验证：`command -v uv && cd witty_ub_diagnostician/skills/experience-skill/scripts && uv run experience-skill list-experiences | head -3`
+- **知识库 Skill/Wiki 管理提示 500**：experience-skill Web 服务（端口 8082）未启动或依赖缺失。检查 `.deploy-logs/experience.log`；确认 `uv` 已安装（`command -v uv`）且 venv 已同步（`cd witty_ub_diagnostician/skills/experience-skill/scripts && uv run experience-skill sync`）；验证 `curl http://127.0.0.1:8082/api/keywords`
+- **AI 助手一直卡在 `uv: command not found`**：缺 `uv`（Agent 技能全部经由 `uv run experience-skill ...` 检索经验库）。执行 `bash deploy/host/install_deps.sh` 补装
 - **AI 助手检索结果恒为 0 条**：经验库未同步。`cd witty_ub_diagnostician/skills/experience-skill/scripts && uv run experience-skill sync`（应为 28 个 Skill + 32 篇 Wiki）
 - **系统包安装失败（yum/dnf 源不可达）**：检查 `/etc/yum.repos.d/` 是否已配置内网镜像源，`yum repolist` 验证可达性
 - **Python 依赖安装失败（pypi 源不可达）**：检查 `~/.pip/pip.conf` 的 `index-url` 是否指向内网镜像，或手动 `pip install -r src/plugins/latency/deploy/requirements.txt` 验证
@@ -276,7 +278,7 @@ PG_HOST=10.0.0.5 PG_PORT_RPM=5432 bash deploy/host/deploy.sh --start
 - **`systemctl --user` 不可用**：openEuler 24.03+ 缺 `systemd-pam` 包，执行 `sudo dnf install -y systemd-pam` 恢复；脚本已自动回退 nohup，不阻塞部署
 - **后端启动超时**：最常见是 PostgreSQL 密码/端口配置错误。查看 `journalctl --user -u witty-ub-backend.service` 或 `.deploy-logs/backend.log` 定位
 - **前端节点页面打不开/接口 502**：确认 `WITTY_BACKEND_URL` 指向正确且后端 9772 可达（`curl http://<后端IP>:9772/health_check`），检查后端防火墙
-- **端口冲突**：前端 8080 / 后端 9772 被占。`ss -tlnp | grep -E '8080|9772'` 检查占用
+- **端口冲突**：前端 8080 / 后端 9772 / 知识库 8082 被占。`ss -tlnp | grep -E '8080|8082|9772'` 检查占用
 - **C++ 编译失败**：缺少编译依赖。按报错补装后重跑 `cmake . -DCMAKE_BUILD_TYPE=Release && make -j$(nproc) witty-ub-diag-tool`
 - **PostgreSQL 未就绪**：`pg_isready -h 127.0.0.1 -p 5432` 检查；或设置 `PG_HOST` / `PG_PORT_RPM` 指向正确数据库
 
