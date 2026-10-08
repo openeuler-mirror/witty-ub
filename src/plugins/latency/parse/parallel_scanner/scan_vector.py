@@ -412,10 +412,13 @@ def _path_filter(frame, paths):
     posix_paths = [path.replace("\\", "/") for path in paths]
     column = pl.col("__file")
     if frame.schema["__file"] == pl.Categorical and not any(
-        "\\" in path for path in frame["__file"].cat.get_categories()
+        # Only inspect paths present in this frame. cat.get_categories() was
+        # removed in Polars 2.0; unique() also works on Polars 1.x and keeps
+        # the per-row paths dictionary-encoded.
+        "\\" in path for path in frame["__file"].unique().drop_nulls()
     ):
         return column.is_in(posix_paths)
-    return column.cast(pl.String).str.replace("\\", "/", literal=True).is_in(posix_paths)
+    return column.cast(pl.String).str.replace_all("\\", "/", literal=True).is_in(posix_paths)
 
 
 def _project_light(project, frame, paths, parsers, **kwargs):

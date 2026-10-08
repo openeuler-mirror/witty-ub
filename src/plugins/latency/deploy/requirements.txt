@@ -29,7 +29,8 @@ asyncpg==0.31.0
 
 # Numerical computation (bucket percentile statistics, top-level import)
 numpy>=1.26.0,<3.0.0
-polars>=1.0
+# scan_lines requires a recent 1.x; validate major upgrades before deployment.
+polars>=1.44.2,<2.0
 
 # Testing (optional, install when running pytest)
 pytest>=8.0.0
