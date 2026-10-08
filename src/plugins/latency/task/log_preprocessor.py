@@ -78,43 +78,52 @@ def _configured_filename_patterns() -> list[str]:
 def needs_preprocess(source_path: str) -> bool:
     """判断 source_path 是否需要预处理(拷贝+解压+拆分)。
 
-    返回 False 表示源是纯文本日志目录/文件,且每个文件都已匹配
-    filename_patterns(无需 split_unmatched_log_files 拆分),也没有压缩包
-    —— scan_all 可直接扫描源路径,省去 106MB 级重复拷贝。
-
-    需要预处理的情形:
-      - 源含压缩包(.tar.gz/.zip/.rar)—— 需要解压(.gz 不在此列;
+    返回 False 表示 scan_all 可直接扫描源路径,省去全量拷贝。需要预处理当且仅当:
+      - 源含压缩包(.tar.gz/.zip/.rar)—— 必须解压(.gz 不在此列;
         open_log 直接流式读取, 无需解压写盘)
-      - 存在未匹配 filename_patterns 的文本文件 —— 需要拆分成 access/runtime
+      - 目录内没有任何文件匹配 filename_patterns, 且存在未匹配的文本文件
+        —— 保留"所有日志混在一个文件"时靠拆分救回的路径。
+
+    只要存在匹配文件, 未匹配文件(env/version.txt/*_operation.log 等)本来
+    就不参与解析, 不再为它们把整个目录拖进"拷贝+拆分"。
+    空目录/源不存在 → 保底交给原逻辑。
     """
     patterns = _configured_filename_patterns()
 
-    def _needs_split(source_file: str) -> bool:
+    def _matched(source_file: str) -> bool:
         rel = os.path.relpath(source_file, source_path).replace(os.sep, "/")
-        if _matches_any_pattern(rel, os.path.basename(source_file), patterns):
-            return False
-        if filename_looks_like_text(source_file):
+        name = os.path.basename(source_file)
+        if _matches_any_pattern(rel, name, patterns):
             return True
+        if name.lower().endswith(".gz"):
+            # .gz 由 open_log() + FileParserMapBuilder 的 .gz 变体 pattern
+            # 流式处理；按去掉 .gz 后缀的名字再匹配一次。
+            return _matches_any_pattern(rel, name[: -len(".gz")], patterns)
         return False
 
     if os.path.isfile(source_path):
         if _is_archive(source_path):
             return True
-        return _needs_split(source_path)
+        return not _matched(source_path) and filename_looks_like_text(source_path)
 
     saw_file = False
+    has_match = False
+    has_unmatched_text = False
     for source_file, _ in _iter_source_files(source_path):
         saw_file = True
         if _is_archive(source_file):
             return True
         if source_file.lower().endswith(".gz"):
-            # .gz handled transparently by open_log() + FileParserMapBuilder
-            # .gz variant patterns — no extraction or splitting needed.
+            if _matched(source_file):
+                has_match = True
             continue
-        if _needs_split(source_file):
-            return True
-    # 有文件且全部匹配 → 无需预处理;空目录/源不存在 → 保底交给原逻辑
-    return not saw_file
+        if _matched(source_file):
+            has_match = True
+            continue
+        if filename_looks_like_text(source_file):
+            has_unmatched_text = True
+    # 压缩包/全未匹配文本 → 预处理;有匹配文件 → 直扫源目录
+    return (not saw_file) or (has_unmatched_text and not has_match)
 
 
 def filename_looks_like_text(path: str) -> bool:
@@ -122,8 +131,20 @@ def filename_looks_like_text(path: str) -> bool:
     return _looks_like_text_file(path)
 
 
+def _dir_has_output(output_dir: str) -> bool:
+    """目录里除完成标记外还有文件 → 预处理产出有效。"""
+    for _, _, files in os.walk(output_dir):
+        for name in files:
+            if name != _PREPROCESS_COMPLETE_MARKER:
+                return True
+    return False
+
+
 def _is_preprocess_complete(output_dir: str) -> bool:
-    return os.path.isfile(os.path.join(output_dir, _PREPROCESS_COMPLETE_MARKER))
+    """完成标记存在且产出非空: 防止复用"拷贝全失败/产出为空"的假完成目录。"""
+    if not os.path.isfile(os.path.join(output_dir, _PREPROCESS_COMPLETE_MARKER)):
+        return False
+    return _dir_has_output(output_dir)
 
 
 def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult:
@@ -150,6 +171,7 @@ def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult
 
     extracted_count = 0
     copied_count = 0
+    copy_failed = 0
     for source_file, relative_dir in _iter_source_files(source_path):
         target_dir = os.path.join(output_dir, relative_dir)
         os.makedirs(target_dir, exist_ok=True)
@@ -165,17 +187,33 @@ def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult
         except OSError as exc:
             if exc.errno == errno.ENOSPC:
                 raise
+            copy_failed += 1
             logger.error("复制日志文件 %s 失败: %s", source_file, exc)
 
     filename_patterns = (
         Config().get_default_diagnosis_config().log_filename_pattern.model_dump()
     )
     split_stats = split_unmatched_log_files(output_dir, filename_patterns)
+    if not _dir_has_output(output_dir):
+        # 拷贝/解压/拆分全部落盘后仍无产出: 不写完成标记(避免后续重试复用
+        # 空目录), 以明确的错误代替下游"扫描没有产出任何列式行"的报错。
+        raise RuntimeError(
+            f"预处理产出为空: copied={copied_count} extracted={extracted_count} "
+            f"split={len(split_stats)} copy_failed={copy_failed}, "
+            f"源={source_path}, log dir={output_dir}"
+        )
+    if copy_failed:
+        logger.warning(
+            "预处理完成但有 %d 个文件拷贝失败, 源=%s", copy_failed, source_path
+        )
     # 解压/拷贝/拆分全部落盘后再写完成标记，作为目录可复用的判定依据。
     with open(
         os.path.join(output_dir, _PREPROCESS_COMPLETE_MARKER), "w", encoding="utf-8"
     ) as marker_file:
-        marker_file.write("complete\n")
+        marker_file.write(
+            f"complete copied={copied_count} extracted={extracted_count} "
+            f"split={len(split_stats)} copy_failed={copy_failed}\n"
+        )
     return LogPreprocessResult(
         source_dir=source_path,
         output_dir=output_dir,

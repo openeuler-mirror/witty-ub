@@ -1678,7 +1678,7 @@ class TestPreprocessLogDir:
                 str(tmp_path / "nope"), str(tmp_path / "out")
             )
 
-    def test_copy_error_is_logged_not_raised(self, monkeypatch, tmp_path):
+    def test_copy_error_all_failed_raises_without_marker(self, monkeypatch, tmp_path):
         source = tmp_path / "src"
         source.mkdir()
         (source / "access.log").write_text("x", encoding="utf-8")
@@ -1690,10 +1690,11 @@ class TestPreprocessLogDir:
         )
         output = tmp_path / "out"
 
-        result = preprocess_log_dir(str(source), str(output))
+        # 拷贝全失败 → 不写完成标记、抛明确错误, 防止空目录被后续重试复用。
+        with pytest.raises(RuntimeError, match="预处理产出为空"):
+            preprocess_log_dir(str(source), str(output))
 
-        assert result.copied_count == 0
-        assert (output / ".witty_preprocess_done").exists()
+        assert not (output / ".witty_preprocess_done").exists()
 
 
 class TestSplitUnmatchedLogFiles:
