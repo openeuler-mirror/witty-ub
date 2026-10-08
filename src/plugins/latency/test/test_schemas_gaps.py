@@ -86,28 +86,6 @@ class TestDiagnosisRuntimeConfigValidation:
         assert "日志文件名 Pattern 不能为空" in str(exc_info.value)
         assert "ds_client_access_log_file" in str(exc_info.value)
 
-    def test_empty_sliding_window_rejected(self):
-        """滑动窗口列表为空时拒绝。"""
-        with pytest.raises(ValidationError) as exc_info:
-            DiagnosisRuntimeConfig(
-                log_filename_pattern=self._full_patterns(),
-                log_analyzer_params=DSLogAnalyzerConfig(sliding_window_sizes=[]),
-            )
-        assert "至少需要配置一组滑动窗口" in str(exc_info.value)
-
-    def test_window_size_step_mismatch_rejected(self):
-        """滑动窗口大小与步长数量不一致时拒绝。"""
-        with pytest.raises(ValidationError) as exc_info:
-            DiagnosisRuntimeConfig(
-                log_filename_pattern=self._full_patterns(),
-                log_analyzer_params=DSLogAnalyzerConfig(
-                    sliding_window_sizes=[100, 200],
-                    sliding_window_steps=[20],
-                ),
-            )
-        assert "滑动窗口大小与步长数量必须一致" in str(exc_info.value)
-
-
 class TestRunBrpcDiagnosisRequest:
     def test_invalid_format_rejected(self):
         """非 YYYY-MM-DD HH:MM:SS 格式的字符串直接拒绝。"""

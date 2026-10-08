@@ -875,22 +875,19 @@ def test_diagnosis_config_router_endpoints(monkeypatch):
             "ds_worker_info_log_file": ["d.log"],
             "resource_log_file": ["e.log"],
         },
-        "log_analyzer_params": {
-            "sliding_window_sizes": [100, 200],
-            "sliding_window_steps": [20, 30],
-        },
+        "log_analyzer_params": {"total_p99_threshold_ms": 9.0},
     }
     resp = client.put("/diagnosis_config/kb-1?log_type=KVCache", json=put_body)
     assert resp.status_code == 200
     assert resp.json()["result"]["config"]["log_analyzer_params"][
-        "sliding_window_sizes"
-    ] == [100, 200]
+        "total_p99_threshold_ms"
+    ] == 9.0
     assert update_cfg.await_args.args[0] == "kb-1"
     assert update_cfg.await_args.args[1] == DiagnosisConfigLogType.KVCACHE
-    assert update_cfg.await_args.args[2].log_analyzer_params.sliding_window_sizes == [
-        100,
-        200,
-    ]
+    assert (
+        update_cfg.await_args.args[2].log_analyzer_params.total_p99_threshold_ms
+        == 9.0
+    )
 
     resp = client.post("/diagnosis_config/kb-1/reset?log_type=KVCache")
     assert resp.status_code == 200

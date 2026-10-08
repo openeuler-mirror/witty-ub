@@ -10,6 +10,7 @@ from latency.common.local_time import parse_asset_timestamp, utc_now
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.utils import format_timestamp
 from latency.schemas.log import LogKnowledgeModel
+from latency.schemas.request import ListLogKnowledgeRequest, ParseConfig
 
 
 @pytest.fixture
@@ -82,3 +83,39 @@ def test_asset_time_filter_uses_current_server_timezone(change_timezone):
     assert parse_asset_timestamp("2026-01-01 08:00:00") == datetime(2026, 1, 1, tzinfo=timezone.utc)
     assert parse_asset_timestamp("2026-01-01T00:00:00Z") == datetime(2026, 1, 1, tzinfo=timezone.utc)
     assert parse_asset_timestamp(None) is None
+
+
+@pytest.mark.parametrize("server_zone", ["UTC0", "CST-8", "EST5"])
+def test_browser_asset_filter_preserves_instant_across_server_timezones(
+    change_timezone, server_zone
+):
+    change_timezone(server_zone)
+    req = ListLogKnowledgeRequest(
+        created_at_start="2026-01-01T00:30:00.000Z",
+        created_at_end="2026-01-01T08:31:00+08:00",
+    )
+    assert parse_asset_timestamp(req.created_at_start) == datetime(
+        2026, 1, 1, 0, 30, tzinfo=timezone.utc
+    )
+    assert parse_asset_timestamp(req.created_at_end) == datetime(
+        2026, 1, 1, 0, 31, tzinfo=timezone.utc
+    )
+
+
+def test_legacy_asset_filter_still_uses_server_timezone(change_timezone):
+    change_timezone("CST-8")
+    req = ListLogKnowledgeRequest(created_at_start="2026-01-01 08:30:00")
+    assert parse_asset_timestamp(req.created_at_start) == datetime(
+        2026, 1, 1, 0, 30, tzinfo=timezone.utc
+    )
+
+
+@pytest.mark.parametrize("value", ["2026-01-01", "invalid", "2026-01-01T00:30:00"])
+def test_asset_filter_rejects_invalid_or_ambiguous_new_formats(value):
+    with pytest.raises(ValueError):
+        ListLogKnowledgeRequest(created_at_start=value)
+
+
+def test_log_time_filters_keep_their_existing_format():
+    with pytest.raises(ValueError):
+        ParseConfig(start_time="2026-01-01T00:30:00.000Z")

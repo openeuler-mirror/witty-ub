@@ -72,7 +72,7 @@ RUN python3 -m venv /var/witty-ub/latency/.venv && \
     sqlalchemy==2.0.51 \
     asyncpg==0.31.0 \
     "numpy>=1.26.0,<3.0.0" \
-    "polars>=1.0" && \
+    "polars>=1.44.2,<2.0" && \
     rm -rf /root/.cache/pip
 
 # Install OpenCode (install in base image to avoid QEMU issues in multi-arch builds)
@@ -138,7 +138,7 @@ RUN python3 -m venv /var/witty-ub/latency/.venv && \
     sqlalchemy==2.0.51 \
     asyncpg==0.31.0 \
     "numpy>=1.26.0,<3.0.0" \
-    "polars>=1.0" && \
+    "polars>=1.44.2,<2.0" && \
     rm -rf /root/.cache/pip
 
 # ============================================

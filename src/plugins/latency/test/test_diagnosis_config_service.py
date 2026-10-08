@@ -83,37 +83,6 @@ def test_log_analyzer_accepts_latency_threshold_boundaries(valid_value):
     assert config.total_p99_threshold_ms == valid_value
 
 
-@pytest.mark.parametrize(
-    ("field_name", "invalid_value"),
-    [
-        ("sliding_window_sizes", [0]),
-        ("sliding_window_sizes", [-1]),
-        ("sliding_window_sizes", [10001]),
-        ("sliding_window_sizes", [1.5]),
-        ("sliding_window_sizes", ["1"]),
-        ("sliding_window_steps", [0]),
-        ("sliding_window_steps", [-1]),
-        ("sliding_window_steps", [1001]),
-        ("sliding_window_steps", [1.5]),
-        ("sliding_window_steps", ["1"]),
-    ],
-)
-def test_log_analyzer_rejects_invalid_sliding_window_values(
-    field_name, invalid_value
-):
-    with pytest.raises(ValidationError):
-        DSLogAnalyzerConfig.model_validate({field_name: invalid_value})
-
-
-def test_log_analyzer_accepts_sliding_window_upper_boundaries():
-    config = DSLogAnalyzerConfig(
-        sliding_window_sizes=[10000], sliding_window_steps=[1000]
-    )
-
-    assert config.sliding_window_sizes == [10000]
-    assert config.sliding_window_steps == [1000]
-
-
 @pytest.mark.parametrize("invalid_value", [0, -0.01, 1.01, float("inf"), float("nan"), "0.5"])
 def test_log_analyzer_rejects_invalid_zone_anomaly_density(invalid_value):
     with pytest.raises(ValidationError):
