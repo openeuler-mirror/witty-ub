@@ -10148,6 +10148,14 @@ const getLogFileProgressClass = (file: LogFileModel) => {
 
 const getLogFileId = (file: LogFileModel) => file.log_file_id || file.id
 
+const getLogFileDisplayPath = (file: LogFileModel) => {
+  // 上传的 ZIP 以日志 ID 落盘；name 保留上传前的文件名。
+  if (file.file_path?.endsWith(`/file_upload/${getLogFileId(file)}.zip`)) {
+    return `[Local] ${file.name || file.file_path}`
+  }
+  return file.file_path || file.name
+}
+
 const isKvcacheLogFile = (file: LogFileModel) => file.log_type !== 'UBSocket'
 
 const pickDefaultKvcacheLogFile = (files: LogFileModel[]): LogFileModel | null => {
@@ -18501,7 +18509,7 @@ onBeforeUnmount(() => {
             <div v-for="file in logFiles" :key="file.id" class="log-file-item">
               <div class="log-file-info">
                 <div class="log-file-summary">
-                  <span class="log-file-path">📁 {{ file.file_path || file.name }}</span>
+                  <span class="log-file-path">📁 {{ getLogFileDisplayPath(file) }}</span>
                   <span class="log-file-meta">
                     <span class="log-file-time"
                       >创建时间：{{ displayServerTime(file.created_at) }}</span
