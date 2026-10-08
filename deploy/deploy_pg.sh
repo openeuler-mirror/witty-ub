@@ -416,6 +416,8 @@ deploy_docker() {
         -v "${PG_SECRET_FILE}:/run/secrets/pg_password:ro" \
         -e "${SELECTED_ENV_USER}=${PG_USER}" \
         -e "${SELECTED_ENV_DB}=${PG_DATABASE}" \
+        -e "TZ=${WITTY_TZ:-Asia/Shanghai}" \
+        -e "PGTZ=${WITTY_TZ:-Asia/Shanghai}" \
         --health-cmd="pg_isready -U ${PG_USER} -d ${PG_DATABASE}" \
         --health-interval="${PG_HEALTH_INTERVAL}" \
         --health-timeout="${PG_HEALTH_TIMEOUT}" \

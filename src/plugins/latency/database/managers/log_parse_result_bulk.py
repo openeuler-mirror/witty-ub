@@ -26,7 +26,7 @@ asyncpg 原生 ``copy_records_to_table``」。本模块只负责**写入**这一
   - ``id``：默认逐行生成 ``uuid4``（目标表 DDL 无 server default，PK NOT NULL）；
     frame 自带 ``id`` 列时用列值，空串 / NULL 的单元格按现状填 ``uuid4``。
   - ``created_at``：frame 无该列时用调用参数，其次默认为「本批共享一个
-    ``datetime.utcnow()``」，复刻 ``_make_field_row`` 的 ``_utc_now_str()``。
+    服务器本地墙钟时间」（复刻 ``_make_field_row`` 的 ``_local_now_str()``）。
   - ``existed_status`` / ``aggregated_event_id`` / ``anomalous_event_id``：
     spec 常量（与 ORM / dataclass 默认值一致）。
 * **NOT NULL 校验**：写入前按 ORM metadata 检查目标表 NOT NULL 列是否出现
@@ -82,7 +82,7 @@ import time
 import os
 from itertools import repeat
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable, Mapping, Sequence
 
 from sqlalchemy import ARRAY, DateTime
@@ -112,7 +112,7 @@ __all__ = [
     "LOG_PARSE_RESULT_SPEC",
     "BUCKET_COLUMNS",
     "BUCKET_SPECS",
-    "utc_now",
+    "local_now",
     "build_records",
     "project_frame",
     "copy_records",
@@ -139,9 +139,11 @@ for _model in _BUCKET_MODELS[1:]:
         )
 
 
-def utc_now() -> datetime:
-    """本批共享的 created_at（复刻 worker ``_utc_now_str()`` 的 UTC 语义）。"""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+def local_now() -> datetime:
+    """本批共享的 created_at：服务器本地墙钟（与 worker ``_local_now_str()`` 一致）。"""
+    from latency.common.local_time import local_now as _local_now
+
+    return _local_now()
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +455,7 @@ def build_records(
         df: polars DataFrame（每行一条记录）。其它类型直接 ``TypeError``。
         spec: ``CopySpec``。
         created_at: ``spec.created_at_column`` 的常量值（frame 无该列时生效）；
-            缺省 = 本批共享 ``utc_now()``。str / datetime 均可。
+            缺省 = 本批共享 ``local_now()``。str / datetime 均可。
         generate_ids: 是否逐行生成 uuid4 主键。None = 目标表有 ``id_column``
             时自动开启；frame 自带同名列时，空串 / NULL 单元格仍会补 uuid4
             （与 ``result_to_pg_tuple`` 一致）。
@@ -479,7 +481,7 @@ def build_records(
     created = None
     if spec.created_at_column is not None:
         created = (
-            parse_timestamp(created_at) if created_at is not None else utc_now()
+            parse_timestamp(created_at) if created_at is not None else local_now()
         )
 
     from latency.database.utils import _parse_created_at
@@ -677,7 +679,7 @@ async def copy_dataframe(
             pg_conn=pg_conn,
         )
 
-    shared_created_at = created_at if created_at is not None else utc_now()
+    shared_created_at = created_at if created_at is not None else local_now()
     state = {"build": 0.0, "copy": 0.0, "batches": 0, "columns": tuple(spec.columns)}
 
     async def _run(pg: Any) -> None:

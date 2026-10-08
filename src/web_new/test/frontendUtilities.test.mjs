@@ -17,6 +17,9 @@ test('formatTime preserves server wall time regardless of browser timezone', () 
       assert.equal(formatTime('2026-01-01 08:30:00.123+08:00'), '2026-01-01 08:30:00')
       assert.equal(formatTime('2026-01-01T00:30:00.123Z'), '2026-01-01 00:30:00')
       assert.equal(formatTime('2025-12-31T19:30:00.123-05:00'), '2025-12-31 19:30:00')
+      // 后端统一口径：本地墙钟、无 offset（历史带 offset 的串也一并按墙钟处理）
+      assert.equal(formatTime('2026-01-01 08:30:00.123'), '2026-01-01 08:30:00')
+      assert.equal(formatTime('2026-01-01T08:30:00'), '2026-01-01 08:30:00')
     }
   } finally {
     if (original === undefined) delete process.env.TZ

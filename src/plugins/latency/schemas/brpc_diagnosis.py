@@ -12,6 +12,7 @@ from pydantic import (
     model_validator,
 )
 
+from latency.common.local_time import WALL_CLOCK_TZ
 from latency.schemas.response import ResponseBase
 
 
@@ -25,7 +26,7 @@ BrpcInterfaceResolution = Literal[
 
 
 _UTC_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
-_UTC_PLUS_8 = timezone(timedelta(hours=8))
+_UTC_PLUS_8 = WALL_CLOCK_TZ
 
 
 def format_brpc_api_time(timestamp: int) -> str:

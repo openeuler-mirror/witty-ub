@@ -45,9 +45,9 @@ def test_new_asset_timestamps_follow_timezone_changes(change_timezone):
 def test_format_timestamp_refreshes_timezone_without_changing_naive_values(change_timezone):
     instant = datetime(2026, 1, 1, tzinfo=timezone.utc)
     change_timezone("UTC0")
-    assert format_timestamp(instant) == "2026-01-01 00:00:00.000+00:00"
+    assert format_timestamp(instant) == "2026-01-01 00:00:00.000"
     change_timezone("CST-8")
-    assert format_timestamp(instant) == "2026-01-01 08:00:00.000+08:00"
+    assert format_timestamp(instant) == "2026-01-01 08:00:00.000"
     assert format_timestamp(instant.replace(tzinfo=None)) == "2026-01-01 00:00:00.000"
 
 
@@ -69,13 +69,13 @@ async def test_asset_counter_update_binds_current_server_time(change_timezone):
 def test_asset_timestamp_round_trip_preserves_instant_after_timezone_change(change_timezone):
     change_timezone("CST-8")
     stored = parse_asset_timestamp("2026-01-01 08:30:00.123")
-    assert format_timestamp(stored) == "2026-01-01 08:30:00.123+08:00"
+    assert format_timestamp(stored) == "2026-01-01 08:30:00.123"
     change_timezone("UTC0")
     response = format_timestamp(stored)
-    assert response == "2026-01-01 00:30:00.123+00:00"
+    assert response == "2026-01-01 00:30:00.123"
     assert parse_asset_timestamp(response) == stored
     change_timezone("EST5")
-    assert format_timestamp(stored) == "2025-12-31 19:30:00.123-05:00"
+    assert format_timestamp(stored) == "2025-12-31 19:30:00.123"
 
 
 def test_asset_time_filter_uses_current_server_timezone(change_timezone):

@@ -21,10 +21,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import func, literal, or_, select
+from sqlalchemy import func, literal, or_, select, text
 from sqlalchemy.dialects.postgresql import array
 
 from latency.database.engine import PGManager
@@ -828,12 +827,12 @@ class TraceLightPGManager:
         req: HeatmapStatsRequest,
         window_seconds: int,
     ) -> list[HeatmapSlotItem]:
-        """时间热点分桶：epoch 对窗口 floor 取整，distinct trace 计数。
+        """时间热点分桶：DB 侧按固定窗口对齐，distinct trace 计数。
 
         复用 list_time_aggregated_failure_events 的 DB 侧时间分桶思路；
-        10m 无法用 date_trunc 表达，统一走 epoch floor（纯算术，无时区
-        转换，timestamp 为 naive 本地时间）。仅返回有数据的时间槽，
-        window_start 升序；跨槽 trace 在每个有事件的槽各计一次。
+        10m 无法用 date_trunc 表达，统一走 date_bin（以 1970-01-01 为原点的
+        纯算术对齐，对 naive TIMESTAMP 与数据库会话时区无关）。仅返回有数据
+        的时间槽，window_start 升序；跨槽 trace 在每个有事件的槽各计一次。
         """
         log_ids = await _stats_scope(req)
         if not log_ids:
@@ -841,12 +840,14 @@ class TraceLightPGManager:
         conds = _fault_stats_conds(
             log_ids, req
         ) + [TraceFailureEvent.timestamp.is_not(None)]
-        bucket_expr = func.floor(
-            func.extract("epoch", TraceFailureEvent.timestamp) / window_seconds
-        ) * window_seconds
+        bucket_expr = func.date_bin(
+            text(f"interval '{int(window_seconds)} seconds'"),
+            TraceFailureEvent.timestamp,
+            text("timestamp '1970-01-01'"),
+        )
         stmt = (
             select(
-                bucket_expr.label("bucket_epoch"),
+                bucket_expr.label("window_start"),
                 func.count(func.distinct(TraceFailureEvent.trace_id)).label(
                     "fault_trace_cnt"
                 ),
@@ -859,10 +860,7 @@ class TraceLightPGManager:
             rows = (await session.execute(stmt)).all()
         return [
             HeatmapSlotItem(
-                window_start=(
-                    datetime(1970, 1, 1)
-                    + timedelta(seconds=int(row.bucket_epoch))
-                ).strftime("%Y-%m-%d %H:%M:%S"),
+                window_start=row.window_start.strftime("%Y-%m-%d %H:%M:%S"),
                 fault_trace_cnt=row.fault_trace_cnt,
             )
             for row in rows

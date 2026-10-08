@@ -89,6 +89,7 @@ WITTY_EXTRA_MOUNTS="/home:/home:ro"   # 额外挂载
 WITTY_NETWORK_MODE="bridge"           # bridge（默认）| host（共享宿主机网络）
 WITTY_SSL_VERIFY="true"               # 是否校验 OpenCode/LLM 出网 HTTPS 证书
 WITTY_SECCOMP="default"               # default | unconfined（旧版 Docker/libseccomp）
+WITTY_TZ="Asia/Shanghai"              # 应用与 PG 容器时区（API 时间戳本地口径）
 
 # PostgreSQL
 PG_PORT="15432"                       # 宿主机端口

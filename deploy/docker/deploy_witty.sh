@@ -75,7 +75,7 @@ esac
 CONFIG_KEYS=(
     WITTY_HOST_PORT WITTY_EXTRA_MOUNTS WITTY_IMAGE WITTY_LOG_LEVEL WITTY_CONTAINER_NAME
     WITTY_BACKEND_URL WITTY_BACKEND_HOST_PORT WITTY_FRONTEND_HOST_PORT WITTY_NETWORK
-    WITTY_NETWORK_MODE WITTY_SSL_VERIFY WITTY_SECCOMP
+    WITTY_NETWORK_MODE WITTY_SSL_VERIFY WITTY_SECCOMP WITTY_TZ
     WITTY_NETWORK_MODE_PG WITTY_NETWORK_MODE_APP WITTY_NETWORK_MODE_BACKEND
     WITTY_NETWORK_MODE_FRONTEND WITTY_NETWORK_SELFCHECK WITTY_NETWORK_FALLBACK
     PG_HOST PG_PORT PG_DATABASE PG_USER PG_PASSWORD PG_SECRET_FILE
@@ -263,6 +263,8 @@ require_enum WITTY_NETWORK_FALLBACK "$WITTY_NETWORK_FALLBACK" prompt auto off
 # SSL 校验交给容器入口翻译为 NODE_TLS_REJECT_UNAUTHORIZED（OpenCode 是 Node 应用）
 normalize_bool WITTY_SSL_VERIFY "${WITTY_SSL_VERIFY:-true}"
 normalize_bool WITTY_NETWORK_SELFCHECK "${WITTY_NETWORK_SELFCHECK:-true}"
+# 容器时区: 全系统时间口径统一为「本地墙钟」，日志墙钟为 +08，故默认 Asia/Shanghai
+WITTY_TZ="${WITTY_TZ:-Asia/Shanghai}"
 
 # ---------- 网络模式解析（全局 + 容器级覆盖） ----------
 # 优先级: 容器级键（非空）> WITTY_NETWORK_MODE（全局）> bridge；一体只认 _APP，分离同机 _BACKEND 与
@@ -481,6 +483,9 @@ SSL_ENV_ARGS=(-e "WITTY_SSL_VERIFY=${WITTY_SSL_VERIFY}")
 if [ "$WITTY_SSL_VERIFY" = "false" ]; then
     log_warn "WITTY_SSL_VERIFY=false: OpenCode/LLM HTTPS certificate verification will be disabled in the container"
 fi
+
+# 容器时区：资产时间与事件时间展示基准都跟随 TZ
+TZ_ENV_ARGS=(-e "TZ=${WITTY_TZ}")
 
 # ============================================================
 # witty-ub 镜像候选列表（按优先级从高到低，tag 跟随部署角色）
@@ -780,6 +785,7 @@ backend)
         -e PG_DATABASE="${PG_DATABASE:-witty-ub}" \
         -e PG_USER="${PG_USER:-witty-ub}" \
         "${SSL_ENV_ARGS[@]}" \
+        "${TZ_ENV_ARGS[@]}" \
         --health-cmd="curl -f http://localhost:9772/health_check" \
         --health-interval=30s \
         --health-timeout=10s \
@@ -802,6 +808,7 @@ frontend)
         -e WITTY_ROLE=frontend \
         -e WITTY_BACKEND_URL="${BACKEND_URL}" \
         "${SSL_ENV_ARGS[@]}" \
+        "${TZ_ENV_ARGS[@]}" \
         "${SECURITY_OPT_ARGS[@]}" \
         "${NETWORK_ARGS[@]}" \
         "${SELECTED_IMAGE}"
@@ -828,6 +835,7 @@ frontend)
         -e PG_DATABASE="${PG_DATABASE:-witty-ub}" \
         -e PG_USER="${PG_USER:-witty-ub}" \
         "${SSL_ENV_ARGS[@]}" \
+        "${TZ_ENV_ARGS[@]}" \
         --health-cmd="curl -f http://localhost:9772/health_check" \
         --health-interval=30s \
         --health-timeout=10s \
@@ -1084,6 +1092,7 @@ if [ "$ROLE" != "frontend" ]; then
 fi
 echo "  seccomp:    ${WITTY_SECCOMP}"
 echo "  SSL verify: ${WITTY_SSL_VERIFY}"
+echo "  Timezone:   ${WITTY_TZ}"
 if [ "$ROLE" != "frontend" ]; then
     echo "  PG Host:    ${PG_IN_CONTAINER_HOST}:${PG_IN_CONTAINER_PORT} (container)"
 fi

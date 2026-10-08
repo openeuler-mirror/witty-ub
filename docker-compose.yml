@@ -35,6 +35,9 @@ services:
     environment:
       - POSTGRESQL_USER=witty-ub
       - POSTGRESQL_DATABASE=witty-ub
+      # 时区：与全系统「本地墙钟」口径一致（日志墙钟为 +08）；PGTZ 确保 SHOW timezone 生效
+      - TZ=Asia/Shanghai
+      - PGTZ=Asia/Shanghai
     entrypoint: /bin/bash
     command:
       - -c
@@ -88,6 +91,8 @@ services:
       - PG_USER=witty-ub
       # OpenCode/LLM 出网 HTTPS 证书校验（false = 关闭，见文件头说明）
       - WITTY_SSL_VERIFY=${WITTY_SSL_VERIFY:-true}
+      # 时区：与全系统「本地墙钟」口径一致（日志墙钟为 +08）
+      - TZ=Asia/Shanghai
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9772/health_check"]
       interval: 30s
@@ -129,6 +134,8 @@ services:
       - PG_PORT=5432
       - PG_DATABASE=witty-ub
       - PG_USER=witty-ub
+      # 时区：与全系统「本地墙钟」口径一致（日志墙钟为 +08）
+      - TZ=Asia/Shanghai
     networks:
       - witty-ub-network
 
@@ -161,6 +168,8 @@ services:
       - WITTY_BACKEND_URL=http://witty-ub-backend:9772
       # OpenCode/LLM 出网 HTTPS 证书校验（false = 关闭，见文件头说明）
       - WITTY_SSL_VERIFY=${WITTY_SSL_VERIFY:-true}
+      # 时区：与全系统「本地墙钟」口径一致（日志墙钟为 +08）
+      - TZ=Asia/Shanghai
     networks:
       - witty-ub-network
 

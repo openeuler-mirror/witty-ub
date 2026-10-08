@@ -9,8 +9,9 @@ import logging
 import os
 import re
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
+from latency.common.local_time import WALL_CLOCK_TZ
 from latency.database.engine import PGManager
 from latency.database.managers.brpc_diagnosis import (
     UNRESOLVED_INTERFACE_ID,
@@ -253,7 +254,8 @@ class BrpcDiagnosisService:
     # --- Thread log reader (all lines, not just fault hits) ---
 
     _UTC_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
-    _UTC_PLUS_8 = timezone(timedelta(hours=8))
+    # 统一从 common/local_time 取墙钟时区，避免与部署时区口径漂移
+    _UTC_PLUS_8 = WALL_CLOCK_TZ
 
     _LOG_LINE_RE = re.compile(
         r"^\[(\d{8} \d{2}:\d{2}:\d{2}\.\d{6})\]"
