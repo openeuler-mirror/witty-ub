@@ -19,10 +19,6 @@ const analyzerParams = (overrides = {}) => ({
   total_p9999_threshold_ms: 5,
   total_pmax_threshold_ms: 5,
   total_ave_threshold_ms: 5,
-  slidingWindowPairs: [
-    { size: 100, step: 20 },
-    { size: 200, step: 30 },
-  ],
   zone_anomaly_density_threshold: 0.9999,
   ...overrides,
 })
@@ -63,10 +59,9 @@ test('阈值合法性口径与后端 schema 一致（0 < v ≤ 1000）', () => {
   assert.equal(isValidThresholdValue(Number.NaN), false)
 })
 
-test('隐藏字段合法时原样透传：用户存过的滑动窗口与密度不会被界面改动', () => {
+test('隐藏字段合法时原样透传：密度不会被界面改动', () => {
   const params = analyzerParams({
     c2w_p99_threshold_ms: 2.5,
-    slidingWindowPairs: [{ size: 60, step: 10 }],
     zone_anomaly_density_threshold: 0.5,
   })
   const defaults = analyzerParams()
@@ -81,7 +76,6 @@ test('隐藏字段非法时整组回落到默认，可见字段与文件名 Patt
     total_pmax_threshold_ms: 12,
     // 隐藏字段：老配置里的非法值
     c2w_p99_threshold_ms: '',
-    slidingWindowPairs: [{ size: 0, step: 2000 }],
     zone_anomaly_density_threshold: 1.5,
   })
   const sanitized = sanitizeHiddenParams(dirty, defaults)
@@ -92,8 +86,6 @@ test('隐藏字段非法时整组回落到默认，可见字段与文件名 Patt
   assert.equal(sanitized.w2w_p99_threshold_ms, defaults.w2w_p99_threshold_ms)
   assert.equal(sanitized.urma_link_p99_threshold_ms, defaults.urma_link_p99_threshold_ms)
   assert.equal(sanitized.query_meta_p99_threshold_ms, defaults.query_meta_p99_threshold_ms)
-  assert.deepEqual(sanitized.slidingWindowPairs, defaults.slidingWindowPairs)
-  assert.notEqual(sanitized.slidingWindowPairs, defaults.slidingWindowPairs)
   assert.equal(sanitized.zone_anomaly_density_threshold, defaults.zone_anomaly_density_threshold)
 })
 

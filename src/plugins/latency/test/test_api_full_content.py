@@ -599,8 +599,6 @@ class TestDiagnosisConfigContent:
                     "total_p9999_threshold_ms": 5.0,
                     "total_pmax_threshold_ms": 5.0,
                     "total_ave_threshold_ms": 5.0,
-                    "sliding_window_sizes": [100],
-                    "sliding_window_steps": [20],
                     "zone_anomaly_density_threshold": 0.5,
                 },
             },

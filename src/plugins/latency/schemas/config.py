@@ -96,18 +96,9 @@ class ModelConfig(BaseModel):
 LatencyThreshold = Annotated[
     float, Field(strict=True, gt=0, le=1000, allow_inf_nan=False)
 ]
-PositiveWindowSize = Annotated[int, Field(strict=True, gt=0, le=10000)]
-PositiveWindowStep = Annotated[int, Field(strict=True, gt=0, le=1000)]
 
 
 class DSLogAnalyzerConfig(BaseModel):
-    sliding_window_sizes: list[PositiveWindowSize] = Field(
-        default=[100, 200, 300, 500], description="滑动窗口大小列表"
-    )
-    sliding_window_steps: list[PositiveWindowStep] = Field(
-        default=[20, 30, 40, 50],
-        description="滑动窗口步长列表，与窗口大小一一对应",
-    )
     zone_anomaly_density_threshold: float = Field(
         default=0.9999,
         strict=True,
@@ -219,12 +210,6 @@ class DiagnosisRuntimeConfig(BaseModel):
             raise ValueError(
                 f"日志文件名 Pattern 不能为空: {', '.join(empty_pattern_types)}"
             )
-
-        params = self.log_analyzer_params
-        if not params.sliding_window_sizes:
-            raise ValueError("至少需要配置一组滑动窗口")
-        if len(params.sliding_window_sizes) != len(params.sliding_window_steps):
-            raise ValueError("滑动窗口大小与步长数量必须一致")
         return self
 
 
