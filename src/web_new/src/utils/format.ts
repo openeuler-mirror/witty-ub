@@ -3,6 +3,8 @@ export const errorText = (error: unknown) =>
 
 export const clampProgress = (value: number) => Math.min(100, Math.max(0, value))
 
+// 后端统一输出「本地墙钟、无 offset」的 "YYYY-MM-DD HH:mm:ss[.mmm]"。
+// 这里按墙钟直取显示，不做任何时区换算；后端若带 offset 也一并忽略。
 export const formatTime = (value?: string | null) => {
   if (!value) return '—'
   return value.replace('T', ' ').slice(0, 19)
@@ -95,7 +97,8 @@ export const formatChartTs = (ts: string): string => {
   return match ? `${match[1]} ${match[2]}` : String(ts)
 }
 
-// 后端约定 "YYYY-MM-DD HH:mm:ss" 与 epoch ms 之间的显式时区转换，禁止浏览器隐式解析
+// 后端约定 "YYYY-MM-DD HH:mm:ss"（本地墙钟、无 offset）与 epoch ms 之间的显式
+// 时区转换，禁止浏览器隐式解析；offset 后缀若存在也按墙钟忽略。
 export const tsToEpochMs = (ts: string): number => {
   const match = String(ts).match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/)
   if (!match) return NaN

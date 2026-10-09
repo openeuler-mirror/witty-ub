@@ -17,6 +17,7 @@ from latency.database.engine import PGManager
 from latency.database.init import ensure_time_window_partitions
 from latency.database.models import LogFile, LogParseResult, TimeWindowAggregated
 from latency.database.utils import escape_like, format_ip, parse_ip, parse_timestamp
+from latency.common.local_time import local_now
 from latency.schemas.log import TimeWindowAggregatedEventDataclass, YUANRONG_METRIC_FIELDS
 from latency.schemas.request import ListTimeWindowAggregatedEventRequest
 
@@ -127,7 +128,7 @@ class TimeWindowAggregatedEventPGManager:
             event.p95_total_latency,
             event.p99_total_latency,
             event.existed_status,
-            parse_timestamp(event.created_at) or datetime.now(),
+            parse_timestamp(event.created_at) or local_now(),
         )
 
     @staticmethod

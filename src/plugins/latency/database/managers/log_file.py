@@ -53,7 +53,7 @@ class LogFilePGManager:
             "log_type": getattr(log_file, "log_type", DiagnosisConfigLogType.KVCACHE) or DiagnosisConfigLogType.KVCACHE,
             "existed_status": log_file.existed_status,
             "created_at": parse_asset_timestamp(log_file.created_at),
-            "updated_at": parse_asset_timestamp(log_file.created_at),
+            "updated_at": parse_asset_timestamp(log_file.updated_at),
         }
 
     @staticmethod
@@ -245,6 +245,7 @@ class LogFilePGManager:
                 "log_type": getattr(row, "log_type", DiagnosisConfigLogType.KVCACHE) or DiagnosisConfigLogType.KVCACHE,
                 "existed_status": row.existed_status,
                 "created_at": format_timestamp(row.created_at),
+                "updated_at": format_timestamp(row.updated_at),
             }
             log_files.append(LogFileModel(**data))
         return total, log_files
@@ -269,6 +270,7 @@ class LogFilePGManager:
             "log_type": getattr(row, "log_type", DiagnosisConfigLogType.KVCACHE) or DiagnosisConfigLogType.KVCACHE,
             "existed_status": row.existed_status,
             "created_at": format_timestamp(row.created_at),
+            "updated_at": format_timestamp(row.updated_at),
         }
         return LogFileModel(**data)
 

@@ -72,7 +72,7 @@ def test_compact_trace_detail_and_bucket_parity(monkeypatch):
         assert_frame_equal(actual_buckets[granularity], expected_buckets[granularity])
 
     from latency.task.worker import kv_cache_log_parse_worker as worker_module
-    monkeypatch.setattr(worker_module, "_utc_now_str", lambda: "2026-01-01 00:00:00.000000")
+    monkeypatch.setattr(worker_module, "_local_now_str", lambda: "2026-01-01 00:00:00.000000")
     args = dict(top1000_tids={"t1"}, threshold_ms=2.0, src_dst_to_agg_id_map={},
                 log_file_id="log", anomalous_only_count=2, batch_size=1)
     expected = list(KVCacheLogParseWorker._iter_detail_frames(full, **args))
@@ -121,7 +121,7 @@ def test_detail_batches_match_original_order_values_and_timestamps(monkeypatch, 
     frame = build_trace_frame(entries_to_columns(_fixture_raw()))
     top, anomalies = {"t1", "t4"}, {"t2", "t3"}
     aggregate_ids = {("", "", "GET"): "group", ("10.0.0.1", "10.0.0.2", "GET"): "urma"}
-    monkeypatch.setattr(module, "_utc_now_str", lambda: "2026-01-01 00:00:00.000000")
+    monkeypatch.setattr(module, "_local_now_str", lambda: "2026-01-01 00:00:00.000000")
     expected = KVCacheLogParseWorker._build_detail_payload(
         _yuanrong_from_grouped(frame), top, anomalies, anomalies, aggregate_ids, "log"
     )

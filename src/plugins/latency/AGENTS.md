@@ -71,6 +71,17 @@ Task execution options are persisted in `task.task_config` (JSONB) and explicitl
 
 **Worker Reflection**: `__subclasses__()` to match `TaskTypeEnum`. New worker: `name` attr, implement `init/run/stop/delete/reinit/deinit`. **DB batch**: 4-channel `insert_batch` (minimal/sparse/c2w/full) via `executemany`, WAL mode.
 
+## TIME CONVENTION (时间口径)
+
+All API timestamps are emitted as **server wall clock, no offset**: `YYYY-MM-DD HH:MM:SS[.mmm]`, local = `Asia/Shanghai` (deployment sets container & PG timezone).
+
+- **Event columns** (`log_parse_result.created_at`, `trace_failure_event.timestamp`, …): naive `TIMESTAMP`, value = +08 wall clock. New writes use `latency.common.local_time.local_now()` (never `datetime.now(timezone.utc)`).
+- **Asset columns** (`log_knowledge` / `log_file` `.created_at|.updated_at`): `TIMESTAMPTZ`, value = absolute UTC instant (`utc_now()`); read via `format_timestamp`, which converts to server local and **drops the offset**.
+- **Input filters**: `YYYY-MM-DD HH:MM:SS[.mmm]`, interpreted as +08 wall clock (`parse_asset_timestamp`).
+- **BRPC** (`/brpc-diagnosis/*`): epoch-microsecond internally; formatted at the JSON boundary via `common.local_time.WALL_CLOCK_TZ` (+08). Keep it sourced from that constant — do not hardcode.
+- **`/stats/heatmap`**: buckets via SQL `date_bin` (session-timezone independent); `window_start` is the DB naive value, no Python epoch round-trip.
+- **Deploy**: `WITTY_TZ` (`deploy/deploy.conf`) → `-e TZ` for app/PG containers (+ `PGTZ` for PG). Timestamps follow runtime `TZ` changes without a restart; do not re-introduce offset suffixes or UTC-naive writes.
+
 ## ANTI-PATTERNS
 
 - **5x duplicated SQL builders** in `log_failure_event.py` — same WHERE clauses rebuilt per method
