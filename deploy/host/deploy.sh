@@ -908,6 +908,7 @@ clean_all() {
         _is_root || SUDO="sudo"
         $SUDO rm -rf \
             /var/witty-ub/data \
+            /var/witty-ub/case \
             /var/witty-ub/config \
             /var/witty-ub/witty_ub_diagnostician \
             /var/witty-ub/cache \

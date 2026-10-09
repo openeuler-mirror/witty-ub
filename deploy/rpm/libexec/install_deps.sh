@@ -29,11 +29,7 @@ if [ -z "${WITTY_ROLE:-}" ]; then
 fi
 role_services || exit 1
 
-# Agent (OpenCode) bundle 路径（与 witty-ub.spec 安装布局一致：
-# skills 由 witty-ub-web 子包安装到 witty_ub_diagnostician/.opencode/skills/）
-WITTY_AGENT_BUNDLE_DIR="${WITTY_DIR}/witty_ub_diagnostician/.opencode"
-WITTY_SKILL_DIR="${WITTY_AGENT_BUNDLE_DIR}/skills/experience-skill"
-WITTY_SKILL_SCRIPTS="${WITTY_SKILL_DIR}/scripts"
+# Agent bundle / experience-skill 路径由 _lib.sh 统一定义。
 WITTY_TOKENIZER_DIR="${WITTY_SKILL_SCRIPTS}/src/experience_skill_cli/tokenizer"
 
 # pip 镜像源（统一环境变量 PYPI_INDEX_URL，默认华为云；与 spec %post backend 约定一致。

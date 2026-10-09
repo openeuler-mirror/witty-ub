@@ -16,7 +16,7 @@
 | 节点 | 安装 | 运行的服务 |
 | ------ | ------ | ----------- |
 | 后端节点 | `witty-ub-backend` | `postgresql`(5432，服务名按已装包自动探测) + `witty-ub-latency`(9772) |
-| 前端节点 | `witty-ub-web` | `witty-ub-web`(8080) + OpenCode(4096，手动启动) |
+| 前端节点 | `witty-ub-web` | `witty-ub-web`(8080) + `witty-ub-experience`(本机 8082) + OpenCode(4096，手动启动) |
 | 单机 | `witty-ub` | 以上全部 |
 
 ---
@@ -92,6 +92,13 @@ sudo witty-ub manager deploy --backend http://<后端IP>:9772
 > 前端由系统单元 `witty-ub-web.service` 托管 Nginx，监听 8080。单元的
 > `RuntimeDirectory=` / `LogsDirectory=` 会预建 `/run/witty-ub-web` 与
 > `/var/log/witty-ub-web`，pid、错误日志、访问日志写在这两个目录下。
+
+Skill/Wiki 管理由前端节点的 `witty-ub-experience.service` 提供，监听
+`127.0.0.1:8082`，Nginx 将 `/experience_api/*` 转发为它的 `/api/*`。
+manager 在部署或启动时生成 `/etc/systemd/system/witty-ub-experience.service`，
+使用 `/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts/.venv`
+启动服务，并在完整部署时设置开机启动。`start/stop/restart/status/logs` 同时管理此服务。
+部署与启动会检查经 Nginx 转发的 Skill 和 Wiki 列表接口。
 
 配置 OpenCode，然后通过交互菜单启动 Agent：
 
@@ -204,6 +211,7 @@ sudo witty-ub manager psql        # 进入 psql（仅后端节点）
 | 服务 | 落位 | 端口 |
 | ------ | ------ | ------ |
 | `witty-ub-web` | 前端节点（Nginx） | 8080 |
+| `witty-ub-experience` | 前端节点（Skill/Wiki API） | 127.0.0.1:8082 |
 | `witty-ub-latency` | 后端节点（FastAPI） | 9772 |
 | `postgresql` | 后端节点（数据库） | 5432 |
 
@@ -218,6 +226,10 @@ curl http://localhost:9772/health_check
 # 前端节点
 curl -I http://localhost:8080
 curl http://localhost:8080/health_check   # 经反代访问远端后端
+curl 'http://localhost:8080/experience_api/experiences?exp_type=SKILL&page_size=1'
+curl 'http://localhost:8080/experience_api/experiences?exp_type=WIKI&page_size=1'
+curl http://localhost:8080/case_library/list
+curl http://localhost:8080/case_library/categories
 ```
 
 ---
@@ -244,6 +256,8 @@ sudo dnf remove -y witty-ub witty-ub-backend witty-ub-web witty-ub-manager   # �
 | 后端 9772 起不来 | `sudo witty-ub manager logs`；最常见 PG 未就绪/密码不匹配 → `sudo witty-ub manager deploy` |
 | 前端 8080 起不来 | `ss -tlnp \| grep 8080` 查端口占用；检查 `/etc/witty-ub/web/nginx.conf` 是否已渲染后端地址 |
 | 前端页面接口 502 | 确认后端 9772 可达（`curl http://<后端IP>:9772/health_check`），检查后端防火墙 |
+| 仅 Skill/Wiki 管理 502 | 上游是前端本机 8082，与远端 latency 9772 独立。检查 `systemctl status witty-ub-experience`、`journalctl -u witty-ub-experience` 和 `/var/log/witty-ub-web/error.log`；缺少单元时升级管理器后执行 `sudo witty-ub manager start`，缺少 venv 时先执行 `sudo witty-ub manager deps` |
+| 案例管理为空或加载失败 | 检查 `/case_library/list` 和 `/case_library/categories` 是否返回 JSON；返回 HTML 表示 Nginx 缺少 `/case_library` 反代。升级模板后执行 `sudo witty-ub manager config --backend http://<后端IP>:9772` 重渲染并重启 Nginx。若 JSON 中 `result` 为空，再检查后端 `/var/witty-ub/case` 数据 |
 | psql 连不上 | `systemctl status postgresql`；`stat -c '%a %U:%G' /etc/witty-ub/pg.passwd` 检查密钥权限，再查看后端日志 |
 | 重置一切 | `sudo witty-ub manager clean` → `sudo witty-ub manager deploy` |
 
