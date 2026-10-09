@@ -27,7 +27,7 @@ from latency.schemas.log import LogFileModel
 from latency.schemas.task import TaskModel
 from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgePGManager
 from latency.database.utils import parse_timestamp
-from latency.task.log_preprocessor import cleanup_preprocess_dir
+from latency.task.log_preprocessor import cleanup_preprocess_dir, has_parseable_log
 from latency.common.stage_timing import StageTimer
 
 
@@ -1299,6 +1299,22 @@ class StoreTraceContextLogsWorker(BaseWorker):
             log_file_id = log_file.id
             random_str = log_file.id[:8]
             output_log_path = os.path.join(witty_dir, "log_" + random_str)
+
+            # 目录里没有可解析的日志（日志数据问题，不是系统故障）：本次没有 trace
+            # 上下文可落库，直接按成功收尾，避免"诊断输出目录不存在或为空"的报错。
+            if not has_parseable_log(log_dir or log_file.file_path):
+                message = "Trace 上下文落库完成：未识别到可解析的日志文件（0 条 trace）"
+                logger.warning(message)
+                await BaseWorker.report(task.id, message, 100.0)
+                await TaskPGManager.update_task(
+                    task_id,
+                    {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value},
+                )
+                try:  # 打点失败绝不影响任务成败
+                    await timer.emit(task.id, rows=0)
+                except Exception:
+                    logger.warning("[timing] emit failed for %s", task_id, exc_info=True)
+                return True
 
             diagnosis_trace_ids = await StoreTraceContextLogsWorker._stage_after_diagnosis(
                 task, timer, output_log_path, log_id, log_file_id

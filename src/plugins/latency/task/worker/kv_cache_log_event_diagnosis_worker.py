@@ -14,6 +14,7 @@ from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.task import TaskPGManager
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.schemas.task import TaskModel
+from latency.task.log_preprocessor import has_parseable_log
 from latency.task.worker.base import BaseWorker
 
 logger = logging.getLogger(__name__)
@@ -574,6 +575,22 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                 random_str = log_file.id[:8]
                 preprocessed_log_dir = log_dir or log_file.file_path
                 prepare_scope.detail = f"预处理日志目录 {preprocessed_log_dir}"
+
+            # 目录里没有可解析的日志（日志数据问题，不是系统故障）：没有 trace 可
+            # 定界，直接按成功收尾，避免"定界工具输出目录不存在或为空"的下游报错。
+            if not has_parseable_log(preprocessed_log_dir):
+                message = "故障定界完成：未识别到可解析的日志文件（0 条 trace）"
+                logger.warning(message)
+                await BaseWorker.report(task.id, message, 100.0)
+                await TaskPGManager.update_task(
+                    task_id,
+                    {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value},
+                )
+                try:  # 打点失败绝不影响任务成败
+                    await timer.emit(task.id, rows=0)
+                except Exception:
+                    logger.warning("[timing] emit failed for %s", task_id, exc_info=True)
+                return True
 
             logger.info("故障定界工具开始运行")
             with timer.stage("diagnose_tool") as tool_scope:
