@@ -10,6 +10,7 @@ Usage:
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -361,8 +362,8 @@ class TestRpmLib:
 
     @pytest.mark.parametrize("role,expected", [
         ("backend", "witty-ub-latency"),
-        ("frontend", "witty-ub-web"),
-        ("all", "witty-ub-web witty-ub-latency"),
+        ("frontend", "witty-ub-experience witty-ub-web"),
+        ("all", "witty-ub-experience witty-ub-web witty-ub-latency"),
     ])
     def test_role_services(self, role, expected):
         r = self._source_lib(
@@ -410,6 +411,84 @@ class TestRpmLib:
     def test_url_host_extracts_hostname(self):
         r = self._source_lib({}, '_url_host http://192.168.1.10:9772/x')
         assert r.stdout.strip() == "192.168.1.10"
+
+    def test_experience_service_requires_initialized_venv(self, tmp_path):
+        r = self._source_lib(
+            {"WITTY_DIR": str(tmp_path), "WITTY_SYSTEMD_DIR": str(tmp_path / "units")},
+            "configure_experience_service",
+        )
+        assert r.returncode != 0
+        assert "manager deps" in r.stdout
+        assert not (tmp_path / "units/witty-ub-experience.service").exists()
+
+    @pytest.mark.parametrize("action", ["install_frontend", "do_start", "do_restart"])
+    def test_frontend_starts_experience_and_checks_both_apis(self, tmp_path, action):
+        # 执行真实 manager 函数，仅替换系统命令，避免修改测试机 systemd。
+        scripts = tmp_path / "libexec"
+        scripts.mkdir()
+        (scripts / "_lib.sh").symlink_to(_RPM_DIR / "libexec/_lib.sh")
+        manager = (_RPM_DIR / "libexec/manager.sh").read_text()
+        functions = scripts / "manager-functions.sh"
+        functions.write_text(manager.split('case "${1:-menu}" in', 1)[0])
+        skill_scripts = tmp_path / "witty_ub_diagnostician/.opencode/skills/experience-skill/scripts"
+        python = skill_scripts / ".venv/bin/python"
+        python.parent.mkdir(parents=True)
+        python.write_text("#!/bin/sh\nexit 0\n")
+        python.chmod(0o755)
+        calls = tmp_path / "calls"
+        r = _bash(
+            f'source "{functions}"; '
+            'configure_web_selinux() { :; }; configure_experience_selinux() { :; }; '
+            'systemctl() { echo "systemctl $*" >> "$CALLS"; }; '
+            'curl() { echo "curl $*" >> "$CALLS"; }; '
+            'rpm() { return 0; }; sleep() { :; }; show_access_info() { :; }; '
+            f"{action}",
+            WITTY_ROLE_FORCE="frontend", WITTY_DIR=str(tmp_path),
+            WITTY_ETC_DIR=str(tmp_path / "etc"),
+            WITTY_SYSTEMD_DIR=str(tmp_path / "units"), CALLS=str(calls),
+            NGINX_CONF_TEMPLATE=str(_PROJECT_ROOT / "packaging/nginx/witty-ub-web.conf.template"),
+        )
+        assert r.returncode == 0, r.stdout + r.stderr
+        recorded = calls.read_text()
+        verb = "start" if action == "do_start" else "restart"
+        assert f"systemctl {verb} witty-ub-experience witty-ub-web" in recorded
+        assert "witty-ub-latency" not in recorded
+        for exp_type in ("SKILL", "WIKI"):
+            assert f"8080/experience_api/experiences?exp_type={exp_type}&page_size=1" in recorded
+        unit = (tmp_path / "units/witty-ub-experience.service").read_text()
+        assert f"WorkingDirectory={skill_scripts}" in unit
+        assert "-m experience_skill_cli.cli sync" in unit
+        assert "web --host 127.0.0.1 --port 8082 --no-browser" in unit
+        assert "uv run" not in unit
+        if action == "install_frontend":
+            assert "systemctl enable witty-ub-experience witty-ub-web" in recorded
+
+    def test_experience_health_check_fails_when_wiki_api_fails(self, tmp_path):
+        scripts = tmp_path / "libexec"
+        scripts.mkdir()
+        (scripts / "_lib.sh").symlink_to(_RPM_DIR / "libexec/_lib.sh")
+        functions = scripts / "manager-functions.sh"
+        functions.write_text(
+            (_RPM_DIR / "libexec/manager.sh").read_text().split('case "${1:-menu}" in', 1)[0]
+        )
+        r = _bash(
+            f'source "{functions}"; '
+            'curl() { [[ "$*" != *exp_type=WIKI* ]]; }; sleep() { :; }; '
+            'wait_experience_ready', WITTY_ROLE_FORCE="frontend",
+        )
+        assert r.returncode != 0
+        assert "未通过健康检查" in r.stdout
+
+    @pytest.mark.parametrize("filename", [
+        "witty-ub-web.conf.template", "witty-ub-web-exp.conf.template", "witty-ub-web.conf",
+    ])
+    def test_nginx_routes_case_management_to_latency(self, filename):
+        conf = (_PROJECT_ROOT / "packaging/nginx" / filename).read_text()
+        pattern, body = re.search(r"location ~ (\S+) \{([^}]+)\}", conf).groups()
+        for path in ("/case_library/list", "/case_library/categories", "/case_library/attachment/case-1"):
+            assert re.match(pattern, path), f"{filename}: {path} would fall back to index.html"
+        assert "proxy_pass" in body
+        assert "WITTY_BACKEND_URL" in body or "127.0.0.1:9772" in body
 
 
 # ──────────────────────────────────────────────────────────────

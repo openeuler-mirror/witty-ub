@@ -4352,6 +4352,8 @@ const caseLibrary = ref<{
 }[]>([])
 
 const caseLibraryActiveTab = ref('')
+const caseLibraryLoading = ref(false)
+const caseLibraryError = ref('')
 const caseFilterText = ref('')
 const caseCategories = ref<{
   id: string
@@ -13382,10 +13384,12 @@ const saveCaseDialog = async () => {
 }
 
 const loadCaseLibrary = async () => {
+  caseLibraryLoading.value = true
+  caseLibraryError.value = ''
   try {
     const [data, cats] = await Promise.all([
       request<typeof caseLibrary.value[number][]>('/case_library/list'),
-      loadCategories(),
+      request<typeof caseCategories.value>('/case_library/categories'),
     ])
     caseLibrary.value = data
     caseCategories.value = cats
@@ -13400,8 +13404,12 @@ const loadCaseLibrary = async () => {
     if (!validTabs.includes(caseLibraryActiveTab.value)) {
       caseLibraryActiveTab.value = '__all__'
     }
-  } catch {
+  } catch (error) {
+    caseLibraryError.value = error instanceof Error ? error.message : '加载失败'
     caseLibrary.value = []
+    caseCategories.value = []
+  } finally {
+    caseLibraryLoading.value = false
   }
 }
 
@@ -14650,7 +14658,12 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div v-else class="knowledge-section knowledge-case-section">
-            <div v-if="caseLibrary.length > 0 || caseCategories.length > 0" class="case-layout">
+            <div v-if="caseLibraryLoading" class="case-library-empty">加载中...</div>
+            <div v-else-if="caseLibraryError" class="case-library-empty" role="alert">
+              <p>案例加载失败：{{ caseLibraryError }}</p>
+              <button type="button" class="ghost-btn" @click="loadCaseLibrary">重试</button>
+            </div>
+            <div v-else-if="caseLibrary.length > 0 || caseCategories.length > 0" class="case-layout">
               <aside class="case-sidebar">
                 <div class="case-sidebar-search">
                   <input v-model="caseFilterText" type="text" placeholder="搜索故障大类/类型..." autocomplete="off" />

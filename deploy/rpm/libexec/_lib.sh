@@ -28,6 +28,11 @@ DIAG_CONFIG_FILE="${DIAG_CONFIG_FILE:-${WITTY_CONFIG_DIR}/diagnosis_config.toml}
 WITTY_WEB_ENV="${WITTY_ETC_DIR}/web/env"
 NGINX_CONF_TEMPLATE="${NGINX_CONF_TEMPLATE:-/usr/share/witty-ub/nginx/witty-ub-web.conf.template}"
 NGINX_CONF_FILE="${WITTY_ETC_DIR}/web/nginx.conf"
+WITTY_SYSTEMD_DIR="${WITTY_SYSTEMD_DIR:-/etc/systemd/system}"
+# 与 install_deps.sh 使用同一 RPM Agent bundle 布局。
+WITTY_AGENT_BUNDLE_DIR="${WITTY_DIR}/witty_ub_diagnostician/.opencode"
+WITTY_SKILL_DIR="${WITTY_AGENT_BUNDLE_DIR}/skills/experience-skill"
+WITTY_SKILL_SCRIPTS="${WITTY_SKILL_DIR}/scripts"
 
 # witty-ub 的 systemd services：由 role_services 按角色动态生成
 WITTY_SERVICES=()
@@ -199,8 +204,8 @@ detect_role() {
 role_services() {
     case "${WITTY_ROLE:-all}" in
     backend) WITTY_SERVICES=(witty-ub-latency) ;;
-    frontend) WITTY_SERVICES=(witty-ub-web) ;;
-    all) WITTY_SERVICES=(witty-ub-web witty-ub-latency) ;;
+    frontend) WITTY_SERVICES=(witty-ub-experience witty-ub-web) ;;
+    all) WITTY_SERVICES=(witty-ub-experience witty-ub-web witty-ub-latency) ;;
     *)
         _err "未知角色: ${WITTY_ROLE}"
         return 1
@@ -257,6 +262,56 @@ render_nginx_conf() {
         mv "${NGINX_CONF_FILE}.tmp" "$NGINX_CONF_FILE"
     chmod 0640 "$NGINX_CONF_FILE"
     _log "nginx 配置已渲染: $NGINX_CONF_FILE (backend=${backend_url} agent=${agent_url})"
+}
+
+# RPM spec 在独立打包仓维护；由 manager 安装单元，已有 RPM 也可补齐服务。
+# 直接使用已初始化的 venv，启停时不依赖 uv 或网络下载。
+configure_experience_service() {
+    [ -x "$WITTY_SKILL_SCRIPTS/.venv/bin/python" ] || {
+        _err "experience-skill venv 不存在: $WITTY_SKILL_SCRIPTS/.venv；请先执行 witty-ub manager deps"
+        return 1
+    }
+    mkdir -p "$WITTY_SYSTEMD_DIR" || return 1
+    cat >"$WITTY_SYSTEMD_DIR/witty-ub-experience.service" <<EOF
+[Unit]
+Description=witty-ub Skill/Wiki management API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=${WITTY_SKILL_SCRIPTS}
+Environment=PYTHONPATH=${WITTY_SKILL_SCRIPTS}/src
+ExecStartPre=${WITTY_SKILL_SCRIPTS}/.venv/bin/python -m experience_skill_cli.cli sync
+ExecStart=${WITTY_SKILL_SCRIPTS}/.venv/bin/python -m experience_skill_cli.cli web --host 127.0.0.1 --port 8082 --no-browser
+Restart=on-failure
+RestartSec=3
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    configure_experience_selinux || return 1
+}
+
+# systemd 需要执行 /var 下的 venv；Python 还需读取源码与加载 libsimple。
+configure_experience_selinux() {
+    _has_cmd getenforce || return 0
+    [ "$(getenforce)" != "Disabled" ] || return 0
+    local cmd path type pattern
+    for cmd in semanage restorecon; do
+        _has_cmd "$cmd" || { _err "SELinux 已启用但缺少 $cmd"; return 1; }
+    done
+    while read -r type path; do
+        pattern="$(printf '%s' "$path" | sed 's/[][\.^$*+?(){}|]/\\&/g')(/.*)?"
+        semanage fcontext -a -t "$type" "$pattern" 2>/dev/null ||
+            semanage fcontext -m -t "$type" "$pattern" || return 1
+    done <<EOF
+usr_t ${WITTY_SKILL_SCRIPTS}
+bin_t ${WITTY_SKILL_SCRIPTS}/.venv/bin
+lib_t ${WITTY_SKILL_SCRIPTS}/.venv/lib
+lib_t ${WITTY_SKILL_SCRIPTS}/src/experience_skill_cli/tokenizer
+EOF
+    restorecon -R "$WITTY_SKILL_SCRIPTS" || return 1
 }
 
 # 自定义 Nginx 路径需要持久 SELinux 标签；不关闭全局 enforcing。
