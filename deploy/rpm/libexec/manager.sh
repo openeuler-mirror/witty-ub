@@ -12,7 +12,7 @@
 #
 # 部署角色按已安装子包自动探测（detect_role）:
 #   backend  = witty-ub-backend   后端节点（PG + FastAPI latency）
-#   frontend = witty-ub-web       前端节点（Nginx + OpenCode Agent）
+#   frontend = witty-ub-web       前端节点（Nginx + Skill/Wiki API + OpenCode Agent）
 #   all      = 两个子包都在        单机 All-in-One / 旧单包升级
 #
 # 子命令:
@@ -41,7 +41,7 @@ witty-ub 部署管理器
 子命令:
   deploy [--backend URL]    按角色完整部署并启动服务
                             后端节点: PG 初始化 + 凭据同步 + 启动 latency
-                            前端节点: 渲染 nginx/Agent 配置 + 启动 web
+                            前端节点: 渲染 nginx/Agent 配置 + 启动 Skill/Wiki API 与 web
                             单机: 两者依次执行
   deps                      仅安装/更新本机角色所需依赖
   config [--backend URL]    前端节点配置后端地址，自动重渲染并重启 web
@@ -191,7 +191,7 @@ install_backend() {
 # 前端角色初始化: 依赖检查 → 写 web env → 渲染 nginx/Agent → 启动 web → 探测
 # $1: 后端地址（空则读 /etc/witty-ub/web/env 现值）
 install_frontend() {
-    _step_header "初始化前端节点（Nginx + Agent 配置）"
+    _step_header "初始化前端节点（Nginx + Skill/Wiki API + Agent 配置）"
 
     local backend_url agent_url
     backend_url="${1:-$(web_env_get WITTY_BACKEND_URL http://127.0.0.1:9772)}"
@@ -199,13 +199,16 @@ install_frontend() {
 
     write_web_env "$backend_url" "$agent_url"
     render_frontend_configs || return 1
+    configure_experience_service || return 1
 
-    _info "启动 witty-ub-web 服务..."
+    _info "启动 witty-ub-experience 和 witty-ub-web 服务..."
     systemctl daemon-reload 2>/dev/null || true
-    systemctl enable witty-ub-web && systemctl restart witty-ub-web || {
-        _err "witty-ub-web 启动失败"
+    systemctl enable witty-ub-experience witty-ub-web &&
+        systemctl restart witty-ub-experience witty-ub-web || {
+        _err "前端服务启动失败"
         return 1
     }
+    wait_experience_ready || return 1
 
     sleep 1
     if curl --noproxy 127.0.0.1 -sf -o /dev/null http://127.0.0.1:8080/ 2>/dev/null; then
@@ -526,6 +529,25 @@ wait_backend_ready() {
     return 1
 }
 
+# 同时检查两种经验，并经过 Nginx 反代验证，避免页面 200 掩盖 API 502。
+wait_experience_ready() {
+    local i
+    _info "等待 Skill/Wiki 管理接口启动..."
+    for i in $(seq 1 30); do
+        if curl --noproxy '*' -sf --max-time 2 -o /dev/null \
+            'http://127.0.0.1:8080/experience_api/experiences?exp_type=SKILL&page_size=1' &&
+            curl --noproxy '*' -sf --max-time 2 -o /dev/null \
+            'http://127.0.0.1:8080/experience_api/experiences?exp_type=WIKI&page_size=1'; then
+            _log "Skill/Wiki 管理接口已就绪（8080 → 8082）"
+            return 0
+        fi
+        sleep 2
+    done
+    _err "Skill/Wiki 管理接口未通过健康检查"
+    _info "查看日志: journalctl -u witty-ub-experience；检查 /var/log/witty-ub-web/error.log"
+    return 1
+}
+
 do_start() {
     _step_header "启动 witty-ub 服务"
     check_subpackages || return 1
@@ -546,6 +568,7 @@ do_start() {
     fi
     if [ "$WITTY_ROLE" != "backend" ]; then
         render_frontend_configs || return 1
+        configure_experience_service || return 1
     fi
 
     systemctl daemon-reload 2>/dev/null || true
@@ -557,6 +580,7 @@ do_start() {
 
     [ "$WITTY_ROLE" = "frontend" ] || wait_backend_ready || return 1
     if [ "$WITTY_ROLE" != "backend" ]; then
+        wait_experience_ready || return 1
         sleep 1
         if curl --noproxy 127.0.0.1 -sf -o /dev/null http://127.0.0.1:8080/ 2>/dev/null; then
             _log "前端页面就绪: http://127.0.0.1:8080"
@@ -577,10 +601,15 @@ do_stop() {
 
 do_restart() {
     _step_header "重启 witty-ub 服务"
+    if [ "$WITTY_ROLE" != "backend" ]; then
+        configure_experience_service || return 1
+        systemctl daemon-reload
+    fi
     systemctl restart "${WITTY_SERVICES[@]}" 2>/dev/null || {
         _err "重启失败"
         return 1
     }
+    [ "$WITTY_ROLE" = "backend" ] || wait_experience_ready || return 1
     _log "重启完成"
 }
 
@@ -594,7 +623,7 @@ do_status() {
     echo ""
     _info "端口监听:"
     local PORTS="9772"
-    [ "$WITTY_ROLE" != "backend" ] && PORTS="8080|4096|${PORTS}"
+    [ "$WITTY_ROLE" != "backend" ] && PORTS="8080|8082|4096|${PORTS}"
     [ "$WITTY_ROLE" != "frontend" ] && PORTS="${PORTS}|5432"
     if _has_cmd ss; then
         ss -tlnp 2>/dev/null | grep -E ":(${PORTS}) " || true
@@ -609,7 +638,7 @@ do_logs() {
     _step_header "查看 witty-ub 日志 (Ctrl+C 退出)"
     local choice
     if [ "$WITTY_ROLE" = "frontend" ]; then
-        journalctl -u witty-ub-web -f
+        journalctl -u witty-ub-web -u witty-ub-experience -f
         return 0
     fi
     if [ "$WITTY_ROLE" = "backend" ]; then
@@ -619,13 +648,15 @@ do_logs() {
     _info "选择查看哪个服务的日志:"
     echo "  1) witty-ub-web (Nginx 前端)"
     echo "  2) witty-ub-latency (FastAPI 后端)"
-    echo "  3) 全部"
-    read -r -p "请选择 [1-3, 默认 3]: " choice
-    choice="${choice:-3}"
+    echo "  3) witty-ub-experience (Skill/Wiki 管理)"
+    echo "  4) 全部"
+    read -r -p "请选择 [1-4, 默认 4]: " choice
+    choice="${choice:-4}"
     case "$choice" in
     1) journalctl -u witty-ub-web -f ;;
     2) journalctl -u witty-ub-latency -f ;;
-    3) journalctl -u witty-ub-web -u witty-ub-latency -f ;;
+    3) journalctl -u witty-ub-experience -f ;;
+    4) journalctl -u witty-ub-web -u witty-ub-latency -u witty-ub-experience -f ;;
     *)
         _err "无效选项"
         return 1
