@@ -147,6 +147,30 @@ def _is_preprocess_complete(output_dir: str) -> bool:
     return _dir_has_output(output_dir)
 
 
+def has_parseable_log(log_dir: str) -> bool:
+    """扫描目录里是否存在能匹配 filename_patterns 的日志文件。
+
+    预处理后目录里可能只剩 env/version.txt 这类未匹配文本 —— 扫描器一个文件
+    都认领不到，解析结果必然是 0 条 trace。这是日志数据本身的问题，上层据此
+    走"解析完成(0 条 trace)"而不是让任务失败。配置不可用时返回 True，即不做
+    判断、保持原有行为。
+    """
+    patterns = _configured_filename_patterns()
+    if not patterns:
+        return True
+    for source_file, _ in _iter_source_files(log_dir):
+        name = os.path.basename(source_file)
+        relative_path = os.path.relpath(source_file, log_dir).replace(os.sep, "/")
+        if _matches_any_pattern(relative_path, name, patterns):
+            return True
+        # .gz 由 open_log 流式解压后按去后缀的名字认领
+        if name.lower().endswith(".gz") and _matches_any_pattern(
+            relative_path, name[: -len(".gz")], patterns
+        ):
+            return True
+    return False
+
+
 def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult:
     """Copy/extract logs into output_dir, then split unmatched text logs."""
     if not os.path.exists(source_path):
@@ -195,12 +219,23 @@ def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult
     )
     split_stats = split_unmatched_log_files(output_dir, filename_patterns)
     if not _dir_has_output(output_dir):
-        # 拷贝/解压/拆分全部落盘后仍无产出: 不写完成标记(避免后续重试复用
-        # 空目录), 以明确的错误代替下游"扫描没有产出任何列式行"的报错。
-        raise RuntimeError(
-            f"预处理产出为空: copied={copied_count} extracted={extracted_count} "
-            f"split={len(split_stats)} copy_failed={copy_failed}, "
-            f"源={source_path}, log dir={output_dir}"
+        if copy_failed:
+            # 拷贝失败导致的无产出属于系统问题(权限/磁盘/路径)，必须暴露，
+            # 否则会退回"拷贝全失败被静默吞掉"的老坑。
+            raise RuntimeError(
+                f"预处理产出为空且存在拷贝失败: copied={copied_count} "
+                f"extracted={extracted_count} split={len(split_stats)} "
+                f"copy_failed={copy_failed}, 源={source_path}, log dir={output_dir}"
+            )
+        # 源目录本身没有可拷贝内容(空目录/只有空文件): 这是日志数据问题，不是
+        # 系统故障。正常写完成标记并返回，由上层按"0 条 trace 解析完成"收尾。
+        logger.warning(
+            "预处理产出为空(源目录无可拷贝内容): copied=%d extracted=%d split=%d, 源=%s, log dir=%s",
+            copied_count,
+            extracted_count,
+            len(split_stats),
+            source_path,
+            output_dir,
         )
     if copy_failed:
         logger.warning(

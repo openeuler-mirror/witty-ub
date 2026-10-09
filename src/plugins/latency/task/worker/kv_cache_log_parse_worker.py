@@ -626,11 +626,9 @@ class KVCacheLogParseWorker(BaseWorker):
             total = trace_index.height
         else:
             # T7: columnar 是唯一解析路径（legacy 平铺 dict 兜底已删）。走到这里
-            # 说明扫描器没返回 "columns"，实测最常见的原因是**一个文件都没匹配到**
-            # （日志目录为空，或文件名与 parse_config 的正则对不上）——先把现场写清楚。
-            # 旧文案让人去设 WITTY_UB_SCAN_COLUMNS，而那个开关在 T7 之后已从代码里
-            # 删掉（全仓只有这句报错和注释还提它），会把人带偏：2026-09-15 的
-            # backend.log 里就有这样一条假线索。
+            # 说明扫描器一个文件都没认领到：目录里没有匹配 filename_patterns 的
+            # 日志，或匹配到的文件全部清洗失败。这是日志数据本身的问题，不是系统
+            # 故障 —— 记 WARNING 并返回 None，由 run() 按"0 条 trace 解析完成"收尾。
             scanned_files = getattr(getattr(scanner, "metrics", None), "total_files", None)
             if skipped_files:
                 source_path = log_file.file_path if log_id else None
@@ -638,14 +636,20 @@ class KVCacheLogParseWorker(BaseWorker):
                     f"{_map_to_original_path(p, log_dir, source_path)}（{r}）"
                     for p, r in skipped_files[:5]
                 )
-                raise RuntimeError(
-                    f"扫描没有产出任何列式行：{len(skipped_files)} 个日志文件全部清洗失败"
-                    f"——{detail}；log_dir={log_dir}"
+                logger.warning(
+                    "扫描没有产出任何列式行：%d 个日志文件全部清洗失败——%s；log_dir=%s",
+                    len(skipped_files),
+                    detail,
+                    log_dir,
                 )
-            raise RuntimeError(
-                "扫描没有产出任何列式行（没有匹配到日志文件？）："
-                f"已扫描文件数={scanned_files}，log_dir={log_dir}"
-            )
+            else:
+                logger.warning(
+                    "扫描没有产出任何列式行：未匹配到可解析的日志文件"
+                    "（已扫描文件数=%s），log_dir=%s",
+                    scanned_files,
+                    log_dir,
+                )
+            return None
 
         logger.info(f"Parse complete: {total:,} traces")
 
@@ -1897,12 +1901,20 @@ class KVCacheLogParseWorker(BaseWorker):
             t_parse = time.perf_counter() - t_run_start
 
             if trace_index is None or _trace_row_count(trace_index) == 0:
-                await TaskPGManager.mark_failed_with_report(
+                # 目录里没有可解析的日志（日志数据问题，不是系统故障）：
+                # 解析按成功收尾，只是产出 0 条 trace，不再让任务失败。
+                message = "解析完成：未在路径中识别到日志信息（0 条 trace）"
+                logger.warning(message)
+                await BaseWorker.report(task.id, message, 100.0)
+                await TaskPGManager.update_task(
                     task_id,
-                    "任务失败：未在路径中识别到日志信息",
-                    status=TaskStatusEnum.FAILED_PENDING_REMOVE,
+                    {"status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value},
                 )
-                return False
+                try:  # 打点失败绝不影响任务成败
+                    await timer.emit(task.id, rows=0)
+                except Exception:
+                    logger.warning("[timing] emit failed for %s", task_id, exc_info=True)
+                return True
 
             trace_rows = _trace_row_count(trace_index)
             await progress.report("scan", 1.0)
