@@ -13,8 +13,9 @@
 | 文件 | 说明 |
 |------|------|
 | `deploy.sh` | 一键部署入口（交互式菜单 / 完整部署 / 启动 / 停止 / 清理） |
-| `install_deps.sh` | 系统依赖 + Python venv 依赖安装 |
+| `install_deps.sh` | 系统依赖 + Python venv 依赖 + experience-skill 依赖安装 |
 | `run_backend.sh` | 后端启动器（从 `deploy/pg.passwd` 读取 PG 口令后启动 FastAPI） |
+| `run_experience.sh` | experience-skill Web 服务启动器（知识库 Skill/Wiki 管理 API，端口 8082） |
 | `run_frontend_nginx.sh` | 前端 Nginx 模式启动器（静态托管 `dist/` + 反代；`start`/`stop`/`restart`/`reload`/`status`） |
 | `run_frontend_vite.sh` | 前端 Vite 模式启动器（`vite preview` 托管 `dist/`，无 dist 时回退 dev server） |
 | `run_frontend.sh` | 旧入口，转发到 `run_frontend_vite.sh`（既有 `witty-ub-frontend.service` 的 `ExecStart` 指向本文件） |
@@ -115,6 +116,9 @@ deploy.sh
   │           └── start_services            # 渲染运行时配置 + systemd units / nohup 回退
   ├── --start 仅启动服务
   │     └── start_services
+  │           ├── experience-skill Web 服务 (8082)
+  │           ├── FastAPI 后端 (9772)
+  │           └── 前端 (Vite 5173 / Nginx 8080) + OpenCode (4096)
   ├── --stop  停止服务
   │     └── stop_services
   └── --clean 一键清理
@@ -135,7 +139,7 @@ deploy.sh
 6. **C++ 编译**：编译 `witty-ub-diag-tool` / `witty-ub-brpc-diag` 诊断工具（源码或 `CMakeLists.txt` 比二进制新则重编；`FORCE_REBUILD_CPP=1` 强制重编）
 7. **数据文件**：将故障模式树、配置文件复制到 `/var/witty-ub/`
 8. **凭据同步**：仅将 PG 非敏感连接参数写入运行时 TOML；密码由后端启动器从 `deploy/pg.passwd` 注入进程环境
-9. **启动服务**：启动 FastAPI 后端 (9772) + Vite 前端 (5173)，等待健康检查通过
+9. **启动服务**：启动 FastAPI 后端 (9772) + experience-skill Web 服务 (8082) + Vite 前端 (5173)，等待健康检查通过
 
 ---
 
@@ -242,6 +246,7 @@ CLEAN_SCOPE=2 NONINTERACTIVE=1 bash deploy/host/deploy.sh --clean
 | 文件 | 内容 |
 |------|------|
 | `backend.log` | 后端运行日志（nohup 模式） |
+| `experience.log` | experience-skill Web 服务运行日志（知识库管理 API） |
 | `frontend.log` | 前端运行日志（nohup 模式） |
 | `pip-install.log` | Python 依赖安装日志 |
 | `cpp-build.log` | C++ 编译日志 |
@@ -264,7 +269,8 @@ journalctl --user -u witty-ub-frontend.service -f
 | 后端启动超时 / 健康检查失败 | `journalctl --user -u witty-ub-backend.service` 或 `.deploy-logs/backend.log`（最常见：PG 密码/端口配置错误） |
 | 前端 5173 无响应 | 确认 `src/web/dist/` 存在（无 dist 时回退 dev server）；`run_frontend_vite.sh` 用 `--strictPort`，端口被占会立即失败 |
 | 前端 8080 无响应 | 确认已安装 nginx 且 `src/web/dist/` 有内容；`bash deploy/host/run_frontend_nginx.sh status`，错误日志见 `.deploy-logs/web-error.log` |
-| 端口冲突 | `ss -tlnp \| grep 5173` / `ss -tlnp \| grep 9772` |
+| 知识库管理 500 | experience-skill Web 服务(8082) 未启动或依赖缺失。检查 `.deploy-logs/experience.log`；确认 `uv` 已安装且 venv 已同步 |
+| 端口冲突 | `ss -tlnp \| grep -E '8080\|8082\|9772'` |
 | C++ 编译失败 | 按报错补装依赖后重跑；`cmake . -DCMAKE_BUILD_TYPE=Release && make -j\$(nproc) witty-ub-diag-tool` |
 | 前端编译失败 | `npm ping` 检查 registry 可达性；编译失败不阻塞部署，可先 `npm run dev` 用开发模式 |
 | PostgreSQL 未就绪 | `pg_isready -h 127.0.0.1 -p 5432`；或设置 `PG_HOST` / `PG_PORT_RPM` 指向正确数据库 |
