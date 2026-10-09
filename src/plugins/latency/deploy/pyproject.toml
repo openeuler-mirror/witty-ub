@@ -25,6 +25,7 @@ dependencies = [
     "sqlalchemy==2.0.51",
     "asyncpg==0.31.0",
     "numpy>=1.26.0,<3.0.0",
+    "polars>=1.44.2,<2.0",
     ]
 
 [project.optional-dependencies]

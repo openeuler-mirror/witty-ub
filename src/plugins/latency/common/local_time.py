@@ -1,6 +1,13 @@
 """Server wall-clock timestamps that follow runtime timezone changes."""
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+
+# 全系统「本地墙钟」口径对应的显示时区。
+# 无 IANA 名字的固定偏移表示；UTC+8 无夏令时，等价于 Asia/Shanghai，
+# 必须与部署时区（deploy.conf 的 WITTY_TZ）保持一致。BRPC 子系统的 epoch
+# 微秒在 JSON 边界按此时区格式化为墙钟，与 naive TIMESTAMP 列（+08 墙钟）同口径。
+WALL_CLOCK_TZ = timezone(timedelta(hours=8))
 
 
 def refresh_local_timezone() -> None:

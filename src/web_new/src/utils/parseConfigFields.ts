@@ -4,7 +4,7 @@
  * 可见性口径对齐当前后端实现（见 harness `references/decisions.md` 第 3 节）：
  * - 后端解析链路真正消费：`total_p99_threshold_ms`（外加 `log_filename_pattern.*`，见 `PATTERN_TYPES`）；
  * - 新版前端自己用（总览表 / 曲线异常标色）：P99.99 / Pmax / 均值；
- * - 其余（C2W / W2W / URMA 建链 / QueryMeta 四个阶段阈值、滑动窗口对、区间异常密度阈值）
+ * - 其余（C2W / W2W / URMA 建链 / QueryMeta 四个阶段阈值、区间异常密度阈值）
  *   当前没有任何消费方 → 界面隐藏。字段仍随配置保存 / 导入导出，**后端实现对应判定后把键从
  *   `HIDDEN_*` 移出即可重新显示**。
  */
@@ -26,10 +26,7 @@ export type DiagnosisThresholdKey =
   | 'total_pmax_threshold_ms'
   | 'total_ave_threshold_ms'
 
-export type SlidingWindowPair = { size: number; step: number }
-
 export type AnalyzerParams = Record<DiagnosisThresholdKey, number> & {
-  slidingWindowPairs: SlidingWindowPair[]
   zone_anomaly_density_threshold: number
 }
 
@@ -101,23 +98,12 @@ export const HIDDEN_THRESHOLD_KEYS: DiagnosisThresholdKey[] = THRESHOLD_OPTIONS.
 const isPositiveDecimal = (value: unknown) =>
   /^[0-9]+(?:\.[0-9]+)?$/.test(String(value)) && Number(value) > 0 && Number.isFinite(Number(value))
 
-const isPositiveInteger = (value: unknown) =>
-  /^[0-9]+$/.test(String(value)) && Number(value) > 0 && Number.isFinite(Number(value))
-
 /** 阈值合法性（上限与后端 `LatencyThreshold` 一致，避免保存被 422）。 */
 export const isValidThresholdValue = (value: unknown): boolean =>
   isPositiveDecimal(value) && Number(value) <= 1000
 
 const areHiddenParamsValid = (params: AnalyzerParams): boolean => {
   if (!HIDDEN_THRESHOLD_KEYS.every((key) => isValidThresholdValue(params[key]))) return false
-  const pairsValid = params.slidingWindowPairs.every(
-    ({ size, step }) =>
-      isPositiveInteger(size) &&
-      Number(size) <= 10000 &&
-      isPositiveInteger(step) &&
-      Number(step) <= 1000,
-  )
-  if (!pairsValid) return false
   const density = params.zone_anomaly_density_threshold
   return isPositiveDecimal(density) && Number(density) <= 1
 }
@@ -134,7 +120,6 @@ export const sanitizeHiddenParams = (
   return {
     ...params,
     ...Object.fromEntries(HIDDEN_THRESHOLD_KEYS.map((key) => [key, defaults[key]])),
-    slidingWindowPairs: defaults.slidingWindowPairs.map((pair) => ({ ...pair })),
     zone_anomaly_density_threshold: defaults.zone_anomaly_density_threshold,
   }
 }

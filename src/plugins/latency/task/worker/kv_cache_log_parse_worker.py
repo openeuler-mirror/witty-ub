@@ -71,6 +71,7 @@ from latency.database.managers.anomalous_event import AnomalousEventPGManager
 from latency.database.managers.anomalous_event_chain import AnomalousEventChainPGManager
 from latency.schemas.task import TaskModel
 from latency.task.worker.base import BaseWorker
+from latency.common.local_time import local_now
 from latency.common.stage_timing import as_stage_timer
 from latency.bucket.statistics import (
     compute_and_store_bucket_stats_from_frame,
@@ -81,8 +82,9 @@ from latency.bucket.statistics import (
 logger = logging.getLogger(__name__)
 
 
-def _utc_now_str() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+def _local_now_str() -> str:
+    """本批共享的 created_at：服务器本地墙钟（与 naive TIMESTAMP 列口径一致）。"""
+    return local_now().strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
 # ── P3 写库路径 ────────────────────────────────────────────────────────
@@ -956,7 +958,7 @@ class KVCacheLogParseWorker(BaseWorker):
                 if isinstance(flat.get("inflight_count"), (int, float))
                 else None
             ),
-            created_at=created_at or _utc_now_str(),
+            created_at=created_at or _local_now_str(),
             **snapshot,
         )
 
@@ -972,7 +974,7 @@ class KVCacheLogParseWorker(BaseWorker):
         (filtered by ``anomalous_tids``) and for the bucket percentile tables.
         trace_index 已是 {trace_id: 平铺dict}(parse_log 归并产物)。
         """
-        created_at = _utc_now_str()
+        created_at = _local_now_str()
         rows: list[LogParseResultDataclass] = []
         for tid, flat in trace_index.items():
             rows.append(
@@ -1286,7 +1288,7 @@ class KVCacheLogParseWorker(BaseWorker):
         if anomalous_tids:
             import polars as pl
 
-            created_at = _utc_now_str()
+            created_at = _local_now_str()
             frame = trace_index.filter(pl.col("tid").is_in(anomalous_tids))
             # 拷贝 yuanrong 字段（df_trace 已含全量 26 列）
             from latency.schemas.log import YUANRONG_METRIC_FIELDS
@@ -1364,7 +1366,7 @@ class KVCacheLogParseWorker(BaseWorker):
           1) 先 top1000（``tid in top1000_tids``），按 ``total_latency`` 降序；
           2) 再 anomalous-only（``tid in anomalous_only_tids``），保持 df_trace 行序。
         两段各取一次 ``created_at``（先 anomalous 后 top1000，与旧代码
-        ``_utc_now_str()`` 的调用序一致）：``created_at`` 排序同样没有 tie-break，
+        ``_local_now_str()`` 的调用序一致）：``created_at`` 排序同样没有 tie-break，
         若两段共用一个时间戳，``created_at`` 排序的翻页结果会与现状不同。
 
         列 = df_trace 的列 + ``is_anomalous`` / ``aggregated_event_id`` /
@@ -1390,11 +1392,11 @@ class KVCacheLogParseWorker(BaseWorker):
 
         # created_at 取值顺序与旧路径逐字对齐：先 anomalous 后 top1000，且只有在
         # 真有 anomalous-only 行时才为异常段取（旧 _build_anomalous_detail_rows
-        # 也是在 ``if anomalous_tids:`` 分支里才调 _utc_now_str()）。
+        # 也是在 ``if anomalous_tids:`` 分支里才调 _local_now_str()）。
         if anomalous_created_at is None:
-            anomalous_created_at = _utc_now_str() if has_anomalous_only else None
+            anomalous_created_at = _local_now_str() if has_anomalous_only else None
         if top1000_created_at is None:
-            top1000_created_at = _utc_now_str()
+            top1000_created_at = _local_now_str()
         if anomalous_created_at is None:
             # 无 anomalous-only 行：该段 0 行，取值不影响落库
             anomalous_created_at = top1000_created_at
@@ -1569,9 +1571,9 @@ class KVCacheLogParseWorker(BaseWorker):
             raise ValueError(f"Detail selection count mismatch: {len(indices)}/{expected_rows}")
 
         anomalous_created_at = (
-            _utc_now_str() if anomalous_only_count else None
+            _local_now_str() if anomalous_only_count else None
         )
-        top_created_at = _utc_now_str()
+        top_created_at = _local_now_str()
         # Endpoint groups are shared by every detail batch. Build their lookup
         # once, including when anomaly volume spans hundreds of COPY batches.
         aggregate_keys = None
@@ -1631,7 +1633,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     return
                 # Bound conversion even for callers supplying larger frames.
                 # Preserve copy_dataframe's shared fallback timestamp per frame.
-                created_at = datetime.now(timezone.utc)
+                created_at = local_now()
                 for chunk in frame.iter_slices(50_000):
                     batch, _ = build_records(
                         chunk, LOG_PARSE_RESULT_SPEC, created_at=created_at, materialize=False

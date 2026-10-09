@@ -47,6 +47,28 @@ def _sources(tmp_path):
     return files, parsers
 
 
+@pytest.mark.parametrize("dtype", [pl.Categorical, pl.String])
+@pytest.mark.parametrize("stored_paths,wanted,expected", [
+    (["/logs/sdk/a.log", "/logs/worker/b.log", "/logs/sdk/a.log"],
+     ["/logs/sdk/a.log", "/logs/missing.log"], [0, 2]),
+    ([r"C:\logs\sdk\a.log", r"C:\logs\worker\b.log", r"C:\logs\sdk\a.log"],
+     ["C:/logs/sdk/a.log"], [0, 2]),
+    (["C:/logs/sdk/a.log", r"C:\logs\worker\b.log", None],
+     [r"C:\logs\sdk\a.log", "C:/logs/worker/b.log"], [0, 1]),
+    (["/logs/sdk/a.log", None], [], []),
+    ([None], ["/logs/sdk/a.log"], []),
+    ([], ["/logs/sdk/a.log"], []),
+])
+def test_path_filter_preserves_membership_order_and_dtype(dtype, stored_paths, wanted, expected):
+    frame = pl.DataFrame({
+        "__file": pl.Series(stored_paths, dtype=dtype),
+        "row": range(len(stored_paths)),
+    })
+    actual = frame.filter(scan._path_filter(frame, wanted))
+    assert actual["row"].to_list() == expected
+    assert actual.schema["__file"] == dtype
+
+
 @pytest.mark.parametrize("progress", [False, True])
 @pytest.mark.parametrize("sparse", [False, True])
 def test_wide_batches_preserve_family_file_and_row_order(tmp_path, progress, sparse):

@@ -22,7 +22,7 @@ import {
   isAssetReportButtonDisabled,
   resolveAssetReportButtonState,
 } from './utils/assetReport'
-import { displayServerTime } from './utils/serverTime'
+import { displayServerTime, formatAssetTimeFilter } from './utils/serverTime'
 import {
   buildTaskLanes,
   buildTimelineTicks,
@@ -232,8 +232,6 @@ type DiagnosisConfigToml = {
     brpc_log_file_patterns?: string[]
   }
   log_analyzer_params: Record<LogAnalyzerThresholdKey, number> & {
-    sliding_window_sizes: number[]
-    sliding_window_steps: number[]
     zone_anomaly_density_threshold: number
   }
 }
@@ -243,7 +241,6 @@ const diagnosisConfig = rawDiagnosisConfig as DiagnosisConfigToml
 type DiagnosisConfigForm = {
   logFilenamePattern: Record<LogFilenamePatternKey, string[]>
   logAnalyzerParams: Record<LogAnalyzerThresholdKey, number> & {
-    slidingWindowPairs: Array<{ size: number; step: number }>
     zone_anomaly_density_threshold: number
   }
 }
@@ -253,10 +250,6 @@ type DiagnosisConfigInputValue = number | string
 type DiagnosisConfigDraft = {
   logFilenamePattern: Record<LogFilenamePatternKey, string[]>
   logAnalyzerParams: Record<LogAnalyzerThresholdKey, DiagnosisConfigInputValue> & {
-    slidingWindowPairs: Array<{
-      size: DiagnosisConfigInputValue
-      step: DiagnosisConfigInputValue
-    }>
     zone_anomaly_density_threshold: DiagnosisConfigInputValue
   }
 }
@@ -264,8 +257,6 @@ type DiagnosisConfigDraft = {
 type DiagnosisConfigApiModel = {
   log_filename_pattern: Record<LogFilenamePatternKey, string[]>
   log_analyzer_params: Record<LogAnalyzerThresholdKey, number> & {
-    sliding_window_sizes: number[]
-    sliding_window_steps: number[]
     zone_anomaly_density_threshold: number
   }
 }
@@ -3035,12 +3026,6 @@ const createDefaultDiagnosisConfig = (): DiagnosisConfigForm => ({
     total_p9999_threshold_ms: diagnosisConfig.log_analyzer_params.total_p9999_threshold_ms,
     total_pmax_threshold_ms: diagnosisConfig.log_analyzer_params.total_pmax_threshold_ms,
     total_ave_threshold_ms: diagnosisConfig.log_analyzer_params.total_ave_threshold_ms,
-    slidingWindowPairs: diagnosisConfig.log_analyzer_params.sliding_window_sizes.map(
-      (size, index) => ({
-        size,
-        step: diagnosisConfig.log_analyzer_params.sliding_window_steps[index] ?? size,
-      }),
-    ),
     zone_anomaly_density_threshold:
       diagnosisConfig.log_analyzer_params.zone_anomaly_density_threshold,
   },
@@ -3066,10 +3051,6 @@ const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfi
     total_p9999_threshold_ms: config.log_analyzer_params.total_p9999_threshold_ms,
     total_pmax_threshold_ms: config.log_analyzer_params.total_pmax_threshold_ms,
     total_ave_threshold_ms: config.log_analyzer_params.total_ave_threshold_ms,
-    slidingWindowPairs: config.log_analyzer_params.sliding_window_sizes.map((size, index) => ({
-      size,
-      step: config.log_analyzer_params.sliding_window_steps[index] ?? size,
-    })),
     zone_anomaly_density_threshold: config.log_analyzer_params.zone_anomaly_density_threshold,
   },
 })
@@ -3085,12 +3066,6 @@ const toDiagnosisConfigApi = (config: DiagnosisConfigDraft): DiagnosisConfigApiM
     total_p9999_threshold_ms: Number(config.logAnalyzerParams.total_p9999_threshold_ms),
     total_pmax_threshold_ms: Number(config.logAnalyzerParams.total_pmax_threshold_ms),
     total_ave_threshold_ms: Number(config.logAnalyzerParams.total_ave_threshold_ms),
-    sliding_window_sizes: config.logAnalyzerParams.slidingWindowPairs.map(({ size }) =>
-      Number(size),
-    ),
-    sliding_window_steps: config.logAnalyzerParams.slidingWindowPairs.map(({ step }) =>
-      Number(step),
-    ),
     zone_anomaly_density_threshold: Number(config.logAnalyzerParams.zone_anomaly_density_threshold),
   },
 })
@@ -3213,17 +3188,9 @@ const resetParseConfigDraft = () => {
   invalidDiagnosisConfigFields.value = new Set()
 }
 
-const getSlidingWindowFieldId = (index: number, field: 'size' | 'step') =>
-  `sliding-window-${index}-${field}`
-
 const isPositiveArabicDecimal = (value: DiagnosisConfigInputValue) => {
   const text = String(value)
   return /^[0-9]+(?:\.[0-9]+)?$/.test(text) && Number(text) > 0 && Number.isFinite(Number(text))
-}
-
-const isPositiveArabicInteger = (value: DiagnosisConfigInputValue) => {
-  const text = String(value)
-  return /^[0-9]+$/.test(text) && Number(text) > 0 && Number.isFinite(Number(text))
 }
 
 const validateDiagnosisAnalyzerParams = () => {
@@ -3234,14 +3201,6 @@ const validateDiagnosisAnalyzerParams = () => {
       invalidFields.add(key)
     }
   })
-  diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.forEach(({ size, step }, index) => {
-    if (!isPositiveArabicInteger(size) || Number(size) > 10000) {
-      invalidFields.add(getSlidingWindowFieldId(index, 'size'))
-    }
-    if (!isPositiveArabicInteger(step) || Number(step) > 1000) {
-      invalidFields.add(getSlidingWindowFieldId(index, 'step'))
-    }
-  })
   const densityThreshold = diagnosisConfigDraft.logAnalyzerParams.zone_anomaly_density_threshold
   if (!isPositiveArabicDecimal(densityThreshold) || Number(densityThreshold) > 1) {
     invalidFields.add('zone_anomaly_density_threshold')
@@ -3250,10 +3209,6 @@ const validateDiagnosisAnalyzerParams = () => {
   invalidDiagnosisConfigFields.value = invalidFields
   if (invalidFields.size > 0) {
     diagnosisConfigValidationError.value = '参数填写不合法，请检查红色输入框'
-    return false
-  }
-  if (diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.length === 0) {
-    diagnosisConfigValidationError.value = '至少需要配置一组滑动窗口'
     return false
   }
   diagnosisConfigValidationError.value = ''
@@ -3312,18 +3267,6 @@ const addFilenamePattern = (key: LogFilenamePatternKey) => {
 
 const removeFilenamePattern = (key: LogFilenamePatternKey, index: number) => {
   diagnosisConfigDraft.logFilenamePattern[key].splice(index, 1)
-}
-
-const addSlidingWindowPair = () => {
-  diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.push({ size: 100, step: 20 })
-  diagnosisConfigValidationError.value = ''
-  invalidDiagnosisConfigFields.value = new Set()
-}
-
-const removeSlidingWindowPair = (index: number) => {
-  diagnosisConfigDraft.logAnalyzerParams.slidingWindowPairs.splice(index, 1)
-  diagnosisConfigValidationError.value = ''
-  invalidDiagnosisConfigFields.value = new Set()
 }
 
 // 聚合事件列表排序状态
@@ -9805,8 +9748,8 @@ const submitQuery = async () => {
     const result = await listLogKbs({
       name: queryDialog.name.trim() || undefined,
       description: queryDialog.description.trim() || undefined,
-      created_at_start: formatDateTime(queryDialog.createdAtStart),
-      created_at_end: formatDateTime(queryDialog.createdAtEnd),
+      created_at_start: formatAssetTimeFilter(queryDialog.createdAtStart),
+      created_at_end: formatAssetTimeFilter(queryDialog.createdAtEnd),
       created_sorted_desc: queryDialog.sortOrder === 'desc',
     })
     resultsDialog.assets = result.assets
@@ -10204,6 +10147,14 @@ const getLogFileProgressClass = (file: LogFileModel) => {
 }
 
 const getLogFileId = (file: LogFileModel) => file.log_file_id || file.id
+
+const getLogFileDisplayPath = (file: LogFileModel) => {
+  // 上传的 ZIP 以日志 ID 落盘；name 保留上传前的文件名。
+  if (file.file_path?.endsWith(`/file_upload/${getLogFileId(file)}.zip`)) {
+    return `[Local] ${file.name || file.file_path}`
+  }
+  return file.file_path || file.name
+}
 
 const isKvcacheLogFile = (file: LogFileModel) => file.log_type !== 'UBSocket'
 
@@ -18558,7 +18509,7 @@ onBeforeUnmount(() => {
             <div v-for="file in logFiles" :key="file.id" class="log-file-item">
               <div class="log-file-info">
                 <div class="log-file-summary">
-                  <span class="log-file-path">📁 {{ file.file_path || file.name }}</span>
+                  <span class="log-file-path">📁 {{ getLogFileDisplayPath(file) }}</span>
                   <span class="log-file-meta">
                     <span class="log-file-time"
                       >创建时间：{{ displayServerTime(file.created_at) }}</span
@@ -21531,7 +21482,7 @@ onBeforeUnmount(() => {
               <div class="parse-config-section-heading">
                 <div>
                   <h3>日志分析参数</h3>
-                  <p>调整异常检测使用的时延阈值、滑动窗口以及区间异常密度。</p>
+                  <p>调整异常检测使用的时延阈值和区间异常密度。</p>
                 </div>
               </div>
 
@@ -21558,71 +21509,6 @@ onBeforeUnmount(() => {
                     <em>ms</em>
                   </span>
                 </label>
-              </div>
-
-              <div class="analyzer-divider"></div>
-              <div class="analyzer-group-heading">
-                <div>
-                  <h4 class="analyzer-group-title">滑动窗口</h4>
-                  <p>窗口大小与步长成对使用，每组会创建一个异常检测窗口。</p>
-                  <p class="analyzer-parameter-hint">
-                    窗口大小输入1–10000的整数，窗口步长输入1–1000的整数
-                  </p>
-                </div>
-                <button type="button" class="window-add-btn" @click="addSlidingWindowPair">
-                  + 添加窗口
-                </button>
-              </div>
-              <div class="window-pair-list">
-                <div
-                  v-for="(windowPair, index) in diagnosisConfigDraft.logAnalyzerParams
-                    .slidingWindowPairs"
-                  :key="index"
-                  class="window-pair-row"
-                >
-                  <span class="window-index">{{ index + 1 }}</span>
-                  <label>
-                    <span>窗口大小</span>
-                    <input
-                      v-model="windowPair.size"
-                      type="text"
-                      inputmode="numeric"
-                      :class="{
-                        'config-input-invalid': invalidDiagnosisConfigFields.has(
-                          getSlidingWindowFieldId(index, 'size'),
-                        ),
-                      }"
-                      :aria-invalid="
-                        invalidDiagnosisConfigFields.has(getSlidingWindowFieldId(index, 'size'))
-                      "
-                    />
-                  </label>
-                  <label>
-                    <span>窗口步长</span>
-                    <input
-                      v-model="windowPair.step"
-                      type="text"
-                      inputmode="numeric"
-                      :class="{
-                        'config-input-invalid': invalidDiagnosisConfigFields.has(
-                          getSlidingWindowFieldId(index, 'step'),
-                        ),
-                      }"
-                      :aria-invalid="
-                        invalidDiagnosisConfigFields.has(getSlidingWindowFieldId(index, 'step'))
-                      "
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    class="window-remove-btn"
-                    title="删除该窗口"
-                    aria-label="删除该窗口"
-                    @click="removeSlidingWindowPair(index)"
-                  >
-                    ×
-                  </button>
-                </div>
               </div>
 
               <div class="analyzer-divider"></div>
