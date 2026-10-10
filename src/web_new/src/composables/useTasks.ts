@@ -300,7 +300,7 @@ function createTasksState() {
     taskPage.value = 1
   })
 
-  watch([assets.view, assets.assetTab], () => {
+  watch(assets.view, () => {
     taskPage.value = 1
   })
 
