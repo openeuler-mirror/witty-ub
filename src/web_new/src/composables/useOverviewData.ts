@@ -268,7 +268,7 @@ function createOverviewStateInner() {
   const faultTracesTruncated = ref(false)
 
   const assetTypeFilter = ref<'kvcache' | 'brpc'>('kvcache')
-  const analysisTab = ref<'latency' | 'disconnect'>('latency')
+  const analysisTab = ref<'latency' | 'disconnect' | 'similarity'>('latency')
   const analysisModule = reactive({
     latency: 'overview',
     disconnect: 'faults' as 'faults' | 'events',
@@ -4755,6 +4755,8 @@ function createOverviewStateInner() {
   const loadOverviewForTab = async () => {
     const generation = ++overviewRequestGeneration
     if (!isAssetMode.value) return
+    // 相似案例分析按需自取（SimilarityAnalysis 组件内），不走监控取数
+    if (analysisTab.value === 'similarity') return
     // 任务列表还停留在上一个资产库时不发按库查询，等日志列表 watcher 再触发
     if (!assetScoped.value) return
     if (assetTypeFilter.value === 'brpc') {
