@@ -627,6 +627,9 @@ if [ "$ROLE" = "frontend" ]; then
     ROLE_VOLUMES=(witty-ub-logs witty-ub-experience-data witty-ub-reports)
 else
     ROLE_VOLUMES=(witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports)
+    if [ "$ROLE" = "all" ]; then
+        ROLE_VOLUMES+=(witty-ub-experience-data)
+    fi
 fi
 for vol in "${ROLE_VOLUMES[@]}"; do
     if docker volume ls --format '{{.Name}}' | grep -qx "$vol"; then
@@ -786,7 +789,7 @@ backend)
         -e PG_USER="${PG_USER:-witty-ub}" \
         "${SSL_ENV_ARGS[@]}" \
         "${TZ_ENV_ARGS[@]}" \
-        --health-cmd="curl -f http://localhost:9772/health_check" \
+        --health-cmd="/healthcheck.sh" \
         --health-interval=30s \
         --health-timeout=10s \
         --health-retries=3 \
@@ -826,6 +829,7 @@ frontend)
         -v witty-ub-reports:/var/witty-ub/reports \
         -v "${PG_SECRET_FILE}:/run/secrets/pg_password:ro" \
         -v "${OPENCODE_CONFIG_DIR}:/root/.config/opencode" \
+        -v witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data \
         "${EXTRA_MOUNT_ARGS[@]}" \
         -e WITTY_ROLE=all \
         -e PYTHONPATH=/var/witty-ub \
@@ -836,7 +840,7 @@ frontend)
         -e PG_USER="${PG_USER:-witty-ub}" \
         "${SSL_ENV_ARGS[@]}" \
         "${TZ_ENV_ARGS[@]}" \
-        --health-cmd="curl -f http://localhost:9772/health_check" \
+        --health-cmd="/healthcheck.sh" \
         --health-interval=30s \
         --health-timeout=10s \
         --health-retries=3 \

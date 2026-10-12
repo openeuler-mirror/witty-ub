@@ -94,7 +94,7 @@ services:
       # 时区：与全系统「本地墙钟」口径一致（日志墙钟为 +08）
       - TZ=Asia/Shanghai
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9772/health_check"]
+      test: ["CMD", "/healthcheck.sh"]
       interval: 30s
       timeout: 10s
       retries: 3
