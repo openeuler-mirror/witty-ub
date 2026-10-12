@@ -8,7 +8,7 @@ import pytest
 
 from latency.common.local_time import parse_asset_timestamp, utc_now
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
-from latency.database.utils import format_timestamp
+from latency.database.utils import format_asset_timestamp, format_timestamp
 from latency.schemas.log import LogKnowledgeModel
 from latency.schemas.request import ListLogKnowledgeRequest, ParseConfig
 
@@ -69,13 +69,25 @@ async def test_asset_counter_update_binds_current_server_time(change_timezone):
 def test_asset_timestamp_round_trip_preserves_instant_after_timezone_change(change_timezone):
     change_timezone("CST-8")
     stored = parse_asset_timestamp("2026-01-01 08:30:00.123")
-    assert format_timestamp(stored) == "2026-01-01 08:30:00.123"
+    shanghai_response = format_asset_timestamp(stored)
+    assert shanghai_response == "2026-01-01 08:30:00.123+08:00"
     change_timezone("UTC0")
-    response = format_timestamp(stored)
-    assert response == "2026-01-01 00:30:00.123"
+    assert parse_asset_timestamp(shanghai_response) == stored
+    response = format_asset_timestamp(stored)
+    assert response == "2026-01-01 00:30:00.123+00:00"
     assert parse_asset_timestamp(response) == stored
     change_timezone("EST5")
-    assert format_timestamp(stored) == "2025-12-31 19:30:00.123"
+    assert parse_asset_timestamp(response) == stored
+    assert format_asset_timestamp(stored) == "2025-12-31 19:30:00.123-05:00"
+
+
+@pytest.mark.parametrize("zone", ["UTC0", "CST-8", "EST5"])
+def test_legacy_asset_timestamp_keeps_wall_time(change_timezone, zone):
+    change_timezone(zone)
+    assert format_asset_timestamp(None) is None
+    assert format_asset_timestamp(datetime(2026, 1, 1, 8, 30, 0, 123000)) == (
+        "2026-01-01 08:30:00.123"
+    )
 
 
 def test_asset_time_filter_uses_current_server_timezone(change_timezone):
