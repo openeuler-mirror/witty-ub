@@ -20,7 +20,7 @@
 | `PG_USER` | `witty-ub` | PostgreSQL 用户名 |
 | `PG_PASSWORD` | （进程启动时注入） | PostgreSQL 密码；容器入口从 `/run/secrets/pg_password` 读取，不写入容器配置 |
 | `WITTY_SSL_VERIFY` | `true` | 是否校验 OpenCode/LLM 出网 HTTPS 证书；`false` 时容器入口导出 `NODE_TLS_REJECT_UNAUTHORIZED=0` 关闭校验，仅用于内网自签证书/代理拦截且无法导入 CA 的场景 |
-| `TZ` | `Asia/Shanghai` | 容器时区（由 `deploy.conf` 的 `WITTY_TZ` 注入）。API 时间戳按此时区输出「本地墙钟、无 offset」的 `YYYY-MM-DD HH:MM:SS[.mmm]`；PG 容器另需 `PGTZ` 使 `SHOW timezone` 生效 |
+| `TZ` | `Asia/Shanghai` | 容器时区（由 `deploy.conf` 的 `WITTY_TZ` 注入）。日志事件时间保持无偏移的墙钟格式；资产库与日志文件的创建、更新时间保留偏移，由前端转换为浏览器本地时间。源码/RPM 后端启动不自动注入此默认值；PG 容器另需 `PGTZ` |
 
 ### 前后端分离部署环境变量
 
@@ -277,7 +277,7 @@ bash /var/witty-ub/deploy/deploy_opencode.sh
 | `WITTY_NETWORK_MODE` | `bridge` | 容器网络模式：`bridge` 接入 `PG_NETWORK` 组网，容器间用容器名互访；`host` 共享宿主机网络（端口映射失效、PG 走 `127.0.0.1:5432`），用于服务器把 Docker 网络视为不可信区域的场景 |
 | `WITTY_SSL_VERIFY` | `true` | 是否校验 OpenCode/LLM 出网 HTTPS 证书（同上表） |
 | `WITTY_SECCOMP` | `default` | seccomp 策略：`default` 用 Docker 默认过滤；`unconfined` 关闭过滤（旧版 Docker(<20.10)/libseccomp(<2.5) 因 clone3 报 `can't start new thread` 时使用） |
-| `WITTY_TZ` | `Asia/Shanghai` | 应用与 PG 容器时区（`-e TZ`，PG 另加 `-e PGTZ`）。决定所有 API 时间戳的「本地」口径：`YYYY-MM-DD HH:MM:SS[.mmm]` 本地墙钟、无 offset。应恒为 +08，与日志来源时区一致；改动后需重启容器（`docker exec <容器> date` 应为 `+0800`，`SHOW timezone` 应为 `Asia/Shanghai`） |
+| `WITTY_TZ` | `Asia/Shanghai` | 应用与 PG 容器时区（`-e TZ`，PG 另加 `-e PGTZ`），默认与日志来源的 +08 墙钟一致。资产时间 API 保留偏移，前端显示跟随浏览器时区。修改配置后需重新创建容器以更新环境变量（默认情况下 `docker exec <容器> date` 应为 `+0800`） |
 | `WITTY_NETWORK_MODE_PG` | （空） | PG 容器（`postgres`）的网络模式，留空继承 `WITTY_NETWORK_MODE` |
 | `WITTY_NETWORK_MODE_APP` | （空） | 一体容器（`--role all`）的网络模式，留空继承全局值 |
 | `WITTY_NETWORK_MODE_BACKEND` | （空） | 分离部署后端容器（`--role backend`）的网络模式，留空继承全局值 |

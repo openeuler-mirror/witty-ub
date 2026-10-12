@@ -308,7 +308,7 @@ docker run -d \
 | Docker 网络被服务器视为不可信（PG 与 witty-ub 同组网却无法通信） | 每个容器加 `--network host`、去掉 `-p`，并把 `PG_HOST` 改为 `127.0.0.1`；或改用 firewalld 信任域方案，见[容器运行时问题排查 §3](../troubleshooting/02-container-runtime.md) |
 | OpenCode 调用 LLM 报证书错误（内网自签证书 / 代理拦截，且无法导入 CA） | 给跑 OpenCode 的容器加 `-e WITTY_SSL_VERIFY=false`（容器入口导出 `NODE_TLS_REJECT_UNAUTHORIZED=0` 关闭出网 HTTPS 校验） |
 | 旧版 Docker(<20.10)/libseccomp(<2.5) 启动报 `can't start new thread` | 加 `--security-opt seccomp=unconfined` 关闭 seccomp 过滤 |
-| 界面时间与日志原文的时间对不上（API 时间戳口径） | 应用容器加 `-e TZ=Asia/Shanghai`，PG 容器加 `-e TZ=Asia/Shanghai -e PGTZ=Asia/Shanghai`；API 时间戳统一为「本地墙钟、无 offset」 |
+| 界面时间与日志原文的时间对不上（API 时间戳口径） | 应用容器加 `-e TZ=Asia/Shanghai`，PG 容器加 `-e TZ=Asia/Shanghai -e PGTZ=Asia/Shanghai`；日志事件时间保持无偏移的墙钟格式，资产库与日志文件的创建、更新时间保留偏移并按浏览器本地时区显示 |
 
 ---
 

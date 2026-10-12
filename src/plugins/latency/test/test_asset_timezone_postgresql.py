@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 
 import pytest
 
-from latency.common.local_time import local_now
 from latency.database.engine import PGManager
 from latency.database.init import (
     ASSET_TIMESTAMP_COLUMNS,
@@ -67,9 +66,9 @@ async def test_existing_assets_follow_runtime_timezone_and_survive_restart(monke
                 ))
         await migrate_asset_timestamps()
         for zone, expected in [
-            ("Asia/Shanghai", "2026-01-01 08:30:00.123"),
-            ("UTC", "2026-01-01 00:30:00.123"),
-            ("America/New_York", "2025-12-31 19:30:00.123"),
+            ("Asia/Shanghai", "2026-01-01 08:30:00.123+08:00"),
+            ("UTC", "2026-01-01 00:30:00.123+00:00"),
+            ("America/New_York", "2025-12-31 19:30:00.123-05:00"),
         ]:
             monkeypatch.setenv("TZ", zone)  # No tzset or process restart.
             asset = await LogKnowledgePGManager.get_log_kb_by_kb_id("historical")
@@ -94,8 +93,8 @@ async def test_existing_assets_follow_runtime_timezone_and_survive_restart(monke
         await LogKnowledgePGManager.update_log_kb("historical", {"description": "updated"})
         await LogFilePGManager.update_log_file("historical-file", {"name": "updated"})
         updated = await LogKnowledgePGManager.get_log_kb_by_kb_id("historical")
-        assert abs((datetime.fromisoformat(updated.updated_at) - local_now()).total_seconds()) < 5
-        assert updated.created_at == "2025-12-31 19:30:00.123"
+        assert abs((datetime.fromisoformat(updated.updated_at) - datetime.now(timezone.utc)).total_seconds()) < 5
+        assert updated.created_at == "2025-12-31 19:30:00.123-05:00"
     finally:
         await PGManager.close()
         await admin.execute(f'DROP DATABASE IF EXISTS "{database}"')

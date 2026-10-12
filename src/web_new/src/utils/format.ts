@@ -3,11 +3,21 @@ export const errorText = (error: unknown) =>
 
 export const clampProgress = (value: number) => Math.min(100, Math.max(0, value))
 
-// 后端统一输出「本地墙钟、无 offset」的 "YYYY-MM-DD HH:mm:ss[.mmm]"。
-// 这里按墙钟直取显示，不做任何时区换算；后端若带 offset 也一并忽略。
+// 带时区的资产时间按浏览器本地时区显示；无时区的旧响应和日志墙钟保持原值。
 export const formatTime = (value?: string | null) => {
   if (!value) return '—'
-  return value.replace('T', ' ').slice(0, 19)
+  const match = value
+    .trim()
+    .match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)
+  if (!match) return value
+  if (!match[3]) return `${match[1]} ${match[2]}`
+  const date = new Date(value.trim().replace(' ', 'T'))
+  if (Number.isNaN(date.getTime())) return value
+  const offset = -date.getTimezoneOffset()
+  const hours = Math.floor(Math.abs(offset) / 60)
+  const minutes = Math.abs(offset) % 60
+  const timezone = `UTC${offset >= 0 ? '+' : '-'}${hours}${minutes ? `:${String(minutes).padStart(2, '0')}` : ''}`
+  return `${formatFullTimeLabel(date)} (${timezone})`
 }
 
 export const toDatetimeString = (value: string) => {

@@ -42,6 +42,15 @@ test('browser timezone conversion follows daylight saving time', () => {
   })
 })
 
+test('offset-free responses keep their wall time across browser timezones', () => {
+  for (const zone of ['UTC', 'Asia/Shanghai', 'America/New_York']) {
+    inTimezone(zone, () => {
+      assert.equal(displayServerTime('2026-01-01 00:30:00.123'), '2026-01-01 00:30:00')
+      assert.equal(displayServerTime('2026-01-01T08:30:00'), '2026-01-01 08:30:00')
+    })
+  }
+})
+
 test('supports legacy values, ISO timestamps and missing timestamps', () => {
   inTimezone('Asia/Shanghai', () => {
     assert.equal(displayServerTime('2026-01-01 08:30:00'), '2026-01-01 08:30:00')
