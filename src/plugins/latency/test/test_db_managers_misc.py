@@ -8,7 +8,8 @@ the result-mapping branches execute without a live PostgreSQL.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -1358,6 +1359,7 @@ def _log_file_row(**overrides):
         log_type=DiagnosisConfigLogType.KVCACHE,
         existed_status=True,
         created_at=datetime(2026, 1, 1, 8, 30, 0, 123000),
+        updated_at=datetime(2026, 1, 1, 8, 30, 0, 123000),
     )
     for key, value in overrides.items():
         setattr(row, key, value)
@@ -1778,6 +1780,38 @@ async def test_get_log_kb_maps_row(patch_session):
     assert model.task_cnt == 3
     assert model.anomaly_cnt == 1
     assert model.name == "asset-kb"
+
+
+@pytest.mark.parametrize("zone, expected", [
+    ("UTC", "2026-01-01 00:30:00.123+00:00"),
+    ("Asia/Shanghai", "2026-01-01 08:30:00.123+08:00"),
+    ("America/New_York", "2025-12-31 19:30:00.123-05:00"),
+])
+async def test_asset_list_and_detail_preserve_offsets(patch_session, monkeypatch, zone, expected):
+    instant = datetime(2026, 1, 1, 0, 30, 0, 123000, tzinfo=timezone.utc)
+    timestamps = {"created_at": instant, "updated_at": instant}
+    try:
+        with monkeypatch.context() as timezone_patch:
+            timezone_patch.setenv("TZ", zone)
+            kb_row = _log_kb_row(**timestamps)
+            file_row = _log_file_row(**timestamps)
+            patch_session(FakeSession(default=FakeResult(scalar_value=kb_row)))
+            asset = await LogKnowledgePGManager.get_log_kb_by_kb_id("kb-1")
+            patch_session(FakeSession(default=FakeResult(rows=[vars(kb_row)])))
+            assets = await LogKnowledgePGManager.list_log_kbs(ListLogKnowledgeRequest())
+            patch_session(FakeSession(default=FakeResult(scalar_value=file_row)))
+            file = await LogFilePGManager.get_log_file_by_log_file_id("lf-1")
+            patch_session(FakeSession(
+                results=[FakeResult(scalar_value=1)],
+                default=FakeResult(rows=[file_row]),
+            ))
+            count, files = await LogFilePGManager.list_log_files("kb-1", ListLogFilesRequest())
+            assert count == len(files) == len(assets) == 1
+            for model in [asset, assets[0], file, files[0]]:
+                assert model.created_at == model.updated_at == expected
+                assert datetime.fromisoformat(model.created_at) == instant
+    finally:
+        time.tzset()
 
 
 # ---------------------------------------------------------------------------

@@ -126,9 +126,9 @@ def parse_pod_ips(value: str | list[str] | None) -> list[str] | None:
 
 
 def format_timestamp(value: datetime | None) -> str | None:
-    """Format datetime back to the unified API string (server wall clock).
+    """Format event timestamps as server wall clock without an offset.
 
-    All response timestamps are emitted without a timezone offset, as
+    Event timestamps are emitted without a timezone offset, as
     ``YYYY-MM-DD HH:MM:SS[.mmm]`` in the server local timezone. Aware datetimes
     (e.g. asyncpg ``timestamptz`` results) are converted to the local timezone
     first; naive values are already server wall clock and stay unchanged.
@@ -140,6 +140,15 @@ def format_timestamp(value: datetime | None) -> str | None:
         value = value.astimezone()
         return value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     return value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+
+def format_asset_timestamp(value: datetime | None) -> str | None:
+    """Keep asset instants explicit so clients can choose their display timezone."""
+    if value is None or value.tzinfo is None:
+        # Legacy naive values have no known source timezone; do not invent one.
+        return format_timestamp(value)
+    refresh_local_timezone()
+    return value.astimezone().isoformat(sep=" ", timespec="milliseconds")
 
 
 def format_ip(value: Any) -> str | None:
