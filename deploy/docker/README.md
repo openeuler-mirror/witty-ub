@@ -126,11 +126,19 @@ manage.sh
 1. **拉取镜像**：优先使用本地镜像，否则从 `hub-harbor.oepkgs.net/neocopilot/witty-ub:<角色tag>` 拉取
 2. **验证镜像**：检查镜像完整性（frontend 校验 Nginx/Web/Agent 资产，其余校验 BRPC 工具与数据）
 3. **创建网络**：复用已有的 Docker 网络
-4. **创建数据卷**：all/backend 建 `witty-ub-data/logs/uploads/results`，frontend 建 `witty-ub-experience-data`
+4. **创建数据卷**：all/backend 建 `witty-ub-data/case/uploads/results`，all/frontend 建 `witty-ub-experience-data`；所有角色挂载 `witty-ub-logs/reports`
 5. **配置 OpenCode**：all/frontend 准备 OpenCode 配置目录
 6. **自动检测 PG**：all/backend 检测 PostgreSQL 部署方式，自动配置连接参数；frontend 不连数据库
 7. **启动容器**：容器名分别为 `<名称>`、`<名称>-backend`、`<名称>-frontend`；backend 暴露 9772，frontend 暴露 32413 并按 `WITTY_BACKEND_URL` 反代后端
-8. **健康检查**：等待应用就绪（最多 180 秒）
+8. **健康检查**：等待应用就绪（最多 180 秒）；all/frontend 除检查后端，还经 Nginx 检查 SKILL/WIKI 两类管理接口
+
+### experience-skill Web 服务
+
+`all` 和 `frontend` 容器自动启动经验库 Web 服务；分离部署时服务和经验库数据都留在前端容器。启动流程参照 host/RPM：使用镜像内已安装的技能 venv，先执行 `python -m experience_skill_cli.cli sync`，再执行 `web --host 127.0.0.1 --port 8082 --no-browser`，启动时不下载依赖。
+
+访问路径为 `http://<部署地址>:<Web端口>/experience_api/experiences`，Nginx 转发到容器内 `8082`，无需发布此端口。经验库通过 `witty-ub-experience-data` 卷持久化，运行日志为 `/var/log/witty-ub/experience_server.log`（同时输出到 `docker logs`）。依赖缺失、同步失败或 SKILL/WIKI 接口未就绪会使启动失败；运行期间接口失败会使容器健康检查失败。
+
+源码镜像和 RPM 容器镜像均在构建时准备技能运行环境；试验性前端 overlay 同时更新入口及健康检查脚本。已有容器需重建镜像并重新创建容器，单纯重启旧镜像不会获得修复。
 
 > 分离部署顺序：先后端（`install-pg` + `install-backend`），后前端（`install-frontend`）。
 > 密钥权限按读取方自动设置：容器化 PG → `0440`，宿主机/远端 PG → `0400`。
@@ -338,6 +346,7 @@ bash manage.sh
 | PG RPM 未检测到 | 在 `deploy.conf` 中手动设置 `PG_HOST_IN_CONTAINER`（宿主机 PG 需 `listen_addresses='*'` 且已重启） |
 | 部署失败只提示 `Latency Plugin failed to start` | PG 口令不匹配：查看脚本追加打印的 `/var/log/witty-ub/latency_server.log`，见[常见问题 §10](../../docs/troubleshooting/01-common-issues.md) |
 | 分离前端 unhealthy，但前端页面能打开 | 远端后端不可达：先在 BE 执行 `curl http://<BE>:9772/health_check`，见[常见问题 §11](../../docs/troubleshooting/01-common-issues.md) |
+| Skill/Wiki 管理 502 或容器 unhealthy | 检查 `/var/log/witty-ub/experience_server.log`；在容器内执行 `/healthcheck.sh --experience` 检查 Nginx → experience-skill 链路 |
 | 报 `Cannot access the Docker daemon socket (permission denied)` | 当前用户不在 `docker` 组：`sudo usermod -aG docker $USER && newgrp docker`（脚本已区分该错误与"守护进程未启动"） |
 | 端口冲突 | `ss -tlnp \| grep <端口>` 检查占用 |
 | 同网络内 PG 与 witty-ub 互相不可达（PG 自身 healthy） | Docker 网络被服务器视为不可信：加 firewalld 信任域，或设 `WITTY_NETWORK_MODE=host`，见[故障排查 §3](../../docs/troubleshooting/02-container-runtime.md) |

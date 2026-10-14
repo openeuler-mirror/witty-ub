@@ -6,7 +6,7 @@
 #
 # 设计要点（详见 docs/deployment/09-experimental-frontend.md）：
 #   * 后端与既有前端镜像只从 release tag 构建，本脚本不碰它们；
-#   * exp 镜像 = 当前 release 前端镜像 + 当日 exp 前端静态产物；
+#   * exp 镜像 = 当前 release 前端镜像 + 当日 exp 前端静态产物 + 当前服务启动脚本；
 #   * exp 版本用日期管理：frontend-exp-<YYYYMMDD>（不可变）+ frontend-exp（移动标签）；
 #   * 载荷内写入 BUILD_INFO（base_release / source_commit / build_date），便于追溯与回滚。
 #
@@ -126,7 +126,7 @@ main() {
     log "commit       : ${git_commit}"
     log "exp version  : ${exp_version}"
 
-    # 组装最小构建上下文：dist/ + 指向 web-exp 的 nginx 模板
+    # 组装最小构建上下文：dist/ + 指向 web-exp 的 nginx 模板 + 当前容器启动脚本
     CTX_DIR="$(mktemp -d "${TMPDIR:-/tmp}/witty-ub-exp-XXXXXX")"
     if [ "${KEEP_CONTEXT}" = "1" ]; then
         log "保留构建上下文: ${CTX_DIR}"
@@ -136,6 +136,8 @@ main() {
 
     mkdir -p "${CTX_DIR}/dist"
     cp -R "${web_dir}/dist/." "${CTX_DIR}/dist/"
+    mkdir -p "${CTX_DIR}/docker"
+    cp "${ROOT}/docker/entrypoint.sh" "${ROOT}/docker/healthcheck.sh" "${CTX_DIR}/docker/"
     # 镜像内 nginx 沿用 release 前端容器的运行路径（/run/witty-ub-web、/var/log/witty-ub-web，
     # 由 docker/entrypoint.sh 创建），只把静态根指向 exp 产物目录。
     sed 's|root /var/witty-ub/web;|root /var/witty-ub/web-exp;|' \
