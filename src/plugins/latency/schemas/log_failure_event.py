@@ -20,6 +20,22 @@ class LogFailureEventModel(BaseModel):
     status_code: str = Field(..., description="状态码")
     failure_mode: list[str] = Field(..., description="故障模式")
 
+class PodRoleModel(BaseModel):
+    """trace 级容器角色聚合：每行一个 trace，记录该 trace 内各角色的 pod.
+
+    - client_pod：该 trace 的 client 容器（通常唯一）
+    - entry_worker_pods / meta_worker_pods / data_worker_pods：对应角色的容器集合
+    - set 请求不涉及远端拉取，data_worker_pods 通常为空数组
+    """
+    trace_id: str = Field(..., description="Trace ID")
+    log_id: str = Field(..., description="日志路径ID")
+    operation: str = Field(default="", description="操作类型：GET / SET")
+    client_pod: Optional[str] = Field(default=None, description="client 容器")
+    entry_worker_pods: list[str] = Field(default_factory=list, description="entry worker 容器列表")
+    meta_worker_pods: list[str] = Field(default_factory=list, description="meta worker 容器列表")
+    data_worker_pods: list[str] = Field(default_factory=list, description="data worker 容器列表")
+    timestamp: str = Field(default="", description="日志最早时间戳")
+
 class TraceFailureEventModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Trace数据ID")
     trace_id: str = Field(..., description="Trace ID")
@@ -33,6 +49,7 @@ class TraceFailureEventModel(BaseModel):
     status_code: list[str] = Field(default_factory=list, description="状态码列表")
     failure_mode: list[str] = Field(default_factory=list, description="trace涉及日志命中的故障模式列表")
     operation: str = Field(default="", description="操作类型：GET / SET")
+    pod_role: Optional[PodRoleModel] = Field(default=None, description="trace 级容器角色聚合")
 
 class ErrCodeMetricItem(BaseModel):
     """延迟指标数据点（用于时间曲线）"""

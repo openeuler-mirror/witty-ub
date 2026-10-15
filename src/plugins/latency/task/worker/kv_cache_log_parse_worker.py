@@ -59,6 +59,7 @@ from latency.database.managers.task_report import TaskReportPGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.log_failure_event import LogFailureEventPGManager
+from latency.database.managers.pod_role import PodRolePGManager
 from latency.database.utils import parse_timestamp
 from latency.database.managers.src_dst_aggregated_event import (
     SrcDstAggregatedEventPGManager,
@@ -2243,6 +2244,7 @@ class KVCacheLogParseWorker(BaseWorker):
             await SrcDstAggregatedEventPGManager.delete_aggregated_events_by_log_id(log_id)
             await LogFailureEventPGManager.delete_log_failure_events_by_log_id(log_id)
             await LogFailureEventPGManager.delete_trace_failure_events_by_log_id(log_id)
+            await PodRolePGManager.delete_pod_roles_by_log_id(log_id)
         else:
             logger.info(f"[KVCacheLogParseWorker] log_id={log_id} 还有其他同类任务，不清理数据")
         

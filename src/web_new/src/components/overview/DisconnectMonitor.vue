@@ -109,6 +109,59 @@ const failureDomainsOf = (row: any) => {
   return domains.length ? domains.join(' / ') : '-'
 }
 
+// 涉及容器角色：跨当前范围的故障 Trace 按角色归集 pod（client/entry/meta/data）
+const roleSummary = computed(() => {
+  const empty: Record<string, { label: string; pods: string[]; traces: number }> = {
+    client: { label: 'client', pods: [], traces: 0 },
+    entry_worker: { label: 'entry worker', pods: [], traces: 0 },
+    meta_worker: { label: 'meta worker', pods: [], traces: 0 },
+    data_worker: { label: 'data worker', pods: [], traces: 0 },
+  }
+  const podSeen: Record<string, Set<string>> = {}
+  let traceWithRole = 0
+  filteredFaultTraces.value.forEach((row: any) => {
+    const role = row.pod_role
+    if (!role) return
+    traceWithRole += 1
+    const cells: Array<[string, unknown]> = [
+      ['client', role.client_pod],
+      ['entry_worker', role.entry_worker_pods],
+      ['meta_worker', role.meta_worker_pods],
+      ['data_worker', role.data_worker_pods],
+    ]
+    for (const [key, value] of cells) {
+      const pods = Array.isArray(value) ? (value as string[]) : value ? [String(value)] : []
+      if (!pods.length) continue
+      const item = empty[key]
+      item.traces += 1
+      const seen = (podSeen[key] ??= new Set<string>())
+      pods.forEach((pod) => {
+        if (!seen.has(pod)) {
+          seen.add(pod)
+          item.pods.push(pod)
+        }
+      })
+    }
+  })
+  return {
+    roles: Object.values(empty).filter((item) => item.pods.length > 0),
+    traceWithRole,
+    total: filteredFaultTraces.value.length,
+  }
+})
+// 涉及角色对应的故障类型（按命中 Trace 数降序）
+const roleFailureTypes = computed(() => {
+  const counts = new Map<string, number>()
+  filteredFaultTraces.value.forEach((row: any) => {
+    if (!row.pod_role) return
+    failureModeIdsOf(row).forEach((id) => {
+      const name = failureModeOf(id)?.name || id
+      counts.set(name, (counts.get(name) ?? 0) + 1)
+    })
+  })
+  return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])
+})
+
 // 与拓扑/链路排行同口径：源、目的都要有且不同
 const hasFaultLink = (row: any) => {
   const src = String(row.src_ip || '')
@@ -337,6 +390,36 @@ watch([podIpSample, traceIdSample], () => void nextTick(measureFixedColumns))
       <div>当前操作无故障码时序数据</div>
     </div>
     <div v-else ref="faultChartRef" class="fault-trend-chart"></div>
+  </section>
+
+  <section v-if="roleSummary.traceWithRole > 0" class="section-card">
+    <header class="fault-section-header">
+      <div>
+        <h2 class="section-card-title">{{ scopeLabel }} · 涉及容器角色</h2>
+        <p>
+          识别到角色的故障 Trace
+          {{ roleSummary.traceWithRole }} / {{ roleSummary.total }} 条（未识别的 Trace 不出现在下方）
+        </p>
+      </div>
+    </header>
+    <div class="role-workbench">
+      <article v-for="item in roleSummary.roles" :key="item.key" class="role-card">
+        <header>
+          <span class="role-badge" :class="'role-' + item.key">{{ item.label }}</span>
+          <strong>{{ item.traces }} 条 Trace</strong>
+        </header>
+        <div class="role-pods">
+          <span v-for="pod in item.pods" :key="pod" class="trace-chip agg-mono">{{ pod }}</span>
+        </div>
+      </article>
+      <aside class="role-faults">
+        <h4>对应故障类型</h4>
+        <div v-if="roleFailureTypes.length === 0" class="role-faults-empty">暂无故障类型</div>
+        <span v-for="[name, count] in roleFailureTypes" :key="name" class="fault-type-chip">
+          {{ name }} <b>×{{ count }}</b>
+        </span>
+      </aside>
+    </div>
   </section>
 
   <section class="section-card">
@@ -769,6 +852,92 @@ watch([podIpSample, traceIdSample], () => void nextTick(measureFixedColumns))
 .fault-trend-chart {
   height: 300px;
 }
+.role-workbench {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) 260px;
+  gap: 10px;
+  align-items: stretch;
+}
+.role-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #fff;
+}
+.role-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.role-card header strong {
+  color: var(--text2);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.role-badge.role-client {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.role-badge.role-entry_worker {
+  background: #dcfce7;
+  color: #15803d;
+}
+.role-badge.role-meta_worker {
+  background: #fef3c7;
+  color: #b45309;
+}
+.role-badge.role-data_worker {
+  background: #fce7f3;
+  color: #be185d;
+}
+.role-pods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.role-faults {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #fbfcfe;
+}
+.role-faults h4 {
+  margin: 0 0 2px;
+  font-size: 12px;
+}
+.fault-type-chip {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: #e8eefc;
+  color: var(--text);
+  font-size: 11px;
+}
+.fault-type-chip b {
+  color: var(--danger);
+  font-weight: 700;
+}
+.role-faults-empty {
+  color: var(--text3);
+  font-size: 11px;
+}
 .fault-impact-workbench {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
@@ -934,6 +1103,9 @@ watch([podIpSample, traceIdSample], () => void nextTick(measureFixedColumns))
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
+  .role-workbench {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 @media (max-width: 700px) {
   .fault-journey ol {
@@ -956,6 +1128,9 @@ watch([podIpSample, traceIdSample], () => void nextTick(measureFixedColumns))
   }
   .trace-search .input {
     width: 100%;
+  }
+  .role-workbench {
+    grid-template-columns: 1fr;
   }
 }
 </style>

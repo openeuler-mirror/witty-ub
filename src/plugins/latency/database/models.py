@@ -603,6 +603,27 @@ class TraceFailureEvent(Base):
     operation: Mapped[Optional[str]] = mapped_column(String)
 
 
+class PodRole(Base):
+    """Trace 级容器角色聚合：每行一个 trace，记录该 trace 内各角色的 pod。
+
+    - client_pod：该 trace 的 client 容器（通常唯一）
+    - entry_worker_pods / meta_worker_pods / data_worker_pods：对应角色的容器集合
+    - set 请求不涉及远端拉取，data_worker_pods 通常为空数组
+    """
+
+    __tablename__ = "pod_role"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    log_id: Mapped[str] = mapped_column(String, index=True)
+    trace_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+    operation: Mapped[Optional[str]] = mapped_column(String)
+    client_pod: Mapped[Optional[str]] = mapped_column(String)
+    entry_worker_pods: Mapped[Optional[list[str]]] = mapped_column(JSONB)
+    meta_worker_pods: Mapped[Optional[list[str]]] = mapped_column(JSONB)
+    data_worker_pods: Mapped[Optional[list[str]]] = mapped_column(JSONB)
+    timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+
+
 class FailureModeKnowledge(Base):
     __tablename__ = "failure_mode_knowledge"
 
