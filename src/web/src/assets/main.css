@@ -2280,27 +2280,6 @@ body.agent-panel-resizing-corner {
   color: #475569;
   margin-right: 4px;
 }
-.case-file-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: #1976d2;
-  text-decoration: none;
-  padding: 2px 8px;
-  border: 1px solid #1976d2;
-  border-radius: 10px;
-  transition: all 0.15s ease;
-  margin-right: 6px;
-}
-.case-file-link:hover {
-  background: #1976d2;
-  color: #fff;
-}
-.case-card-file-meta {
-  font-size: 12px;
-  color: #64748b;
-}
 
 .case-empty {
   text-align: center;
@@ -2473,7 +2452,8 @@ body.agent-panel-resizing-corner {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 }
 
-.case-edit-btn {
+.case-edit-btn,
+.case-attachment-btn {
   font-size: 0.78rem;
   color: #2563eb;
   background: none;
@@ -2482,10 +2462,20 @@ body.agent-panel-resizing-corner {
   cursor: pointer;
   padding: 2px 10px;
   transition: background 0.15s;
+}
+
+.case-edit-btn {
   margin-left: auto;
 }
 
-.case-edit-btn:hover {
+.case-attachment-btn {
+  flex-shrink: 0;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.case-edit-btn:hover,
+.case-attachment-btn:hover {
   background: #eff6ff;
 }
 
@@ -9493,14 +9483,9 @@ body.agent-panel-resizing-corner {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
-.similarity-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 6px;
-}
 .similarity-link {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 4px;
   font-size: 12px;
