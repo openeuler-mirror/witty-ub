@@ -1,0 +1,1631 @@
+{
+  "total": 62,
+  "valid": 62,
+  "errors": 0,
+  "top1_hit": 8,
+  "top3_hit": 29,
+  "top5_hit": 42,
+  "top1_rate": 0.12903225806451613,
+  "top3_rate": 0.46774193548387094,
+  "top5_rate": 0.6774193548387096,
+  "cat_stats": {
+    "etcd故障": {
+      "total": 9,
+      "hit1": 1,
+      "hit3": 4,
+      "hit5": 4
+    },
+    "Client-退出": {
+      "total": 3,
+      "hit1": 0,
+      "hit3": 0,
+      "hit5": 1
+    },
+    "Client-挂死/网络": {
+      "total": 5,
+      "hit1": 1,
+      "hit3": 1,
+      "hit5": 2
+    },
+    "UB-UBSe/UBM管理进程故障": {
+      "total": 4,
+      "hit1": 0,
+      "hit3": 2,
+      "hit5": 2
+    },
+    "其他": {
+      "total": 7,
+      "hit1": 0,
+      "hit3": 1,
+      "hit5": 5
+    },
+    "UB-端口故障": {
+      "total": 8,
+      "hit1": 0,
+      "hit3": 5,
+      "hit5": 7
+    },
+    "Worker-缩容/挂死": {
+      "total": 6,
+      "hit1": 1,
+      "hit3": 3,
+      "hit5": 3
+    },
+    "Worker-重启": {
+      "total": 3,
+      "hit1": 1,
+      "hit3": 2,
+      "hit5": 3
+    },
+    "网络/TCP故障": {
+      "total": 4,
+      "hit1": 1,
+      "hit3": 1,
+      "hit5": 3
+    },
+    "Worker-退出/崩溃": {
+      "total": 3,
+      "hit1": 1,
+      "hit3": 2,
+      "hit5": 2
+    },
+    "UB-链路故障": {
+      "total": 10,
+      "hit1": 2,
+      "hit3": 8,
+      "hit5": 10
+    }
+  },
+  "results": [
+    {
+      "log_name": "lingqu_kvcache_dfx_client_init_etcd_cluster_fail_001_20260528_17_23_20",
+      "rct_en": "dfx_client_init_etcd_cluster_fail",
+      "gt_cat": "etcd故障",
+      "predicted_top1_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "etcd故障",
+        "其他",
+        "网络/TCP故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker远端UB单链路down",
+      "best_sim": 0.6187,
+      "top5_types": [
+        "Worker远端UB单链路down",
+        "Worker进程退出",
+        "Worker远端远端UB单端口down",
+        "Worker远端本地UB链路闪断",
+        "Worker远端UB NFE"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_client_process_get_exit_start_001_20260528_22_51_28",
+      "rct_en": "dfx_client_process_get_exit_start",
+      "gt_cat": "Client-退出",
+      "predicted_top1_cat": "Worker-退出/崩溃",
+      "predicted_top5_cats": [
+        "Worker-退出/崩溃",
+        "UB-链路故障",
+        "etcd故障",
+        "网络/TCP故障",
+        "其他"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Worker进程退出",
+      "best_sim": 0.5634,
+      "top5_types": [
+        "Worker进程退出",
+        "Worker本地UB链路down",
+        "Worker远端UB单链路down",
+        "Worker远端UB NFE",
+        "Worker远端本地UB链路闪断"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_client_process_get_hangup_001_20260528_23_05_37",
+      "rct_en": "dfx_client_process_get_hangup",
+      "gt_cat": "Client-挂死/网络",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "Client-退出",
+        "Client-挂死/网络",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": true,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.6847,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Client远端写入后UBM故障",
+        "Client远端写入后UBSe故障",
+        "Client进程退出启动",
+        "Client获取挂死"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_client_process_get_ubm_failure_001_20260528_21_20_30",
+      "rct_en": "dfx_client_process_get_ubm_failure",
+      "gt_cat": "UB-UBSe/UBM管理进程故障",
+      "predicted_top1_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "etcd故障",
+        "Worker-退出/崩溃",
+        "其他",
+        "网络/TCP故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Worker远端UB CE",
+      "best_sim": 0.6526,
+      "top5_types": [
+        "Worker远端UB CE",
+        "Worker远端UB NFE",
+        "Worker远端本地UB链路闪断",
+        "Worker远端远端UB单端口down",
+        "Worker远端UB单链路down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_client_process_get_ubse_failure_001_20260529_00_47_11",
+      "rct_en": "dfx_client_process_get_ubse_failure",
+      "gt_cat": "UB-UBSe/UBM管理进程故障",
+      "predicted_top1_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "etcd故障",
+        "Worker-退出/崩溃",
+        "网络/TCP故障",
+        "UB-端口故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Worker远端UB CE",
+      "best_sim": 0.5688,
+      "top5_types": [
+        "Worker远端UB CE",
+        "Worker远端UB NFE",
+        "Worker远端本地UB链路闪断",
+        "Worker远端远端UB单端口down",
+        "Worker远端UB单链路down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_client_process_scale_in_worker_hang_up_001_20260528_19_41_02",
+      "rct_en": "dfx_client_process_scale_in_worker_hang_up",
+      "gt_cat": "其他",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "其他",
+        "UB-端口故障",
+        "Client-挂死/网络",
+        "Client-退出"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker写入网卡丢包",
+      "best_sim": 0.8984,
+      "top5_types": [
+        "Worker写入网卡丢包",
+        "远端写入TCP延迟",
+        "dfx_client_process_scale_in_worker_hang_up",
+        "ps_n_n",
+        "远端UB单socket双端口down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_client_process_set_exit_002_20260528_16_57_35",
+      "rct_en": "dfx_client_process_set_exit",
+      "gt_cat": "Client-退出",
+      "predicted_top1_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "etcd故障",
+        "其他",
+        "网络/TCP故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Worker远端UB单链路down",
+      "best_sim": 0.6188,
+      "top5_types": [
+        "Worker远端UB单链路down",
+        "Worker进程退出",
+        "Worker远端远端UB单端口down",
+        "Worker远端本地UB链路闪断",
+        "Worker远端UB NFE"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_client_process_set_exit_start_001_20260528_22_22_56",
+      "rct_en": "dfx_client_process_set_exit_start",
+      "gt_cat": "Client-退出",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-端口故障",
+        "其他",
+        "Client-挂死/网络",
+        "Client-退出"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": true,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.894,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "远端UB单socket双端口down",
+        "远端UB全部端口down",
+        "dfx_client_process_scale_in_worker_hang_up"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_client_process_set_hangs_001_20260529_19_33_29",
+      "rct_en": "dfx_client_process_set_hangs",
+      "gt_cat": "Client-挂死/网络",
+      "predicted_top1_cat": "Client-挂死/网络",
+      "predicted_top5_cats": [
+        "Client-挂死/网络",
+        "其他",
+        "UB-UBSe/UBM管理进程故障",
+        "Worker-重启",
+        "UB-端口故障"
+      ],
+      "top1_hit": true,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Client进程挂死",
+      "best_sim": 0.6592,
+      "top5_types": [
+        "Client进程挂死",
+        "ps_n_n",
+        "Client获取UBSe失败",
+        "Client获取UBM失败",
+        "Worker Pod重启"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_client_process_tcp_down_001_20260529_11_58_30",
+      "rct_en": "dfx_client_process_tcp_down",
+      "gt_cat": "Client-挂死/网络",
+      "predicted_top1_cat": "其他",
+      "predicted_top5_cats": [
+        "其他",
+        "Worker-重启",
+        "UB-UBSe/UBM管理进程故障",
+        "Worker-缩容/挂死",
+        "UB-端口故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "ps_n_n",
+      "best_sim": 0.6232,
+      "top5_types": [
+        "ps_n_n",
+        "Worker Pod重启",
+        "Client获取UBM失败",
+        "Client获取UBSe失败",
+        "Worker缩容进程退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_client_scale_in_tcp_down_001_20260529_08_51_37",
+      "rct_en": "dfx_client_scale_in_tcp_down",
+      "gt_cat": "Client-挂死/网络",
+      "predicted_top1_cat": "其他",
+      "predicted_top5_cats": [
+        "其他",
+        "Worker-重启",
+        "UB-UBSe/UBM管理进程故障",
+        "Worker-缩容/挂死",
+        "UB-端口故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "ps_n_n",
+      "best_sim": 0.7501,
+      "top5_types": [
+        "ps_n_n",
+        "Worker Pod重启",
+        "Client获取UBM失败",
+        "Client获取UBSe失败",
+        "Worker缩容进程退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_client_write_remote_after_ubm_fault_001_20260528_21_03_20",
+      "rct_en": "dfx_client_write_remote_after_ubm_fault",
+      "gt_cat": "UB-UBSe/UBM管理进程故障",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.9383,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client远端写入后UBM故障",
+        "Client远端写入后UBSe故障",
+        "远端UB单socket双端口down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_client_write_remote_after_ubse_fault_001_20260528_22_03_41",
+      "rct_en": "dfx_client_write_remote_after_ubse_fault",
+      "gt_cat": "UB-UBSe/UBM管理进程故障",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.9384,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client远端写入后UBM故障",
+        "Client远端写入后UBSe故障",
+        "远端UB单socket双端口down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_client_write_remote_worker_etcd_main_fault_001_20260529_01_12_47",
+      "rct_en": "dfx_client_write_remote_worker_etcd_main_fault",
+      "gt_cat": "Client-挂死/网络",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.9385,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client远端写入后UBM故障",
+        "Client远端写入后UBSe故障",
+        "远端UB单socket双端口down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_etcd_cluster_exit_001_20260528_20_10_49",
+      "rct_en": "dfx_etcd_cluster_exit",
+      "gt_cat": "etcd故障",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "Worker-缩容/挂死",
+        "UB-端口故障",
+        "Client-挂死/网络"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.9063,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client远端写入后UBSe故障",
+        "Client远端写入后UBM故障",
+        "Worker缩容进程退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_etcd_cluster_exit_before_set_001_20260528_22_15_39",
+      "rct_en": "dfx_etcd_cluster_exit_before_set",
+      "gt_cat": "etcd故障",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "Worker-缩容/挂死",
+        "UB-端口故障",
+        "其他"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.9074,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client远端写入后UBSe故障",
+        "Client远端写入后UBM故障",
+        "Worker缩容进程退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_local_ub_all_port_down_001_20260529_17_21_48",
+      "rct_en": "dfx_local_ub_all_port_down",
+      "gt_cat": "其他",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": true,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.9385,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client远端写入后UBM故障",
+        "Client远端写入后UBSe故障",
+        "远端UB单socket双端口down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_local_ub_all_port_lanedown_001_20260528_23_25_48",
+      "rct_en": "dfx_local_ub_all_port_lanedown",
+      "gt_cat": "其他",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "Worker-缩容/挂死",
+        "UB-端口故障",
+        "其他"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": true,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.8769,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client远端写入后UBSe故障",
+        "Client远端写入后UBM故障",
+        "Worker缩容进程退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_local_ub_all_port_link_loss_001_20260529_20_14_42",
+      "rct_en": "dfx_local_ub_all_port_link_loss",
+      "gt_cat": "其他",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": true,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.9384,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client远端写入后UBM故障",
+        "Client远端写入后UBSe故障",
+        "远端UB单socket双端口down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_local_ub_single_port_down_001_20260529_16_57_47",
+      "rct_en": "dfx_local_ub_single_port_down",
+      "gt_cat": "UB-端口故障",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.9384,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client远端写入后UBM故障",
+        "Client远端写入后UBSe故障",
+        "远端UB单socket双端口down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_local_ub_single_socket_two_port_down_001_20260528_23_31_43",
+      "rct_en": "dfx_local_ub_single_socket_two_port_down",
+      "gt_cat": "UB-端口故障",
+      "predicted_top1_cat": "UB-UBSe/UBM管理进程故障",
+      "predicted_top5_cats": [
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他",
+        "Worker-重启",
+        "Client-挂死/网络"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Client获取UBM失败",
+      "best_sim": 0.7259,
+      "top5_types": [
+        "Client获取UBM失败",
+        "Client获取UBSe失败",
+        "远端UB单端口down",
+        "ps_n_n",
+        "Worker Pod重启"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_local_ub_two_port_flashdown_001_20260528_19_25_02",
+      "rct_en": "dfx_local_ub_two_port_flashdown",
+      "gt_cat": "UB-端口故障",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.9385,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client远端写入后UBM故障",
+        "Client远端写入后UBSe故障",
+        "远端UB单socket双端口down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_local_ub_two_socket_single_port_down_001_20260529_23_17_57",
+      "rct_en": "dfx_local_ub_two_socket_single_port_down",
+      "gt_cat": "UB-端口故障",
+      "predicted_top1_cat": "其他",
+      "predicted_top5_cats": [
+        "其他",
+        "Worker-重启",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "Client-挂死/网络"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": true,
+      "best_type": "ps_n_n",
+      "best_sim": 0.7746,
+      "top5_types": [
+        "ps_n_n",
+        "Worker Pod重启",
+        "Client获取UBM失败",
+        "Client获取UBSe失败",
+        "远端UB单端口down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_ps_n_n_001_20260528_12_29_50",
+      "rct_en": "dfx_ps_n_n",
+      "gt_cat": "其他",
+      "predicted_top1_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "网络/TCP故障",
+        "etcd故障",
+        "其他"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": true,
+      "best_type": "Worker远端UB单链路down",
+      "best_sim": 0.643,
+      "top5_types": [
+        "Worker远端UB单链路down",
+        "Worker进程退出",
+        "Worker远端UB CE",
+        "Worker写入网卡丢包",
+        "Worker远端UB NFE"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_r_discovery_worker_process_hangup_001_20260529_21_45_44",
+      "rct_en": "dfx_r_discovery_worker_process_hangup",
+      "gt_cat": "Worker-缩容/挂死",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "其他",
+        "Client-挂死/网络",
+        "UB-端口故障",
+        "Client-退出"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.8928,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "ps_n_n",
+        "dfx_client_process_scale_in_worker_hang_up",
+        "Client获取挂死"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_r_etcd_fail_client_update_001_20260528_18_26_42",
+      "rct_en": "dfx_r_etcd_fail_client_update",
+      "gt_cat": "etcd故障",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.9385,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client远端写入后UBM故障",
+        "Client远端写入后UBSe故障",
+        "远端UB单socket双端口down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_r_worker_process_set_exit_001_20260528_20_37_40",
+      "rct_en": "dfx_r_worker_process_set_exit",
+      "gt_cat": "Worker-缩容/挂死",
+      "predicted_top1_cat": "Worker-重启",
+      "predicted_top5_cats": [
+        "Worker-重启",
+        "Worker-缩容/挂死",
+        "其他",
+        "etcd故障",
+        "UB-UBSe/UBM管理进程故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker Pod重启",
+      "best_sim": 0.7599,
+      "top5_types": [
+        "Worker Pod重启",
+        "Worker缩容进程退出",
+        "ps_n_n",
+        "Client初始化etcd集群失败",
+        "Client获取UBSe失败"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_remote_ub_all_port_down_001_20260529_18_55_28",
+      "rct_en": "dfx_remote_ub_all_port_down",
+      "gt_cat": "UB-端口故障",
+      "predicted_top1_cat": "其他",
+      "predicted_top5_cats": [
+        "其他",
+        "Worker-重启",
+        "UB-UBSe/UBM管理进程故障",
+        "Client-挂死/网络",
+        "Worker-退出/崩溃"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "ps_n_n",
+      "best_sim": 0.8337,
+      "top5_types": [
+        "ps_n_n",
+        "Worker Pod重启",
+        "Client获取UBM失败",
+        "Client获取UBSe失败",
+        "Client进程挂死"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_remote_ub_single_port_down_001_20260528_20_24_32",
+      "rct_en": "dfx_remote_ub_single_port_down",
+      "gt_cat": "UB-端口故障",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "Worker-缩容/挂死",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": true,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.877,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Worker缩容进程退出",
+        "Client远端写入后UBSe故障",
+        "Client远端写入后UBM故障"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_remote_ub_single_socket_two_port_down_001_20260528_19_14_14",
+      "rct_en": "dfx_remote_ub_single_socket_two_port_down",
+      "gt_cat": "UB-端口故障",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.9384,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client远端写入后UBM故障",
+        "Client远端写入后UBSe故障",
+        "远端UB单socket双端口down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_remote_ub_two_socket_single_port_down_001_20260529_16_43_36",
+      "rct_en": "dfx_remote_ub_two_socket_single_port_down",
+      "gt_cat": "UB-端口故障",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.9384,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client远端写入后UBM故障",
+        "Client远端写入后UBSe故障",
+        "远端UB单socket双端口down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_sdk_install_etcd_down_001_20260528_11_40_44",
+      "rct_en": "dfx_sdk_install_etcd_down",
+      "gt_cat": "etcd故障",
+      "predicted_top1_cat": "UB-端口故障",
+      "predicted_top5_cats": [
+        "UB-端口故障",
+        "UB-UBSe/UBM管理进程故障",
+        "Worker-缩容/挂死",
+        "Client-挂死/网络",
+        "UB-链路故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "本地UB单端口down",
+      "best_sim": 0.3503,
+      "top5_types": [
+        "本地UB单端口down",
+        "Client获取UBSe失败",
+        "Client获取UBM失败",
+        "远端UB单端口down",
+        "Worker缩容TCP丢包"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_sdk_install_etcd_unavailable_001_20260529_17_12_46",
+      "rct_en": "dfx_sdk_install_etcd_unavailable",
+      "gt_cat": "etcd故障",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "UB-端口故障",
+        "其他",
+        "Client-挂死/网络",
+        "Client-退出"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Worker写入网卡丢包",
+      "best_sim": 0.8833,
+      "top5_types": [
+        "Worker写入网卡丢包",
+        "远端写入TCP延迟",
+        "本地UB单socket双端口down",
+        "远端UB单socket双端口down",
+        "远端UB全部端口down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_pod_reboot_001_20260528_16_34_10",
+      "rct_en": "dfx_worker_pod_reboot",
+      "gt_cat": "Worker-重启",
+      "predicted_top1_cat": "Worker-重启",
+      "predicted_top5_cats": [
+        "Worker-重启",
+        "其他",
+        "Worker-缩容/挂死",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障"
+      ],
+      "top1_hit": true,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker Pod重启",
+      "best_sim": 0.7258,
+      "top5_types": [
+        "Worker Pod重启",
+        "ps_n_n",
+        "Worker缩容进程退出",
+        "Client获取UBSe失败",
+        "Client获取UBM失败"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_pod_reboot_l2_001_20260528_15_07_52",
+      "rct_en": "dfx_worker_pod_reboot_l2",
+      "gt_cat": "Worker-重启",
+      "predicted_top1_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "Worker-重启",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃",
+        "etcd故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker缩容远端UB NFE",
+      "best_sim": 0.8483,
+      "top5_types": [
+        "Worker缩容远端UB NFE",
+        "Worker Pod重启(L2)",
+        "Worker缩容远端UB链路down",
+        "Worker缩容Client退出",
+        "Worker缩容Client挂死"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_cross_node_net_card_loss_001_20260528_16_29_17",
+      "rct_en": "dfx_worker_process_cross_node_net_card_loss",
+      "gt_cat": "网络/TCP故障",
+      "predicted_top1_cat": "Worker-退出/崩溃",
+      "predicted_top5_cats": [
+        "Worker-退出/崩溃",
+        "UB-链路故障",
+        "etcd故障",
+        "网络/TCP故障",
+        "其他"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": true,
+      "best_type": "Worker进程退出",
+      "best_sim": 0.6058,
+      "top5_types": [
+        "Worker进程退出",
+        "Worker远端UB单链路down",
+        "Worker本地UB链路down",
+        "Worker远端远端UB单端口down",
+        "Worker远端本地UB链路闪断"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_exit_single_node_001_20260529_22_15_43",
+      "rct_en": "dfx_worker_process_exit_single_node",
+      "gt_cat": "Worker-退出/崩溃",
+      "predicted_top1_cat": "UB-UBSe/UBM管理进程故障",
+      "predicted_top5_cats": [
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他",
+        "Worker-重启",
+        "Client-挂死/网络"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Client获取UBSe失败",
+      "best_sim": 0.7098,
+      "top5_types": [
+        "Client获取UBSe失败",
+        "Client获取UBM失败",
+        "远端UB单端口down",
+        "ps_n_n",
+        "Worker Pod重启"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_local_get_etcd_main_fail_001_20260528_21_07_53",
+      "rct_en": "dfx_worker_process_local_get_etcd_main_fail",
+      "gt_cat": "etcd故障",
+      "predicted_top1_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "etcd故障",
+        "其他",
+        "网络/TCP故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker远端UB单链路down",
+      "best_sim": 0.6188,
+      "top5_types": [
+        "Worker远端UB单链路down",
+        "Worker进程退出",
+        "Worker远端远端UB单端口down",
+        "Worker远端本地UB链路闪断",
+        "Worker远端UB NFE"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_local_ub_link_down_002_20260528_16_11_16",
+      "rct_en": "dfx_worker_process_local_ub_link_down",
+      "gt_cat": "UB-链路故障",
+      "predicted_top1_cat": "etcd故障",
+      "predicted_top5_cats": [
+        "etcd故障",
+        "UB-链路故障",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃",
+        "Worker-重启"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Client初始化etcd集群失败",
+      "best_sim": 0.5679,
+      "top5_types": [
+        "Client初始化etcd集群失败",
+        "Worker缩容远端UB NFE",
+        "Worker缩容远端UB链路down",
+        "Worker缩容Client退出",
+        "Worker进程退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_net_card_loss_001_20260528_15_52_45",
+      "rct_en": "dfx_worker_process_net_card_loss",
+      "gt_cat": "网络/TCP故障",
+      "predicted_top1_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "etcd故障",
+        "网络/TCP故障",
+        "其他"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": true,
+      "best_type": "Worker远端UB单链路down",
+      "best_sim": 0.5895,
+      "top5_types": [
+        "Worker远端UB单链路down",
+        "Worker远端远端UB单端口down",
+        "Worker远端UB NFE",
+        "Worker远端本地UB链路闪断",
+        "Worker进程退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_remote_get_etcd_main_fail_001_20260529_19_02_32",
+      "rct_en": "dfx_worker_process_remote_get_etcd_main_fail",
+      "gt_cat": "etcd故障",
+      "predicted_top1_cat": "etcd故障",
+      "predicted_top5_cats": [
+        "etcd故障",
+        "UB-链路故障",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃",
+        "Worker-重启"
+      ],
+      "top1_hit": true,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Client初始化etcd集群失败",
+      "best_sim": 0.55,
+      "top5_types": [
+        "Client初始化etcd集群失败",
+        "Worker缩容远端UB NFE",
+        "Worker缩容远端UB链路down",
+        "Worker缩容Client退出",
+        "Worker进程退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_remote_local_ub_flash_down_001_20260529_23_23_56",
+      "rct_en": "dfx_worker_process_remote_local_ub_flash_down",
+      "gt_cat": "UB-链路故障",
+      "predicted_top1_cat": "etcd故障",
+      "predicted_top5_cats": [
+        "etcd故障",
+        "UB-链路故障",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃",
+        "Worker-重启"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Client初始化etcd集群失败",
+      "best_sim": 0.5679,
+      "top5_types": [
+        "Client初始化etcd集群失败",
+        "Worker缩容远端UB NFE",
+        "Worker缩容远端UB链路down",
+        "Worker缩容Client退出",
+        "Worker进程退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_remote_local_ub_lane_down_001_20260528_18_00_21",
+      "rct_en": "dfx_worker_process_remote_local_ub_lane_down",
+      "gt_cat": "其他",
+      "predicted_top1_cat": "etcd故障",
+      "predicted_top5_cats": [
+        "etcd故障",
+        "UB-链路故障",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃",
+        "Worker-重启"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Client初始化etcd集群失败",
+      "best_sim": 0.5631,
+      "top5_types": [
+        "Client初始化etcd集群失败",
+        "Worker缩容远端UB NFE",
+        "Worker缩容远端UB链路down",
+        "Worker缩容Client退出",
+        "Worker进程退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_remote_local_ub_link_loss_001_20260528_22_30_36",
+      "rct_en": "dfx_worker_process_remote_local_ub_link_loss",
+      "gt_cat": "UB-链路故障",
+      "predicted_top1_cat": "etcd故障",
+      "predicted_top5_cats": [
+        "etcd故障",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃",
+        "UB-链路故障",
+        "Worker-重启"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": true,
+      "best_type": "Client初始化etcd集群失败",
+      "best_sim": 0.5121,
+      "top5_types": [
+        "Client初始化etcd集群失败",
+        "Worker缩容Client退出",
+        "Worker进程退出",
+        "Worker缩容远端UB NFE",
+        "Worker缩容远端UB链路down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_remote_local_ub_single_port_down_001_20260529_00_41_49",
+      "rct_en": "dfx_worker_process_remote_local_ub_single_port_down",
+      "gt_cat": "UB-链路故障",
+      "predicted_top1_cat": "etcd故障",
+      "predicted_top5_cats": [
+        "etcd故障",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃",
+        "UB-链路故障",
+        "Worker-重启"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": true,
+      "best_type": "Client初始化etcd集群失败",
+      "best_sim": 0.5292,
+      "top5_types": [
+        "Client初始化etcd集群失败",
+        "Worker缩容Client退出",
+        "Worker进程退出",
+        "Worker缩容远端UB NFE",
+        "Worker缩容远端UB链路down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_remote_remote_ub_single_port_down_001_20260528_18_47_43",
+      "rct_en": "dfx_worker_process_remote_remote_ub_single_port_down",
+      "gt_cat": "UB-链路故障",
+      "predicted_top1_cat": "etcd故障",
+      "predicted_top5_cats": [
+        "etcd故障",
+        "Worker-缩容/挂死",
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "Worker-重启"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Client初始化etcd集群失败",
+      "best_sim": 0.5663,
+      "top5_types": [
+        "Client初始化etcd集群失败",
+        "Worker缩容Client退出",
+        "Worker缩容远端UB NFE",
+        "Worker缩容远端UB链路down",
+        "Worker进程退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_remote_ub_ce_001_20260529_22_11_17",
+      "rct_en": "dfx_worker_process_remote_ub_ce",
+      "gt_cat": "UB-链路故障",
+      "predicted_top1_cat": "etcd故障",
+      "predicted_top5_cats": [
+        "etcd故障",
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "Worker-重启",
+        "Worker-缩容/挂死"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Client初始化etcd集群失败",
+      "best_sim": 0.4823,
+      "top5_types": [
+        "Client初始化etcd集群失败",
+        "Worker缩容远端UB NFE",
+        "Worker缩容远端UB链路down",
+        "Worker进程退出",
+        "Worker Pod重启(L2)"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_remote_ub_fe_001_20260528_23_00_14",
+      "rct_en": "dfx_worker_process_remote_ub_fe",
+      "gt_cat": "其他",
+      "predicted_top1_cat": "etcd故障",
+      "predicted_top5_cats": [
+        "etcd故障",
+        "UB-链路故障",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃",
+        "Worker-重启"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Client初始化etcd集群失败",
+      "best_sim": 0.5477,
+      "top5_types": [
+        "Client初始化etcd集群失败",
+        "Worker缩容远端UB NFE",
+        "Worker缩容远端UB链路down",
+        "Worker缩容Client退出",
+        "Worker进程退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_remote_ub_nfe_001_20260528_16_05_56",
+      "rct_en": "dfx_worker_process_remote_ub_nfe",
+      "gt_cat": "UB-链路故障",
+      "predicted_top1_cat": "etcd故障",
+      "predicted_top5_cats": [
+        "etcd故障",
+        "Worker-退出/崩溃",
+        "UB-链路故障",
+        "Worker-缩容/挂死",
+        "Worker-重启"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Client初始化etcd集群失败",
+      "best_sim": 0.5367,
+      "top5_types": [
+        "Client初始化etcd集群失败",
+        "Worker进程退出",
+        "Worker缩容远端UB NFE",
+        "Worker缩容远端UB链路down",
+        "Worker缩容Client退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_remote_ub_single_link_down_001_20260529_22_32_34",
+      "rct_en": "dfx_worker_process_remote_ub_single_link_down",
+      "gt_cat": "UB-链路故障",
+      "predicted_top1_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "etcd故障",
+        "Worker-退出/崩溃",
+        "其他",
+        "网络/TCP故障"
+      ],
+      "top1_hit": true,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker远端UB CE",
+      "best_sim": 0.642,
+      "top5_types": [
+        "Worker远端UB CE",
+        "Worker远端UB单链路down",
+        "Worker远端UB NFE",
+        "Worker远端本地UB链路闪断",
+        "Worker远端获取etcd主故障"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_scale_in_client_exit_001_20260529_21_26_04",
+      "rct_en": "dfx_worker_process_scale_in_client_exit",
+      "gt_cat": "Worker-缩容/挂死",
+      "predicted_top1_cat": "Worker-退出/崩溃",
+      "predicted_top5_cats": [
+        "Worker-退出/崩溃",
+        "UB-链路故障",
+        "etcd故障",
+        "网络/TCP故障",
+        "其他"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Worker进程退出",
+      "best_sim": 0.6175,
+      "top5_types": [
+        "Worker进程退出",
+        "Worker远端远端UB单端口down",
+        "Worker本地UB链路down",
+        "Worker远端本地UB链路闪断",
+        "Worker远端UB CE"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_scale_in_client_hang_up_001_20260529_20_20_53",
+      "rct_en": "dfx_worker_process_scale_in_client_hang_up",
+      "gt_cat": "Worker-缩容/挂死",
+      "predicted_top1_cat": "Worker-缩容/挂死",
+      "predicted_top5_cats": [
+        "Worker-缩容/挂死",
+        "Worker-重启",
+        "UB-链路故障",
+        "etcd故障",
+        "Worker-退出/崩溃"
+      ],
+      "top1_hit": true,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker缩容Client挂死",
+      "best_sim": 0.8409,
+      "top5_types": [
+        "Worker缩容Client挂死",
+        "Worker缩容Client退出",
+        "Worker Pod重启(L2)",
+        "Worker缩容远端UB NFE",
+        "Worker缩容远端UB链路down"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_scale_in_remote_ub_link_down_001_20260528_15_41_52",
+      "rct_en": "dfx_worker_process_scale_in_remote_ub_link_down",
+      "gt_cat": "UB-链路故障",
+      "predicted_top1_cat": "etcd故障",
+      "predicted_top5_cats": [
+        "etcd故障",
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "Worker-缩容/挂死",
+        "Worker-重启"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Client初始化etcd集群失败",
+      "best_sim": 0.9178,
+      "top5_types": [
+        "Client初始化etcd集群失败",
+        "Worker缩容远端UB链路down",
+        "Worker缩容远端UB NFE",
+        "Worker进程退出",
+        "Worker缩容Client退出"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_scale_in_remote_ub_nfe_001_20260528_15_18_39",
+      "rct_en": "dfx_worker_process_scale_in_remote_ub_nfe",
+      "gt_cat": "UB-链路故障",
+      "predicted_top1_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "Worker-缩容/挂死",
+        "etcd故障",
+        "Worker-重启"
+      ],
+      "top1_hit": true,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker缩容远端UB链路down",
+      "best_sim": 0.9547,
+      "top5_types": [
+        "Worker缩容远端UB链路down",
+        "Worker缩容远端UB NFE",
+        "Worker进程退出",
+        "Worker缩容Client退出",
+        "Client初始化etcd集群失败"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_scale_in_tcp_down_001_20260528_19_30_06",
+      "rct_en": "dfx_worker_process_scale_in_tcp_down",
+      "gt_cat": "Worker-缩容/挂死",
+      "predicted_top1_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "etcd故障",
+        "其他",
+        "网络/TCP故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Worker远端UB单链路down",
+      "best_sim": 0.619,
+      "top5_types": [
+        "Worker远端UB单链路down",
+        "Worker进程退出",
+        "Worker远端远端UB单端口down",
+        "Worker远端本地UB链路闪断",
+        "Worker远端UB NFE"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_scale_in_tcp_loss_001_20260529_19_57_17",
+      "rct_en": "dfx_worker_process_scale_in_tcp_loss",
+      "gt_cat": "Worker-缩容/挂死",
+      "predicted_top1_cat": "Worker-退出/崩溃",
+      "predicted_top5_cats": [
+        "Worker-退出/崩溃",
+        "etcd故障",
+        "Worker-缩容/挂死",
+        "UB-链路故障",
+        "Worker-重启"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker进程退出",
+      "best_sim": 0.6811,
+      "top5_types": [
+        "Worker进程退出",
+        "Client初始化etcd集群失败",
+        "Worker缩容Client退出",
+        "Worker缩容远端UB NFE",
+        "Worker缩容Client挂死"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_set_exit_001_20260528_16_47_09",
+      "rct_en": "dfx_worker_process_set_exit",
+      "gt_cat": "Worker-退出/崩溃",
+      "predicted_top1_cat": "Worker-退出/崩溃",
+      "predicted_top5_cats": [
+        "Worker-退出/崩溃",
+        "etcd故障",
+        "UB-链路故障",
+        "Worker-缩容/挂死",
+        "Worker-重启"
+      ],
+      "top1_hit": true,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker进程退出",
+      "best_sim": 0.8756,
+      "top5_types": [
+        "Worker进程退出",
+        "Client初始化etcd集群失败",
+        "Worker缩容远端UB NFE",
+        "Worker缩容远端UB链路down",
+        "Worker缩容Client挂死"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_upgrade_etcd_fault_001_20260529_00_14_05",
+      "rct_en": "dfx_worker_process_upgrade_etcd_fault",
+      "gt_cat": "etcd故障",
+      "predicted_top1_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "etcd故障",
+        "其他",
+        "网络/TCP故障"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker远端UB单链路down",
+      "best_sim": 0.6371,
+      "top5_types": [
+        "Worker远端UB单链路down",
+        "Worker进程退出",
+        "Worker远端远端UB单端口down",
+        "Worker远端本地UB链路闪断",
+        "Worker远端UB NFE"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_process_write_net_card_loss_001_20260528_17_02_31",
+      "rct_en": "dfx_worker_process_write_net_card_loss",
+      "gt_cat": "网络/TCP故障",
+      "predicted_top1_cat": "网络/TCP故障",
+      "predicted_top5_cats": [
+        "网络/TCP故障",
+        "Client-退出",
+        "Client-挂死/网络",
+        "其他",
+        "UB-端口故障"
+      ],
+      "top1_hit": true,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "远端写入TCP延迟",
+      "best_sim": 0.734,
+      "top5_types": [
+        "远端写入TCP延迟",
+        "Worker写入网卡丢包",
+        "Client进程退出启动",
+        "Client获取挂死",
+        "ps_n_n"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_reboot_single_node_001_20260529_00_18_45",
+      "rct_en": "dfx_worker_reboot_single_node",
+      "gt_cat": "Worker-重启",
+      "predicted_top1_cat": "UB-UBSe/UBM管理进程故障",
+      "predicted_top5_cats": [
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "其他",
+        "Worker-重启",
+        "Client-挂死/网络"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": true,
+      "best_type": "Client获取UBSe失败",
+      "best_sim": 0.7115,
+      "top5_types": [
+        "Client获取UBSe失败",
+        "Client获取UBM失败",
+        "远端UB单端口down",
+        "ps_n_n",
+        "Worker Pod重启"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_worker_set_exit_001_20260529_21_10_50",
+      "rct_en": "dfx_worker_set_exit",
+      "gt_cat": "Worker-退出/崩溃",
+      "predicted_top1_cat": "UB-链路故障",
+      "predicted_top5_cats": [
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "etcd故障",
+        "网络/TCP故障",
+        "其他"
+      ],
+      "top1_hit": false,
+      "top3_hit": true,
+      "top5_hit": true,
+      "best_type": "Worker远端UB单链路down",
+      "best_sim": 0.6247,
+      "top5_types": [
+        "Worker远端UB单链路down",
+        "Worker进程退出",
+        "Worker远端UB NFE",
+        "Worker远端远端UB单端口down",
+        "Worker远端本地UB链路闪断"
+      ]
+    },
+    {
+      "log_name": "lingqu_kvcache_dfx_write_remote_tcp_dalay_001_20260529_22_55_07",
+      "rct_en": "dfx_write_remote_tcp_dalay",
+      "gt_cat": "网络/TCP故障",
+      "predicted_top1_cat": "UB-UBSe/UBM管理进程故障",
+      "predicted_top5_cats": [
+        "UB-UBSe/UBM管理进程故障",
+        "其他",
+        "UB-端口故障",
+        "Worker-重启",
+        "Client-挂死/网络"
+      ],
+      "top1_hit": false,
+      "top3_hit": false,
+      "top5_hit": false,
+      "best_type": "Client获取UBM失败",
+      "best_sim": 0.6638,
+      "top5_types": [
+        "Client获取UBM失败",
+        "Client获取UBSe失败",
+        "ps_n_n",
+        "远端UB单端口down",
+        "Worker Pod重启"
+      ]
+    }
+  ]
+}

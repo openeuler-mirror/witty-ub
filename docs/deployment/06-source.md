@@ -37,6 +37,15 @@ cmake --build build -j$(nproc)
 
 产物：`build/src/witty-ub-log`、`witty-ub-topo`、`witty-ub-diag-tool`
 
+> CMake 选项 `BUILD_TESTING`（默认 `OFF`）控制是否配置单元测试。部署环境不需要 GTest，
+> 保持默认即可。开发环境需要跑测试时加 `-DBUILD_TESTING=ON`（需安装 `gtest-devel`）：
+>
+> ```bash
+> cmake -S . -B build -DBUILD_TESTING=ON
+> cmake --build build -j$(nproc)
+> ctest --test-dir build --output-on-failure
+> ```
+
 ### 安装数据
 
 ```bash
@@ -90,6 +99,50 @@ pip install -r deploy/requirements.txt
 cd ../../..
 deploy/host/run_backend.sh
 # 监听 0.0.0.0:9772, 需对前端节点可达
+```
+
+### 启动 experience-skill Web 服务（知识库管理 API）
+
+experience-skill Web 服务提供 Skill/Wiki 管理的增删改查 API，监听端口 8082。
+后端节点和前端节点都需要启动（知识库管理页面通过 `/experience_api/` 前缀访问）。
+
+前置：安装 `uv` 并初始化 experience-skill 环境：
+
+```bash
+# 安装 uv（如尚未安装）
+sudo python3 -m pip install -i https://repo.huaweicloud.com/repository/pypi/simple/ uv --break-system-packages
+
+cd witty_ub_diagnostician/skills/experience-skill/scripts
+
+# 编译 simple 分词器（SQLite FTS5 中文分词）
+[ -e src/experience_skill_cli/tokenizer/libsimple* ] || bash src/experience_skill_cli/tokenizer/build.sh
+
+# 创建虚拟环境
+uv sync
+
+# 同步经验库（初始化 SQLite 表和索引）
+uv run experience-skill sync
+```
+
+启动 Web 服务：
+
+```bash
+# 直接运行（前台，调试用）
+cd witty_ub_diagnostician/skills/experience-skill/scripts
+uv run experience-skill web --host 0.0.0.0 --port 8082 --no-browser
+
+# 或通过启动器脚本（推荐，与 deploy.sh 一致）
+bash deploy/host/run_experience.sh
+
+# 或通过部署脚本启动（自动处理依赖）
+bash deploy/host/deploy.sh --start
+```
+
+验证：
+
+```bash
+curl http://127.0.0.1:8082/api/keywords    # 200, 返回关键词列表
+curl http://127.0.0.1:8082/api/experiences   # 200, 返回经验列表
 ```
 
 ### 验证与防火墙
@@ -274,6 +327,7 @@ VITE_DEV_API_TARGET=http://<后端IP>:9772 \
 curl http://127.0.0.1:8080/                 # 前端页面 200
 curl http://127.0.0.1:8080/health_check     # 远端后端经反代 200
 curl http://127.0.0.1:8080/agent-api/doc    # OpenCode 经反代 200
+curl http://127.0.0.1:8080/experience_api/api/keywords  # 知识库 API 经反代 200
 ```
 
 浏览器访问 `http://<前端IP>:8080`。

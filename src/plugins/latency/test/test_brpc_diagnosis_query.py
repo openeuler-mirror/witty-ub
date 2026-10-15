@@ -365,40 +365,41 @@ def test_brpc_response_openapi_declares_time_fields_as_strings():
     app.include_router(router)
     schemas = app.openapi()["components"]["schemas"]
 
+    # FastAPI 新版不再给响应模型组件名加 "-Output" 后缀
     time_fields_by_schema = {
-        "BrpcDiagBatchMetadata-Output": {
+        "BrpcDiagBatchMetadata": {
             "created_at_time",
             "start_time",
             "end_time",
         },
-        "BrpcDiagHitLog-Output": {"time"},
-        "BrpcInterfaceTimelinePoint-Output": {
+        "BrpcDiagHitLog": {"time"},
+        "BrpcInterfaceTimelinePoint": {
             "window_start_time",
             "window_end_time",
         },
-        "GetBrpcInterfaceTimelineMsg-Output": {"start_time", "end_time"},
-        "BrpcPodAggregatedEvent-Output": {
+        "GetBrpcInterfaceTimelineMsg": {"start_time", "end_time"},
+        "BrpcPodAggregatedEvent": {
             "window_start_time",
             "window_end_time",
         },
-        "BrpcThreadAggregatedEvent-Output": {
+        "BrpcThreadAggregatedEvent": {
             "window_start_time",
             "window_end_time",
         },
-        "BrpcAbnormalThread-Output": {
+        "BrpcAbnormalThread": {
             "first_hit_time",
             "last_hit_time",
         },
-        "GetBrpcAbnormalThreadDetailMsg-Output": {"start_time", "end_time"},
+        "GetBrpcAbnormalThreadDetailMsg": {"start_time", "end_time"},
     }
     for schema_name, field_names in time_fields_by_schema.items():
         properties = schemas[schema_name]["properties"]
         for field_name in field_names:
             assert properties[field_name]["type"] == "string"
-    assert "component" not in schemas["BrpcThreadAggregatedEvent-Output"][
+    assert "component" not in schemas["BrpcThreadAggregatedEvent"][
         "properties"
     ]
-    assert "component" not in schemas["BrpcAbnormalThread-Output"][
+    assert "component" not in schemas["BrpcAbnormalThread"][
         "properties"
     ]
 

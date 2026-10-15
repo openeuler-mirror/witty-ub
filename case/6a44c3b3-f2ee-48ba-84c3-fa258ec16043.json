@@ -1,0 +1,90 @@
+{
+  "id": "6a44c3b3-f2ee-48ba-84c3-fa258ec16043",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "SDK安装TCP网络down",
+  "description": "自动导入: dfx_sdk_install_tcp_net_down",
+  "task_ids": [],
+  "task_names": [
+    "lingqu_kvcache_dfx_sdk_install_tcp_net_down_001_20260529_06_52_47"
+  ],
+  "log_file_id": "5d1f4eb0-59e1-4bbc-9882-737f64a62c3e",
+  "log_file_name": "lingqu_kvcache_dfx_sdk_install_tcp_net_down_001_20260529_06_52_47",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "网络/TCP故障",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "urma_total_latency",
+          386.651
+        ],
+        [
+          "sdk_process",
+          193.52700000000002
+        ],
+        [
+          "total_latency",
+          61.364250000000006
+        ],
+        [
+          "worker_total_latency",
+          48.38825
+        ],
+        [
+          "c2w_latency",
+          12.975999999999997
+        ],
+        [
+          "c2w_urma_latency",
+          12.975999999999997
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "urma_total_latency",
+          386.651
+        ],
+        [
+          "sdk_process",
+          193.52700000000002
+        ],
+        [
+          "total_latency",
+          61.364250000000006
+        ],
+        [
+          "worker_total_latency",
+          48.38825
+        ],
+        [
+          "c2w_latency",
+          12.975999999999997
+        ]
+      ],
+      "p99_p50_ratio": 25.39508186028309,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 25.395,
+        "DS_KV_CLIENT_SET": 2.179
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 2,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 4,
+        "DS_KV_CLIENT_SET": 12
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 2,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 16,
+      "failure_event_count": 0,
+      "total_parse_result_count": 16
+    }
+  },
+  "created_at": "2026-09-28 18:29:39"
+}

@@ -1,0 +1,72 @@
+{
+  "id": "02698b51-49d6-40db-8343-fa1583f884f3",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Client缩容Worker挂死",
+  "description": "自动导入: dfx_client_process_scale_in_worker_hang_up",
+  "task_ids": [],
+  "task_names": [
+    "lingqu_kvcache_dfx_client_process_scale_in_worker_hang_up_001_20260528_19_41_02"
+  ],
+  "log_file_id": "9b306cac-6acb-4435-b5c8-85c280e4113c",
+  "log_file_name": "lingqu_kvcache_dfx_client_process_scale_in_worker_hang_up_001_20260528_19_41_02",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "Worker-缩容/挂死",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          6.920999999999999
+        ],
+        [
+          "c2w_latency",
+          6.9085
+        ],
+        [
+          "c2w_urma_latency",
+          6.9085
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          6.920999999999999
+        ],
+        [
+          "c2w_latency",
+          6.9085
+        ],
+        [
+          "c2w_urma_latency",
+          6.9085
+        ],
+        [
+          "worker_total_latency",
+          0.0125
+        ]
+      ],
+      "p99_p50_ratio": 1.0855808347144795,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_SET": 1.086
+      },
+      "pod_concentration": "multi_pod",
+      "affected_pods_count": 4,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_SET": 4
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 4,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 4,
+      "failure_event_count": 0,
+      "total_parse_result_count": 4
+    }
+  },
+  "created_at": "2026-09-28 18:29:45"
+}

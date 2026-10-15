@@ -73,7 +73,7 @@ class DatabaseConfig(BaseModel):
 class TaskConfig(BaseModel):
     task_retry_times: int = Field(default=3, description="任务重试次数")
     cpu_limit: int = Field(default=64, ge=1, description="任务使用CPU核数")
-    max_concurrent_tasks: int = Field(default=3, ge=1, description="后台任务最大并发数，超出部分排队")
+    max_concurrent_tasks: int = Field(default=9, ge=1, description="后台任务最大并发数，超出部分排队")
     parse_workers: int = Field(default=4, ge=1, description="每个解析任务的扫描子进程上限")
 
 
@@ -96,18 +96,9 @@ class ModelConfig(BaseModel):
 LatencyThreshold = Annotated[
     float, Field(strict=True, gt=0, le=1000, allow_inf_nan=False)
 ]
-PositiveWindowSize = Annotated[int, Field(strict=True, gt=0, le=10000)]
-PositiveWindowStep = Annotated[int, Field(strict=True, gt=0, le=1000)]
 
 
 class DSLogAnalyzerConfig(BaseModel):
-    sliding_window_sizes: list[PositiveWindowSize] = Field(
-        default=[100, 200, 300, 500], description="滑动窗口大小列表"
-    )
-    sliding_window_steps: list[PositiveWindowStep] = Field(
-        default=[20, 30, 40, 50],
-        description="滑动窗口步长列表，与窗口大小一一对应",
-    )
     zone_anomaly_density_threshold: float = Field(
         default=0.9999,
         strict=True,
@@ -219,12 +210,6 @@ class DiagnosisRuntimeConfig(BaseModel):
             raise ValueError(
                 f"日志文件名 Pattern 不能为空: {', '.join(empty_pattern_types)}"
             )
-
-        params = self.log_analyzer_params
-        if not params.sliding_window_sizes:
-            raise ValueError("至少需要配置一组滑动窗口")
-        if len(params.sliding_window_sizes) != len(params.sliding_window_steps):
-            raise ValueError("滑动窗口大小与步长数量必须一致")
         return self
 
 

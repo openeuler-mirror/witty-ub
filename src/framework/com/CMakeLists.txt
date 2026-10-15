@@ -6,11 +6,10 @@
 #set(CMAKE_CXX_EXTENSIONS OFF)
 
 
-add_library(rack_http STATIC 
-    http/rack_http_server.cpp 
-    http/rack_http_server_handler.cpp 
-    http/rack_http_module.cpp 
-    http/rack_http_client.cpp 
+add_library(rack_http STATIC
+    http/rack_http_server.cpp
+    http/rack_http_server_handler.cpp
+    http/rack_http_client.cpp
 )
 target_include_directories(rack_http PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 find_package(httplib QUIET)

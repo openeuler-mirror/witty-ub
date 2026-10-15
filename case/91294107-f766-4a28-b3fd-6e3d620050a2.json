@@ -1,0 +1,105 @@
+{
+  "id": "91294107-f766-4a28-b3fd-6e3d620050a2",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Client TCP down",
+  "description": "自动导入: dfx_client_process_tcp_down",
+  "task_ids": [],
+  "task_names": [
+    "lingqu_kvcache_dfx_client_process_tcp_down_001_20260529_11_58_30"
+  ],
+  "log_file_id": "d71726a9-daa4-4ed1-a822-b63c619992e0",
+  "log_file_name": "lingqu_kvcache_dfx_client_process_tcp_down_001_20260529_11_58_30",
+  "attachment_path": null,
+  "fault_category": "mixed",
+  "case_category": "Client-挂死/网络",
+  "features": {
+    "fault_category": "mixed",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          14694.008999999998
+        ],
+        [
+          "c2w_latency",
+          14500.148
+        ],
+        [
+          "c2w_urma_latency",
+          14500.148
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          14694.008999999998
+        ],
+        [
+          "c2w_latency",
+          14500.148
+        ],
+        [
+          "c2w_urma_latency",
+          14500.148
+        ],
+        [
+          "sdk_process",
+          387.664
+        ],
+        [
+          "remote_worker_rpc",
+          387.177
+        ]
+      ],
+      "p99_p50_ratio": 74.59560440691133,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_SET": 1.0,
+        "DS_KV_CLIENT_GET": 1.0
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 3,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_SET": 2,
+        "DS_KV_CLIENT_GET": 2
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 3,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": {
+      "failure_mode_dist": {
+        "kvcache_runtime_1377": 3,
+        "kvcache_runtime_2295": 2,
+        "kvcache_runtime_2303": 2,
+        "kvcache_runtime_1603": 2,
+        "kvcache_access_021": 2
+      },
+      "status_code_dist": {
+        "1002": 2
+      },
+      "spatial_pod": {
+        "unique_count": 2,
+        "scope": "few_pods"
+      },
+      "spatial_host": {
+        "unique_count": 1,
+        "scope": "single_host"
+      },
+      "spatial_cluster": {
+        "unique_count": 1,
+        "scope": "single_cluster"
+      },
+      "affected_operation_dist": {
+        "SET": 1
+      },
+      "src_dst_pair_count": 1
+    },
+    "summary": {
+      "anomalous_event_count": 4,
+      "failure_event_count": 7,
+      "total_parse_result_count": 4
+    }
+  },
+  "created_at": "2026-09-28 18:29:45"
+}

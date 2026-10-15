@@ -1,0 +1,28 @@
+{
+  "id": "cb9b7dc5-863d-4788-b455-f2788d022bb6",
+  "kb_id": "aef1fa89-cff9-4b4e-bcc6-72116edb74a8",
+  "root_cause_type": "TCPdown",
+  "description": "",
+  "task_ids": [
+    "7fd6a26b-0b71-4eaa-ad64-a152c96de0e1"
+  ],
+  "task_names": [
+    "TCPdown.tar.gz"
+  ],
+  "log_file_id": "53acb0d6-4dcd-4c5b-9a01-8dcf3088de1e",
+  "log_file_name": "TCPdown.tar.gz",
+  "attachment_path": null,
+  "fault_category": "unknown",
+  "features": {
+    "fault_category": "unknown",
+    "latency": null,
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 0,
+      "failure_event_count": 0,
+      "total_parse_result_count": 1000
+    }
+  },
+  "created_at": "2026-09-24 06:42:10",
+  "case_category": "网络/TCP故障"
+}

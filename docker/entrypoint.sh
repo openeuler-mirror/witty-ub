@@ -12,7 +12,7 @@ export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
 export WITTY_INSTALL_PATH="${WITTY_INSTALL_PATH:-/usr/bin}"
 
 # ── 角色与分离部署配置 ──────────────────────────────
-# WITTY_ROLE: all（默认，单容器 All-in-One）| backend（仅 FastAPI）| frontend（Nginx+OpenCode）
+# WITTY_ROLE: all（默认，单容器 All-in-One）| backend（仅 FastAPI）| frontend（Nginx+OpenCode+experience-skill）
 export WITTY_ROLE="${WITTY_ROLE:-all}"
 # Nginx 反代上游
 export WITTY_BACKEND_URL="${WITTY_BACKEND_URL:-http://127.0.0.1:9772}"
@@ -28,7 +28,19 @@ export OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
 # 诊断报告落盘根目录（由 witty-ub-reports 卷持久化；agent 子进程继承此变量）
 export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-${WITTY_DIR}/reports}"
 
-echo "Role: ${WITTY_ROLE}  Backend: ${WITTY_BACKEND_URL}  Agent: ${WITTY_AGENT_URL}"
+# ── OpenCode/LLM 出网 HTTPS 证书校验（WITTY_SSL_VERIFY=false 时关闭） ──
+# 内网自签证书/代理拦截会导致 OpenCode 调 LLM 报证书错误；无法导入 CA 时可设为 false。
+# OpenCode 是 Node 应用，关闭校验通过 NODE_TLS_REJECT_UNAUTHORIZED=0（须在启动前导出）
+export WITTY_SSL_VERIFY="${WITTY_SSL_VERIFY:-true}"
+case "$WITTY_SSL_VERIFY" in
+false | False | FALSE | 0 | no | NO)
+    export NODE_TLS_REJECT_UNAUTHORIZED=0
+    echo "[WARN] WITTY_SSL_VERIFY=${WITTY_SSL_VERIFY}: HTTPS certificate verification for OpenCode/LLM calls is DISABLED"
+    ;;
+*) ;;
+esac
+
+echo "Role: ${WITTY_ROLE}  Backend: ${WITTY_BACKEND_URL}  Agent: ${WITTY_AGENT_URL}  SSL verify: ${WITTY_SSL_VERIFY}"
 
 # Docker 部署通过只读 bind mount / Compose secret 传入口令，避免将密码
 # 写入镜像配置或 docker inspect 可见的容器环境配置。只在后端角色中加载。
@@ -81,6 +93,18 @@ sync_backend_data() {
         exit 1
     fi
     echo "[OK] BRPC diagnosis tool and data are ready"
+
+    # Sync case library (similarity analysis / case management)
+    # 先删除旧 case 文件再拷贝，确保删除的案例不残留（cp 只增不删会导致旧案例污染）
+    local CASE_SEED_DIR="/usr/share/witty-ub/case"
+    local CASE_RUNTIME_DIR="${WITTY_DIR}/case"
+    mkdir -p "${CASE_RUNTIME_DIR}"
+    if [ -d "${CASE_SEED_DIR}" ]; then
+        echo "Syncing case library..."
+        rm -f "${CASE_RUNTIME_DIR}"/*.json 2>/dev/null || true
+        cp -a "${CASE_SEED_DIR}/." "${CASE_RUNTIME_DIR}/"
+        echo "[OK] Case library synced: $(find "${CASE_RUNTIME_DIR}" -name '*.json' | wc -l) files"
+    fi
 }
 
 # ── Agent 配置布局检测 ──────────────────────────────────────────────
@@ -112,6 +136,51 @@ start_nginx() {
     echo "Starting Nginx web server..."
     nginx -c /etc/witty-ub/web/nginx.conf
     echo "[OK] Nginx started on port 8080 (backend: ${WITTY_BACKEND_URL})"
+}
+
+# ── experience-skill（all / frontend 角色） ──────────────────────────────
+# 和 RPM 服务一致：直接使用构建时安装的 venv，容器启动时不下载依赖。
+start_experience() {
+    local scripts="${WITTY_DIR}/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts"
+    local python="${scripts}/.venv/bin/python"
+    local log="/var/log/witty-ub/experience_server.log"
+    if [ ! -x "$python" ]; then
+        echo "[ERROR] experience-skill venv is missing: ${python}. Rebuild the image."
+        return 1
+    fi
+    mkdir -p /var/log/witty-ub
+    echo "Syncing experience library..."
+    if ! (
+        cd "$scripts"
+        export PYTHONPATH="${scripts}/src${PYTHONPATH:+:${PYTHONPATH}}"
+        exec "$python" -m experience_skill_cli.cli sync
+    ) >"$log" 2>&1; then
+        echo "[ERROR] Experience library sync failed. Check ${log}"
+        return 1
+    fi
+
+    echo "Starting experience-skill web server..."
+    (
+        cd "$scripts"
+        export PYTHONPATH="${scripts}/src${PYTHONPATH:+:${PYTHONPATH}}"
+        exec "$python" -m experience_skill_cli.cli web --host 127.0.0.1 --port 8082 --no-browser
+    ) >>"$log" 2>&1 &
+    EXPERIENCE_PID=$!
+
+    echo "  Waiting for Skill/Wiki management APIs through Nginx..."
+    for i in $(seq 1 30); do
+        if ! kill -0 "$EXPERIENCE_PID" 2>/dev/null; then
+            echo "[ERROR] experience-skill web server exited. Check ${log}"
+            return 1
+        fi
+        if /healthcheck.sh --experience; then
+            echo "[OK] Skill/Wiki management APIs are ready (8080 -> 8082)"
+            return 0
+        fi
+        sleep 2
+    done
+    echo "[ERROR] Skill/Wiki management APIs failed their health check. Check ${log} and /var/log/witty-ub-web/error.log"
+    return 1
 }
 
 # ── FastAPI 后端（all / backend 角色） ──────────────────────────────
@@ -181,12 +250,15 @@ start_opencode() {
     done
 }
 
-trap 'kill $(jobs -p) 2>/dev/null; exit 0' SIGTERM SIGINT
+# 清理后台服务，也覆盖启动检查失败导致的退出；experience 子进程通过 exec 接收信号。
+trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
+trap 'exit 0' SIGTERM SIGINT
 
 case "${WITTY_ROLE}" in
 all)
     sync_backend_data
     start_nginx
+    start_experience
     start_backend
     # OpenCode queries the latency HTTP API directly, so start it only
     # after the backend is healthy.
@@ -196,6 +268,7 @@ all)
     echo "  - Web UI:     http://localhost:8080"
     echo "  - API:        http://localhost:9772"
     echo "  - OpenCode:   http://localhost:4096"
+    echo "  - Skill/Wiki: http://localhost:8080/experience_api/experiences"
     echo "  - Health:     http://localhost:9772/health_check"
     echo "  - Logs:       /var/log/witty-ub/"
     echo "========================================"
@@ -212,6 +285,7 @@ backend)
     ;;
 frontend)
     start_nginx
+    start_experience
     wait_backend_ready
     start_opencode
     echo "Frontend-only container started successfully!"
@@ -219,6 +293,7 @@ frontend)
     echo "  - Web UI:     http://localhost:8080"
     echo "  - Backend:    ${WITTY_BACKEND_URL}"
     echo "  - OpenCode:   http://localhost:4096 (agent API base: ${WITTY_API_BASE})"
+    echo "  - Skill/Wiki: http://localhost:8080/experience_api/experiences"
     echo "  - Logs:       /var/log/witty-ub/"
     echo "========================================"
     ;;
@@ -231,8 +306,10 @@ esac
 # Keep container running and forward signals
 # Use tail to keep the container alive and capture any background process output
 if [ "${WITTY_ROLE}" = "frontend" ]; then
-    tail -f /var/log/witty-ub/opencode_server.log &
+    tail -f /var/log/witty-ub/opencode_server.log /var/log/witty-ub/experience_server.log &
+elif [ "${WITTY_ROLE}" = "backend" ]; then
+    tail -f /var/log/witty-ub/latency_server.log &
 else
-    tail -f /var/log/witty-ub/latency_server.log /var/log/witty-ub/opencode_server.log &
+    tail -f /var/log/witty-ub/latency_server.log /var/log/witty-ub/opencode_server.log /var/log/witty-ub/experience_server.log &
 fi
 wait

@@ -1,0 +1,88 @@
+{
+  "id": "a791a889-7544-4686-9274-1535b12a1cf6",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker网卡丢包",
+  "description": "自动导入: dfx_worker_process_net_card_loss",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new_0530/lingqu_kvcache_dfx_worker_process_net_card_loss_001_20260529_10_35_21"
+  ],
+  "log_file_id": "72cedd92-7929-435c-8d0b-9dd0fb429c8b",
+  "log_file_name": "lingqu_kvcache_dfx_worker_process_net_card_loss_001_20260529_10_35_21",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "网络/TCP故障",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "worker_query_meta_latency",
+          207.9168333333333
+        ],
+        [
+          "total_latency",
+          204.35597368421054
+        ],
+        [
+          "sdk_process",
+          203.6000526315789
+        ],
+        [
+          "worker_total_latency",
+          203.59960526315788
+        ],
+        [
+          "master_rpc_total",
+          203.24497368421052
+        ],
+        [
+          "remote_worker_rpc",
+          201.16869230769225
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "worker_query_meta_latency",
+          207.9168333333333
+        ],
+        [
+          "total_latency",
+          204.35597368421054
+        ],
+        [
+          "sdk_process",
+          203.6000526315789
+        ],
+        [
+          "worker_total_latency",
+          203.59960526315788
+        ],
+        [
+          "master_rpc_total",
+          203.24497368421052
+        ]
+      ],
+      "p99_p50_ratio": 1.0577983350508364,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 1.058
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 2,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 76
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 3,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 76,
+      "failure_event_count": 0,
+      "total_parse_result_count": 76
+    }
+  },
+  "created_at": "2026-09-28 17:24:09"
+}

@@ -1,0 +1,92 @@
+{
+  "id": "4f7e81df-b240-4662-a3ae-41821aa09431",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker远端UB单链路down",
+  "description": "自动导入: dfx_worker_process_remote_ub_single_link_down",
+  "task_ids": [],
+  "task_names": [
+    "lingqu_kvcache_dfx_worker_process_remote_ub_single_link_down_001_20260529_22_32_34"
+  ],
+  "log_file_id": "04809b29-f839-4c19-b3ea-d8b48fbe7ff8",
+  "log_file_name": "lingqu_kvcache_dfx_worker_process_remote_ub_single_link_down_001_20260529_22_32_34",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "UB-链路故障",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          5.626
+        ],
+        [
+          "worker_total_latency",
+          4.883
+        ],
+        [
+          "sdk_process",
+          4.882
+        ],
+        [
+          "worker_query_meta_latency",
+          4.307
+        ],
+        [
+          "master_rpc_total",
+          4.222
+        ],
+        [
+          "c2w_latency",
+          0.7430000000000003
+        ],
+        [
+          "c2w_urma_latency",
+          0.7430000000000003
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          5.626
+        ],
+        [
+          "worker_total_latency",
+          4.883
+        ],
+        [
+          "sdk_process",
+          4.882
+        ],
+        [
+          "worker_query_meta_latency",
+          4.307
+        ],
+        [
+          "master_rpc_total",
+          4.222
+        ]
+      ],
+      "p99_p50_ratio": 1.0,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 1.0
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 2,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 2
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 2,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 2,
+      "failure_event_count": 0,
+      "total_parse_result_count": 2
+    }
+  },
+  "created_at": "2026-09-28 18:29:42"
+}

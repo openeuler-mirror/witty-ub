@@ -1,0 +1,494 @@
+{
+  "categories": [
+    {
+      "id": "49c347e9-09ff-4f13-9c8a-eecb3de22a8e",
+      "name": "Client-挂死/网络",
+      "description": "Client进程挂死或网络故障",
+      "sort_order": 0
+    },
+    {
+      "id": "1cd45a09-98e7-491e-9cac-90355917d4d8",
+      "name": "Client-退出",
+      "description": "Client进程退出相关故障",
+      "sort_order": 1
+    },
+    {
+      "id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "UB-端口故障",
+      "description": "UB端口级别的故障，包括本地和远端端口的down、闪断、不可用等",
+      "sort_order": 3
+    },
+    {
+      "id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "UB-链路故障",
+      "description": "UB链路级别的故障，包括Worker侧链路down、信号错误、NFE/CE/FE等",
+      "sort_order": 4
+    },
+    {
+      "id": "09a457be-d951-4e52-8f92-35cfdf5b4f00",
+      "name": "Worker-缩容/挂死",
+      "description": "Worker缩容过程中的进程退出、挂死、网络中断等",
+      "sort_order": 5
+    },
+    {
+      "id": "96611837-b977-4ede-8866-5b77b97f8f2c",
+      "name": "Worker-退出/崩溃",
+      "description": "Worker进程退出或崩溃，包括单节点和多节点退出",
+      "sort_order": 6
+    },
+    {
+      "id": "5c10ed17-0772-4c00-b6f3-1d78b39854f3",
+      "name": "Worker-重启",
+      "description": "Worker Pod或节点重启",
+      "sort_order": 7
+    },
+    {
+      "id": "f8fc9412-6c6e-4677-86b0-2daf219cdac5",
+      "name": "网络/TCP故障",
+      "description": "网络和TCP层面的故障，包括网卡丢包、TCP延迟等",
+      "sort_order": 8
+    },
+    {
+      "id": "a1b2c3d4-0002-4000-8000-000000000001",
+      "name": "Client-初始化",
+      "description": "Client SDK初始化相关故障",
+      "sort_order": 9
+    }
+  ],
+  "types": [
+    {
+      "id": "edb59d1d-f21e-478c-b378-34ddeec35eb1",
+      "category_id": "49c347e9-09ff-4f13-9c8a-eecb3de22a8e",
+      "name": "Client TCP down",
+      "description": "英文标识: dfx_client_process_tcp_down",
+      "sort_order": 0
+    },
+    {
+      "id": "2a0e404a-08d2-42ce-a07a-66408083c1a4",
+      "category_id": "49c347e9-09ff-4f13-9c8a-eecb3de22a8e",
+      "name": "Client缩容TCP down",
+      "description": "英文标识: dfx_client_scale_in_tcp_down",
+      "sort_order": 1
+    },
+    {
+      "id": "268736fd-e2a2-4d48-b40b-e6b6ee1e4743",
+      "category_id": "49c347e9-09ff-4f13-9c8a-eecb3de22a8e",
+      "name": "Client获取挂死",
+      "description": "英文标识: dfx_client_process_get_hangup",
+      "sort_order": 2
+    },
+    {
+      "id": "02e27af9-aace-4875-ae8a-c293ab2d27c6",
+      "category_id": "49c347e9-09ff-4f13-9c8a-eecb3de22a8e",
+      "name": "Client进程挂死",
+      "description": "英文标识: dfx_client_process_set_hangs",
+      "sort_order": 3
+    },
+    {
+      "id": "2e6a483a-438a-4782-9f13-1541e7548ae6",
+      "category_id": "1cd45a09-98e7-491e-9cac-90355917d4d8",
+      "name": "Client获取退出启动",
+      "description": "英文标识: dfx_client_process_get_exit_start",
+      "sort_order": 4
+    },
+    {
+      "id": "73fe5015-a7b9-464e-892d-7cee493d6679",
+      "category_id": "1cd45a09-98e7-491e-9cac-90355917d4d8",
+      "name": "Client进程退出",
+      "description": "英文标识: dfx_client_process_set_exit",
+      "sort_order": 5
+    },
+    {
+      "id": "c6078e8b-d6aa-4dbd-987a-a56c190dda4d",
+      "category_id": "1cd45a09-98e7-491e-9cac-90355917d4d8",
+      "name": "Client进程退出启动",
+      "description": "英文标识: dfx_client_process_set_exit_start",
+      "sort_order": 6
+    },
+    {
+      "id": "78911658-4d4c-4279-94fe-37e928196c15",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "本地UB全部端口down",
+      "description": "英文标识: dfx_local_ub_all_port_down",
+      "sort_order": 11
+    },
+    {
+      "id": "b22fd876-5c40-4328-8801-3dd0c9f6954d",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "本地UB全部端口lane down",
+      "description": "英文标识: dfx_local_ub_all_port_lanedown",
+      "sort_order": 12
+    },
+    {
+      "id": "cde88824-26e0-420f-865f-d7eae5fa05c9",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "本地UB全部端口链路丢失",
+      "description": "英文标识: dfx_local_ub_all_port_link_loss",
+      "sort_order": 13
+    },
+    {
+      "id": "6a99d8ff-c071-4212-9962-2e498ca31825",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "本地UB单socket双端口down",
+      "description": "英文标识: dfx_local_ub_single_socket_two_port_down",
+      "sort_order": 14
+    },
+    {
+      "id": "8bbf4fdb-58bd-41e7-a75b-2f204144b172",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "本地UB单端口down",
+      "description": "英文标识: dfx_local_ub_single_port_down",
+      "sort_order": 15
+    },
+    {
+      "id": "7f62208a-1601-402e-b7e7-496395d085c7",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "本地UB双socket单端口down",
+      "description": "英文标识: dfx_local_ub_two_socket_single_port_down",
+      "sort_order": 16
+    },
+    {
+      "id": "749240c6-35a3-41a2-859d-533fc3fc2f47",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "本地UB双端口闪断",
+      "description": "英文标识: dfx_local_ub_two_port_flashdown",
+      "sort_order": 17
+    },
+    {
+      "id": "90a8f946-7589-49f2-a409-9f5fb7e09508",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "远端UB全部端口down",
+      "description": "英文标识: dfx_remote_ub_all_port_down",
+      "sort_order": 18
+    },
+    {
+      "id": "6259d605-108a-40c2-a9c5-642fb3a23de9",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "远端UB单socket双端口down",
+      "description": "英文标识: dfx_remote_ub_single_socket_two_port_down",
+      "sort_order": 19
+    },
+    {
+      "id": "5bcc15db-d87a-47c9-ac4e-2e6d149ab88f",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "远端UB单端口down",
+      "description": "英文标识: dfx_remote_ub_single_port_down",
+      "sort_order": 20
+    },
+    {
+      "id": "3c12bd79-4c48-4406-ad5a-125ab84cd5d6",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "远端UB双socket单端口down",
+      "description": "英文标识: dfx_remote_ub_two_socket_single_port_down",
+      "sort_order": 21
+    },
+    {
+      "id": "e45d1526-ec62-4bdc-82a3-049bb56860d5",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "Worker本地UB链路down",
+      "description": "英文标识: dfx_worker_process_local_ub_link_down",
+      "sort_order": 22
+    },
+    {
+      "id": "e6bba5e4-af2c-4527-a997-b8f43539115b",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "Worker缩容远端UB NFE",
+      "description": "英文标识: dfx_worker_process_scale_in_remote_ub_nfe",
+      "sort_order": 23
+    },
+    {
+      "id": "1f9efc86-2408-474c-ad9c-aa90e2f1f74c",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "Worker缩容远端UB链路down",
+      "description": "英文标识: dfx_worker_process_scale_in_remote_ub_link_down",
+      "sort_order": 24
+    },
+    {
+      "id": "1842ab16-5a0b-4ab8-9037-e4b2d7a31820",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "Worker远端UB CE",
+      "description": "英文标识: dfx_worker_process_remote_ub_ce",
+      "sort_order": 25
+    },
+    {
+      "id": "727fa5cc-8575-44e7-93e9-b37aba25a136",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "Worker远端UB FE",
+      "description": "英文标识: dfx_worker_process_remote_ub_fe",
+      "sort_order": 26
+    },
+    {
+      "id": "9f264cfd-fda1-499e-abf0-d69a0fd00bf8",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "Worker远端UB NFE",
+      "description": "英文标识: dfx_worker_process_remote_ub_nfe",
+      "sort_order": 27
+    },
+    {
+      "id": "b469d470-0a47-4851-bd77-f96401369172",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "Worker远端UB单链路down",
+      "description": "英文标识: dfx_worker_process_remote_ub_single_link_down",
+      "sort_order": 28
+    },
+    {
+      "id": "a6dfe172-42f2-44f9-9203-97ebc5a905ab",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "Worker远端本地UB lane down",
+      "description": "英文标识: dfx_worker_process_remote_local_ub_lane_down",
+      "sort_order": 29
+    },
+    {
+      "id": "aa278edd-b3dc-4636-a371-155c7a04fa8c",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "Worker远端本地UB单端口down",
+      "description": "英文标识: dfx_worker_process_remote_local_ub_single_port_down",
+      "sort_order": 30
+    },
+    {
+      "id": "9cee4b29-770b-4eb3-819e-218edade7e13",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "Worker远端本地UB链路丢失",
+      "description": "英文标识: dfx_worker_process_remote_local_ub_link_loss",
+      "sort_order": 31
+    },
+    {
+      "id": "ca04cd70-26ea-4caa-b999-d55903f14f54",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "Worker远端本地UB链路闪断",
+      "description": "英文标识: dfx_worker_process_remote_local_ub_flash_down",
+      "sort_order": 32
+    },
+    {
+      "id": "91f8dd9b-af96-44b3-a6c3-91c7efab2b8d",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "Worker远端远端UB单端口down",
+      "description": "英文标识: dfx_worker_process_remote_remote_ub_single_port_down",
+      "sort_order": 33
+    },
+    {
+      "id": "3a39b6f3-ba5c-4eff-b93c-fbc1a8d9181f",
+      "category_id": "09a457be-d951-4e52-8f92-35cfdf5b4f00",
+      "name": "Client缩容Worker挂死",
+      "description": "英文标识: dfx_client_process_scale_in_worker_hang_up",
+      "sort_order": 34
+    },
+    {
+      "id": "f61a5d4b-1e83-47ea-9f46-e27c49b0794f",
+      "category_id": "09a457be-d951-4e52-8f92-35cfdf5b4f00",
+      "name": "Worker发现进程挂死",
+      "description": "英文标识: dfx_r_discovery_worker_process_hangup",
+      "sort_order": 35
+    },
+    {
+      "id": "bf97f4d4-30f2-4161-bb88-2b46a2e4ed4e",
+      "category_id": "09a457be-d951-4e52-8f92-35cfdf5b4f00",
+      "name": "Worker缩容Client挂死",
+      "description": "英文标识: dfx_worker_process_scale_in_client_hang_up",
+      "sort_order": 36
+    },
+    {
+      "id": "ecff66d6-6dfb-4336-952b-b83efa714fd7",
+      "category_id": "09a457be-d951-4e52-8f92-35cfdf5b4f00",
+      "name": "Worker缩容Client退出",
+      "description": "英文标识: dfx_worker_process_scale_in_client_exit",
+      "sort_order": 37
+    },
+    {
+      "id": "bf5ff3ca-9103-41d1-af6b-626285c7196a",
+      "category_id": "09a457be-d951-4e52-8f92-35cfdf5b4f00",
+      "name": "Worker缩容TCP down",
+      "description": "英文标识: dfx_worker_process_scale_in_tcp_down",
+      "sort_order": 38
+    },
+    {
+      "id": "2f019735-c87a-45a4-8245-d9d6480e0d2d",
+      "category_id": "09a457be-d951-4e52-8f92-35cfdf5b4f00",
+      "name": "Worker缩容TCP丢包",
+      "description": "英文标识: dfx_worker_process_scale_in_tcp_loss",
+      "sort_order": 39
+    },
+    {
+      "id": "d0065d39-0f6e-4dd7-99d0-92f0cdcf7f81",
+      "category_id": "96611837-b977-4ede-8866-5b77b97f8f2c",
+      "name": "Worker单节点进程退出",
+      "description": "英文标识: dfx_worker_process_exit_single_node",
+      "sort_order": 40
+    },
+    {
+      "id": "47e514f8-c164-4852-aca1-040ff988d53c",
+      "category_id": "96611837-b977-4ede-8866-5b77b97f8f2c",
+      "name": "Worker进程退出",
+      "description": "英文标识: dfx_worker_set_exit",
+      "sort_order": 41
+    },
+    {
+      "id": "feb76f01-dcff-4a73-8c82-a5474665a22f",
+      "category_id": "5c10ed17-0772-4c00-b6f3-1d78b39854f3",
+      "name": "Worker Pod重启",
+      "description": "英文标识: dfx_worker_pod_reboot",
+      "sort_order": 44
+    },
+    {
+      "id": "48950a00-4abe-41f0-aa25-960b5209f625",
+      "category_id": "5c10ed17-0772-4c00-b6f3-1d78b39854f3",
+      "name": "Worker Pod重启(L2)",
+      "description": "英文标识: dfx_worker_pod_reboot_l2",
+      "sort_order": 45
+    },
+    {
+      "id": "b1fdfda7-18e8-4182-8c18-037e62bc8cb5",
+      "category_id": "5c10ed17-0772-4c00-b6f3-1d78b39854f3",
+      "name": "Worker单节点重启",
+      "description": "英文标识: dfx_worker_reboot_single_node",
+      "sort_order": 46
+    },
+    {
+      "id": "f4170d19-8f85-4b36-862f-7c31cf1e6bd4",
+      "category_id": "f8fc9412-6c6e-4677-86b0-2daf219cdac5",
+      "name": "Worker写入网卡丢包",
+      "description": "英文标识: dfx_worker_process_write_net_card_loss",
+      "sort_order": 47
+    },
+    {
+      "id": "01e875c3-c48b-44e0-841a-d7f524a8ee29",
+      "category_id": "f8fc9412-6c6e-4677-86b0-2daf219cdac5",
+      "name": "Worker网卡丢包",
+      "description": "英文标识: dfx_worker_process_net_card_loss",
+      "sort_order": 48
+    },
+    {
+      "id": "e1a94c34-9f55-4b41-b1a4-fcaac792f387",
+      "category_id": "f8fc9412-6c6e-4677-86b0-2daf219cdac5",
+      "name": "Worker跨节点网卡丢包",
+      "description": "英文标识: dfx_worker_process_cross_node_net_card_loss",
+      "sort_order": 49
+    },
+    {
+      "id": "e3b0bc65-c5f6-4d5e-9384-8ef327309af7",
+      "category_id": "f8fc9412-6c6e-4677-86b0-2daf219cdac5",
+      "name": "远端写入TCP延迟",
+      "description": "英文标识: dfx_write_remote_tcp_dalay",
+      "sort_order": 50
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "category_id": "1cd45a09-98e7-491e-9cac-90355917d4d8",
+      "name": "Client Pod重启",
+      "description": "英文标识: dfx_client_pod_reboot",
+      "sort_order": 51
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000002",
+      "category_id": "1cd45a09-98e7-491e-9cac-90355917d4d8",
+      "name": "Client进程跨节点退出",
+      "description": "英文标识: dfx_client_process_set_exit_cross_node",
+      "sort_order": 52
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000003",
+      "category_id": "49c347e9-09ff-4f13-9c8a-eecb3de22a8e",
+      "name": "Client进程挂死(r)",
+      "description": "英文标识: dfx_r_client_process_set_hangup",
+      "sort_order": 53
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000004",
+      "category_id": "f8fc9412-6c6e-4677-86b0-2daf219cdac5",
+      "name": "SDK安装TCP网络down",
+      "description": "英文标识: dfx_sdk_install_tcp_net_down",
+      "sort_order": 54
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000005",
+      "category_id": "f8fc9412-6c6e-4677-86b0-2daf219cdac5",
+      "name": "Worker带宽限制",
+      "description": "英文标识: dfx_worker_process_bandwidth_limit",
+      "sort_order": 55
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000006",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "Worker UB端口闪断故障",
+      "description": "英文标识: dfx_worker_ub_port_flash_failure",
+      "sort_order": 56
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000007",
+      "category_id": "96611837-b977-4ede-8866-5b77b97f8f2c",
+      "name": "Worker获取退出启动",
+      "description": "英文标识: dfx_worker_process_get_exit_start",
+      "sort_order": 57
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000008",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "Worker远端UB链路down",
+      "description": "英文标识: dfx_worker_process_remote_ub_link_down",
+      "sort_order": 58
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000010",
+      "category_id": "09a457be-d951-4e52-8f92-35cfdf5b4f00",
+      "name": "CPU挂死",
+      "description": "验证集故障类型",
+      "sort_order": 59
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000012",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "UB端口down",
+      "description": "验证集故障类型",
+      "sort_order": 61
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000013",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "UB链路故障",
+      "description": "验证集故障类型",
+      "sort_order": 62
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000014",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "端侧到L1端口故障",
+      "description": "验证集故障类型",
+      "sort_order": 63
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000015",
+      "category_id": "f8fc9412-6c6e-4677-86b0-2daf219cdac5",
+      "name": "TCPdown",
+      "description": "验证集故障类型",
+      "sort_order": 64
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000016",
+      "category_id": "b804f4f8-6318-4b88-bfb7-223bff2518d4",
+      "name": "UB交换机L1的上行端口闪断",
+      "description": "验证集故障类型",
+      "sort_order": 65
+    },
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000017",
+      "category_id": "96611837-b977-4ede-8866-5b77b97f8f2c",
+      "name": "worker进程异常退出",
+      "description": "验证集故障类型",
+      "sort_order": 66
+    },
+    {
+      "id": "5b897f93-5f65-4aaf-a261-fa9fcacc4d0f",
+      "category_id": "d3ac61f9-c169-4fda-a8e6-9edf44b34124",
+      "name": "UB链路闪断",
+      "description": "",
+      "sort_order": 69
+    },
+    {
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "category_id": "a1b2c3d4-0002-4000-8000-000000000001",
+      "name": "SDK初始化配置错误",
+      "description": "SDK初始化配置错误导致故障",
+      "sort_order": 70
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "id": "74df5513-25e7-48a6-bdc1-615062bfe1de",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker缩容TCP丢包",
+  "description": "自动导入: dfx_worker_process_scale_in_tcp_loss",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new_0530/lingqu_kvcache_dfx_worker_process_scale_in_tcp_loss_001_20260528_18_35_30"
+  ],
+  "log_file_id": "a1019195-3e3e-4221-abec-0efd2971d4a1",
+  "log_file_name": "lingqu_kvcache_dfx_worker_process_scale_in_tcp_loss_001_20260528_18_35_30",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "Worker-缩容/挂死",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "remote_worker_rpc",
+          387.258
+        ],
+        [
+          "remote_worker_cost",
+          386.889
+        ],
+        [
+          "total_latency",
+          198.193
+        ],
+        [
+          "sdk_process",
+          194.992
+        ],
+        [
+          "worker_total_latency",
+          194.985
+        ],
+        [
+          "urma_total_latency",
+          194.329965
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "remote_worker_rpc",
+          387.258
+        ],
+        [
+          "remote_worker_cost",
+          386.889
+        ],
+        [
+          "total_latency",
+          198.193
+        ],
+        [
+          "sdk_process",
+          194.992
+        ],
+        [
+          "worker_total_latency",
+          194.985
+        ]
+      ],
+      "p99_p50_ratio": 64.33476182627328,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 64.335
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 3,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 4
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 3,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 4,
+      "failure_event_count": 0,
+      "total_parse_result_count": 4
+    }
+  },
+  "created_at": "2026-09-28 17:24:14"
+}

@@ -51,11 +51,11 @@ async def test_get_latency_metrics_rejects_unsupported_inputs(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_get_latency_metrics_missing_log_id_returns_empty():
-    total, rows = await LogParseResultPGManager.get_latency_metrics(
-        GetLatencyMetricsRequest(kb_id="kb-1", sample_mode=SampleMode.P99, bucket_seconds=60)
-    )
-    assert total == 0
-    assert rows == []
+    # master（e6a14a03）：缺少 log_id 直接 400 —— 时延曲线按单个日志文件查询
+    with pytest.raises(BadRequestBizException):
+        await LogParseResultPGManager.get_latency_metrics(
+            GetLatencyMetricsRequest(kb_id="kb-1", sample_mode=SampleMode.P99, bucket_seconds=60)
+        )
 
 
 @pytest.mark.asyncio

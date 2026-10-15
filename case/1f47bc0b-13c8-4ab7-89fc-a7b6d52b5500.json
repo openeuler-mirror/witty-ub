@@ -1,0 +1,76 @@
+{
+  "id": "1f47bc0b-13c8-4ab7-89fc-a7b6d52b5500",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker本地UB链路down",
+  "description": "自动导入: dfx_worker_process_local_ub_link_down",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new/lingqu_kvcache_dfx_worker_process_local_ub_link_down_001_20260522_12_33_55"
+  ],
+  "log_file_id": "38f4f24c-ee17-45ca-a86f-1d065d0bacf7",
+  "log_file_name": "lingqu_kvcache_dfx_worker_process_local_ub_link_down_001_20260522_12_33_55",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "UB-链路故障",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "urma_total_latency",
+          779.877
+        ],
+        [
+          "total_latency",
+          524.5076666666668
+        ],
+        [
+          "worker_total_latency",
+          522.4810000000001
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "urma_total_latency",
+          779.877
+        ],
+        [
+          "total_latency",
+          524.5076666666668
+        ],
+        [
+          "worker_total_latency",
+          522.4810000000001
+        ],
+        [
+          "c2w_latency",
+          2.026666666666675
+        ],
+        [
+          "c2w_urma_latency",
+          2.026666666666675
+        ]
+      ],
+      "p99_p50_ratio": 1.0,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 1.0
+      },
+      "pod_concentration": "multi_pod",
+      "affected_pods_count": 4,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 3
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 5,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 3,
+      "failure_event_count": 0,
+      "total_parse_result_count": 3
+    }
+  },
+  "created_at": "2026-09-28 17:24:03"
+}

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from latency.common.local_time import parse_asset_timestamp, utc_now
 from latency.database.engine import PGManager
 from latency.database.models import LogKnowledge
-from latency.database.utils import escape_like, format_timestamp
+from latency.database.utils import escape_like, format_asset_timestamp
 from latency.schemas.log import LogKnowledgeModel
 from latency.schemas.request import ListLogKnowledgeRequest
 
@@ -238,8 +238,8 @@ class LogKnowledgePGManager:
                     "task_cnt": r["total_count"],
                     "log_file_cnt": 0,
                     "anomaly_cnt": r["anomalous_count"],
-                    "created_at": format_timestamp(r["created_at"]),
-                    "updated_at": format_timestamp(r["updated_at"]),
+                    "created_at": format_asset_timestamp(r["created_at"]),
+                    "updated_at": format_asset_timestamp(r["updated_at"]),
                 }
             )
             for r in rows
@@ -266,7 +266,7 @@ class LogKnowledgePGManager:
                 "log_file_cnt": 0,
                 "anomaly_cnt": row.anomalous_count,
                 "existed_status": row.existed_status,
-                "created_at": format_timestamp(row.created_at),
-                "updated_at": format_timestamp(row.updated_at),
+                "created_at": format_asset_timestamp(row.created_at),
+                "updated_at": format_asset_timestamp(row.updated_at),
             }
         )

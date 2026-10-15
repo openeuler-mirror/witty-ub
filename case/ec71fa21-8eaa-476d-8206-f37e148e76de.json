@@ -1,0 +1,78 @@
+{
+  "id": "ec71fa21-8eaa-476d-8206-f37e148e76de",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker进程退出",
+  "description": "自动导入: dfx_worker_set_exit",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new/lingqu_kvcache_dfx_worker_set_exit_002_20260522_07_47_59"
+  ],
+  "log_file_id": "25d9a23a-6d39-4fd7-a95b-bdd405cac18d",
+  "log_file_name": "lingqu_kvcache_dfx_worker_set_exit_002_20260522_07_47_59",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "Worker-退出/崩溃",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "urma_total_latency",
+          1039.8426666666667
+        ],
+        [
+          "total_latency",
+          792.7054999999999
+        ],
+        [
+          "worker_total_latency",
+          780.3767499999999
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "urma_total_latency",
+          1039.8426666666667
+        ],
+        [
+          "total_latency",
+          792.7054999999999
+        ],
+        [
+          "worker_total_latency",
+          780.3767499999999
+        ],
+        [
+          "c2w_latency",
+          12.328750000000039
+        ],
+        [
+          "c2w_urma_latency",
+          12.328750000000039
+        ]
+      ],
+      "p99_p50_ratio": 1.998282607109904,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 1.998,
+        "DS_KV_CLIENT_SET": 1.0
+      },
+      "pod_concentration": "multi_pod",
+      "affected_pods_count": 4,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 6,
+        "DS_KV_CLIENT_SET": 2
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 5,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 8,
+      "failure_event_count": 0,
+      "total_parse_result_count": 8
+    }
+  },
+  "created_at": "2026-09-28 17:24:07"
+}

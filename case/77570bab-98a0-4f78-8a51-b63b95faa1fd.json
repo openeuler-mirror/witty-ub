@@ -1,0 +1,76 @@
+{
+  "id": "77570bab-98a0-4f78-8a51-b63b95faa1fd",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "远端UB单端口down",
+  "description": "自动导入: dfx_remote_ub_single_port_down",
+  "task_ids": [],
+  "task_names": [
+    "lingqu_kvcache_dfx_remote_ub_single_port_down_001_20260528_20_24_32"
+  ],
+  "log_file_id": "15a90652-c962-4288-9899-d5b8fe93c780",
+  "log_file_name": "lingqu_kvcache_dfx_remote_ub_single_port_down_001_20260528_20_24_32",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "UB-端口故障",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          205.7885
+        ],
+        [
+          "c2w_latency",
+          205.752
+        ],
+        [
+          "c2w_urma_latency",
+          205.752
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          205.7885
+        ],
+        [
+          "c2w_latency",
+          205.752
+        ],
+        [
+          "c2w_urma_latency",
+          205.752
+        ],
+        [
+          "worker_total_latency",
+          0.036500000000000005
+        ],
+        [
+          "urma_total_latency",
+          0.0
+        ]
+      ],
+      "p99_p50_ratio": 16.71137791548326,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_SET": 16.711
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 2,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_SET": 4
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 2,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 4,
+      "failure_event_count": 0,
+      "total_parse_result_count": 4
+    }
+  },
+  "created_at": "2026-09-28 18:29:44"
+}

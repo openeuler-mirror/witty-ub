@@ -32,12 +32,6 @@ export const defaultDiagnosisConfig = (): DiagnosisConfigForm => ({
     total_p9999_threshold_ms: toml.log_analyzer_params.total_p9999_threshold_ms,
     total_pmax_threshold_ms: toml.log_analyzer_params.total_pmax_threshold_ms,
     total_ave_threshold_ms: toml.log_analyzer_params.total_ave_threshold_ms,
-    slidingWindowPairs: toml.log_analyzer_params.sliding_window_sizes.map(
-      (size: number, index: number) => ({
-        size,
-        step: toml.log_analyzer_params.sliding_window_steps[index] ?? size,
-      }),
-    ),
     zone_anomaly_density_threshold: toml.log_analyzer_params.zone_anomaly_density_threshold,
   },
 })
@@ -45,8 +39,6 @@ export const defaultDiagnosisConfig = (): DiagnosisConfigForm => ({
 type DiagnosisConfigApiModel = {
   log_filename_pattern: Record<DiagnosisPatternKey, string[]>
   log_analyzer_params: Record<DiagnosisThresholdKey, number> & {
-    sliding_window_sizes: number[]
-    sliding_window_steps: number[]
     zone_anomaly_density_threshold: number
   }
 }
@@ -68,10 +60,6 @@ export const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): Diagnos
     total_p9999_threshold_ms: config.log_analyzer_params.total_p9999_threshold_ms,
     total_pmax_threshold_ms: config.log_analyzer_params.total_pmax_threshold_ms,
     total_ave_threshold_ms: config.log_analyzer_params.total_ave_threshold_ms,
-    slidingWindowPairs: config.log_analyzer_params.sliding_window_sizes.map((size, index) => ({
-      size,
-      step: config.log_analyzer_params.sliding_window_steps[index] ?? size,
-    })),
     zone_anomaly_density_threshold: config.log_analyzer_params.zone_anomaly_density_threshold,
   },
 })
@@ -93,12 +81,6 @@ export const toDiagnosisConfigApi = (form: DiagnosisConfigForm): DiagnosisConfig
     total_p9999_threshold_ms: Number(form.logAnalyzerParams.total_p9999_threshold_ms),
     total_pmax_threshold_ms: Number(form.logAnalyzerParams.total_pmax_threshold_ms),
     total_ave_threshold_ms: Number(form.logAnalyzerParams.total_ave_threshold_ms),
-    sliding_window_sizes: form.logAnalyzerParams.slidingWindowPairs.map((pair) =>
-      Number(pair.size),
-    ),
-    sliding_window_steps: form.logAnalyzerParams.slidingWindowPairs.map((pair) =>
-      Number(pair.step),
-    ),
     zone_anomaly_density_threshold: Number(form.logAnalyzerParams.zone_anomaly_density_threshold),
   },
 })

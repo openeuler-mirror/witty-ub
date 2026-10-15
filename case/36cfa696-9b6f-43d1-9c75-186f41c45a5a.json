@@ -1,0 +1,88 @@
+{
+  "id": "36cfa696-9b6f-43d1-9c75-186f41c45a5a",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker进程退出",
+  "description": "自动导入: dfx_worker_set_exit",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new_0530/lingqu_kvcache_dfx_worker_set_exit_002_20260529_16_15_06"
+  ],
+  "log_file_id": "78e1860c-74af-488c-9977-1fe424b9be9b",
+  "log_file_name": "lingqu_kvcache_dfx_worker_set_exit_002_20260529_16_15_06",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "Worker-退出/崩溃",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          388.709
+        ],
+        [
+          "sdk_process",
+          387.68
+        ],
+        [
+          "worker_total_latency",
+          387.678
+        ],
+        [
+          "remote_worker_rpc",
+          387.131
+        ],
+        [
+          "remote_worker_cost",
+          386.838
+        ],
+        [
+          "urma_total_latency",
+          386.664
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          388.709
+        ],
+        [
+          "sdk_process",
+          387.68
+        ],
+        [
+          "worker_total_latency",
+          387.678
+        ],
+        [
+          "remote_worker_rpc",
+          387.131
+        ],
+        [
+          "remote_worker_cost",
+          386.838
+        ]
+      ],
+      "p99_p50_ratio": 1.0,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 1.0
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 3,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 2
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 3,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 2,
+      "failure_event_count": 0,
+      "total_parse_result_count": 2
+    }
+  },
+  "created_at": "2026-09-28 17:24:14"
+}

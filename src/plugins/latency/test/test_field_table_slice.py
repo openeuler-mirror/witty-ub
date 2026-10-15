@@ -175,8 +175,9 @@ def test_aggregate_serial_fallback_small():
         results, src_dst_map, tw, anom_tids = agg
         assert len(results) == 3
         assert len(tw) == 3
-        # t2（5ms>2ms）与 t3（status=3）异常
-        assert anom_tids == {"t2", "t3"}
+        # anomalous_tids 仅含时延异常（阈值 5ms）：t2=5.0ms 入选；
+        # t3 是状态码异常，由通断故障部分处理，不计入（新语义）
+        assert anom_tids == {"t2"}
         assert len(src_dst_map) == 3
         # src/dst 取源与聚合一致（URMA 链）
         by_sd = {(e.src_ip, e.dst_ip) for e in results}
@@ -203,7 +204,7 @@ def test_aggregate_three_way_field_table():
         detail = KVCacheLogParseWorker._build_anomalous_detail_rows(
             _to_df(), anom, kb_id="test_kb", log_file_id="op001"
         )
-        assert {r.trace_id for r in detail} == {"t2", "t3"}
+        assert {r.trace_id for r in detail} == {"t2"}
         assert all(r.log_id == "op001" for r in detail)
         for r in detail:
             r.is_anomalous = True
@@ -251,6 +252,11 @@ def test_detail_rows_from_frame_matches_field_table():
 
     assert sorted(r.trace_id or "" for r in got) == ["t2", "t3"]
     assert all(r.is_anomalous for r in got)
+    def _norm(v):
+        # polars 路径对无值富化列（如 cluster_name）产 ""，串行参考产 None
+        # —— 语义等价（均表示"无值"），归一化后比较
+        return None if v == "" else v
+
     ref_by_id = {r.trace_id: r for r in reference}
     for r in got:
         ref = ref_by_id[r.trace_id]
@@ -259,7 +265,7 @@ def test_detail_rows_from_frame_matches_field_table():
                 continue
             if f.name.endswith("_us") or f.name in ("request_mode", "urma_inflight_max"):
                 continue  # yuanrong 字段由新路径另测
-            assert getattr(r, f.name) == getattr(ref, f.name), (
+            assert _norm(getattr(r, f.name)) == _norm(getattr(ref, f.name)), (
                 r.trace_id, f.name, getattr(r, f.name), getattr(ref, f.name),
             )
 

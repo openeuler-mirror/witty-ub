@@ -20,3 +20,9 @@ include_directories(
     src/include
 )
 add_subdirectory(src)
+
+option(BUILD_TESTING "Build unit tests (requires GTest)" OFF)
+if(BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(src/tests)
+endif()

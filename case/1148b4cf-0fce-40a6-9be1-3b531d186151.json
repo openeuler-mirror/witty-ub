@@ -1,0 +1,72 @@
+{
+  "id": "1148b4cf-0fce-40a6-9be1-3b531d186151",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Client获取挂死",
+  "description": "自动导入: dfx_client_process_get_hangup",
+  "task_ids": [],
+  "task_names": [
+    "yxh_new/lingqu_kvcache_dfx_client_process_get_hangup_001_20260522_19_59_15"
+  ],
+  "log_file_id": "b60896ff-25f7-457f-98fd-52e32377c067",
+  "log_file_name": "lingqu_kvcache_dfx_client_process_get_hangup_001_20260522_19_59_15",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "Client-挂死/网络",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          44.989
+        ],
+        [
+          "c2w_latency",
+          44.714
+        ],
+        [
+          "c2w_urma_latency",
+          44.714
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          44.989
+        ],
+        [
+          "c2w_latency",
+          44.714
+        ],
+        [
+          "c2w_urma_latency",
+          44.714
+        ],
+        [
+          "worker_total_latency",
+          0.275
+        ]
+      ],
+      "p99_p50_ratio": 1.0,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 1.0
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 2,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 2
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 4,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 2,
+      "failure_event_count": 0,
+      "total_parse_result_count": 2
+    }
+  },
+  "created_at": "2026-09-28 17:23:59"
+}

@@ -27,6 +27,7 @@
 """
 
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -1542,6 +1543,74 @@ class TestHeatmapStatsService:
         # 有效跨度 09:00→12:00 = 3h → 10m
         assert msg.window_size == "10m"
         assert buckets.call_args[0][1] == 600
+
+
+class TestHeatmapBucketSql:
+    """DB 侧分桶口径：date_bin 对齐 + 直接用 naive 值做 window_start。"""
+
+    class _Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+    class _Session:
+        def __init__(self, rows):
+            self._rows = rows
+            self.statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return TestHeatmapBucketSql._Result(self._rows)
+
+    async def test_window_start_keeps_wall_clock_and_uses_date_bin(self, monkeypatch):
+        from contextlib import asynccontextmanager
+
+        from sqlalchemy.dialects import postgresql
+
+        from latency.database.managers import trace_light as module
+
+        rows = [
+            SimpleNamespace(
+                window_start=datetime(2026, 9, 3, 12, 30, 0),
+                fault_trace_cnt=4,
+            ),
+        ]
+        session = self._Session(rows)
+
+        async def fake_scope(_req):
+            return [LOG_ID]
+
+        @asynccontextmanager
+        async def fake_session():
+            yield session
+
+        monkeypatch.setattr(module, "_stats_scope", fake_scope)
+        monkeypatch.setattr(module.PGManager, "session", fake_session)
+
+        items = await module.TraceLightPGManager.list_heatmap_buckets(
+            HeatmapStatsRequest(
+                kb_id=KB_ID,
+                start_time="2026-09-03 12:00:00",
+                end_time="2026-09-03 13:00:00",
+            ),
+            600,
+        )
+
+        # naive 输入原样输出（不经过 epoch 往返，避免隐式时区偏移）
+        assert [item.window_start for item in items] == ["2026-09-03 12:30:00"]
+        assert items[0].fault_trace_cnt == 4
+
+        sql = str(
+            session.statement.compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+        assert "date_bin" in sql
+        assert "interval '600 seconds'" in sql
+        assert "extract" not in sql
 
 
 class TestStatsDimensionRouters:

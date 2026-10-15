@@ -19,6 +19,7 @@ target_link_libraries(code_analyzer
     PUBLIC
         include
         ubse_context
+        rack_http
 )
 find_package(jsoncpp REQUIRED)
-target_link_libraries(code_analyzer PRIVATE rack_http jsoncpp_lib)
+target_link_libraries(code_analyzer PRIVATE jsoncpp_lib)

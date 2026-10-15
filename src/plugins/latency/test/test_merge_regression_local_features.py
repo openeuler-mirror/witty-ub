@@ -100,15 +100,6 @@ def test_get_latency_metrics_request_keeps_local_fields():
     assert "log_id" in fields
 
 
-def test_scanner_accepts_progress_cb():
-    import inspect
-
-    from latency.parse.parallel_scanner.scanner import ParallelFileScanner
-
-    sig = inspect.signature(ParallelFileScanner.scan_all)
-    assert "progress_cb" in sig.parameters
-
-
 def test_scan_progress_cb_is_wired():
     # 扫描侧只剩列运算单一路径：progress_cb 仍必须被接住并在结束时回调一次。
     import inspect

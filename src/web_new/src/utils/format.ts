@@ -3,9 +3,21 @@ export const errorText = (error: unknown) =>
 
 export const clampProgress = (value: number) => Math.min(100, Math.max(0, value))
 
+// 带时区的资产时间按浏览器本地时区显示；无时区的旧响应和日志墙钟保持原值。
 export const formatTime = (value?: string | null) => {
   if (!value) return '—'
-  return value.replace('T', ' ').slice(0, 19)
+  const match = value
+    .trim()
+    .match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)
+  if (!match) return value
+  if (!match[3]) return `${match[1]} ${match[2]}`
+  const date = new Date(value.trim().replace(' ', 'T'))
+  if (Number.isNaN(date.getTime())) return value
+  const offset = -date.getTimezoneOffset()
+  const hours = Math.floor(Math.abs(offset) / 60)
+  const minutes = Math.abs(offset) % 60
+  const timezone = `UTC${offset >= 0 ? '+' : '-'}${hours}${minutes ? `:${String(minutes).padStart(2, '0')}` : ''}`
+  return `${formatFullTimeLabel(date)} (${timezone})`
 }
 
 export const toDatetimeString = (value: string) => {
@@ -95,7 +107,8 @@ export const formatChartTs = (ts: string): string => {
   return match ? `${match[1]} ${match[2]}` : String(ts)
 }
 
-// 后端约定 "YYYY-MM-DD HH:mm:ss" 与 epoch ms 之间的显式时区转换，禁止浏览器隐式解析
+// 后端约定 "YYYY-MM-DD HH:mm:ss"（本地墙钟、无 offset）与 epoch ms 之间的显式
+// 时区转换，禁止浏览器隐式解析；offset 后缀若存在也按墙钟忽略。
 export const tsToEpochMs = (ts: string): number => {
   const match = String(ts).match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/)
   if (!match) return NaN

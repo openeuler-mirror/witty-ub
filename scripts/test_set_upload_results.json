@@ -1,0 +1,312 @@
+{
+  "lingqu_kvcache_dfx_client_init_etcd_cluster_fail_001_20260528_17_23_20": {
+    "log_file_id": "3dcbcb8a-7143-40ad-b776-9c43fdbd10b4",
+    "task_id": "43adaa38-dd86-41f7-add0-7c2e053c24ba",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_client_process_get_exit_start_001_20260528_22_51_28": {
+    "log_file_id": "7f8426c8-f81e-4599-8d86-a6aa161d6621",
+    "task_id": "14784532-e858-4ff6-b76b-8d871ab595d2",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_client_process_get_hangup_001_20260528_23_05_37": {
+    "log_file_id": "c1730363-667c-47b9-8ab5-5e7aef32492e",
+    "task_id": "4424ff0f-d3de-4165-a878-57f0bfab40c4",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_client_process_get_ubm_failure_001_20260528_21_20_30": {
+    "log_file_id": "25e16aca-a655-444f-abf7-534a90035766",
+    "task_id": "a844e430-3dce-4fc7-8159-010eb69a4689",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_client_process_get_ubse_failure_001_20260529_00_47_11": {
+    "log_file_id": "ed7decbb-7685-4c4d-8b47-fbc7d6c6c70d",
+    "task_id": "ab242e5c-f89e-4110-8f32-c84233d77346",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_client_process_scale_in_worker_hang_up_001_20260528_19_41_02": {
+    "log_file_id": "11ad0945-f01e-456a-9051-d21a931e7ab9",
+    "task_id": "358b49c8-fc15-4d07-a88a-3257e72ba869",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_client_process_set_exit_002_20260528_16_57_35": {
+    "log_file_id": "00fda64c-fc20-4510-95a0-1d7a3118e15d",
+    "task_id": "4dfaceeb-ad43-4102-83d8-720ff36fc641",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_client_process_set_exit_start_001_20260528_22_22_56": {
+    "log_file_id": "d6d3ef0c-403e-4c7e-8673-d49838cf9999",
+    "task_id": "0affe880-d6f2-4b1a-81ad-359abcf3dd7a",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_client_process_set_hangs_001_20260529_19_33_29": {
+    "log_file_id": "9d06422e-96e5-4174-af77-8092d73bcc99",
+    "task_id": "b86c443a-8700-4ab0-9fb4-1fe4bbc9efab",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_client_process_tcp_down_001_20260529_11_58_30": {
+    "log_file_id": "34240a46-94bb-41a6-b3d5-e05a2af178f4",
+    "task_id": "d23ec017-b05c-4c64-a1b0-a6ec13fa30b9",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_client_scale_in_tcp_down_001_20260529_08_51_37": {
+    "log_file_id": "3afa347f-d065-41ca-9f30-bdeb2bd7d615",
+    "task_id": "02a2fd77-f48d-4b71-a3e8-e8cd65c79707",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_client_write_remote_after_ubm_fault_001_20260528_21_03_20": {
+    "log_file_id": "e7a6d628-e917-42ad-895f-6e4501dc63a5",
+    "task_id": "b68a32f1-ec37-481e-a9c1-ebc39b898426",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_client_write_remote_after_ubse_fault_001_20260528_22_03_41": {
+    "log_file_id": "351ec000-2254-4754-b649-48a6c9919ac6",
+    "task_id": "d835e95c-0f94-4893-9ef8-0c866e84ab18",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_client_write_remote_worker_etcd_main_fault_001_20260529_01_12_47": {
+    "log_file_id": "9408c2bc-dc8d-4f21-b9b4-40ab8e6009dd",
+    "task_id": "0a28f598-8dfa-49a5-a2cd-2dfff18478b0",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_etcd_cluster_exit_001_20260528_20_10_49": {
+    "log_file_id": "ae9b909e-5dd5-4533-bf9e-f41a66270dec",
+    "task_id": "a4a5d1f1-d2a6-4986-b073-1c38fa38785d",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_etcd_cluster_exit_before_set_001_20260528_22_15_39": {
+    "log_file_id": "0bfe8428-2301-4c85-b8a1-95418d1b1b79",
+    "task_id": "24493d26-a8e1-47bb-9074-0f9de5c27440",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_local_ub_all_port_down_001_20260529_17_21_48": {
+    "log_file_id": "5b5f55ed-99d5-4e18-b1c9-978660669025",
+    "task_id": "c13d3cf1-e5c6-41ac-9caa-f2f9138efeaa",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_local_ub_all_port_lanedown_001_20260528_23_25_48": {
+    "log_file_id": "78967430-a89d-4194-af23-58bf90c35523",
+    "task_id": "4edd4e31-acfa-401a-94b1-7b2f31535226",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_local_ub_all_port_link_loss_001_20260529_20_14_42": {
+    "log_file_id": "bb3eef61-264d-4c3f-ae10-6d51952f0b13",
+    "task_id": "0dfaee14-7dc1-4303-9d26-490ac54decbc",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_local_ub_single_port_down_001_20260529_16_57_47": {
+    "log_file_id": "5b3ed084-8be4-4dd9-89f2-8d1a5bc6f417",
+    "task_id": "157916a6-123b-444d-a426-48ebe8ab6961",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_local_ub_single_socket_two_port_down_001_20260528_23_31_43": {
+    "log_file_id": "719d4b29-d4c3-4a59-9e98-9507ed03c73a",
+    "task_id": "e0c0434f-c77f-4bef-a8fc-4439eaeb4772",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_local_ub_two_port_flashdown_001_20260528_19_25_02": {
+    "log_file_id": "d234b60e-5db7-4146-8620-e8e6681c647c",
+    "task_id": "19df75bd-7106-4c5d-86f7-18716f240da2",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_local_ub_two_socket_single_port_down_001_20260529_23_17_57": {
+    "log_file_id": "93d7bd96-b002-494a-a4b4-4142585a75b4",
+    "task_id": "1ae54b20-3fa0-4f7d-bbb2-1cdd779d7ba9",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_ps_n_n_001_20260528_12_29_50": {
+    "log_file_id": "a249d8ae-5383-401e-ad2b-52e263e784b0",
+    "task_id": "38d3064a-a2c4-46e5-819a-e0e42c3baf3d",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_r_discovery_worker_process_hangup_001_20260529_21_45_44": {
+    "log_file_id": "ccc4faad-b3ab-436d-90ac-790dce4173b0",
+    "task_id": "cbb57cb3-a755-4293-bf54-1396457efa38",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_r_etcd_fail_client_update_001_20260528_18_26_42": {
+    "log_file_id": "5fef9d20-7f06-4577-8e7d-2723ea9b4048",
+    "task_id": "f3f86b60-22d6-4d54-996f-76deb628db5b",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_r_worker_process_set_exit_001_20260528_20_37_40": {
+    "log_file_id": "73b50297-acdc-444f-8cb5-d1e67ffe9b0f",
+    "task_id": "ce017b27-fa08-451a-b6b6-d919f106399c",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_remote_ub_all_port_down_001_20260529_18_55_28": {
+    "log_file_id": "5c7c7260-ee68-4dd6-9781-869f27806617",
+    "task_id": "72e758f8-00fd-42e3-9e4f-8708d90e011e",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_remote_ub_single_port_down_001_20260528_20_24_32": {
+    "log_file_id": "75b8d67d-b989-4da1-a619-bd621a32cabd",
+    "task_id": "29c5c48c-7795-4296-a66e-728ad154eacc",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_remote_ub_single_socket_two_port_down_001_20260528_19_14_14": {
+    "log_file_id": "cf6c1798-1c99-413a-812d-3bc8fec416a6",
+    "task_id": "1d3e141d-45ec-4888-ad13-31bb4f1b6289",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_remote_ub_two_socket_single_port_down_001_20260529_16_43_36": {
+    "log_file_id": "9840f1db-0d8e-4c5a-a5cd-8dc9bf63fb3a",
+    "task_id": "af882b17-0db9-496b-bb2d-bd81a3fd2b4b",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_sdk_install_etcd_down_001_20260528_11_40_44": {
+    "log_file_id": "5c522694-5ae9-48a1-88cc-50fd076c8515",
+    "task_id": "f3795eb3-c95a-4c3f-b8a1-3821a28f1ba1",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_sdk_install_etcd_unavailable_001_20260529_17_12_46": {
+    "log_file_id": "ba258879-cf4f-454d-a822-0ff8216351c9",
+    "task_id": "1290ab2d-f2c1-469a-912d-403b94e1b2eb",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_pod_reboot_001_20260528_16_34_10": {
+    "log_file_id": "6fdc38ea-def6-4b0f-a53f-9447749eae54",
+    "task_id": "d2125e85-11e4-46f6-a5f6-46c21f4d042e",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_pod_reboot_l2_001_20260528_15_07_52": {
+    "log_file_id": "df7a431a-fded-4363-bf1f-0b8c8cf01830",
+    "task_id": "2bb75993-1b60-42f9-9429-0b53e0c4113a",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_cross_node_net_card_loss_001_20260528_16_29_17": {
+    "log_file_id": "8a18fd05-6bac-44fe-bcd7-1cab14b7068c",
+    "task_id": "6b0e9280-b029-461d-b5ec-3ba93c189474",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_exit_single_node_001_20260529_22_15_43": {
+    "log_file_id": "a584944a-fa50-4dd2-a5b5-8ac5672d189e",
+    "task_id": "88ef98e2-8fa8-4caa-aaf5-43918a8b58c5",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_local_get_etcd_main_fail_001_20260528_21_07_53": {
+    "log_file_id": "9c2d529e-2fea-4fec-ab1d-f25080a25832",
+    "task_id": "643237bf-d336-417e-9658-f6733d24666e",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_local_ub_link_down_002_20260528_16_11_16": {
+    "log_file_id": "4817343d-6032-4114-aa73-8ee4acc8c67f",
+    "task_id": "2775add2-f75d-4611-b5e7-4f5d92f3211a",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_net_card_loss_001_20260528_15_52_45": {
+    "log_file_id": "dcac21b3-3175-4ec0-8318-b067f1bba43c",
+    "task_id": "71a51bee-309b-4785-9248-e7c1faf1e258",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_remote_get_etcd_main_fail_001_20260529_19_02_32": {
+    "log_file_id": "c962f050-3091-4327-a139-2428d8883cdd",
+    "task_id": "3dd1ca85-807a-4a31-9825-082851167055",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_remote_local_ub_flash_down_001_20260529_23_23_56": {
+    "log_file_id": "4d838714-54cd-4990-88d9-cf2a37521776",
+    "task_id": "ac7a5670-d8e9-4f20-b1b1-3921a4eca759",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_remote_local_ub_lane_down_001_20260528_18_00_21": {
+    "log_file_id": "8d4d6cf3-273f-425b-8370-e460ec5ef9c6",
+    "task_id": "bd4cb817-b0b5-42f2-bcdf-a47e5be12f04",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_remote_local_ub_link_loss_001_20260528_22_30_36": {
+    "log_file_id": "498f0b23-f7a8-4f77-9f39-a473fc27f4bf",
+    "task_id": "d3d86c9e-3c24-4b31-a2bc-1ee4c8ad6f40",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_remote_local_ub_single_port_down_001_20260529_00_41_49": {
+    "log_file_id": "ed9d6cc8-40c1-492f-a1a2-603b57b349da",
+    "task_id": "587c496d-e627-4f96-bdc1-bef851d4173c",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_remote_remote_ub_single_port_down_001_20260528_18_47_43": {
+    "log_file_id": "b4df18c5-3b2e-4ce9-9978-a90f672342ba",
+    "task_id": "af10a8b6-48fe-40e1-9bea-fd275eaf420c",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_remote_ub_ce_001_20260529_22_11_17": {
+    "log_file_id": "fcd79d7d-6a1f-4422-9f57-647e5f096f66",
+    "task_id": "82fbec5b-69b6-4e73-bf9c-f079a9deb322",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_remote_ub_fe_001_20260528_23_00_14": {
+    "log_file_id": "a7e7a453-4573-483f-893c-9974f2633093",
+    "task_id": "cda2809f-11ae-4cac-a94d-63d847d76510",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_remote_ub_nfe_001_20260528_16_05_56": {
+    "log_file_id": "9a33f6ba-3783-4274-b22e-6ab2f57da973",
+    "task_id": "bd3c9195-fa49-4794-b624-e88581fff901",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_remote_ub_single_link_down_001_20260529_22_32_34": {
+    "log_file_id": "74bb869a-52a1-41f0-a523-d6ef2b5ae7ef",
+    "task_id": "1b5dbd3b-2783-4105-a291-7b0077f122e6",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_scale_in_client_exit_001_20260529_21_26_04": {
+    "log_file_id": "e60a1f2e-3f99-4f64-8db1-c227966acf80",
+    "task_id": "6ad5fb5b-26b8-40dc-b541-a0a0b8bc2aad",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_scale_in_client_hang_up_001_20260529_20_20_53": {
+    "log_file_id": "fbdb0e0e-f45f-4673-b4ec-68945882f3cf",
+    "task_id": "1e200712-92d2-492e-8210-fca39222fcc8",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_scale_in_remote_ub_link_down_001_20260528_15_41_52": {
+    "log_file_id": "df3e6bcc-f9a5-41d5-8567-3c0bd6342b54",
+    "task_id": "e15c0621-771a-4cf4-ac3a-a1583883da5d",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_scale_in_remote_ub_nfe_001_20260528_15_18_39": {
+    "log_file_id": "37eee604-a691-49ad-b64b-8d169e6b6707",
+    "task_id": "09b859f8-637d-46c9-a328-6f7f911900e8",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_scale_in_tcp_down_001_20260528_19_30_06": {
+    "log_file_id": "a077439d-46c5-4dd1-b2fb-dc768c315888",
+    "task_id": "56e0141b-0047-4501-9659-9104b8d9035c",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_scale_in_tcp_loss_001_20260529_19_57_17": {
+    "log_file_id": "3682a097-766a-4640-8dda-cc0854600c81",
+    "task_id": "0f5d74cd-f17c-4985-9de9-c17b707e5a3f",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_set_exit_001_20260528_16_47_09": {
+    "log_file_id": "26af69c0-7474-4025-b2ca-fc3126ede052",
+    "task_id": "413c74c0-d890-4e11-a1df-aa41d6b86ddc",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_upgrade_etcd_fault_001_20260529_00_14_05": {
+    "log_file_id": "bf944c40-1470-40ac-b614-c2e3b94dbc69",
+    "task_id": "eecfb214-2f51-4c5a-963d-e60e7e6d1119",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_process_write_net_card_loss_001_20260528_17_02_31": {
+    "log_file_id": "3728e401-f901-4732-b76c-813e5aaa7ad1",
+    "task_id": "f63ab481-4ac1-4a0a-9ac3-092b4c2c8254",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_reboot_single_node_001_20260529_00_18_45": {
+    "log_file_id": "f3cc29a0-03ec-4561-b68e-12a3d556dbda",
+    "task_id": "7d3f4889-293b-4daf-8a4d-4835ca2c1248",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_worker_set_exit_001_20260529_21_10_50": {
+    "log_file_id": "164c41cb-7276-407b-aae3-82ed7ea2636e",
+    "task_id": "7913f796-f63c-4ffd-9bfa-09d7a0480e96",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  },
+  "lingqu_kvcache_dfx_write_remote_tcp_dalay_001_20260529_22_55_07": {
+    "log_file_id": "9f8968ed-6059-4db0-8373-f3737612615e",
+    "task_id": "44dbba87-cf87-4f54-9a3f-3f0eaa2b9cc1",
+    "kb_id": "85463ea2-787b-4ac8-ae02-04c089bb2726"
+  }
+}

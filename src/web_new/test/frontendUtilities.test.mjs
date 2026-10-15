@@ -9,15 +9,27 @@ import {
   taskProgressMessage,
 } from '../src/utils/taskProgress.ts'
 
-test('formatTime preserves server wall time regardless of browser timezone', () => {
+test('formatTime converts offset timestamps to browser time and preserves naive wall time', () => {
   const original = process.env.TZ
   try {
-    for (const zone of ['UTC', 'Asia/Shanghai', 'America/New_York']) {
+    for (const [zone, expected] of [
+      ['UTC', '2026-01-01 00:30:00 (UTC+0)'],
+      ['Asia/Shanghai', '2026-01-01 08:30:00 (UTC+8)'],
+      ['America/New_York', '2025-12-31 19:30:00 (UTC-5)'],
+      ['Asia/Kolkata', '2026-01-01 06:00:00 (UTC+5:30)'],
+      ['Asia/Kathmandu', '2026-01-01 06:15:00 (UTC+5:45)'],
+    ]) {
       process.env.TZ = zone
-      assert.equal(formatTime('2026-01-01 08:30:00.123+08:00'), '2026-01-01 08:30:00')
-      assert.equal(formatTime('2026-01-01T00:30:00.123Z'), '2026-01-01 00:30:00')
-      assert.equal(formatTime('2025-12-31T19:30:00.123-05:00'), '2025-12-31 19:30:00')
+      assert.equal(formatTime('2026-01-01 08:30:00.123+08:00'), expected)
+      assert.equal(formatTime('2026-01-01T00:30:00.123Z'), expected)
+      assert.equal(formatTime('2025-12-31T19:30:00.123-05:00'), expected)
+      assert.equal(formatTime('2026-01-01T08:30:00+0800'), expected)
+      // 无偏移的旧响应和日志时间不推断来源时区。
+      assert.equal(formatTime('2026-01-01 08:30:00.123'), '2026-01-01 08:30:00')
+      assert.equal(formatTime('2026-01-01T08:30:00'), '2026-01-01 08:30:00')
     }
+    process.env.TZ = 'America/New_York'
+    assert.equal(formatTime('2026-07-01T00:30:00Z'), '2026-06-30 20:30:00 (UTC-4)')
   } finally {
     if (original === undefined) delete process.env.TZ
     else process.env.TZ = original
@@ -28,6 +40,8 @@ test('formatTime supports legacy and missing timestamps', () => {
   assert.equal(formatTime('2026-01-01 08:30:00'), '2026-01-01 08:30:00')
   assert.equal(formatTime(null), '—')
   assert.equal(formatTime(undefined), '—')
+  assert.equal(formatTime('2026-01-01T08:30:00+99:00'), '2026-01-01T08:30:00+99:00')
+  assert.equal(formatTime('unexpected'), 'unexpected')
 })
 
 test('task progress keeps actionable failure messages and ignores internal noise', () => {

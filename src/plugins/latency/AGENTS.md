@@ -71,6 +71,17 @@ Task execution options are persisted in `task.task_config` (JSONB) and explicitl
 
 **Worker Reflection**: `__subclasses__()` to match `TaskTypeEnum`. New worker: `name` attr, implement `init/run/stop/delete/reinit/deinit`. **DB batch**: 4-channel `insert_batch` (minimal/sparse/c2w/full) via `executemany`, WAL mode.
 
+## TIME CONVENTION (时间口径)
+
+Event timestamps use **server wall clock, no offset**: `YYYY-MM-DD HH:MM:SS[.mmm]`, local = `Asia/Shanghai` (container deployment sets app & PG timezone). Asset metadata retains an explicit offset so browsers can display the same instant in their own timezone.
+
+- **Event columns** (`log_parse_result.created_at`, `trace_failure_event.timestamp`, …): naive `TIMESTAMP`, value = +08 wall clock. New writes use `latency.common.local_time.local_now()` (never `datetime.now(timezone.utc)`).
+- **Asset columns** (`log_knowledge` / `log_file` `.created_at|.updated_at`): `TIMESTAMPTZ`, value = absolute UTC instant (`utc_now()`); read via `format_asset_timestamp`, which converts to server local and **preserves the offset**. Frontends convert offset-bearing timestamps to browser local time; legacy responses without offsets retain their wall time.
+- **Input filters**: asset queries accept offset-bearing ISO 8601 timestamps (`parse_asset_timestamp`); legacy values without an offset use the current server timezone. Event filters retain their wall-clock format.
+- **BRPC** (`/brpc-diagnosis/*`): epoch-microsecond internally; formatted at the JSON boundary via `common.local_time.WALL_CLOCK_TZ` (+08). Keep it sourced from that constant — do not hardcode.
+- **`/stats/heatmap`**: buckets via SQL `date_bin` (session-timezone independent); `window_start` is the DB naive value, no Python epoch round-trip.
+- **Deploy**: `WITTY_TZ` (`deploy/deploy.conf`) → `-e TZ` for app/PG containers (+ `PGTZ` for PG); host/RPM startup does not inject it. Formatters follow runtime `TZ` changes without a process restart. Keep event wall times offset-free and asset instants offset-bearing; never write UTC-naive event values.
+
 ## ANTI-PATTERNS
 
 - **5x duplicated SQL builders** in `log_failure_event.py` — same WHERE clauses rebuilt per method

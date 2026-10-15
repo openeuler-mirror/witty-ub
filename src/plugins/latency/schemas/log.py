@@ -111,6 +111,10 @@ class LogFileModel(BaseModel):
         default_factory=lambda: utc_now().isoformat(timespec="milliseconds"),
         description="日志文件创建时间",
     )
+    updated_at: str = Field(
+        default_factory=lambda: utc_now().isoformat(timespec="milliseconds"),
+        description="日志文件更新时间",
+    )
 
 
 class SrcDstAggregatedEventModel(BaseModel):

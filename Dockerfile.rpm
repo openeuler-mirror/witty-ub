@@ -42,6 +42,9 @@ RUN mkdir -p /var/witty-ub/latency/file/file_upload \
     /var/witty-ub/latency/file/file_parse_result \
     /var/log/witty-ub
 
+# Case library fallback (in case RPM doesn't ship case/)
+COPY case/ /usr/share/witty-ub/case/
+
 COPY docker/entrypoint.sh /entrypoint.sh
 COPY docker/healthcheck.sh /healthcheck.sh
 RUN chmod +x /entrypoint.sh /healthcheck.sh
@@ -51,7 +54,7 @@ ENV PYTHONPATH=/var/witty-ub
 
 EXPOSE 9772
 
-VOLUME ["/var/witty-ub/data", "/var/log/witty-ub"]
+VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["/healthcheck.sh"]
@@ -59,19 +62,39 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 ENTRYPOINT ["/entrypoint.sh"]
 
 # ============================================
-# frontend: Nginx + OpenCode
+# experience-builder: 补齐 RPM 未初始化的 Agent 技能运行时
+# 编译工具留在构建阶段；运行阶段使用系统 Python，venv 不依赖构建机缓存。
+# ============================================
+FROM repo AS experience-builder
+
+RUN yum install -y python3 python3-pip gcc gcc-c++ cmake make curl tar && \
+    yum clean all && \
+    rm -rf /var/cache/yum
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+COPY witty_ub_diagnostician/ /var/witty-ub/witty_ub_diagnostician/.opencode/
+RUN cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer && \
+    bash build.sh && \
+    cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts && \
+    /root/.local/bin/uv sync --python /usr/bin/python3 --no-managed-python
+
+# ============================================
+# frontend: Nginx + OpenCode + experience-skill
 # ============================================
 FROM repo AS frontend
 
 LABEL description="Witty-UB frontend image (RPM, Nginx + OpenCode)"
 
-RUN yum install -y witty-ub-web gettext nodejs npm python3-jinja2 && \
+RUN yum install -y witty-ub-web gettext nodejs npm python3-jinja2 curl libstdc++ && \
     yum clean all && \
     rm -rf /var/cache/yum
 
 RUN mkdir -p /etc/witty-ub/web \
     /run/witty-ub-web \
     /var/log/witty-ub-web
+
+COPY --from=experience-builder /var/witty-ub/witty_ub_diagnostician/ /var/witty-ub/witty_ub_diagnostician/
+COPY --from=experience-builder /root/.local/bin/uv /usr/local/bin/uv
 
 # Install OpenCode (requires Node.js for postinstall script)
 RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
@@ -103,7 +126,7 @@ FROM repo AS all
 LABEL description="Witty-UB: Fault localization tool using RPM package"
 
 # Install witty-ub meta package (pulls in backend/web/manager subpackages)
-RUN yum install -y witty-ub gettext nodejs npm python3-jinja2 && \
+RUN yum install -y witty-ub gettext nodejs npm python3-jinja2 curl libstdc++ && \
     yum clean all && \
     rm -rf /var/cache/yum
 
@@ -113,6 +136,12 @@ RUN mkdir -p /var/witty-ub/latency/file/file_upload \
     /etc/witty-ub/web \
     /run/witty-ub-web \
     /var/log/witty-ub-web
+
+COPY --from=experience-builder /var/witty-ub/witty_ub_diagnostician/ /var/witty-ub/witty_ub_diagnostician/
+COPY --from=experience-builder /root/.local/bin/uv /usr/local/bin/uv
+
+# Case library fallback (in case RPM doesn't ship case/)
+COPY case/ /usr/share/witty-ub/case/
 
 # Install OpenCode (requires Node.js for postinstall script)
 RUN npm install -g opencode-ai --registry=https://mirrors.huaweicloud.com/repository/npm/ && \
@@ -129,7 +158,7 @@ ENV PYTHONPATH=/var/witty-ub
 
 EXPOSE 8080 9772 4096
 
-VOLUME ["/var/witty-ub/data", "/var/log/witty-ub"]
+VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["/healthcheck.sh"]

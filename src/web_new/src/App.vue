@@ -28,6 +28,7 @@ import ParseConfigDrawer from './components/common/ParseConfigDrawer.vue'
 import AgentChatPanel from './components/agent/AgentChatPanel.vue'
 
 const OverviewPanel = defineAsyncComponent(() => import('./components/overview/OverviewPanel.vue'))
+const KnowledgeHubPage = defineAsyncComponent(() => import('./components/knowledge/KnowledgeHubPage.vue'))
 
 const { toasts } = useToast()
 const {
@@ -50,6 +51,7 @@ const {
   loadAssets,
   enterAsset,
   goAssetList,
+  openKnowledge,
   openAssetModal,
   deleteAsset,
 } = useAssets()
@@ -189,6 +191,16 @@ onBeforeUnmount(() => {
         >
           资产列表
         </button>
+        <span class="sep">·</span>
+        <button
+          type="button"
+          class="breadcrumb-link"
+          :class="{ current: view === 'knowledge' }"
+          :aria-current="view === 'knowledge' ? 'page' : undefined"
+          @click="openKnowledge"
+        >
+          知识库
+        </button>
         <template v-if="selectedAsset">
           <span class="sep">›</span>
           <button type="button" class="breadcrumb-link" @click="enterAsset(selectedAsset)">
@@ -308,6 +320,11 @@ onBeforeUnmount(() => {
           {{ page }}
         </button>
       </div>
+    </template>
+
+    <!-- ============ 知识库管理 ============ -->
+    <template v-else-if="view === 'knowledge'">
+      <KnowledgeHubPage />
     </template>
 
     <!-- ============ 资产库主页 ============ -->

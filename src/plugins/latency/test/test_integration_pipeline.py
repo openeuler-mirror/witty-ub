@@ -387,7 +387,7 @@ class TestPipelineIntegration:
         assert len(detail) == 0
         logger.info("[EDGE] empty trace_index handled correctly")
 
-    def test_trace_with_missing_sdk_label_is_skipped(self):
+    def test_trace_with_worker_only_label_is_included(self):
         from latency.task.worker.kv_cache_log_parse_worker import \
             KVCacheLogParseWorker
 
@@ -406,15 +406,19 @@ class TestPipelineIntegration:
             )
             return agg, tw, anom_tids
 
+        # 新语义：Worker-only trace 不再被跳过（无 SDK 也可聚合）。
+        # Worker access 条目不提供 src/dst（非 URMA/RemotePull 链）→ "" 降级；
+        # total_ms=5.0 >= 默认阈值 5.0 → 计入时延异常。
         agg, tw, anom_tids = _run(_check())
-        assert len(agg) == 0
-        assert len(tw) == 0
-        logger.info("[EDGE] missing SDK label correctly skipped")
+        assert len(agg) == 1
+        assert agg[0].src_ip == ""
+        assert agg[0].dst_ip == ""
+        assert len(tw) == 1
+        assert "trace_missing_sdk" in anom_tids
+        logger.info("[EDGE] worker-only trace included (src/dst degrade to empty)")
 
-    # ── TDD red-phase tests: pin Fix A (IP resolution) + Fix B (status_code
-    #    anomaly). These FAIL against current generate_aggregate_result:
-    #    src/dst read from the SDK entry's SRC_ADDR/DST_ADDR (always None),
-    #    and the anomaly check only tests total_ms > threshold_ms.
+    # ── 聚合语义 pin 测试：Fix A（IP 取源：URMA→RemotePull→"" 降级链）。
+    #    状态码异常已移交通断故障部分，时延异常集合只看 total_ms 阈值。
     # ── Entry tuples are 16-element, in TupleField order:
     #    (timestamp, operation, elapsed_us, data_size, object_key, trace_id,
     #     pod_ip, status_code, resp_msg, entry_type, cluster_name, src_addr,
@@ -514,13 +518,12 @@ class TestPipelineIntegration:
             agg[0].src_ip, agg[0].dst_ip, len(anom_tids), len(tw),
         )
 
-    def test_aggregate_status_code_anomaly(self):
+    def test_status_code_anomaly_not_in_latency_anomalous_tids(self):
         from latency.task.worker.kv_cache_log_parse_worker import \
             KVCacheLogParseWorker
 
         async def _check():
-            # elapsed_us=0 -> total_ms=0.0 (below 2.0ms threshold): only the
-            # status_code=1 makes this trace anomalous.
+            # elapsed_us=0 -> total_ms=0.0（低于 5.0ms 阈值），仅 status_code=1。
             trace_index: dict = {
                 "trace_conn_fault": {
                     "SDK access parse": [
@@ -535,10 +538,14 @@ class TestPipelineIntegration:
             )
             return agg, tw, anom_tids
 
+        # 新语义：anomalous_tids 仅含时延异常；状态码异常由通断故障部分
+        # 处理，不进入时延故障的异常集合（trace 仍正常聚合）
         agg, tw, anom_tids = _run(_check())
-        assert "trace_conn_fault" in anom_tids
+        assert "trace_conn_fault" not in anom_tids
+        assert len(agg) == 1
         logger.info(
-            "[AGG-ANOM] status_code=1 marked anomalous anom=%d agg=%d tw=%d",
+            "[AGG-ANOM] status anomaly excluded from latency anom_tids "
+            "anom=%d agg=%d tw=%d",
             len(anom_tids), len(agg), len(tw),
         )
 

@@ -1,0 +1,1726 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>故障模式匹配验证报告 V2</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #333; line-height: 1.6; padding: 20px; }
+.container { max-width: 1400px; margin: 0 auto; background: #fff; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); overflow: hidden; }
+.header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 32px 40px; }
+.header h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+.header .subtitle { font-size: 14px; opacity: 0.9; }
+.content { padding: 32px 40px; }
+.section { margin-bottom: 40px; }
+.section h2 { font-size: 20px; font-weight: 700; color: #2c3e50; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 3px solid #667eea; display: inline-block; }
+.section h3 { font-size: 16px; font-weight: 600; color: #34495e; margin: 20px 0 12px 0; }
+.metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+.metric-card { background: linear-gradient(135deg, #f8f9ff 0%, #eef1ff 100%); border-radius: 12px; padding: 20px; text-align: center; border: 1px solid #e4e8f0; }
+.metric-card .value { font-size: 36px; font-weight: 800; margin-bottom: 4px; }
+.metric-card .label { font-size: 13px; color: #7f8c8d; font-weight: 500; }
+.metric-card.highlight { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; }
+.metric-card.highlight .label { color: rgba(255,255,255,0.9); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+th { background: #f8f9fa; padding: 10px 12px; text-align: left; font-weight: 600; color: #2c3e50; border-bottom: 2px solid #dee2e6; white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid #eee; white-space: nowrap; }
+tr:hover td { background: #f8f9ff; }
+.tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+.tag-latency { background: #e3f2fd; color: #1565c0; }
+.tag-mixed { background: #fff3e0; color: #e65100; }
+.tag-connectivity { background: #fce4ec; color: #c62828; }
+.tag-c0 { background: #ffcdd2; color: #c62828; }
+.tag-c1 { background: #ffe0b2; color: #e65100; }
+.tag-c2 { background: #fff9c4; color: #f57f17; }
+.tag-conf-high { background: #ef5350; color: white; }
+.tag-conf-mid { background: #ffb300; color: white; }
+.tag-conf-low { background: #66bb6a; color: white; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.three-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 900px) { .two-col, .three-col { grid-template-columns: 1fr; } .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
+.stat-bar { height: 24px; border-radius: 12px; background: #ecf0f1; overflow: hidden; position: relative; }
+.stat-bar-fill { height: 100%; border-radius: 12px; }
+.stat-bar-text { position: absolute; top: 50%; left: 8px; transform: translateY(-50%); font-size: 11px; font-weight: bold; color: #2c3e50; white-space: nowrap; }
+.insight { background: #e8f5e9; border-left: 4px solid #27ae60; padding: 12px 16px; border-radius: 8px; font-size: 13px; color: #2e7d32; margin: 16px 0; }
+.case-card { background: #fff; border-radius: 8px; margin: 15px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow: hidden; border: 1px solid #e4e8f0; }
+.case-header { padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.case-header.incorrect { background: linear-gradient(90deg, #ffebee 0%, #fff 100%); border-left: 4px solid #e74c3c; }
+.case-body { padding: 15px 20px; }
+.case-name { font-weight: bold; font-size: 14px; color: #2c3e50; }
+.confidence { font-size: 12px; color: #888; }
+.top5-list { font-size: 12px; color: #555; margin-top: 8px; }
+.top5-item { display: inline-block; margin: 2px 8px 2px 0; padding: 2px 8px; border-radius: 3px; background: #e8eaf6; }
+.top5-item.gt { background: #c8e6c9; font-weight: bold; }
+.top5-item.pred { background: #ffcdd2; }
+.filter-bar { margin: 15px 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.filter-bar button { padding: 6px 15px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; font-size: 12px; }
+.filter-bar button.active { background: #667eea; color: #fff; border-color: #667eea; }
+.filter-bar button:hover { background: #f0f4f8; }
+.filter-bar button.active:hover { background: #5a6fd6; }
+.footer { text-align: center; padding: 20px; color: #95a5a6; font-size: 12px; border-top: 1px solid #ecf0f1; }
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+<h1>🔍 灵衢 KVCache 故障诊断评估报告 V2</h1>
+<div class="subtitle">生成时间：2026-09-23 16:36:26 · 案例总数：62 · 正确：20 · 未命中：42</div>
+</div>
+<div class="content">
+<div class="section">
+<h2>📊 评估结果总览</h2>
+<div class="metrics-grid">
+<div class="metric-card"><div class="value" style="color:#667eea">62</div><div class="label">有效测试案例</div></div>
+<div class="metric-card highlight"><div class="value">32.3%</div><div class="label">Top-1 准确率</div></div>
+<div class="metric-card"><div class="value" style="color:#27ae60">50.0%</div><div class="label">Top-3 召回率</div></div>
+<div class="metric-card"><div class="value" style="color:#f39c12">53.2%</div><div class="label">Top-5 召回率</div></div>
+</div>
+
+        <div style="margin-bottom: 16px">
+            <div style="display: flex; align-items: center; margin-bottom: 6px">
+                <span class="tag tag-connectivity">通断故障</span>
+                <span style="margin-left: 10px; font-size: 13px; color: #7f8c8d">0/1 正确 (0.0%)</span>
+            </div>
+            <div class="stat-bar"><div class="stat-bar-fill" style="width: 0.0%; background: #e74c3c"></div></div>
+        </div>
+
+        <div style="margin-bottom: 16px">
+            <div style="display: flex; align-items: center; margin-bottom: 6px">
+                <span class="tag tag-latency">时延故障</span>
+                <span style="margin-left: 10px; font-size: 13px; color: #7f8c8d">9/34 正确 (26.5%)</span>
+            </div>
+            <div class="stat-bar"><div class="stat-bar-fill" style="width: 26.5%; background: #e74c3c"></div></div>
+        </div>
+
+        <div style="margin-bottom: 16px">
+            <div style="display: flex; align-items: center; margin-bottom: 6px">
+                <span class="tag tag-mixed">混合故障</span>
+                <span style="margin-left: 10px; font-size: 13px; color: #7f8c8d">11/27 正确 (40.7%)</span>
+            </div>
+            <div class="stat-bar"><div class="stat-bar-fill" style="width: 40.7%; background: #f39c12"></div></div>
+        </div>
+</div>
+<div class="section">
+<h2>🔍 系统化未命中归类分析（共 42 个未命中案例）</h2>
+<h3>📌 主分类：错误发生层级</h3>
+<div class="three-col">
+
+        <div class="metric-card" style="border-color: #ef5350">
+            <div class="value" style="color: #ef5350">29</div>
+            <div class="label" style="font-weight: 600; color: #ef5350">C0: GT完全不在Top5候选集中</div>
+            <div style="font-size: 11px; color: #999; margin-top: 4px">候选集缺失/召回率不足</div>
+            <div style="font-size: 11px; color: #666; margin-top: 4px">占比 69%</div>
+        </div>
+
+        <div class="metric-card" style="border-color: #ffa726">
+            <div class="value" style="color: #ffa726">2</div>
+            <div class="label" style="font-weight: 600; color: #ffa726">C1: GT在Top5但不在Top3</div>
+            <div style="font-size: 11px; color: #999; margin-top: 4px">排序靠后</div>
+            <div style="font-size: 11px; color: #666; margin-top: 4px">占比 5%</div>
+        </div>
+
+        <div class="metric-card" style="border-color: #ffee58">
+            <div class="value" style="color: #ffee58">11</div>
+            <div class="label" style="font-weight: 600; color: #ffee58">C2: GT在Top3但不是Top1</div>
+            <div style="font-size: 11px; color: #999; margin-top: 4px">最终排序问题</div>
+            <div style="font-size: 11px; color: #666; margin-top: 4px">占比 26%</div>
+        </div>
+</div>
+<h3>🔀 子分类：混淆模式分析</h3>
+<table><thead><tr><th>混淆模式</th><th>数量</th><th>占比</th><th>典型案例</th></tr></thead><tbody>
+
+        <tr>
+            <td><b>同家族内部混淆</b><br><span style="color:#999; font-size:11px">前缀相同但故障子类型不同</span></td>
+            <td>17</td>
+            <td><div class="stat-bar" style="min-width: 80px"><div class="stat-bar-fill" style="width: 40%; background: #667eea"></div><span class="stat-bar-text">40%</span></div></td>
+            <td style="font-family: monospace; font-size: 11px">dfx_client_process_set_exit→dfx_client_process_tcp_down; dfx_client_scale_in_...</td>
+        </tr>
+
+        <tr>
+            <td><b>Local/Remote位置混淆</b><br><span style="color:#999; font-size:11px">本地(local)故障被误判为远端(remote)，或反之</span></td>
+            <td>12</td>
+            <td><div class="stat-bar" style="min-width: 80px"><div class="stat-bar-fill" style="width: 29%; background: #667eea"></div><span class="stat-bar-text">29%</span></div></td>
+            <td style="font-family: monospace; font-size: 11px">dfx_local_ub_single_port_down→dfx_remote_ub_two_socket_single_port_down; dfx_...</td>
+        </tr>
+
+        <tr>
+            <td><b>Client/Worker角色混淆</b><br><span style="color:#999; font-size:11px">client端故障被误判为worker端，或反之</span></td>
+            <td>8</td>
+            <td><div class="stat-bar" style="min-width: 80px"><div class="stat-bar-fill" style="width: 19%; background: #667eea"></div><span class="stat-bar-text">19%</span></div></td>
+            <td style="font-family: monospace; font-size: 11px">dfx_client_process_get_ubse_failure→dfx_worker_process_net_card_loss; dfx_cli...</td>
+        </tr>
+
+        <tr>
+            <td><b>UB类型内部混淆</b><br><span style="color:#999; font-size:11px">UBM/UBSE等不同UB子类型之间的混淆</span></td>
+            <td>5</td>
+            <td><div class="stat-bar" style="min-width: 80px"><div class="stat-bar-fill" style="width: 12%; background: #667eea"></div><span class="stat-bar-text">12%</span></div></td>
+            <td style="font-family: monospace; font-size: 11px">dfx_client_process_get_ubm_failure→dfx_client_process_get_ubse_failure; dfx_l...</td>
+        </tr>
+</tbody></table>
+<h3>⚠️ 置信度分布</h3>
+<div class="three-col">
+
+        <div class="metric-card" style="border-color: #ef5350">
+            <div class="value" style="color: #ef5350">28</div>
+            <div class="label">高置信度(>0.9)</div>
+            <div style="font-size: 11px; color: #666; margin-top: 4px">占比 67%</div>
+        </div>
+
+        <div class="metric-card" style="border-color: #ffb300">
+            <div class="value" style="color: #ffb300">11</div>
+            <div class="label">中置信度(0.7-0.9)</div>
+            <div style="font-size: 11px; color: #666; margin-top: 4px">占比 26%</div>
+        </div>
+
+        <div class="metric-card" style="border-color: #66bb6a">
+            <div class="value" style="color: #66bb6a">3</div>
+            <div class="label">低置信度(<0.7)</div>
+            <div style="font-size: 11px; color: #666; margin-top: 4px">占比 7%</div>
+        </div>
+</div>
+
+    <h3>🎯 Top-K 召回分析</h3>
+    <div class="two-col">
+        <div>
+            <p style="font-size: 13px; margin-bottom: 8px"><b>未命中案例中，GT在候选集中的位置：</b></p>
+            <table>
+                <tr><th>位置</th><th>数量</th><th>占未命中比例</th></tr>
+                <tr><td>Top-2 候选（第2名）</td><td>8</td><td>19%</td></tr>
+                <tr><td>Top-3 候选内</td><td>11</td><td>26%</td></tr>
+                <tr><td>Top-5 候选内</td><td>13</td><td>31%</td></tr>
+                <tr><td>不在Top-5</td><td>29</td><td>69%</td></tr>
+            </table>
+        </div>
+        <div>
+            <div class="insight">
+                <b>💡 改进建议</b><br>
+                8个案例的GT是第二候选，仅需微调排序逻辑即可修正。<br>
+                13个案例的GT出现在Top5中，存在被召回的可能。<br>
+                29个案例的GT完全不在候选集中，需要改进候选生成逻辑。
+            </div>
+        </div>
+    </div>
+</div>
+<div class="section">
+<h2>🔥 错误热点分析</h2>
+<h3>最常见的错误模式（GT → 预测）</h3>
+<table><thead><tr><th>真实类型 (GT)</th><th>被误判为</th><th>次数</th><th>占比</th></tr></thead><tbody>
+<tr><td><code>dfx_client_init_etcd_cluster_fail</code></td><td style="color:#e74c3c"><code>dfx_worker_set_exit</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_client_process_get_exit_start</code></td><td style="color:#e74c3c"><code>dfx_worker_process_scale_in_tcp_loss</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_client_process_get_ubm_failure</code></td><td style="color:#e74c3c"><code>dfx_client_process_get_ubse_failure</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_client_process_get_ubse_failure</code></td><td style="color:#e74c3c"><code>dfx_worker_process_net_card_loss</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_client_process_scale_in_worker_hang_up</code></td><td style="color:#e74c3c"><code>dfx_worker_process_write_net_card_loss</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_client_process_set_exit</code></td><td style="color:#e74c3c"><code>dfx_client_process_tcp_down</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_client_process_set_exit_start</code></td><td style="color:#e74c3c"><code>dfx_r_discovery_worker_process_hangup</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_client_process_tcp_down</code></td><td style="color:#e74c3c"><code>dfx_worker_pod_reboot</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_client_scale_in_tcp_down</code></td><td style="color:#e74c3c"><code>dfx_client_process_get_ubm_failure</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_client_write_remote_after_ubse_fault</code></td><td style="color:#e74c3c"><code>dfx_write_remote_tcp_dalay</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_client_write_remote_worker_etcd_main_fault</code></td><td style="color:#e74c3c"><code>dfx_write_remote_tcp_dalay</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_etcd_cluster_exit</code></td><td style="color:#e74c3c"><code>dfx_client_write_remote_after_ubse_fault</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_etcd_cluster_exit_before_set</code></td><td style="color:#e74c3c"><code>dfx_client_write_remote_after_ubse_fault</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_local_ub_all_port_down</code></td><td style="color:#e74c3c"><code>dfx_write_remote_tcp_dalay</code></td><td>1</td><td>2%</td></tr>
+<tr><td><code>dfx_local_ub_all_port_lanedown</code></td><td style="color:#e74c3c"><code>dfx_local_ub_all_port_down</code></td><td>1</td><td>2%</td></tr>
+</tbody></table>
+<h3>最容易被误判的GT类型</h3>
+<table><thead><tr><th>GT类型</th><th>误判次数</th><th>可能被误判为</th></tr></thead><tbody>
+<tr><td><code>dfx_client_init_etcd_cluster_fail</code></td><td>1</td><td style="font-family: monospace; font-size: 11px; color: #e74c3c">dfx_worker_set_exit</td></tr>
+<tr><td><code>dfx_client_process_get_exit_start</code></td><td>1</td><td style="font-family: monospace; font-size: 11px; color: #e74c3c">dfx_worker_process_scale_in_tcp_loss</td></tr>
+<tr><td><code>dfx_client_process_get_ubm_failure</code></td><td>1</td><td style="font-family: monospace; font-size: 11px; color: #e74c3c">dfx_client_process_get_ubse_failure</td></tr>
+<tr><td><code>dfx_client_process_get_ubse_failure</code></td><td>1</td><td style="font-family: monospace; font-size: 11px; color: #e74c3c">dfx_worker_process_net_card_loss</td></tr>
+<tr><td><code>dfx_client_process_scale_in_worker_hang_up</code></td><td>1</td><td style="font-family: monospace; font-size: 11px; color: #e74c3c">dfx_worker_process_write_net_card_loss</td></tr>
+<tr><td><code>dfx_client_process_set_exit</code></td><td>1</td><td style="font-family: monospace; font-size: 11px; color: #e74c3c">dfx_client_process_tcp_down</td></tr>
+<tr><td><code>dfx_client_process_set_exit_start</code></td><td>1</td><td style="font-family: monospace; font-size: 11px; color: #e74c3c">dfx_r_discovery_worker_process_hangup</td></tr>
+<tr><td><code>dfx_client_process_tcp_down</code></td><td>1</td><td style="font-family: monospace; font-size: 11px; color: #e74c3c">dfx_worker_pod_reboot</td></tr>
+<tr><td><code>dfx_client_scale_in_tcp_down</code></td><td>1</td><td style="font-family: monospace; font-size: 11px; color: #e74c3c">dfx_client_process_get_ubm_failure</td></tr>
+<tr><td><code>dfx_client_write_remote_after_ubse_fault</code></td><td>1</td><td style="font-family: monospace; font-size: 11px; color: #e74c3c">dfx_write_remote_tcp_dalay</td></tr>
+</tbody></table>
+<h3>最常被错误预测的目标类型</h3>
+<table><thead><tr><th>预测类型</th><th>被错误预测次数</th><th>预测置信度均值</th></tr></thead><tbody>
+<tr><td><code>dfx_write_remote_tcp_dalay</code></td><td>5</td><td>0.938</td></tr>
+<tr><td><code>dfx_local_ub_single_socket_two_port_down</code></td><td>4</td><td>0.911</td></tr>
+<tr><td><code>dfx_worker_set_exit</code></td><td>2</td><td>0.854</td></tr>
+<tr><td><code>dfx_worker_process_net_card_loss</code></td><td>2</td><td>0.785</td></tr>
+<tr><td><code>dfx_r_discovery_worker_process_hangup</code></td><td>2</td><td>0.836</td></tr>
+<tr><td><code>dfx_client_write_remote_after_ubse_fault</code></td><td>2</td><td>0.912</td></tr>
+<tr><td><code>dfx_local_ub_all_port_down</code></td><td>2</td><td>0.895</td></tr>
+<tr><td><code>dfx_local_ub_single_port_down</code></td><td>2</td><td>0.644</td></tr>
+<tr><td><code>dfx_worker_process_remote_ub_ce</code></td><td>2</td><td>0.968</td></tr>
+<tr><td><code>dfx_worker_process_remote_get_etcd_main_fail</code></td><td>2</td><td>0.900</td></tr>
+</tbody></table>
+</div>
+<div class="section">
+<h2>📈 分故障类型详细分析</h2>
+
+        <div style="margin-bottom: 30px; padding: 20px; background: #fafbfc; border-radius: 8px; border: 1px solid #e4e8f0">
+            <h3><span class="tag tag-connectivity">通断故障</span> 准确率: 0.0% (0/1)</h3>
+<p style="font-size: 13px; color: #7f8c8d; margin: 8px 0 12px"><b>未命中子分类分布：</b>
+<span style="margin-right: 16px; font-size: 12px">同家族内部混淆: <b>1</b> (100%)</span>
+</p>
+</div>
+
+        <div style="margin-bottom: 30px; padding: 20px; background: #fafbfc; border-radius: 8px; border: 1px solid #e4e8f0">
+            <h3><span class="tag tag-latency">时延故障</span> 准确率: 26.5% (9/34)</h3>
+<p style="font-size: 13px; color: #7f8c8d; margin: 8px 0 12px"><b>未命中子分类分布：</b>
+<span style="margin-right: 16px; font-size: 12px">同家族内部混淆: <b>10</b> (40%)</span>
+<span style="margin-right: 16px; font-size: 12px">Local/Remote位置混淆: <b>7</b> (28%)</span>
+<span style="margin-right: 16px; font-size: 12px">Client/Worker角色混淆: <b>6</b> (24%)</span>
+<span style="margin-right: 16px; font-size: 12px">UB类型内部混淆: <b>2</b> (8%)</span>
+</p>
+</div>
+
+        <div style="margin-bottom: 30px; padding: 20px; background: #fafbfc; border-radius: 8px; border: 1px solid #e4e8f0">
+            <h3><span class="tag tag-mixed">混合故障</span> 准确率: 40.7% (11/27)</h3>
+<p style="font-size: 13px; color: #7f8c8d; margin: 8px 0 12px"><b>未命中子分类分布：</b>
+<span style="margin-right: 16px; font-size: 12px">同家族内部混淆: <b>6</b> (38%)</span>
+<span style="margin-right: 16px; font-size: 12px">Local/Remote位置混淆: <b>5</b> (31%)</span>
+<span style="margin-right: 16px; font-size: 12px">UB类型内部混淆: <b>3</b> (19%)</span>
+<span style="margin-right: 16px; font-size: 12px">Client/Worker角色混淆: <b>2</b> (12%)</span>
+</p>
+</div>
+</div>
+<div class="section">
+<h2>📋 未命中案例详情</h2>
+
+    <div class="filter-bar">
+        <button class="active" onclick="filterCases('all')">全部 (42)</button>
+        <button onclick="filterCases('C0')">C0: GT不在Top5 (29)</button>
+        <button onclick="filterCases('C1')">C1: GT在Top5非Top3 (2)</button>
+        <button onclick="filterCases('C2')">C2: GT在Top3非Top1 (11)</button>
+        <button onclick="filterCases('latency')">时延类 (25)</button>
+        <button onclick="filterCases('mixed')">混合类 (16)</button>
+        <button onclick="filterCases('connectivity')">通断类 (1)</button>
+    </div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_client_init_etcd_cluster_fail</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Client/Worker角色混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9383</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_set_exit (置信度 0.9383)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_set_exit (0.9383)</span>
+<span class="top5-item ">dfx_client_process_tcp_down (0.9383)</span>
+<span class="top5-item ">dfx_worker_process_local_get_etcd_main_fail (0.9383)</span>
+<span class="top5-item pred">dfx_worker_set_exit (0.9383)</span>
+<span class="top5-item ">dfx_client_process_get_exit_start (0.9382)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(20%) &gt; sdk_process(20%) &gt; worker_total_latency(20%) &gt; remote_worker_rpc(20%) &gt; remote_worker_cost(20%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_client_process_get_exit_start</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Client/Worker角色混淆</span>
+                    <span class="tag tag-conf-mid">中置信度(0.7-0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.7903</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_scale_in_tcp_loss (置信度 0.7903)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_scale_in_tcp_loss (0.7903)</span>
+<span class="top5-item ">dfx_worker_set_exit (0.6959)</span>
+<span class="top5-item ">dfx_worker_set_exit (0.6958)</span>
+<span class="top5-item ">dfx_client_process_tcp_down (0.6958)</span>
+<span class="top5-item ">dfx_worker_set_exit (0.6958)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>49.892</td><td>异常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>remote_worker_cost(28%) &gt; urma_total_latency(28%) &gt; total_latency(15%) &gt; sdk_process(14%) &gt; worker_total_latency(14%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C2" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_client_process_get_ubm_failure</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c2">C2</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">UB类型内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9385</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_client_process_get_ubse_failure (置信度 0.9385)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_client_process_get_ubse_failure (0.9385)</span>
+<span class="top5-item gt">dfx_client_process_get_ubm_failure (0.9385)</span>
+<span class="top5-item ">dfx_client_process_get_exit_start (0.7487)</span>
+<span class="top5-item ">dfx_worker_process_local_get_etcd_main_fail (0.7486)</span>
+<span class="top5-item ">dfx_client_process_tcp_down (0.7486)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(25%) &gt; sdk_process(25%) &gt; worker_total_latency(25%) &gt; worker_query_meta_latency(25%) &gt; c2w_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C2" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_client_process_get_ubse_failure</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c2">C2</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Client/Worker角色混淆</span>
+                    <span class="tag tag-conf-mid">中置信度(0.7-0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.7707</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_net_card_loss (置信度 0.7707)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_net_card_loss (0.7707)</span>
+<span class="top5-item gt">dfx_client_process_get_ubse_failure (0.7409)</span>
+<span class="top5-item ">dfx_client_process_get_ubm_failure (0.7409)</span>
+<span class="top5-item ">dfx_worker_process_local_ub_link_down (0.6533)</span>
+<span class="top5-item ">dfx_worker_process_upgrade_etcd_fault (0.6532)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>85.178</td><td>异常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>worker_query_meta_latency(40%) &gt; total_latency(20%) &gt; sdk_process(20%) &gt; worker_total_latency(20%) &gt; remote_worker_rpc(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C2" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_client_process_scale_in_worker_hang_up</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c2">C2</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Client/Worker角色混淆</span>
+                    <span class="tag tag-conf-mid">中置信度(0.7-0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.8984</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_write_net_card_loss (置信度 0.8984)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_write_net_card_loss (0.8984)</span>
+<span class="top5-item gt">dfx_client_process_scale_in_worker_hang_up (0.8849)</span>
+<span class="top5-item ">dfx_ps_n_n (0.8848)</span>
+<span class="top5-item ">dfx_remote_ub_all_port_down (0.8845)</span>
+<span class="top5-item ">dfx_remote_ub_single_socket_two_port_down (0.8845)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.086</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>multi_pod</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>4</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_client_process_set_exit</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9384</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_client_process_tcp_down (置信度 0.9384)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_client_process_tcp_down (0.9384)</span>
+<span class="top5-item ">dfx_worker_process_local_get_etcd_main_fail (0.9384)</span>
+<span class="top5-item ">dfx_worker_set_exit (0.9384)</span>
+<span class="top5-item ">dfx_client_process_get_exit_start (0.9384)</span>
+<span class="top5-item ">dfx_worker_set_exit (0.9382)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(20%) &gt; sdk_process(20%) &gt; worker_total_latency(20%) &gt; remote_worker_rpc(20%) &gt; remote_worker_cost(20%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_client_process_set_exit_start</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Client/Worker角色混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9147</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_r_discovery_worker_process_hangup (置信度 0.9147)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_r_discovery_worker_process_hangup (0.9147)</span>
+<span class="top5-item ">dfx_remote_ub_single_socket_two_port_down (0.9009)</span>
+<span class="top5-item ">dfx_remote_ub_all_port_down (0.9008)</span>
+<span class="top5-item ">dfx_client_process_scale_in_worker_hang_up (0.9004)</span>
+<span class="top5-item ">dfx_ps_n_n (0.9001)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_client_process_tcp_down</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Client/Worker角色混淆</span>
+                    <span class="tag tag-conf-low">低置信度(<0.7)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.6605</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_pod_reboot (置信度 0.6605)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_pod_reboot (0.6605)</span>
+<span class="top5-item ">dfx_client_process_get_ubm_failure (0.6370)</span>
+<span class="top5-item ">dfx_client_process_get_ubse_failure (0.6365)</span>
+<span class="top5-item ">dfx_local_ub_single_socket_two_port_down (0.6244)</span>
+<span class="top5-item ">dfx_client_scale_in_tcp_down (0.6222)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>74.596</td><td>异常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; sdk_process(1%) &gt; remote_worker_rpc(1%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_runtime_1377:3, kvcache_runtime_2295:2, kvcache_runtime_2303:2, kvcache_runtime_1603:2, kvcache_access_021:2</td><td>-</td></tr>
+        <tr><td>status_code</td><td>1002:2</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_client_scale_in_tcp_down</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-mid">中置信度(0.7-0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.7732</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_client_process_get_ubm_failure (置信度 0.7732)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_client_process_get_ubm_failure (0.7732)</span>
+<span class="top5-item ">dfx_client_process_get_ubse_failure (0.7627)</span>
+<span class="top5-item ">dfx_worker_pod_reboot (0.7297)</span>
+<span class="top5-item ">dfx_local_ub_single_socket_two_port_down (0.7182)</span>
+<span class="top5-item ">dfx_r_etcd_fail_client_update (0.7105)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.003</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_access_021:462, kvcache_runtime_1377:345, kvcache_runtime_2295:345, kvcache_runtime_2303:345, kvcache_runtime_106:230 +6</td><td>-</td></tr>
+        <tr><td>status_code</td><td>1002:462</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_client_write_remote_after_ubse_fault</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9384</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_write_remote_tcp_dalay (置信度 0.9384)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_write_remote_tcp_dalay (0.9384)</span>
+<span class="top5-item pred">dfx_write_remote_tcp_dalay (0.9383)</span>
+<span class="top5-item ">dfx_local_ub_all_port_link_loss (0.9383)</span>
+<span class="top5-item ">dfx_client_write_remote_after_ubm_fault (0.9383)</span>
+<span class="top5-item ">dfx_remote_ub_two_socket_single_port_down (0.9383)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.001</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_client_write_remote_worker_etcd_main_fault</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9385</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_write_remote_tcp_dalay (置信度 0.9385)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_write_remote_tcp_dalay (0.9385)</span>
+<span class="top5-item pred">dfx_write_remote_tcp_dalay (0.9385)</span>
+<span class="top5-item ">dfx_local_ub_all_port_link_loss (0.9384)</span>
+<span class="top5-item ">dfx_remote_ub_two_socket_single_port_down (0.9384)</span>
+<span class="top5-item ">dfx_remote_ub_single_port_down (0.9384)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C1" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_etcd_cluster_exit</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c1">C1</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9120</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_client_write_remote_after_ubse_fault (置信度 0.9120)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_client_write_remote_after_ubse_fault (0.9120)</span>
+<span class="top5-item pred">dfx_client_write_remote_after_ubse_fault (0.9120)</span>
+<span class="top5-item ">dfx_client_write_remote_after_ubm_fault (0.9120)</span>
+<span class="top5-item gt">dfx_etcd_cluster_exit (0.9107)</span>
+<span class="top5-item ">dfx_client_write_remote_worker_etcd_main_fault (0.9083)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.520</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_etcd_cluster_exit_before_set</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9120</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_client_write_remote_after_ubse_fault (置信度 0.9120)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_client_write_remote_after_ubse_fault (0.9120)</span>
+<span class="top5-item pred">dfx_client_write_remote_after_ubse_fault (0.9120)</span>
+<span class="top5-item ">dfx_client_write_remote_after_ubm_fault (0.9119)</span>
+<span class="top5-item ">dfx_etcd_cluster_exit (0.9111)</span>
+<span class="top5-item ">dfx_client_write_remote_worker_etcd_main_fault (0.9094)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.507</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_local_ub_all_port_down</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Local/Remote位置混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9385</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_write_remote_tcp_dalay (置信度 0.9385)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_write_remote_tcp_dalay (0.9385)</span>
+<span class="top5-item pred">dfx_write_remote_tcp_dalay (0.9384)</span>
+<span class="top5-item ">dfx_local_ub_all_port_link_loss (0.9384)</span>
+<span class="top5-item ">dfx_remote_ub_two_socket_single_port_down (0.9384)</span>
+<span class="top5-item ">dfx_remote_ub_single_port_down (0.9384)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_local_ub_all_port_lanedown</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">UB类型内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9092</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_local_ub_all_port_down (置信度 0.9092)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_local_ub_all_port_down (0.9092)</span>
+<span class="top5-item ">dfx_local_ub_two_socket_single_port_down (0.8839)</span>
+<span class="top5-item ">dfx_client_write_remote_worker_etcd_main_fault (0.8769)</span>
+<span class="top5-item ">dfx_client_write_remote_after_ubse_fault (0.8769)</span>
+<span class="top5-item ">dfx_local_ub_single_port_down (0.8769)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>36.436</td><td>异常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C2" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_local_ub_all_port_link_loss</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c2">C2</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Local/Remote位置混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9385</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_remote_ub_single_port_down (置信度 0.9385)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_remote_ub_single_port_down (0.9385)</span>
+<span class="top5-item ">dfx_remote_ub_two_socket_single_port_down (0.9385)</span>
+<span class="top5-item gt">dfx_local_ub_all_port_link_loss (0.9385)</span>
+<span class="top5-item ">dfx_local_ub_all_port_lanedown (0.9385)</span>
+<span class="top5-item ">dfx_local_ub_single_port_down (0.9385)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C1" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_local_ub_single_port_down</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c1">C1</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Local/Remote位置混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9385</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_remote_ub_two_socket_single_port_down (置信度 0.9385)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_remote_ub_two_socket_single_port_down (0.9385)</span>
+<span class="top5-item ">dfx_remote_ub_single_port_down (0.9385)</span>
+<span class="top5-item ">dfx_local_ub_all_port_link_loss (0.9385)</span>
+<span class="top5-item ">dfx_local_ub_all_port_lanedown (0.9385)</span>
+<span class="top5-item gt">dfx_local_ub_single_port_down (0.9385)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_local_ub_two_port_flashdown</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Local/Remote位置混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9385</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_write_remote_tcp_dalay (置信度 0.9385)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_write_remote_tcp_dalay (0.9385)</span>
+<span class="top5-item pred">dfx_write_remote_tcp_dalay (0.9384)</span>
+<span class="top5-item ">dfx_local_ub_all_port_link_loss (0.9384)</span>
+<span class="top5-item ">dfx_remote_ub_two_socket_single_port_down (0.9384)</span>
+<span class="top5-item ">dfx_remote_ub_single_port_down (0.9384)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_local_ub_two_socket_single_port_down</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">UB类型内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9943</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_local_ub_two_port_flashdown (置信度 0.9943)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_local_ub_two_port_flashdown (0.9943)</span>
+<span class="top5-item ">dfx_remote_ub_single_socket_two_port_down (0.9171)</span>
+<span class="top5-item ">dfx_remote_ub_all_port_down (0.9083)</span>
+<span class="top5-item ">dfx_ps_n_n (0.7703)</span>
+<span class="top5-item ">dfx_worker_reboot_single_node (0.5675)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>34.374</td><td>异常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>0.021</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>1</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_access_022:12288, kvcache_runtime_1036:12288, kvcache_runtime_1051:12288, kvcache_runtime_1056:12288, kvcache_runtime_1065:12288 +3</td><td>-</td></tr>
+        <tr><td>status_code</td><td>1004:12288</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_r_etcd_fail_client_update</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9385</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_write_remote_tcp_dalay (置信度 0.9385)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_write_remote_tcp_dalay (0.9385)</span>
+<span class="top5-item ">dfx_local_ub_all_port_link_loss (0.9384)</span>
+<span class="top5-item ">dfx_remote_ub_two_socket_single_port_down (0.9384)</span>
+<span class="top5-item pred">dfx_write_remote_tcp_dalay (0.9384)</span>
+<span class="top5-item ">dfx_remote_ub_single_port_down (0.9384)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_remote_ub_single_port_down</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Local/Remote位置混淆</span>
+                    <span class="tag tag-conf-mid">中置信度(0.7-0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.8803</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_local_ub_all_port_down (置信度 0.8803)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_local_ub_all_port_down (0.8803)</span>
+<span class="top5-item ">dfx_r_worker_process_set_exit (0.8790)</span>
+<span class="top5-item ">dfx_local_ub_two_socket_single_port_down (0.8777)</span>
+<span class="top5-item ">dfx_client_write_remote_after_ubse_fault (0.8772)</span>
+<span class="top5-item ">dfx_client_write_remote_after_ubm_fault (0.8772)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>16.711</td><td>异常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_remote_ub_single_socket_two_port_down</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Local/Remote位置混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9385</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_local_ub_single_port_down (置信度 0.9385)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_local_ub_single_port_down (0.9385)</span>
+<span class="top5-item ">dfx_local_ub_all_port_lanedown (0.9385)</span>
+<span class="top5-item ">dfx_remote_ub_single_port_down (0.9384)</span>
+<span class="top5-item ">dfx_remote_ub_two_socket_single_port_down (0.9384)</span>
+<span class="top5-item ">dfx_local_ub_all_port_link_loss (0.9384)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C2" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_remote_ub_two_socket_single_port_down</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c2">C2</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Local/Remote位置混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9385</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_local_ub_all_port_link_loss (置信度 0.9385)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_local_ub_all_port_link_loss (0.9385)</span>
+<span class="top5-item gt">dfx_remote_ub_two_socket_single_port_down (0.9385)</span>
+<span class="top5-item ">dfx_remote_ub_single_port_down (0.9385)</span>
+<span class="top5-item ">dfx_local_ub_all_port_lanedown (0.9385)</span>
+<span class="top5-item ">dfx_local_ub_single_port_down (0.9385)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%) &gt; urma_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="connectivity">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_sdk_install_etcd_down</span>
+                    <span class="tag tag-connectivity">connectivity</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-low">低置信度(<0.7)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.3503</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_local_ub_single_port_down (置信度 0.3503)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_local_ub_single_port_down (0.3503)</span>
+<span class="top5-item ">dfx_worker_reboot_single_node (0.1121)</span>
+<span class="top5-item ">dfx_r_etcd_fail_client_update (0.1118)</span>
+<span class="top5-item ">dfx_local_ub_single_socket_two_port_down (0.1078)</span>
+<span class="top5-item ">dfx_client_process_get_ubse_failure (0.1030)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>connectivity</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_access_005:351, kvcache_runtime_2788:90, kvcache_runtime_2295:90, kvcache_runtime_2303:90, kvcache_runtime_106:90 +1</td><td>-</td></tr>
+        <tr><td>status_code</td><td>5:351</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_sdk_install_etcd_unavailable</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-mid">中置信度(0.7-0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.8839</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_local_ub_single_socket_two_port_down (置信度 0.8839)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_local_ub_single_socket_two_port_down (0.8839)</span>
+<span class="top5-item ">dfx_worker_process_write_net_card_loss (0.8833)</span>
+<span class="top5-item ">dfx_remote_ub_single_socket_two_port_down (0.8698)</span>
+<span class="top5-item ">dfx_remote_ub_all_port_down (0.8698)</span>
+<span class="top5-item ">dfx_client_process_scale_in_worker_hang_up (0.8693)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.328</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>multi_pod</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>4</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_exit_single_node</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9360</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_local_ub_single_socket_two_port_down (置信度 0.9360)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_local_ub_single_socket_two_port_down (0.9360)</span>
+<span class="top5-item ">dfx_r_etcd_fail_client_update (0.9098)</span>
+<span class="top5-item ">dfx_client_process_get_ubse_failure (0.8745)</span>
+<span class="top5-item ">dfx_client_process_get_ubm_failure (0.8741)</span>
+<span class="top5-item ">dfx_client_scale_in_tcp_down (0.8269)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>72.029</td><td>异常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>0.177</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_access_005:390, kvcache_runtime_2303:270, kvcache_runtime_2295:242, kvcache_runtime_106:242, kvcache_runtime_2788:186 +4</td><td>-</td></tr>
+        <tr><td>status_code</td><td>5:390, 3:84, 1002:56</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_local_ub_link_down</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Local/Remote位置混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9621</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_remote_ub_ce (置信度 0.9621)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_remote_ub_ce (0.9621)</span>
+<span class="top5-item ">dfx_worker_process_remote_local_ub_lane_down (0.9578)</span>
+<span class="top5-item ">dfx_worker_process_remote_local_ub_link_loss (0.9365)</span>
+<span class="top5-item ">dfx_worker_process_remote_local_ub_flash_down (0.8897)</span>
+<span class="top5-item ">dfx_worker_process_remote_remote_ub_single_port_down (0.8785)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.034</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(22%) &gt; sdk_process(21%) &gt; worker_total_latency(21%) &gt; remote_worker_rpc(20%) &gt; remote_worker_cost(16%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_access_021:297, kvcache_runtime_949:297, kvcache_runtime_1377:246, kvcache_runtime_2115:198, kvcache_runtime_2117:198 +5</td><td>-</td></tr>
+        <tr><td>status_code</td><td>1002:297</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C2" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_remote_local_ub_flash_down</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c2">C2</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Local/Remote位置混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9747</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_remote_ub_ce (置信度 0.9747)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_remote_ub_ce (0.9747)</span>
+<span class="top5-item ">dfx_worker_process_remote_local_ub_lane_down (0.9664)</span>
+<span class="top5-item gt">dfx_worker_process_remote_local_ub_flash_down (0.9361)</span>
+<span class="top5-item ">dfx_worker_process_remote_ub_fe (0.9348)</span>
+<span class="top5-item ">dfx_worker_process_remote_remote_ub_single_port_down (0.9311)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.011</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(22%) &gt; sdk_process(20%) &gt; worker_total_latency(20%) &gt; remote_worker_rpc(20%) &gt; remote_worker_cost(18%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_runtime_949:183, kvcache_runtime_906:66, kvcache_runtime_2117:39, kvcache_runtime_2115:39, kvcache_runtime_2116:39 +8</td><td>-</td></tr>
+        <tr><td>status_code</td><td>1002:36, 5:18</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_remote_local_ub_single_port_down</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Local/Remote位置混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9819</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_remote_local_ub_link_loss (置信度 0.9819)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_remote_local_ub_link_loss (0.9819)</span>
+<span class="top5-item ">dfx_worker_process_remote_local_ub_lane_down (0.9658)</span>
+<span class="top5-item ">dfx_worker_process_remote_ub_ce (0.9394)</span>
+<span class="top5-item ">dfx_worker_process_remote_local_ub_flash_down (0.8800)</span>
+<span class="top5-item ">dfx_worker_process_remote_ub_fe (0.8437)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.004</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(22%) &gt; sdk_process(20%) &gt; worker_total_latency(20%) &gt; remote_worker_rpc(19%) &gt; remote_worker_cost(19%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_runtime_949:878, kvcache_runtime_1377:443, kvcache_runtime_2117:335, kvcache_runtime_2115:335, kvcache_runtime_2116:335 +8</td><td>-</td></tr>
+        <tr><td>status_code</td><td>1002:218, 5:8</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C2" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_remote_remote_ub_single_port_down</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c2">C2</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">UB类型内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9955</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_remote_ub_fe (置信度 0.9955)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_remote_ub_fe (0.9955)</span>
+<span class="top5-item gt">dfx_worker_process_remote_remote_ub_single_port_down (0.9876)</span>
+<span class="top5-item ">dfx_worker_process_remote_get_etcd_main_fail (0.9512)</span>
+<span class="top5-item ">dfx_worker_process_remote_ub_ce (0.9204)</span>
+<span class="top5-item ">dfx_worker_process_remote_local_ub_lane_down (0.9034)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.449</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(21%) &gt; sdk_process(20%) &gt; worker_total_latency(20%) &gt; remote_worker_rpc(20%) &gt; remote_worker_cost(19%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_runtime_949:15, kvcache_runtime_906:10, kvcache_runtime_2114:8, kvcache_runtime_2117:7, kvcache_runtime_2115:7 +8</td><td>-</td></tr>
+        <tr><td>status_code</td><td>5:6, 1002:4</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C2" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_remote_ub_ce</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c2">C2</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Local/Remote位置混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9669</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_remote_local_ub_single_port_down (置信度 0.9669)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_remote_local_ub_single_port_down (0.9669)</span>
+<span class="top5-item ">dfx_worker_process_remote_local_ub_flash_down (0.8340)</span>
+<span class="top5-item gt">dfx_worker_process_remote_ub_ce (0.8339)</span>
+<span class="top5-item ">dfx_worker_process_remote_local_ub_lane_down (0.8124)</span>
+<span class="top5-item ">dfx_worker_process_remote_local_ub_link_loss (0.7716)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>16.502</td><td>异常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>remote_worker_rpc(29%) &gt; remote_worker_cost(27%) &gt; total_latency(16%) &gt; sdk_process(15%) &gt; worker_total_latency(15%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_runtime_949:5, kvcache_runtime_906:4, kvcache_runtime_1377:2, kvcache_runtime_2117:2, kvcache_runtime_2115:2 +5</td><td>-</td></tr>
+        <tr><td>status_code</td><td>1002:2</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C2" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_remote_ub_fe</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c2">C2</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9134</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_remote_get_etcd_main_fail (置信度 0.9134)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_remote_get_etcd_main_fail (0.9134)</span>
+<span class="top5-item gt">dfx_worker_process_remote_ub_fe (0.8866)</span>
+<span class="top5-item ">dfx_worker_process_remote_remote_ub_single_port_down (0.8758)</span>
+<span class="top5-item ">dfx_worker_process_remote_local_ub_flash_down (0.8345)</span>
+<span class="top5-item ">dfx_worker_process_remote_ub_ce (0.7683)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.018</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>remote_worker_cost(21%) &gt; total_latency(20%) &gt; sdk_process(20%) &gt; worker_total_latency(20%) &gt; remote_worker_rpc(20%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_runtime_2114:8, kvcache_access_005:6, kvcache_runtime_2117:4, kvcache_runtime_2115:4, kvcache_runtime_2116:4 +3</td><td>-</td></tr>
+        <tr><td>status_code</td><td>5:6</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_remote_ub_nfe</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-mid">中置信度(0.7-0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.8868</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_remote_get_etcd_main_fail (置信度 0.8868)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_remote_get_etcd_main_fail (0.8868)</span>
+<span class="top5-item ">dfx_worker_process_remote_ub_fe (0.8603)</span>
+<span class="top5-item ">dfx_worker_process_remote_remote_ub_single_port_down (0.8512)</span>
+<span class="top5-item ">dfx_worker_process_remote_local_ub_flash_down (0.7836)</span>
+<span class="top5-item ">dfx_worker_process_remote_local_ub_single_port_down (0.7599)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>remote_worker_rpc(24%) &gt; remote_worker_cost(24%) &gt; total_latency(18%) &gt; sdk_process(17%) &gt; worker_total_latency(17%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_runtime_2114:8, kvcache_access_005:6, kvcache_runtime_2117:4, kvcache_runtime_2115:4, kvcache_runtime_2116:4 +3</td><td>-</td></tr>
+        <tr><td>status_code</td><td>5:6</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_remote_ub_single_link_down</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-mid">中置信度(0.7-0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.8001</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_net_card_loss (置信度 0.8001)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_net_card_loss (0.8001)</span>
+<span class="top5-item ">dfx_client_process_get_ubse_failure (0.7440)</span>
+<span class="top5-item ">dfx_client_process_get_ubm_failure (0.7440)</span>
+<span class="top5-item ">dfx_worker_process_upgrade_etcd_fault (0.7228)</span>
+<span class="top5-item ">dfx_worker_process_local_ub_link_down (0.7228)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(24%) &gt; worker_total_latency(20%) &gt; sdk_process(20%) &gt; worker_query_meta_latency(18%) &gt; master_rpc_total(18%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_scale_in_client_exit</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Client/Worker角色混淆</span>
+                    <span class="tag tag-conf-mid">中置信度(0.7-0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.7701</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_set_exit (置信度 0.7701)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_set_exit (0.7701)</span>
+<span class="top5-item pred">dfx_worker_set_exit (0.7700)</span>
+<span class="top5-item ">dfx_client_process_get_exit_start (0.7699)</span>
+<span class="top5-item ">dfx_worker_process_local_get_etcd_main_fail (0.7699)</span>
+<span class="top5-item pred">dfx_worker_set_exit (0.7699)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.319</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>worker_query_meta_latency(23%) &gt; total_latency(21%) &gt; worker_total_latency(21%) &gt; remote_worker_rpc(18%) &gt; remote_worker_cost(18%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C2" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_scale_in_remote_ub_link_down</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c2">C2</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Client/Worker角色混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9178</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_client_init_etcd_cluster_fail (置信度 0.9178)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_client_init_etcd_cluster_fail (0.9178)</span>
+<span class="top5-item gt">dfx_worker_process_scale_in_remote_ub_link_down (0.8704)</span>
+<span class="top5-item ">dfx_worker_process_scale_in_remote_ub_nfe (0.8698)</span>
+<span class="top5-item ">dfx_worker_set_exit (0.7908)</span>
+<span class="top5-item ">dfx_worker_set_exit (0.7907)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(50%) &gt; worker_total_latency(50%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%) &gt; sdk_process(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_access_003:316, kvcache_runtime_1696:316, kvcache_runtime_1711:316, kvcache_runtime_1706:316, kvcache_runtime_2173:316 +2</td><td>-</td></tr>
+        <tr><td>status_code</td><td>3:316</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C2" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_scale_in_remote_ub_nfe</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c2">C2</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">UB类型内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9547</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_scale_in_remote_ub_link_down (置信度 0.9547)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_scale_in_remote_ub_link_down (0.9547)</span>
+<span class="top5-item gt">dfx_worker_process_scale_in_remote_ub_nfe (0.9541)</span>
+<span class="top5-item ">dfx_worker_set_exit (0.9022)</span>
+<span class="top5-item ">dfx_client_init_etcd_cluster_fail (0.8907)</span>
+<span class="top5-item ">dfx_worker_set_exit (0.8739)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.001</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>multi_pod</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(50%) &gt; worker_total_latency(50%) &gt; sdk_process(0%) &gt; c2w_latency(0%) &gt; c2w_urma_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>4</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_access_003:632, kvcache_runtime_1696:632, kvcache_runtime_1711:632, kvcache_runtime_1706:632, kvcache_runtime_2173:632 +2</td><td>-</td></tr>
+        <tr><td>status_code</td><td>3:632</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_scale_in_tcp_down</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9383</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_local_get_etcd_main_fail (置信度 0.9383)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_local_get_etcd_main_fail (0.9383)</span>
+<span class="top5-item ">dfx_client_process_get_exit_start (0.9383)</span>
+<span class="top5-item ">dfx_worker_set_exit (0.9383)</span>
+<span class="top5-item ">dfx_client_process_tcp_down (0.9383)</span>
+<span class="top5-item ">dfx_worker_set_exit (0.9381)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.000</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(20%) &gt; sdk_process(20%) &gt; worker_total_latency(20%) &gt; remote_worker_rpc(20%) &gt; remote_worker_cost(20%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_scale_in_tcp_loss</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-low">低置信度(<0.7)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.6807</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_worker_process_set_exit (置信度 0.6807)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_worker_process_set_exit (0.6807)</span>
+<span class="top5-item ">dfx_worker_process_scale_in_tcp_down (0.6435)</span>
+<span class="top5-item ">dfx_client_init_etcd_cluster_fail (0.6334)</span>
+<span class="top5-item ">dfx_worker_set_exit (0.6083)</span>
+<span class="top5-item ">dfx_worker_process_scale_in_remote_ub_nfe (0.5931)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.274</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; sdk_process(22%) &gt; worker_total_latency(22%) &gt; c2w_latency(12%) &gt; c2w_urma_latency(12%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>0.008</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_access_003:6144, kvcache_runtime_1696:3106, kvcache_runtime_1711:3106, kvcache_access_022:2048, kvcache_runtime_2529:1224</td><td>-</td></tr>
+        <tr><td>status_code</td><td>3:6144, 1004:2048</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="latency">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_process_write_net_card_loss</span>
+                    <span class="tag tag-latency">latency</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-mid">中置信度(0.7-0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.7570</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_r_discovery_worker_process_hangup (置信度 0.7570)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_r_discovery_worker_process_hangup (0.7570)</span>
+<span class="top5-item ">dfx_client_process_set_exit_start (0.7427)</span>
+<span class="top5-item ">dfx_ps_n_n (0.7409)</span>
+<span class="top5-item ">dfx_client_process_scale_in_worker_hang_up (0.7408)</span>
+<span class="top5-item ">dfx_remote_ub_all_port_down (0.7407)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>latency</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>1.014</td><td>正常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(25%) &gt; c2w_latency(25%) &gt; c2w_urma_latency(25%) &gt; master_rpc_total(25%) &gt; worker_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>1.000</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>3</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_worker_reboot_single_node</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">同家族内部混淆</span>
+                    <span class="tag tag-conf-high">高置信度(>0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.9380</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_local_ub_single_socket_two_port_down (置信度 0.9380)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_local_ub_single_socket_two_port_down (0.9380)</span>
+<span class="top5-item ">dfx_r_etcd_fail_client_update (0.9094)</span>
+<span class="top5-item ">dfx_client_process_get_ubm_failure (0.8763)</span>
+<span class="top5-item ">dfx_client_process_get_ubse_failure (0.8762)</span>
+<span class="top5-item ">dfx_client_scale_in_tcp_down (0.8275)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>73.444</td><td>异常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>0.166</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_access_005:393, kvcache_runtime_2303:282, kvcache_runtime_2295:256, kvcache_runtime_106:256, kvcache_runtime_2788:204 +4</td><td>-</td></tr>
+        <tr><td>status_code</td><td>5:393, 3:78, 1002:52</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+
+        <div class="case-card" data-main-cat="C0" data-cat="mixed">
+            <div class="case-header incorrect">
+                <div>
+                    <span class="case-name">dfx_write_remote_tcp_dalay</span>
+                    <span class="tag tag-mixed">mixed</span>
+                    <span class="tag tag-c0">C0</span>
+                    <span class="tag" style="background:#e8eaf6;color:#3949ab">Local/Remote位置混淆</span>
+                    <span class="tag tag-conf-mid">中置信度(0.7-0.9)</span>
+                </div>
+                <div><span class="confidence">置信度: 0.8876</span></div>
+            </div>
+            <div class="case-body">
+                <div style="margin-bottom: 10px; color: #c62828"><b>❌ 误判为:</b> dfx_local_ub_single_socket_two_port_down (置信度 0.8876)</div>
+    <div class="top5-list"><b>Top-5 候选:</b> 
+<span class="top5-item pred">dfx_local_ub_single_socket_two_port_down (0.8876)</span>
+<span class="top5-item ">dfx_r_etcd_fail_client_update (0.8564)</span>
+<span class="top5-item ">dfx_client_process_get_ubm_failure (0.8285)</span>
+<span class="top5-item ">dfx_client_process_get_ubse_failure (0.8267)</span>
+<span class="top5-item ">dfx_client_scale_in_tcp_down (0.7666)</span>
+</div>
+    <table>
+        <tr><th>特征</th><th>测试值</th><th>分析</th></tr>
+        <tr><td>fault_category</td><td>mixed</td><td>-</td></tr>
+        <tr><td>p99/p50 ratio</td><td>71.831</td><td>异常</td></tr>
+        <tr><td>pod_concentration</td><td>few_pods</td><td>-</td></tr>
+        <tr><td>segment_ranking</td><td>total_latency(33%) &gt; c2w_latency(33%) &gt; c2w_urma_latency(33%) &gt; worker_total_latency(0%)</td><td>-</td></tr>
+        <tr><td>anomalous_ratio</td><td>0.318</td><td>-</td></tr>
+        <tr><td>trace_ctx_pods</td><td>2</td><td>-</td></tr>
+        <tr><td>trace_ctx_hosts</td><td>1</td><td>-</td></tr>
+        <tr><td>failure_mode</td><td>kvcache_runtime_2788:60, kvcache_runtime_2295:60, kvcache_runtime_2303:60, kvcache_runtime_1036:60, kvcache_runtime_1051:60 +7</td><td>-</td></tr>
+        <tr><td>status_code</td><td>5:90</td><td>-</td></tr>
+    </table>
+</div>
+</div>
+</div>
+<div class="footer">灵衢 UB 超节点故障智能诊断平台 · 评估报告自动生成 V2 · 系统化未命中归类</div>
+</div>
+
+<script>
+function filterCases(type) {
+    document.querySelectorAll('.filter-bar button').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+    document.querySelectorAll('.case-card').forEach(card => {
+        if (type === 'all') { card.style.display = ''; return; }
+        if (type === 'C0' || type === 'C1' || type === 'C2') {
+            card.style.display = card.dataset.mainCat === type ? '' : 'none';
+        } else {
+            card.style.display = card.dataset.cat === type ? '' : 'none';
+        }
+    });
+}
+</script>
+</body>
+</html>

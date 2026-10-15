@@ -12,7 +12,7 @@ from latency.common.local_time import local_now, parse_asset_timestamp, utc_now
 from latency.database.engine import PGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.models import LogFile
-from latency.database.utils import format_timestamp
+from latency.database.utils import format_asset_timestamp
 from latency.schemas.log import LogFileModel
 from latency.schemas.request import ListLogFilesRequest
 
@@ -53,7 +53,7 @@ class LogFilePGManager:
             "log_type": getattr(log_file, "log_type", DiagnosisConfigLogType.KVCACHE) or DiagnosisConfigLogType.KVCACHE,
             "existed_status": log_file.existed_status,
             "created_at": parse_asset_timestamp(log_file.created_at),
-            "updated_at": parse_asset_timestamp(log_file.created_at),
+            "updated_at": parse_asset_timestamp(log_file.updated_at),
         }
 
     @staticmethod
@@ -244,7 +244,8 @@ class LogFilePGManager:
                 "trace_failure_event_cnt": row.failure_count or 0,
                 "log_type": getattr(row, "log_type", DiagnosisConfigLogType.KVCACHE) or DiagnosisConfigLogType.KVCACHE,
                 "existed_status": row.existed_status,
-                "created_at": format_timestamp(row.created_at),
+                "created_at": format_asset_timestamp(row.created_at),
+                "updated_at": format_asset_timestamp(row.updated_at),
             }
             log_files.append(LogFileModel(**data))
         return total, log_files
@@ -268,7 +269,8 @@ class LogFilePGManager:
             "trace_failure_event_cnt": row.failure_count or 0,
             "log_type": getattr(row, "log_type", DiagnosisConfigLogType.KVCACHE) or DiagnosisConfigLogType.KVCACHE,
             "existed_status": row.existed_status,
-            "created_at": format_timestamp(row.created_at),
+            "created_at": format_asset_timestamp(row.created_at),
+            "updated_at": format_asset_timestamp(row.updated_at),
         }
         return LogFileModel(**data)
 

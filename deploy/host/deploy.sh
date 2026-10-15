@@ -156,7 +156,11 @@ build_cpp() {
     cd "$BUILD_DIR"
 
     _info "CMake 配置..."
-    cmake "$PROJECT_DIR" -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -3
+    if ! cmake "$PROJECT_DIR" -DCMAKE_BUILD_TYPE=Release 2>&1 | tee "$LOG_DIR/cmake-config.log"; then
+        _err "CMake 配置失败，最近日志:"
+        tail -30 "$LOG_DIR/cmake-config.log"
+        return 1
+    fi
 
     _info "编译 witty-ub-diag-tool 和 witty-ub-brpc-diag (使用 $(nproc) 核)..."
     if ! make -j"$(nproc)" witty-ub-diag-tool witty-ub-brpc-diag 2>&1 | tee "$LOG_DIR/cpp-build.log"; then
@@ -251,13 +255,30 @@ copy_data_files() {
     $SUDO cp "$PROJECT_DIR/data/umq/"*.json "$WITTY_DIR/data/umq/" 2>/dev/null || true
     $SUDO cp "$PROJECT_DIR/config/diagnosis_config.toml" "$WITTY_DIR/config/" 2>/dev/null || true
 
-    # Deploy witty_ub_diagnostician into .opencode directory
-    # (OpenCode/Agent 随前端角色部署; backend 角色不跑 OpenCode, 跳过)
-    if [ "$WITTY_ROLE" != "backend" ]; then
-        $SUDO mkdir -p "$WITTY_DIR/witty_ub_diagnostician/.opencode" 2>/dev/null || true
-        $SUDO cp -r "$PROJECT_DIR/witty_ub_diagnostician/"* "$WITTY_DIR/witty_ub_diagnostician/.opencode/" 2>/dev/null || true
-        _log "Agent bundle 已部署（提示词保持原始占位符）"
+    # 部署案例库 (case/): 相似案例分析 / 案例管理 功能依赖
+    # 先清空目标目录再拷贝，确保删除的案例不残留（cp -r 只增不删会导致旧案例污染）
+    # 不吞掉错误：复制失败时明确告警，避免后端读到旧数据
+    local SRC_CASE_DIR="$PROJECT_DIR/case"
+    local DST_CASE_DIR="$WITTY_DIR/case"
+    if [ -d "$SRC_CASE_DIR" ] && [ -n "$(ls -A "$SRC_CASE_DIR" 2>/dev/null)" ]; then
+        $SUDO mkdir -p "$DST_CASE_DIR"
+        $SUDO rm -f "$DST_CASE_DIR"/*.json 2>/dev/null || true
+        if $SUDO cp -r "$SRC_CASE_DIR"/* "$DST_CASE_DIR"/; then
+            _log "案例库已部署: $SRC_CASE_DIR -> $DST_CASE_DIR ($(ls "$SRC_CASE_DIR"/*.json 2>/dev/null | wc -l) 个案例)"
+        else
+            _warn "案例库复制失败！检查 $DST_CASE_DIR 的权限 (当前用户=$(id -un), SUDO=$SUDO)"
+            _warn "后端将使用旧案例数据。尝试: sudo bash deploy/host/deploy.sh --start"
+        fi
+    else
+        $SUDO mkdir -p "$DST_CASE_DIR"
+        _warn "案例库目录为空或不存在: $SRC_CASE_DIR (已创建空目录 $DST_CASE_DIR，案例管理功能需上传案例数据)"
     fi
+
+    # Deploy witty_ub_diagnostician (experience-skill code + Agent bundle)
+    # 所有角色都需要: backend 角色的知识库管理 API 依赖 experience-skill 代码和 venv。
+    $SUDO mkdir -p "$WITTY_DIR/witty_ub_diagnostician/.opencode" 2>/dev/null || true
+    $SUDO cp -r "$PROJECT_DIR/witty_ub_diagnostician/"* "$WITTY_DIR/witty_ub_diagnostician/.opencode/" 2>/dev/null || true
+    _log "Agent bundle 已部署（提示词保持原始占位符）"
 
     _log "数据文件已部署到 $WITTY_DIR"
 }
@@ -609,6 +630,39 @@ start_services() {
         fi
     fi
 
+    # --- experience-skill Web 服务 (知识库 Skill/Wiki 管理 API, 端口 8082) ---
+    # 所有角色都启动: backend 角色需要提供管理 API, all/frontend 角色还需要供 Agent 检索。
+    local EXP_PORT="${EXPERIENCE_PORT:-8082}"
+    local EXP_SCRIPT="$SCRIPT_DIR/run_experience.sh"
+    if [ -f "$EXP_SCRIPT" ]; then
+        _info "启动 experience-skill Web 服务 (端口 $EXP_PORT)..."
+        # 清理旧进程
+        [ -f "$LOG_DIR/experience.pid" ] && kill "$(cat "$LOG_DIR/experience.pid")" 2>/dev/null || true
+        _has_cmd fuser && fuser -k "$EXP_PORT/tcp" 2>/dev/null || true
+        sleep 1
+
+        export EXPERIENCE_PORT="$EXP_PORT"
+        nohup bash "$EXP_SCRIPT" >"$LOG_DIR/experience.log" 2>&1 &
+        echo $! >"$LOG_DIR/experience.pid"
+
+        local EXP_OK=0
+        for i in $(seq 1 15); do
+            if curl --noproxy '*' -so /dev/null --max-time 2 \
+                "http://127.0.0.1:$EXP_PORT/api/keywords" 2>/dev/null; then
+                _log "experience-skill Web 服务已启动 (port $EXP_PORT)"
+                EXP_OK=1
+                break
+            fi
+            sleep 1
+        done
+        if [ "$EXP_OK" -ne 1 ]; then
+            _warn "experience-skill Web 服务启动超时，知识库管理(Skill/Wiki)将不可用"
+            _warn "排查: tail -30 $LOG_DIR/experience.log"
+        fi
+    else
+        _warn "run_experience.sh 不存在，知识库管理(Skill/Wiki)不可用"
+    fi
+
     # --- Frontend (backend 角色跳过) ---
     if [ "$WITTY_ROLE" = "frontend" ]; then
         # frontend 角色: nginx 静态托管 + 反代远端后端 + OpenCode (裸进程)
@@ -641,6 +695,9 @@ stop_services() {
 
     _info "停止 FastAPI 后端..."
     systemctl --user stop witty-ub-backend.service 2>/dev/null || true
+    _info "停止 experience-skill Web 服务..."
+    [ -f "$LOG_DIR/experience.pid" ] && kill "$(cat "$LOG_DIR/experience.pid")" 2>/dev/null || true
+    _has_cmd fuser && fuser -k 8082/tcp 2>/dev/null || true
     _info "停止 Vite 前端..."
     systemctl --user stop witty-ub-frontend.service 2>/dev/null || true
 
@@ -731,8 +788,8 @@ stop_agent() {
 # 返回 0=有残留, 1=干净。
 detect_existing_deploy() {
     local found=0
-    if _has_cmd fuser && { fuser -s 9772/tcp 2>/dev/null || fuser -s 5173/tcp 2>/dev/null; }; then
-        _warn "检测到端口 9772/5173 已被占用(已有服务在运行)"
+    if _has_cmd fuser && { fuser -s 9772/tcp 2>/dev/null || fuser -s 5173/tcp 2>/dev/null || fuser -s 8082/tcp 2>/dev/null; }; then
+        _warn "检测到端口 9772/5173/8082 已被占用(已有服务在运行)"
         found=1
     fi
     [ -f "$LOG_DIR/backend.pid" ] && {
@@ -741,6 +798,10 @@ detect_existing_deploy() {
     }
     [ -f "$LOG_DIR/frontend.pid" ] && {
         _warn "检测到 PID 文件: $LOG_DIR/frontend.pid"
+        found=1
+    }
+    [ -f "$LOG_DIR/experience.pid" ] && {
+        _warn "检测到 PID 文件: $LOG_DIR/experience.pid"
         found=1
     }
     if _has_cmd psql && _psql -tAc "SELECT count(*) FROM log_knowledge" >/dev/null 2>&1 &&
@@ -847,6 +908,7 @@ clean_all() {
         _is_root || SUDO="sudo"
         $SUDO rm -rf \
             /var/witty-ub/data \
+            /var/witty-ub/case \
             /var/witty-ub/config \
             /var/witty-ub/witty_ub_diagnostician \
             /var/witty-ub/cache \
@@ -882,33 +944,36 @@ show_access_info() {
     echo "║                                              ║"
     case "$WITTY_ROLE" in
     backend)
-        echo "║  角色:   backend (仅后端)                    ║"
-        echo "║  后端:   http://0.0.0.0:9772                 ║"
-        echo "║  健康:   http://localhost:9772/health_check   ║"
+        echo "║  角色:       backend (仅后端)                    ║"
+        echo "║  后端:       http://0.0.0.0:9772                 ║"
+        echo "║  健康:       http://localhost:9772/health_check   ║"
+        echo "║  知识库API:  http://localhost:8082/api            ║"
         ;;
     frontend)
-        echo "║  角色:   frontend (仅前端)                   ║"
+        echo "║  角色:       frontend (仅前端)                   ║"
         if [ "$WEB_MODE" = "nginx" ]; then
-            echo "║  前端:   http://localhost:8080 (nginx)       ║"
+            echo "║  前端:       http://localhost:8080 (nginx)       ║"
             if [ "$(hostname -I 2>/dev/null | awk '{print $1}')" != "" ]; then
-                echo "║  前端:   http://$(hostname -I | awk '{print $1}'):8080        ║"
+                echo "║  前端:       http://$(hostname -I | awk '{print $1}'):8080        ║"
             fi
         else
-            echo "║  前端:   http://localhost:5173 (vite preview) ║"
+            echo "║  前端:       http://localhost:5173 (vite preview) ║"
             if [ "$(hostname -I 2>/dev/null | awk '{print $1}')" != "" ]; then
-                echo "║  前端:   http://$(hostname -I | awk '{print $1}'):5173        ║"
+                echo "║  前端:       http://$(hostname -I | awk '{print $1}'):5173        ║"
             fi
         fi
-        echo "║  后端:   $WITTY_BACKEND_URL (远端)"
-        echo "║  Agent:  http://localhost:4096 → $WITTY_API_BASE"
+        echo "║  后端:       $WITTY_BACKEND_URL (远端)"
+        echo "║  Agent:      http://localhost:4096 → $WITTY_API_BASE"
+        echo "║  知识库API:  http://localhost:8082/api            ║"
         ;;
     *)
-        echo "║  前端:   http://localhost:5173               ║"
+        echo "║  前端:       http://localhost:5173               ║"
         if [ "$(hostname -I 2>/dev/null | awk '{print $1}')" != "" ]; then
-            echo "║  前端:   http://$(hostname -I | awk '{print $1}'):5173        ║"
+            echo "║  前端:       http://$(hostname -I | awk '{print $1}'):5173        ║"
         fi
-        echo "║  后端:   http://localhost:9772               ║"
-        echo "║  健康:   http://localhost:9772/health_check   ║"
+        echo "║  后端:       http://localhost:9772               ║"
+        echo "║  健康:       http://localhost:9772/health_check   ║"
+        echo "║  知识库API:  http://localhost:8082/api            ║"
         ;;
     esac
     echo "║                                              ║"
@@ -944,10 +1009,9 @@ main_deploy() {
         setup_postgresql
         install_python_deps
     fi
-    if [ "$WITTY_ROLE" != "backend" ]; then
-        # Agent 跑在前端节点，技能依赖 uv + 经验库（缺则卡在 uv not found）
-        install_agent_deps || _warn "Agent 运行时依赖未就绪，AI 助手技能会报 uv not found"
-    fi
+    # experience-skill Web 服务和 Agent 技能都依赖 uv + 经验库。
+    # backend 角色也需要: 知识库 Skill/Wiki 管理 API (端口 8082) 运行在后端节点。
+    install_agent_deps || _warn "experience-skill 依赖未就绪，Skill/Wiki 管理和 Agent 技能会报 uv not found"
     if [ "$WITTY_ROLE" != "backend" ]; then
         build_frontend
     fi
@@ -1011,6 +1075,7 @@ menu_main() {
         1) main_deploy ;;
         2) install_deps ;;
         3)
+            copy_data_files
             start_services
             show_access_info
             ;;
@@ -1081,6 +1146,7 @@ esac
 case "${1:-menu}" in
 --start | -s | start)
     detect_os
+    copy_data_files
     start_services
     show_access_info
     ;;

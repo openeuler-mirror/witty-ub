@@ -9,7 +9,7 @@ from sqlalchemy.dialects import postgresql
 
 import latency.services.brpc_diagnosis as service_module
 from latency.database.managers.brpc_diagnosis import BrpcDiagnosisPGManager
-from latency.exceptions import BadRequestBizException
+from latency.exceptions import NotFoundBizException
 from latency.parse.brpc_diag_parser import BrpcDiagParser
 from latency.schemas.brpc_diagnosis import (
     BRPC_TOTAL_SORT_FIELD,
@@ -299,7 +299,8 @@ def test_detail_recomputes_event_id_and_returns_pruned_graph(monkeypatch):
     assert hit_node.node_id == "ubsocket_005"
     assert hit_node.hit_count == 1
 
-    with pytest.raises(BadRequestBizException, match="event_id"):
+    # event_id 不匹配 → 统一按资源不存在处理（404，id 校验统一约定）
+    with pytest.raises(NotFoundBizException):
         asyncio.run(
             BrpcDiagnosisService.get_thread_event_detail(
                 event_id="0" * 64,

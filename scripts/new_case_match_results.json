@@ -1,0 +1,2769 @@
+{
+  "timestamp": "2026-09-24 16:29:01",
+  "train_case_count": 175,
+  "train_case_count_filtered": 144,
+  "test_case_count": 10,
+  "train_broad_categories": [
+    "Client-挂死/网络",
+    "Client-退出",
+    "UB-UBSe/UBM管理进程故障",
+    "UB-端口故障",
+    "UB-链路故障",
+    "Worker-缩容/挂死",
+    "Worker-退出/崩溃",
+    "Worker-重启",
+    "etcd故障",
+    "其他",
+    "网络/TCP故障"
+  ],
+  "broad_category_mapping": {
+    "dfx_local_ub_single_port_down": "UB-端口故障",
+    "dfx_local_ub_all_port_unavailable": "UB-端口故障",
+    "dfx_local_ub_two_port_flashdown": "UB-端口故障",
+    "dfx_local_ub_single_socket_two_port_down": "UB-端口故障",
+    "dfx_local_ub_two_socket_single_port_down": "UB-端口故障",
+    "dfx_remote_ub_single_port_down": "UB-端口故障",
+    "dfx_remote_ub_two_socket_single_port_down": "UB-端口故障",
+    "dfx_remote_ub_single_socket_two_port_down": "UB-端口故障",
+    "dfx_remote_ub_all_port_down": "UB-端口故障",
+    "dfx_worker_process_local_ub_link_down": "UB-链路故障",
+    "dfx_worker_process_remote_ub_single_link_down": "UB-链路故障",
+    "dfx_worker_process_remote_ub_signal_error": "UB-链路故障",
+    "dfx_worker_process_remote_ub_nfe": "UB-链路故障",
+    "dfx_worker_process_remote_ub_ce": "UB-链路故障",
+    "dfx_worker_process_remote_local_ub_single_port_down": "UB-链路故障",
+    "dfx_worker_process_remote_local_ub_link_loss": "UB-链路故障",
+    "dfx_worker_process_remote_local_ub_flash_down": "UB-链路故障",
+    "dfx_worker_process_remote_remote_ub_single_port_down": "UB-链路故障",
+    "dfx_worker_process_scale_in_remote_ub_nfe": "UB-链路故障",
+    "dfx_worker_process_scale_in_remote_ub_link_down": "UB-链路故障",
+    "dfx_client_process_get_ub_failure": "UB-链路故障",
+    "dfx_client_process_get_ubse_failure": "UB-UBSe/UBM管理进程故障",
+    "dfx_client_process_get_ubm_failure": "UB-UBSe/UBM管理进程故障",
+    "dfx_client_write_remote_after_ubse_fault": "UB-UBSe/UBM管理进程故障",
+    "dfx_client_write_remote_after_ubm_fault": "UB-UBSe/UBM管理进程故障",
+    "dfx_worker_set_exit": "Worker-退出/崩溃",
+    "dfx_worker_set_kill": "Worker-退出/崩溃",
+    "dfx_worker_process_set_exit": "Worker-退出/崩溃",
+    "dfx_worker_process_exit_single_node": "Worker-退出/崩溃",
+    "dfx_worker_pod_reboot": "Worker-重启",
+    "dfx_worker_pod_reboot_l2": "Worker-重启",
+    "dfx_worker_reboot_single_node": "Worker-重启",
+    "dfx_r_worker_process_set_exit": "Worker-缩容/挂死",
+    "dfx_r_discovery_worker_process_hangup": "Worker-缩容/挂死",
+    "dfx_worker_process_scale_in_client_exit": "Worker-缩容/挂死",
+    "dfx_worker_process_scale_in_tcp_loss": "Worker-缩容/挂死",
+    "dfx_worker_process_scale_in_client_hang_up": "Worker-缩容/挂死",
+    "dfx_worker_process_scale_in_tcp_down": "Worker-缩容/挂死",
+    "dfx_client_process_set_exit": "Client-退出",
+    "dfx_client_process_set_exit_start": "Client-退出",
+    "dfx_client_process_get_exit_start": "Client-退出",
+    "dfx_client_process_set_hangs": "Client-挂死/网络",
+    "dfx_client_process_get_hangup": "Client-挂死/网络",
+    "dfx_client_process_tcp_down": "Client-挂死/网络",
+    "dfx_client_scale_in_tcp_down": "Client-挂死/网络",
+    "dfx_client_write_remote_worker_etcd_main_fault": "etcd故障",
+    "dfx_client_init_etcd_cluster_fail": "etcd故障",
+    "dfx_etcd_cluster_exit": "etcd故障",
+    "dfx_etcd_cluster_exit_before_set": "etcd故障",
+    "dfx_sdk_install_etcd_down": "etcd故障",
+    "dfx_sdk_install_etcd_unavailable": "etcd故障",
+    "dfx_worker_process_local_get_etcd_main_fail": "etcd故障",
+    "dfx_worker_process_remote_get_etcd_main_fail": "etcd故障",
+    "dfx_worker_deploy_etcd_cluster_fail": "etcd故障",
+    "dfx_worker_process_upgrade_etcd_fault": "etcd故障",
+    "dfx_r_etcd_fail_client_update": "etcd故障",
+    "dfx_write_remote_tcp_dalay": "网络/TCP故障",
+    "dfx_worker_process_cross_node_net_card_loss": "网络/TCP故障",
+    "dfx_worker_process_write_net_card_loss": "网络/TCP故障",
+    "dfx_worker_process_net_card_loss": "网络/TCP故障",
+    "dfx_ps_n_n": "其他",
+    "11111": "其他",
+    "CPU挂死": "Worker-缩容/挂死",
+    "SDK初始化配置错误": "Client-挂死/网络",
+    "UB端口down": "UB-端口故障",
+    "UB链路故障": "UB-链路故障",
+    "端侧到L1端口故障": "UB-链路故障",
+    "TCPdown": "网络/TCP故障",
+    "UB交换机L1的上行端口闪断": "UB-链路故障",
+    "worker进程异常退出": "Worker-退出/崩溃",
+    "L1-L2互联链路反复shutdown模拟链路闪断": "UB-链路故障"
+  },
+  "summary": {
+    "A_original_exact": {
+      "top1": 0.0,
+      "top3": 0.0,
+      "top5": 0.0
+    },
+    "B_original_broad": {
+      "top1": 0.3,
+      "top3": 0.5,
+      "top5": 0.5
+    },
+    "C_tuned_exclude_other_broad": {
+      "top1": 0.4,
+      "top3": 0.4,
+      "top5": 0.6
+    },
+    "D_original_exclude_other_broad": {
+      "top1": 0.4,
+      "top3": 0.5,
+      "top5": 0.6
+    }
+  },
+  "results_c_best": [
+    {
+      "test_id": "18b1f8fe-3eb5-40af-93f5-410f85b42859",
+      "ground_truth": "CPU挂死",
+      "gt_broad_category": "Worker-缩容/挂死",
+      "test_fault_category": "mixed",
+      "predicted": "dfx_worker_process_remote_local_ub_single_port_down",
+      "predicted_broad": "UB-链路故障",
+      "confidence": 0.4325,
+      "top1_exact": false,
+      "top3_exact": false,
+      "top5_exact": false,
+      "top1_broad": false,
+      "top3_broad": false,
+      "top5_broad": true,
+      "top1_broad_dedup": false,
+      "top3_broad_dedup": true,
+      "top5_broad_dedup": true,
+      "top5_candidates": [
+        [
+          "dfx_worker_process_remote_local_ub_single_port_down",
+          "UB-链路故障",
+          0.4325
+        ],
+        [
+          "dfx_worker_process_remote_local_ub_link_loss",
+          "UB-链路故障",
+          0.4318
+        ],
+        [
+          "dfx_worker_process_remote_local_ub_link_loss",
+          "UB-链路故障",
+          0.4177
+        ],
+        [
+          "dfx_worker_process_scale_in_tcp_down",
+          "Worker-缩容/挂死",
+          0.4162
+        ],
+        [
+          "dfx_worker_process_remote_local_ub_link_loss",
+          "UB-链路故障",
+          0.4149
+        ]
+      ],
+      "top5_broad_dedup_list": [
+        "UB-链路故障",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃",
+        "Worker-重启",
+        "Client-挂死/网络"
+      ]
+    },
+    {
+      "test_id": "282ec9a1-f966-4ea4-b868-3ab9ac8b189c",
+      "ground_truth": "SDK初始化配置错误",
+      "gt_broad_category": "Client-挂死/网络",
+      "test_fault_category": "mixed",
+      "predicted": "dfx_worker_process_remote_local_ub_link_loss",
+      "predicted_broad": "UB-链路故障",
+      "confidence": 0.5682,
+      "top1_exact": false,
+      "top3_exact": false,
+      "top5_exact": false,
+      "top1_broad": false,
+      "top3_broad": false,
+      "top5_broad": false,
+      "top1_broad_dedup": false,
+      "top3_broad_dedup": false,
+      "top5_broad_dedup": true,
+      "top5_candidates": [
+        [
+          "dfx_worker_process_remote_local_ub_link_loss",
+          "UB-链路故障",
+          0.5682
+        ],
+        [
+          "dfx_worker_process_remote_ub_signal_error",
+          "UB-链路故障",
+          0.549
+        ],
+        [
+          "dfx_worker_process_remote_remote_ub_single_port_down",
+          "UB-链路故障",
+          0.5347
+        ],
+        [
+          "dfx_worker_process_local_ub_link_down",
+          "UB-链路故障",
+          0.5269
+        ],
+        [
+          "dfx_worker_process_remote_ub_signal_error",
+          "UB-链路故障",
+          0.5228
+        ]
+      ],
+      "top5_broad_dedup_list": [
+        "UB-链路故障",
+        "Worker-重启",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃",
+        "Client-挂死/网络"
+      ]
+    },
+    {
+      "test_id": "5c264a23-89fd-411e-be1a-14e83b935094",
+      "ground_truth": "UB端口down",
+      "gt_broad_category": "UB-端口故障",
+      "test_fault_category": "mixed",
+      "predicted": "dfx_remote_ub_all_port_down",
+      "predicted_broad": "UB-端口故障",
+      "confidence": 0.6096,
+      "top1_exact": false,
+      "top3_exact": false,
+      "top5_exact": false,
+      "top1_broad": true,
+      "top3_broad": true,
+      "top5_broad": true,
+      "top1_broad_dedup": true,
+      "top3_broad_dedup": true,
+      "top5_broad_dedup": true,
+      "top5_candidates": [
+        [
+          "dfx_remote_ub_all_port_down",
+          "UB-端口故障",
+          0.6096
+        ],
+        [
+          "dfx_worker_process_set_exit",
+          "Worker-退出/崩溃",
+          0.6083
+        ],
+        [
+          "dfx_worker_pod_reboot",
+          "Worker-重启",
+          0.56
+        ],
+        [
+          "dfx_worker_pod_reboot",
+          "Worker-重启",
+          0.556
+        ],
+        [
+          "dfx_worker_process_set_exit",
+          "Worker-退出/崩溃",
+          0.5526
+        ]
+      ],
+      "top5_broad_dedup_list": [
+        "UB-端口故障",
+        "Worker-退出/崩溃",
+        "Worker-重启",
+        "Client-挂死/网络",
+        "UB-链路故障"
+      ]
+    },
+    {
+      "test_id": "8d0ecae9-8a56-48f5-b3ba-3bcb82624ce3",
+      "ground_truth": "UB链路故障",
+      "gt_broad_category": "UB-链路故障",
+      "test_fault_category": "latency",
+      "predicted": "dfx_worker_process_write_net_card_loss",
+      "predicted_broad": "网络/TCP故障",
+      "confidence": 0.5361,
+      "top1_exact": false,
+      "top3_exact": false,
+      "top5_exact": false,
+      "top1_broad": false,
+      "top3_broad": false,
+      "top5_broad": false,
+      "top1_broad_dedup": false,
+      "top3_broad_dedup": false,
+      "top5_broad_dedup": false,
+      "top5_candidates": [
+        [
+          "dfx_worker_process_write_net_card_loss",
+          "网络/TCP故障",
+          0.5361
+        ],
+        [
+          "dfx_r_discovery_worker_process_hangup",
+          "Worker-缩容/挂死",
+          0.5277
+        ],
+        [
+          "dfx_write_remote_tcp_dalay",
+          "网络/TCP故障",
+          0.5006
+        ],
+        [
+          "dfx_local_ub_single_port_down",
+          "UB-端口故障",
+          0.5004
+        ],
+        [
+          "dfx_local_ub_all_port_unavailable",
+          "UB-端口故障",
+          0.5004
+        ]
+      ],
+      "top5_broad_dedup_list": [
+        "网络/TCP故障",
+        "Worker-缩容/挂死",
+        "UB-端口故障",
+        "UB-UBSe/UBM管理进程故障",
+        "Client-退出"
+      ]
+    },
+    {
+      "test_id": "b8a2bfc9-ad70-43f2-9e23-d124b37e5f1e",
+      "ground_truth": "端侧到L1端口故障",
+      "gt_broad_category": "UB-链路故障",
+      "test_fault_category": "mixed",
+      "predicted": "dfx_worker_process_remote_local_ub_link_loss",
+      "predicted_broad": "UB-链路故障",
+      "confidence": 0.4656,
+      "top1_exact": false,
+      "top3_exact": false,
+      "top5_exact": false,
+      "top1_broad": true,
+      "top3_broad": true,
+      "top5_broad": true,
+      "top1_broad_dedup": true,
+      "top3_broad_dedup": true,
+      "top5_broad_dedup": true,
+      "top5_candidates": [
+        [
+          "dfx_worker_process_remote_local_ub_link_loss",
+          "UB-链路故障",
+          0.4656
+        ],
+        [
+          "dfx_worker_process_remote_remote_ub_single_port_down",
+          "UB-链路故障",
+          0.4502
+        ],
+        [
+          "dfx_worker_process_remote_ub_signal_error",
+          "UB-链路故障",
+          0.445
+        ],
+        [
+          "dfx_r_worker_process_set_exit",
+          "Worker-缩容/挂死",
+          0.4343
+        ],
+        [
+          "dfx_worker_process_exit_single_node",
+          "Worker-退出/崩溃",
+          0.4239
+        ]
+      ],
+      "top5_broad_dedup_list": [
+        "UB-链路故障",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃",
+        "Client-挂死/网络",
+        "Worker-重启"
+      ]
+    },
+    {
+      "test_id": "c5b142c8-abe8-405a-aebd-587f736cf585",
+      "ground_truth": "CPU挂死",
+      "gt_broad_category": "Worker-缩容/挂死",
+      "test_fault_category": "mixed",
+      "predicted": "dfx_worker_process_scale_in_client_exit",
+      "predicted_broad": "Worker-缩容/挂死",
+      "confidence": 0.4817,
+      "top1_exact": false,
+      "top3_exact": false,
+      "top5_exact": false,
+      "top1_broad": true,
+      "top3_broad": true,
+      "top5_broad": true,
+      "top1_broad_dedup": true,
+      "top3_broad_dedup": true,
+      "top5_broad_dedup": true,
+      "top5_candidates": [
+        [
+          "dfx_worker_process_scale_in_client_exit",
+          "Worker-缩容/挂死",
+          0.4817
+        ],
+        [
+          "dfx_worker_pod_reboot_l2",
+          "Worker-重启",
+          0.4733
+        ],
+        [
+          "dfx_worker_process_scale_in_tcp_down",
+          "Worker-缩容/挂死",
+          0.4723
+        ],
+        [
+          "dfx_worker_process_scale_in_client_hang_up",
+          "Worker-缩容/挂死",
+          0.4608
+        ],
+        [
+          "dfx_worker_process_scale_in_client_hang_up",
+          "Worker-缩容/挂死",
+          0.4525
+        ]
+      ],
+      "top5_broad_dedup_list": [
+        "Worker-缩容/挂死",
+        "Worker-重启",
+        "UB-链路故障",
+        "Worker-退出/崩溃",
+        "Client-挂死/网络"
+      ]
+    },
+    {
+      "test_id": "cb9b7dc5-863d-4788-b455-f2788d022bb6",
+      "ground_truth": "TCPdown",
+      "gt_broad_category": "网络/TCP故障",
+      "test_fault_category": "unknown",
+      "predicted": "dfx_write_remote_tcp_dalay",
+      "predicted_broad": "网络/TCP故障",
+      "confidence": 0.0844,
+      "top1_exact": false,
+      "top3_exact": false,
+      "top5_exact": false,
+      "top1_broad": true,
+      "top3_broad": true,
+      "top5_broad": true,
+      "top1_broad_dedup": true,
+      "top3_broad_dedup": true,
+      "top5_broad_dedup": true,
+      "top5_candidates": [
+        [
+          "dfx_write_remote_tcp_dalay",
+          "网络/TCP故障",
+          0.0844
+        ],
+        [
+          "dfx_client_write_remote_after_ubse_fault",
+          "UB-UBSe/UBM管理进程故障",
+          0.0844
+        ],
+        [
+          "dfx_client_write_remote_after_ubse_fault",
+          "UB-UBSe/UBM管理进程故障",
+          0.0844
+        ],
+        [
+          "dfx_client_write_remote_after_ubm_fault",
+          "UB-UBSe/UBM管理进程故障",
+          0.0844
+        ],
+        [
+          "dfx_write_remote_tcp_dalay",
+          "网络/TCP故障",
+          0.0844
+        ]
+      ],
+      "top5_broad_dedup_list": [
+        "网络/TCP故障",
+        "UB-UBSe/UBM管理进程故障",
+        "UB-端口故障",
+        "Worker-缩容/挂死",
+        "Worker-退出/崩溃"
+      ]
+    },
+    {
+      "test_id": "e8620e4d-e6d2-43e5-ba60-b287fdab5c0c",
+      "ground_truth": "UB交换机L1的上行端口闪断",
+      "gt_broad_category": "UB-链路故障",
+      "test_fault_category": "mixed",
+      "predicted": "dfx_worker_process_set_exit",
+      "predicted_broad": "Worker-退出/崩溃",
+      "confidence": 0.5104,
+      "top1_exact": false,
+      "top3_exact": false,
+      "top5_exact": false,
+      "top1_broad": false,
+      "top3_broad": false,
+      "top5_broad": true,
+      "top1_broad_dedup": false,
+      "top3_broad_dedup": true,
+      "top5_broad_dedup": true,
+      "top5_candidates": [
+        [
+          "dfx_worker_process_set_exit",
+          "Worker-退出/崩溃",
+          0.5104
+        ],
+        [
+          "dfx_worker_process_set_exit",
+          "Worker-退出/崩溃",
+          0.4478
+        ],
+        [
+          "dfx_worker_pod_reboot",
+          "Worker-重启",
+          0.42
+        ],
+        [
+          "dfx_worker_pod_reboot",
+          "Worker-重启",
+          0.4117
+        ],
+        [
+          "dfx_worker_process_remote_local_ub_link_loss",
+          "UB-链路故障",
+          0.4068
+        ]
+      ],
+      "top5_broad_dedup_list": [
+        "Worker-退出/崩溃",
+        "Worker-重启",
+        "UB-链路故障",
+        "Client-挂死/网络",
+        "Worker-缩容/挂死"
+      ]
+    },
+    {
+      "test_id": "ee515adb-b415-47a3-8a0d-31df4237bdb0",
+      "ground_truth": "worker进程异常退出",
+      "gt_broad_category": "Worker-退出/崩溃",
+      "test_fault_category": "mixed",
+      "predicted": "dfx_worker_reboot_single_node",
+      "predicted_broad": "Worker-重启",
+      "confidence": 0.6895,
+      "top1_exact": false,
+      "top3_exact": false,
+      "top5_exact": false,
+      "top1_broad": false,
+      "top3_broad": false,
+      "top5_broad": false,
+      "top1_broad_dedup": false,
+      "top3_broad_dedup": false,
+      "top5_broad_dedup": true,
+      "top5_candidates": [
+        [
+          "dfx_worker_reboot_single_node",
+          "Worker-重启",
+          0.6895
+        ],
+        [
+          "dfx_r_worker_process_set_exit",
+          "Worker-缩容/挂死",
+          0.6487
+        ],
+        [
+          "dfx_r_worker_process_set_exit",
+          "Worker-缩容/挂死",
+          0.639
+        ],
+        [
+          "dfx_local_ub_single_socket_two_port_down",
+          "UB-端口故障",
+          0.6148
+        ],
+        [
+          "dfx_remote_ub_all_port_down",
+          "UB-端口故障",
+          0.6118
+        ]
+      ],
+      "top5_broad_dedup_list": [
+        "Worker-重启",
+        "Worker-缩容/挂死",
+        "UB-端口故障",
+        "Worker-退出/崩溃",
+        "Client-挂死/网络"
+      ]
+    },
+    {
+      "test_id": "f012208a-243f-457a-a45c-f164a9c4072f",
+      "ground_truth": "L1-L2互联链路反复shutdown模拟链路闪断",
+      "gt_broad_category": "UB-链路故障",
+      "test_fault_category": "latency",
+      "predicted": "dfx_client_write_remote_after_ubm_fault",
+      "predicted_broad": "UB-UBSe/UBM管理进程故障",
+      "confidence": 0.6724,
+      "top1_exact": false,
+      "top3_exact": false,
+      "top5_exact": false,
+      "top1_broad": false,
+      "top3_broad": false,
+      "top5_broad": false,
+      "top1_broad_dedup": false,
+      "top3_broad_dedup": false,
+      "top5_broad_dedup": false,
+      "top5_candidates": [
+        [
+          "dfx_client_write_remote_after_ubm_fault",
+          "UB-UBSe/UBM管理进程故障",
+          0.6724
+        ],
+        [
+          "dfx_r_discovery_worker_process_hangup",
+          "Worker-缩容/挂死",
+          0.6717
+        ],
+        [
+          "dfx_client_process_set_exit_start",
+          "Client-退出",
+          0.6678
+        ],
+        [
+          "dfx_write_remote_tcp_dalay",
+          "网络/TCP故障",
+          0.6466
+        ],
+        [
+          "dfx_client_write_remote_after_ubse_fault",
+          "UB-UBSe/UBM管理进程故障",
+          0.6466
+        ]
+      ],
+      "top5_broad_dedup_list": [
+        "UB-UBSe/UBM管理进程故障",
+        "Worker-缩容/挂死",
+        "Client-退出",
+        "网络/TCP故障",
+        "UB-端口故障"
+      ]
+    }
+  ],
+  "results_all": {
+    "A": [
+      {
+        "test_id": "18b1f8fe-3eb5-40af-93f5-410f85b42859",
+        "ground_truth": "CPU挂死",
+        "gt_broad_category": "Worker-缩容/挂死",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_remote_local_ub_link_loss",
+        "predicted_broad": "UB-链路故障",
+        "confidence": 0.419,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.419
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_single_port_down",
+            "UB-链路故障",
+            0.4142
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4061
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.405
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_lane_down",
+            "其他",
+            0.3941
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "UB-链路故障",
+          "其他",
+          "Worker-缩容/挂死",
+          "Worker-退出/崩溃",
+          "etcd故障"
+        ]
+      },
+      {
+        "test_id": "282ec9a1-f966-4ea4-b868-3ab9ac8b189c",
+        "ground_truth": "SDK初始化配置错误",
+        "gt_broad_category": "Client-挂死/网络",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_remote_local_ub_lane_down",
+        "predicted_broad": "其他",
+        "confidence": 0.529,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": false,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_remote_local_ub_lane_down",
+            "其他",
+            0.529
+          ],
+          [
+            "dfx_worker_process_local_ub_link_down",
+            "UB-链路故障",
+            0.5279
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.5264
+          ],
+          [
+            "dfx_worker_process_local_ub_link_down",
+            "UB-链路故障",
+            0.5078
+          ],
+          [
+            "dfx_worker_process_remote_ub_signal_error",
+            "UB-链路故障",
+            0.5038
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "其他",
+          "UB-链路故障",
+          "etcd故障",
+          "Worker-重启",
+          "Worker-缩容/挂死"
+        ]
+      },
+      {
+        "test_id": "5c264a23-89fd-411e-be1a-14e83b935094",
+        "ground_truth": "UB端口down",
+        "gt_broad_category": "UB-端口故障",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_ps_n_n",
+        "predicted_broad": "其他",
+        "confidence": 0.6285,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_ps_n_n",
+            "其他",
+            0.6285
+          ],
+          [
+            "dfx_remote_ub_all_port_down",
+            "UB-端口故障",
+            0.564
+          ],
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.5502
+          ],
+          [
+            "dfx_remote_ub_single_socket_two_port_down",
+            "UB-端口故障",
+            0.5205
+          ],
+          [
+            "dfx_local_ub_two_port_flashdown",
+            "UB-端口故障",
+            0.5102
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "其他",
+          "UB-端口故障",
+          "Worker-退出/崩溃",
+          "Worker-重启",
+          "UB-链路故障"
+        ]
+      },
+      {
+        "test_id": "8d0ecae9-8a56-48f5-b3ba-3bcb82624ce3",
+        "ground_truth": "UB链路故障",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "latency",
+        "predicted": "dfx_worker_process_write_net_card_loss",
+        "predicted_broad": "网络/TCP故障",
+        "confidence": 0.5071,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_write_net_card_loss",
+            "网络/TCP故障",
+            0.5071
+          ],
+          [
+            "dfx_r_discovery_worker_process_hangup",
+            "Worker-缩容/挂死",
+            0.4851
+          ],
+          [
+            "dfx_sdk_install_etcd_unavailable",
+            "etcd故障",
+            0.4804
+          ],
+          [
+            "dfx_worker_set_exit",
+            "Worker-退出/崩溃",
+            0.4769
+          ],
+          [
+            "dfx_worker_set_exit",
+            "Worker-退出/崩溃",
+            0.476
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "网络/TCP故障",
+          "Worker-缩容/挂死",
+          "etcd故障",
+          "Worker-退出/崩溃",
+          "UB-链路故障"
+        ]
+      },
+      {
+        "test_id": "b8a2bfc9-ad70-43f2-9e23-d124b37e5f1e",
+        "ground_truth": "端侧到L1端口故障",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_remote_local_ub_link_loss",
+        "predicted_broad": "UB-链路故障",
+        "confidence": 0.4404,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4404
+          ],
+          [
+            "dfx_worker_process_remote_remote_ub_single_port_down",
+            "UB-链路故障",
+            0.4128
+          ],
+          [
+            "dfx_worker_process_remote_ub_signal_error",
+            "UB-链路故障",
+            0.409
+          ],
+          [
+            "dfx_worker_process_remote_get_etcd_main_fail",
+            "etcd故障",
+            0.4003
+          ],
+          [
+            "dfx_worker_process_remote_ub_signal_error",
+            "UB-链路故障",
+            0.3927
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "UB-链路故障",
+          "etcd故障",
+          "其他",
+          "Worker-缩容/挂死",
+          "Worker-退出/崩溃"
+        ]
+      },
+      {
+        "test_id": "c5b142c8-abe8-405a-aebd-587f736cf585",
+        "ground_truth": "CPU挂死",
+        "gt_broad_category": "Worker-缩容/挂死",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_scale_in_client_exit",
+        "predicted_broad": "Worker-缩容/挂死",
+        "confidence": 0.4528,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_scale_in_client_exit",
+            "Worker-缩容/挂死",
+            0.4528
+          ],
+          [
+            "dfx_worker_pod_reboot_l2",
+            "Worker-重启",
+            0.4475
+          ],
+          [
+            "dfx_worker_process_scale_in_client_hang_up",
+            "Worker-缩容/挂死",
+            0.4348
+          ],
+          [
+            "dfx_worker_process_scale_in_tcp_down",
+            "Worker-缩容/挂死",
+            0.4281
+          ],
+          [
+            "dfx_worker_process_scale_in_client_exit",
+            "Worker-缩容/挂死",
+            0.4261
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-缩容/挂死",
+          "Worker-重启",
+          "UB-链路故障",
+          "Worker-退出/崩溃",
+          "其他"
+        ]
+      },
+      {
+        "test_id": "cb9b7dc5-863d-4788-b455-f2788d022bb6",
+        "ground_truth": "TCPdown",
+        "gt_broad_category": "网络/TCP故障",
+        "test_fault_category": "unknown",
+        "predicted": "dfx_write_remote_tcp_dalay",
+        "predicted_broad": "网络/TCP故障",
+        "confidence": 0.0439,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_write_remote_tcp_dalay",
+            "网络/TCP故障",
+            0.0439
+          ],
+          [
+            "dfx_client_write_remote_after_ubse_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.0439
+          ],
+          [
+            "dfx_client_write_remote_after_ubse_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.0439
+          ],
+          [
+            "dfx_client_write_remote_after_ubm_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.0439
+          ],
+          [
+            "dfx_write_remote_tcp_dalay",
+            "网络/TCP故障",
+            0.0439
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "网络/TCP故障",
+          "UB-UBSe/UBM管理进程故障",
+          "UB-端口故障",
+          "etcd故障",
+          "其他"
+        ]
+      },
+      {
+        "test_id": "e8620e4d-e6d2-43e5-ba60-b287fdab5c0c",
+        "ground_truth": "UB交换机L1的上行端口闪断",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_set_exit",
+        "predicted_broad": "Worker-退出/崩溃",
+        "confidence": 0.4668,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.4668
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4241
+          ],
+          [
+            "dfx_worker_process_local_ub_link_down",
+            "UB-链路故障",
+            0.4162
+          ],
+          [
+            "dfx_worker_process_local_ub_link_down",
+            "UB-链路故障",
+            0.4126
+          ],
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.4113
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-退出/崩溃",
+          "UB-链路故障",
+          "Worker-重启",
+          "etcd故障",
+          "其他"
+        ]
+      },
+      {
+        "test_id": "ee515adb-b415-47a3-8a0d-31df4237bdb0",
+        "ground_truth": "worker进程异常退出",
+        "gt_broad_category": "Worker-退出/崩溃",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_reboot_single_node",
+        "predicted_broad": "Worker-重启",
+        "confidence": 0.637,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_reboot_single_node",
+            "Worker-重启",
+            0.637
+          ],
+          [
+            "dfx_r_worker_process_set_exit",
+            "Worker-缩容/挂死",
+            0.5881
+          ],
+          [
+            "dfx_local_ub_single_socket_two_port_down",
+            "UB-端口故障",
+            0.583
+          ],
+          [
+            "dfx_r_worker_process_set_exit",
+            "Worker-缩容/挂死",
+            0.5824
+          ],
+          [
+            "dfx_r_etcd_fail_client_update",
+            "etcd故障",
+            0.5809
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-重启",
+          "Worker-缩容/挂死",
+          "UB-端口故障",
+          "etcd故障",
+          "Worker-退出/崩溃"
+        ]
+      },
+      {
+        "test_id": "f012208a-243f-457a-a45c-f164a9c4072f",
+        "ground_truth": "L1-L2互联链路反复shutdown模拟链路闪断",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "latency",
+        "predicted": "dfx_r_discovery_worker_process_hangup",
+        "predicted_broad": "Worker-缩容/挂死",
+        "confidence": 0.6606,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": false,
+        "top5_candidates": [
+          [
+            "dfx_r_discovery_worker_process_hangup",
+            "Worker-缩容/挂死",
+            0.6606
+          ],
+          [
+            "dfx_client_process_set_exit_start",
+            "Client-退出",
+            0.6566
+          ],
+          [
+            "dfx_client_write_remote_after_ubm_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.6536
+          ],
+          [
+            "dfx_etcd_cluster_exit",
+            "etcd故障",
+            0.6332
+          ],
+          [
+            "dfx_client_write_remote_worker_etcd_main_fault",
+            "etcd故障",
+            0.633
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-缩容/挂死",
+          "Client-退出",
+          "UB-UBSe/UBM管理进程故障",
+          "etcd故障",
+          "网络/TCP故障"
+        ]
+      }
+    ],
+    "B": [
+      {
+        "test_id": "18b1f8fe-3eb5-40af-93f5-410f85b42859",
+        "ground_truth": "CPU挂死",
+        "gt_broad_category": "Worker-缩容/挂死",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_remote_local_ub_link_loss",
+        "predicted_broad": "UB-链路故障",
+        "confidence": 0.419,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.419
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_single_port_down",
+            "UB-链路故障",
+            0.4142
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4061
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.405
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_lane_down",
+            "其他",
+            0.3941
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "UB-链路故障",
+          "其他",
+          "Worker-缩容/挂死",
+          "Worker-退出/崩溃",
+          "etcd故障"
+        ]
+      },
+      {
+        "test_id": "282ec9a1-f966-4ea4-b868-3ab9ac8b189c",
+        "ground_truth": "SDK初始化配置错误",
+        "gt_broad_category": "Client-挂死/网络",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_remote_local_ub_lane_down",
+        "predicted_broad": "其他",
+        "confidence": 0.529,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": false,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_remote_local_ub_lane_down",
+            "其他",
+            0.529
+          ],
+          [
+            "dfx_worker_process_local_ub_link_down",
+            "UB-链路故障",
+            0.5279
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.5264
+          ],
+          [
+            "dfx_worker_process_local_ub_link_down",
+            "UB-链路故障",
+            0.5078
+          ],
+          [
+            "dfx_worker_process_remote_ub_signal_error",
+            "UB-链路故障",
+            0.5038
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "其他",
+          "UB-链路故障",
+          "etcd故障",
+          "Worker-重启",
+          "Worker-缩容/挂死"
+        ]
+      },
+      {
+        "test_id": "5c264a23-89fd-411e-be1a-14e83b935094",
+        "ground_truth": "UB端口down",
+        "gt_broad_category": "UB-端口故障",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_ps_n_n",
+        "predicted_broad": "其他",
+        "confidence": 0.6285,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_ps_n_n",
+            "其他",
+            0.6285
+          ],
+          [
+            "dfx_remote_ub_all_port_down",
+            "UB-端口故障",
+            0.564
+          ],
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.5502
+          ],
+          [
+            "dfx_remote_ub_single_socket_two_port_down",
+            "UB-端口故障",
+            0.5205
+          ],
+          [
+            "dfx_local_ub_two_port_flashdown",
+            "UB-端口故障",
+            0.5102
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "其他",
+          "UB-端口故障",
+          "Worker-退出/崩溃",
+          "Worker-重启",
+          "UB-链路故障"
+        ]
+      },
+      {
+        "test_id": "8d0ecae9-8a56-48f5-b3ba-3bcb82624ce3",
+        "ground_truth": "UB链路故障",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "latency",
+        "predicted": "dfx_worker_process_write_net_card_loss",
+        "predicted_broad": "网络/TCP故障",
+        "confidence": 0.5071,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_write_net_card_loss",
+            "网络/TCP故障",
+            0.5071
+          ],
+          [
+            "dfx_r_discovery_worker_process_hangup",
+            "Worker-缩容/挂死",
+            0.4851
+          ],
+          [
+            "dfx_sdk_install_etcd_unavailable",
+            "etcd故障",
+            0.4804
+          ],
+          [
+            "dfx_worker_set_exit",
+            "Worker-退出/崩溃",
+            0.4769
+          ],
+          [
+            "dfx_worker_set_exit",
+            "Worker-退出/崩溃",
+            0.476
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "网络/TCP故障",
+          "Worker-缩容/挂死",
+          "etcd故障",
+          "Worker-退出/崩溃",
+          "UB-链路故障"
+        ]
+      },
+      {
+        "test_id": "b8a2bfc9-ad70-43f2-9e23-d124b37e5f1e",
+        "ground_truth": "端侧到L1端口故障",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_remote_local_ub_link_loss",
+        "predicted_broad": "UB-链路故障",
+        "confidence": 0.4404,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4404
+          ],
+          [
+            "dfx_worker_process_remote_remote_ub_single_port_down",
+            "UB-链路故障",
+            0.4128
+          ],
+          [
+            "dfx_worker_process_remote_ub_signal_error",
+            "UB-链路故障",
+            0.409
+          ],
+          [
+            "dfx_worker_process_remote_get_etcd_main_fail",
+            "etcd故障",
+            0.4003
+          ],
+          [
+            "dfx_worker_process_remote_ub_signal_error",
+            "UB-链路故障",
+            0.3927
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "UB-链路故障",
+          "etcd故障",
+          "其他",
+          "Worker-缩容/挂死",
+          "Worker-退出/崩溃"
+        ]
+      },
+      {
+        "test_id": "c5b142c8-abe8-405a-aebd-587f736cf585",
+        "ground_truth": "CPU挂死",
+        "gt_broad_category": "Worker-缩容/挂死",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_scale_in_client_exit",
+        "predicted_broad": "Worker-缩容/挂死",
+        "confidence": 0.4528,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_scale_in_client_exit",
+            "Worker-缩容/挂死",
+            0.4528
+          ],
+          [
+            "dfx_worker_pod_reboot_l2",
+            "Worker-重启",
+            0.4475
+          ],
+          [
+            "dfx_worker_process_scale_in_client_hang_up",
+            "Worker-缩容/挂死",
+            0.4348
+          ],
+          [
+            "dfx_worker_process_scale_in_tcp_down",
+            "Worker-缩容/挂死",
+            0.4281
+          ],
+          [
+            "dfx_worker_process_scale_in_client_exit",
+            "Worker-缩容/挂死",
+            0.4261
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-缩容/挂死",
+          "Worker-重启",
+          "UB-链路故障",
+          "Worker-退出/崩溃",
+          "其他"
+        ]
+      },
+      {
+        "test_id": "cb9b7dc5-863d-4788-b455-f2788d022bb6",
+        "ground_truth": "TCPdown",
+        "gt_broad_category": "网络/TCP故障",
+        "test_fault_category": "unknown",
+        "predicted": "dfx_write_remote_tcp_dalay",
+        "predicted_broad": "网络/TCP故障",
+        "confidence": 0.0439,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_write_remote_tcp_dalay",
+            "网络/TCP故障",
+            0.0439
+          ],
+          [
+            "dfx_client_write_remote_after_ubse_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.0439
+          ],
+          [
+            "dfx_client_write_remote_after_ubse_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.0439
+          ],
+          [
+            "dfx_client_write_remote_after_ubm_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.0439
+          ],
+          [
+            "dfx_write_remote_tcp_dalay",
+            "网络/TCP故障",
+            0.0439
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "网络/TCP故障",
+          "UB-UBSe/UBM管理进程故障",
+          "UB-端口故障",
+          "etcd故障",
+          "其他"
+        ]
+      },
+      {
+        "test_id": "e8620e4d-e6d2-43e5-ba60-b287fdab5c0c",
+        "ground_truth": "UB交换机L1的上行端口闪断",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_set_exit",
+        "predicted_broad": "Worker-退出/崩溃",
+        "confidence": 0.4668,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.4668
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4241
+          ],
+          [
+            "dfx_worker_process_local_ub_link_down",
+            "UB-链路故障",
+            0.4162
+          ],
+          [
+            "dfx_worker_process_local_ub_link_down",
+            "UB-链路故障",
+            0.4126
+          ],
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.4113
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-退出/崩溃",
+          "UB-链路故障",
+          "Worker-重启",
+          "etcd故障",
+          "其他"
+        ]
+      },
+      {
+        "test_id": "ee515adb-b415-47a3-8a0d-31df4237bdb0",
+        "ground_truth": "worker进程异常退出",
+        "gt_broad_category": "Worker-退出/崩溃",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_reboot_single_node",
+        "predicted_broad": "Worker-重启",
+        "confidence": 0.637,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_reboot_single_node",
+            "Worker-重启",
+            0.637
+          ],
+          [
+            "dfx_r_worker_process_set_exit",
+            "Worker-缩容/挂死",
+            0.5881
+          ],
+          [
+            "dfx_local_ub_single_socket_two_port_down",
+            "UB-端口故障",
+            0.583
+          ],
+          [
+            "dfx_r_worker_process_set_exit",
+            "Worker-缩容/挂死",
+            0.5824
+          ],
+          [
+            "dfx_r_etcd_fail_client_update",
+            "etcd故障",
+            0.5809
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-重启",
+          "Worker-缩容/挂死",
+          "UB-端口故障",
+          "etcd故障",
+          "Worker-退出/崩溃"
+        ]
+      },
+      {
+        "test_id": "f012208a-243f-457a-a45c-f164a9c4072f",
+        "ground_truth": "L1-L2互联链路反复shutdown模拟链路闪断",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "latency",
+        "predicted": "dfx_r_discovery_worker_process_hangup",
+        "predicted_broad": "Worker-缩容/挂死",
+        "confidence": 0.6606,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": false,
+        "top5_candidates": [
+          [
+            "dfx_r_discovery_worker_process_hangup",
+            "Worker-缩容/挂死",
+            0.6606
+          ],
+          [
+            "dfx_client_process_set_exit_start",
+            "Client-退出",
+            0.6566
+          ],
+          [
+            "dfx_client_write_remote_after_ubm_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.6536
+          ],
+          [
+            "dfx_etcd_cluster_exit",
+            "etcd故障",
+            0.6332
+          ],
+          [
+            "dfx_client_write_remote_worker_etcd_main_fault",
+            "etcd故障",
+            0.633
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-缩容/挂死",
+          "Client-退出",
+          "UB-UBSe/UBM管理进程故障",
+          "etcd故障",
+          "网络/TCP故障"
+        ]
+      }
+    ],
+    "C": [
+      {
+        "test_id": "18b1f8fe-3eb5-40af-93f5-410f85b42859",
+        "ground_truth": "CPU挂死",
+        "gt_broad_category": "Worker-缩容/挂死",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_remote_local_ub_single_port_down",
+        "predicted_broad": "UB-链路故障",
+        "confidence": 0.4325,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": true,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_remote_local_ub_single_port_down",
+            "UB-链路故障",
+            0.4325
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4318
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4177
+          ],
+          [
+            "dfx_worker_process_scale_in_tcp_down",
+            "Worker-缩容/挂死",
+            0.4162
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4149
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "UB-链路故障",
+          "Worker-缩容/挂死",
+          "Worker-退出/崩溃",
+          "Worker-重启",
+          "Client-挂死/网络"
+        ]
+      },
+      {
+        "test_id": "282ec9a1-f966-4ea4-b868-3ab9ac8b189c",
+        "ground_truth": "SDK初始化配置错误",
+        "gt_broad_category": "Client-挂死/网络",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_remote_local_ub_link_loss",
+        "predicted_broad": "UB-链路故障",
+        "confidence": 0.5682,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.5682
+          ],
+          [
+            "dfx_worker_process_remote_ub_signal_error",
+            "UB-链路故障",
+            0.549
+          ],
+          [
+            "dfx_worker_process_remote_remote_ub_single_port_down",
+            "UB-链路故障",
+            0.5347
+          ],
+          [
+            "dfx_worker_process_local_ub_link_down",
+            "UB-链路故障",
+            0.5269
+          ],
+          [
+            "dfx_worker_process_remote_ub_signal_error",
+            "UB-链路故障",
+            0.5228
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "UB-链路故障",
+          "Worker-重启",
+          "Worker-缩容/挂死",
+          "Worker-退出/崩溃",
+          "Client-挂死/网络"
+        ]
+      },
+      {
+        "test_id": "5c264a23-89fd-411e-be1a-14e83b935094",
+        "ground_truth": "UB端口down",
+        "gt_broad_category": "UB-端口故障",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_remote_ub_all_port_down",
+        "predicted_broad": "UB-端口故障",
+        "confidence": 0.6096,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_remote_ub_all_port_down",
+            "UB-端口故障",
+            0.6096
+          ],
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.6083
+          ],
+          [
+            "dfx_worker_pod_reboot",
+            "Worker-重启",
+            0.56
+          ],
+          [
+            "dfx_worker_pod_reboot",
+            "Worker-重启",
+            0.556
+          ],
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.5526
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "UB-端口故障",
+          "Worker-退出/崩溃",
+          "Worker-重启",
+          "Client-挂死/网络",
+          "UB-链路故障"
+        ]
+      },
+      {
+        "test_id": "8d0ecae9-8a56-48f5-b3ba-3bcb82624ce3",
+        "ground_truth": "UB链路故障",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "latency",
+        "predicted": "dfx_worker_process_write_net_card_loss",
+        "predicted_broad": "网络/TCP故障",
+        "confidence": 0.5361,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": false,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_write_net_card_loss",
+            "网络/TCP故障",
+            0.5361
+          ],
+          [
+            "dfx_r_discovery_worker_process_hangup",
+            "Worker-缩容/挂死",
+            0.5277
+          ],
+          [
+            "dfx_write_remote_tcp_dalay",
+            "网络/TCP故障",
+            0.5006
+          ],
+          [
+            "dfx_local_ub_single_port_down",
+            "UB-端口故障",
+            0.5004
+          ],
+          [
+            "dfx_local_ub_all_port_unavailable",
+            "UB-端口故障",
+            0.5004
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "网络/TCP故障",
+          "Worker-缩容/挂死",
+          "UB-端口故障",
+          "UB-UBSe/UBM管理进程故障",
+          "Client-退出"
+        ]
+      },
+      {
+        "test_id": "b8a2bfc9-ad70-43f2-9e23-d124b37e5f1e",
+        "ground_truth": "端侧到L1端口故障",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_remote_local_ub_link_loss",
+        "predicted_broad": "UB-链路故障",
+        "confidence": 0.4656,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4656
+          ],
+          [
+            "dfx_worker_process_remote_remote_ub_single_port_down",
+            "UB-链路故障",
+            0.4502
+          ],
+          [
+            "dfx_worker_process_remote_ub_signal_error",
+            "UB-链路故障",
+            0.445
+          ],
+          [
+            "dfx_r_worker_process_set_exit",
+            "Worker-缩容/挂死",
+            0.4343
+          ],
+          [
+            "dfx_worker_process_exit_single_node",
+            "Worker-退出/崩溃",
+            0.4239
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "UB-链路故障",
+          "Worker-缩容/挂死",
+          "Worker-退出/崩溃",
+          "Client-挂死/网络",
+          "Worker-重启"
+        ]
+      },
+      {
+        "test_id": "c5b142c8-abe8-405a-aebd-587f736cf585",
+        "ground_truth": "CPU挂死",
+        "gt_broad_category": "Worker-缩容/挂死",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_scale_in_client_exit",
+        "predicted_broad": "Worker-缩容/挂死",
+        "confidence": 0.4817,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_scale_in_client_exit",
+            "Worker-缩容/挂死",
+            0.4817
+          ],
+          [
+            "dfx_worker_pod_reboot_l2",
+            "Worker-重启",
+            0.4733
+          ],
+          [
+            "dfx_worker_process_scale_in_tcp_down",
+            "Worker-缩容/挂死",
+            0.4723
+          ],
+          [
+            "dfx_worker_process_scale_in_client_hang_up",
+            "Worker-缩容/挂死",
+            0.4608
+          ],
+          [
+            "dfx_worker_process_scale_in_client_hang_up",
+            "Worker-缩容/挂死",
+            0.4525
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-缩容/挂死",
+          "Worker-重启",
+          "UB-链路故障",
+          "Worker-退出/崩溃",
+          "Client-挂死/网络"
+        ]
+      },
+      {
+        "test_id": "cb9b7dc5-863d-4788-b455-f2788d022bb6",
+        "ground_truth": "TCPdown",
+        "gt_broad_category": "网络/TCP故障",
+        "test_fault_category": "unknown",
+        "predicted": "dfx_write_remote_tcp_dalay",
+        "predicted_broad": "网络/TCP故障",
+        "confidence": 0.0844,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_write_remote_tcp_dalay",
+            "网络/TCP故障",
+            0.0844
+          ],
+          [
+            "dfx_client_write_remote_after_ubse_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.0844
+          ],
+          [
+            "dfx_client_write_remote_after_ubse_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.0844
+          ],
+          [
+            "dfx_client_write_remote_after_ubm_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.0844
+          ],
+          [
+            "dfx_write_remote_tcp_dalay",
+            "网络/TCP故障",
+            0.0844
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "网络/TCP故障",
+          "UB-UBSe/UBM管理进程故障",
+          "UB-端口故障",
+          "Worker-缩容/挂死",
+          "Worker-退出/崩溃"
+        ]
+      },
+      {
+        "test_id": "e8620e4d-e6d2-43e5-ba60-b287fdab5c0c",
+        "ground_truth": "UB交换机L1的上行端口闪断",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_set_exit",
+        "predicted_broad": "Worker-退出/崩溃",
+        "confidence": 0.5104,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": true,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.5104
+          ],
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.4478
+          ],
+          [
+            "dfx_worker_pod_reboot",
+            "Worker-重启",
+            0.42
+          ],
+          [
+            "dfx_worker_pod_reboot",
+            "Worker-重启",
+            0.4117
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4068
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-退出/崩溃",
+          "Worker-重启",
+          "UB-链路故障",
+          "Client-挂死/网络",
+          "Worker-缩容/挂死"
+        ]
+      },
+      {
+        "test_id": "ee515adb-b415-47a3-8a0d-31df4237bdb0",
+        "ground_truth": "worker进程异常退出",
+        "gt_broad_category": "Worker-退出/崩溃",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_reboot_single_node",
+        "predicted_broad": "Worker-重启",
+        "confidence": 0.6895,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_reboot_single_node",
+            "Worker-重启",
+            0.6895
+          ],
+          [
+            "dfx_r_worker_process_set_exit",
+            "Worker-缩容/挂死",
+            0.6487
+          ],
+          [
+            "dfx_r_worker_process_set_exit",
+            "Worker-缩容/挂死",
+            0.639
+          ],
+          [
+            "dfx_local_ub_single_socket_two_port_down",
+            "UB-端口故障",
+            0.6148
+          ],
+          [
+            "dfx_remote_ub_all_port_down",
+            "UB-端口故障",
+            0.6118
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-重启",
+          "Worker-缩容/挂死",
+          "UB-端口故障",
+          "Worker-退出/崩溃",
+          "Client-挂死/网络"
+        ]
+      },
+      {
+        "test_id": "f012208a-243f-457a-a45c-f164a9c4072f",
+        "ground_truth": "L1-L2互联链路反复shutdown模拟链路闪断",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "latency",
+        "predicted": "dfx_client_write_remote_after_ubm_fault",
+        "predicted_broad": "UB-UBSe/UBM管理进程故障",
+        "confidence": 0.6724,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": false,
+        "top5_candidates": [
+          [
+            "dfx_client_write_remote_after_ubm_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.6724
+          ],
+          [
+            "dfx_r_discovery_worker_process_hangup",
+            "Worker-缩容/挂死",
+            0.6717
+          ],
+          [
+            "dfx_client_process_set_exit_start",
+            "Client-退出",
+            0.6678
+          ],
+          [
+            "dfx_write_remote_tcp_dalay",
+            "网络/TCP故障",
+            0.6466
+          ],
+          [
+            "dfx_client_write_remote_after_ubse_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.6466
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "UB-UBSe/UBM管理进程故障",
+          "Worker-缩容/挂死",
+          "Client-退出",
+          "网络/TCP故障",
+          "UB-端口故障"
+        ]
+      }
+    ],
+    "D": [
+      {
+        "test_id": "18b1f8fe-3eb5-40af-93f5-410f85b42859",
+        "ground_truth": "CPU挂死",
+        "gt_broad_category": "Worker-缩容/挂死",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_remote_local_ub_link_loss",
+        "predicted_broad": "UB-链路故障",
+        "confidence": 0.419,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.419
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_single_port_down",
+            "UB-链路故障",
+            0.4142
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4061
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.405
+          ],
+          [
+            "dfx_worker_process_scale_in_remote_ub_link_down",
+            "UB-链路故障",
+            0.3882
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "UB-链路故障",
+          "Worker-缩容/挂死",
+          "Worker-退出/崩溃",
+          "Worker-重启",
+          "Client-挂死/网络"
+        ]
+      },
+      {
+        "test_id": "282ec9a1-f966-4ea4-b868-3ab9ac8b189c",
+        "ground_truth": "SDK初始化配置错误",
+        "gt_broad_category": "Client-挂死/网络",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_local_ub_link_down",
+        "predicted_broad": "UB-链路故障",
+        "confidence": 0.5279,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_local_ub_link_down",
+            "UB-链路故障",
+            0.5279
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.5264
+          ],
+          [
+            "dfx_worker_process_local_ub_link_down",
+            "UB-链路故障",
+            0.5078
+          ],
+          [
+            "dfx_worker_process_remote_ub_signal_error",
+            "UB-链路故障",
+            0.5038
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4934
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "UB-链路故障",
+          "Worker-重启",
+          "Worker-缩容/挂死",
+          "Worker-退出/崩溃",
+          "Client-挂死/网络"
+        ]
+      },
+      {
+        "test_id": "5c264a23-89fd-411e-be1a-14e83b935094",
+        "ground_truth": "UB端口down",
+        "gt_broad_category": "UB-端口故障",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_remote_ub_all_port_down",
+        "predicted_broad": "UB-端口故障",
+        "confidence": 0.564,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_remote_ub_all_port_down",
+            "UB-端口故障",
+            0.564
+          ],
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.5502
+          ],
+          [
+            "dfx_remote_ub_single_socket_two_port_down",
+            "UB-端口故障",
+            0.5205
+          ],
+          [
+            "dfx_local_ub_two_port_flashdown",
+            "UB-端口故障",
+            0.5102
+          ],
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.501
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "UB-端口故障",
+          "Worker-退出/崩溃",
+          "Worker-重启",
+          "UB-链路故障",
+          "Client-挂死/网络"
+        ]
+      },
+      {
+        "test_id": "8d0ecae9-8a56-48f5-b3ba-3bcb82624ce3",
+        "ground_truth": "UB链路故障",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "latency",
+        "predicted": "dfx_worker_process_write_net_card_loss",
+        "predicted_broad": "网络/TCP故障",
+        "confidence": 0.5071,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": true,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_write_net_card_loss",
+            "网络/TCP故障",
+            0.5071
+          ],
+          [
+            "dfx_r_discovery_worker_process_hangup",
+            "Worker-缩容/挂死",
+            0.4851
+          ],
+          [
+            "dfx_worker_set_exit",
+            "Worker-退出/崩溃",
+            0.4769
+          ],
+          [
+            "dfx_worker_set_exit",
+            "Worker-退出/崩溃",
+            0.476
+          ],
+          [
+            "dfx_worker_process_remote_ub_single_link_down",
+            "UB-链路故障",
+            0.4717
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "网络/TCP故障",
+          "Worker-缩容/挂死",
+          "Worker-退出/崩溃",
+          "UB-链路故障",
+          "Client-退出"
+        ]
+      },
+      {
+        "test_id": "b8a2bfc9-ad70-43f2-9e23-d124b37e5f1e",
+        "ground_truth": "端侧到L1端口故障",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_remote_local_ub_link_loss",
+        "predicted_broad": "UB-链路故障",
+        "confidence": 0.4404,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4404
+          ],
+          [
+            "dfx_worker_process_remote_remote_ub_single_port_down",
+            "UB-链路故障",
+            0.4128
+          ],
+          [
+            "dfx_worker_process_remote_ub_signal_error",
+            "UB-链路故障",
+            0.409
+          ],
+          [
+            "dfx_worker_process_remote_ub_signal_error",
+            "UB-链路故障",
+            0.3927
+          ],
+          [
+            "dfx_r_worker_process_set_exit",
+            "Worker-缩容/挂死",
+            0.3776
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "UB-链路故障",
+          "Worker-缩容/挂死",
+          "Worker-退出/崩溃",
+          "Worker-重启",
+          "Client-挂死/网络"
+        ]
+      },
+      {
+        "test_id": "c5b142c8-abe8-405a-aebd-587f736cf585",
+        "ground_truth": "CPU挂死",
+        "gt_broad_category": "Worker-缩容/挂死",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_scale_in_client_exit",
+        "predicted_broad": "Worker-缩容/挂死",
+        "confidence": 0.4528,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_scale_in_client_exit",
+            "Worker-缩容/挂死",
+            0.4528
+          ],
+          [
+            "dfx_worker_pod_reboot_l2",
+            "Worker-重启",
+            0.4475
+          ],
+          [
+            "dfx_worker_process_scale_in_client_hang_up",
+            "Worker-缩容/挂死",
+            0.4348
+          ],
+          [
+            "dfx_worker_process_scale_in_tcp_down",
+            "Worker-缩容/挂死",
+            0.4281
+          ],
+          [
+            "dfx_worker_process_scale_in_client_exit",
+            "Worker-缩容/挂死",
+            0.4261
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-缩容/挂死",
+          "Worker-重启",
+          "UB-链路故障",
+          "Worker-退出/崩溃",
+          "Client-挂死/网络"
+        ]
+      },
+      {
+        "test_id": "cb9b7dc5-863d-4788-b455-f2788d022bb6",
+        "ground_truth": "TCPdown",
+        "gt_broad_category": "网络/TCP故障",
+        "test_fault_category": "unknown",
+        "predicted": "dfx_write_remote_tcp_dalay",
+        "predicted_broad": "网络/TCP故障",
+        "confidence": 0.0439,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": true,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": true,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_write_remote_tcp_dalay",
+            "网络/TCP故障",
+            0.0439
+          ],
+          [
+            "dfx_client_write_remote_after_ubse_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.0439
+          ],
+          [
+            "dfx_client_write_remote_after_ubse_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.0439
+          ],
+          [
+            "dfx_client_write_remote_after_ubm_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.0439
+          ],
+          [
+            "dfx_write_remote_tcp_dalay",
+            "网络/TCP故障",
+            0.0439
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "网络/TCP故障",
+          "UB-UBSe/UBM管理进程故障",
+          "UB-端口故障",
+          "Worker-缩容/挂死",
+          "Worker-退出/崩溃"
+        ]
+      },
+      {
+        "test_id": "e8620e4d-e6d2-43e5-ba60-b287fdab5c0c",
+        "ground_truth": "UB交换机L1的上行端口闪断",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_process_set_exit",
+        "predicted_broad": "Worker-退出/崩溃",
+        "confidence": 0.4668,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": true,
+        "top5_broad": true,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": true,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.4668
+          ],
+          [
+            "dfx_worker_process_remote_local_ub_link_loss",
+            "UB-链路故障",
+            0.4241
+          ],
+          [
+            "dfx_worker_process_local_ub_link_down",
+            "UB-链路故障",
+            0.4162
+          ],
+          [
+            "dfx_worker_process_local_ub_link_down",
+            "UB-链路故障",
+            0.4126
+          ],
+          [
+            "dfx_worker_process_set_exit",
+            "Worker-退出/崩溃",
+            0.4113
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-退出/崩溃",
+          "UB-链路故障",
+          "Worker-重启",
+          "Worker-缩容/挂死",
+          "Client-挂死/网络"
+        ]
+      },
+      {
+        "test_id": "ee515adb-b415-47a3-8a0d-31df4237bdb0",
+        "ground_truth": "worker进程异常退出",
+        "gt_broad_category": "Worker-退出/崩溃",
+        "test_fault_category": "mixed",
+        "predicted": "dfx_worker_reboot_single_node",
+        "predicted_broad": "Worker-重启",
+        "confidence": 0.637,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": true,
+        "top5_candidates": [
+          [
+            "dfx_worker_reboot_single_node",
+            "Worker-重启",
+            0.637
+          ],
+          [
+            "dfx_r_worker_process_set_exit",
+            "Worker-缩容/挂死",
+            0.5881
+          ],
+          [
+            "dfx_local_ub_single_socket_two_port_down",
+            "UB-端口故障",
+            0.583
+          ],
+          [
+            "dfx_r_worker_process_set_exit",
+            "Worker-缩容/挂死",
+            0.5824
+          ],
+          [
+            "dfx_remote_ub_all_port_down",
+            "UB-端口故障",
+            0.5805
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-重启",
+          "Worker-缩容/挂死",
+          "UB-端口故障",
+          "Worker-退出/崩溃",
+          "Client-挂死/网络"
+        ]
+      },
+      {
+        "test_id": "f012208a-243f-457a-a45c-f164a9c4072f",
+        "ground_truth": "L1-L2互联链路反复shutdown模拟链路闪断",
+        "gt_broad_category": "UB-链路故障",
+        "test_fault_category": "latency",
+        "predicted": "dfx_r_discovery_worker_process_hangup",
+        "predicted_broad": "Worker-缩容/挂死",
+        "confidence": 0.6606,
+        "top1_exact": false,
+        "top3_exact": false,
+        "top5_exact": false,
+        "top1_broad": false,
+        "top3_broad": false,
+        "top5_broad": false,
+        "top1_broad_dedup": false,
+        "top3_broad_dedup": false,
+        "top5_broad_dedup": false,
+        "top5_candidates": [
+          [
+            "dfx_r_discovery_worker_process_hangup",
+            "Worker-缩容/挂死",
+            0.6606
+          ],
+          [
+            "dfx_client_process_set_exit_start",
+            "Client-退出",
+            0.6566
+          ],
+          [
+            "dfx_client_write_remote_after_ubm_fault",
+            "UB-UBSe/UBM管理进程故障",
+            0.6536
+          ],
+          [
+            "dfx_write_remote_tcp_dalay",
+            "网络/TCP故障",
+            0.6324
+          ],
+          [
+            "dfx_write_remote_tcp_dalay",
+            "网络/TCP故障",
+            0.6324
+          ]
+        ],
+        "top5_broad_dedup_list": [
+          "Worker-缩容/挂死",
+          "Client-退出",
+          "UB-UBSe/UBM管理进程故障",
+          "网络/TCP故障",
+          "UB-端口故障"
+        ]
+      }
+    ]
+  },
+  "weights_default": {
+    "failure_mode": 6.0,
+    "status_code": 4.0,
+    "op_p99_p50": 4.0,
+    "operation": 3.0,
+    "seg_ranking": 3.0,
+    "seg_order": 3.0,
+    "client_ratio": 2.5,
+    "server_ratio": 2.5,
+    "trace_pods": 2.5,
+    "timeout_seg": 2.0,
+    "conn_operation": 2.0,
+    "p99_p50": 2.0,
+    "pod_conc": 1.5,
+    "anomalous_ratio": 1.5,
+    "pod_scope": 1.0,
+    "host_scope": 1.0,
+    "cluster_scope": 1.0
+  },
+  "weights_tuned": {
+    "failure_mode": 4.0,
+    "status_code": 3.0,
+    "op_p99_p50": 5.0,
+    "operation": 3.0,
+    "seg_ranking": 5.0,
+    "seg_order": 4.0,
+    "client_ratio": 3.5,
+    "server_ratio": 3.5,
+    "trace_pods": 2.5,
+    "timeout_seg": 2.5,
+    "conn_operation": 1.5,
+    "p99_p50": 3.0,
+    "pod_conc": 1.5,
+    "anomalous_ratio": 2.0,
+    "pod_scope": 1.0,
+    "host_scope": 1.0,
+    "cluster_scope": 1.0
+  },
+  "tuned_gates": {
+    "cat_gate": 0.5,
+    "fm_penalty": 0.5,
+    "sc_penalty": 0.6
+  }
+}

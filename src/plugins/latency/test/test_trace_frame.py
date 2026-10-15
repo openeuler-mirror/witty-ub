@@ -90,7 +90,7 @@ def test_fixture_parity_field_by_field():
     reference = KVCacheLogParseWorker._build_flat_trace_index(parsed)
     df_trace = build_trace_frame(entries_to_columns(parsed))
 
-    # 输出契约：TRACE_COLUMNS（31）+ __ 内部列（yuanrong 原材料，供 run() 延后计算）。
+    # 输出契约：TRACE_COLUMNS（33）+ __ 内部列（yuanrong 原材料，供 run() 延后计算）。
     # YUANRONG_METRIC_FIELDS（26）已从 build_trace_frame 移除，改为调用侧按子集计算。
     assert all(col in df_trace.columns for col in TRACE_COLUMNS)
     internals = [c for c in df_trace.columns if c.startswith("__")]
@@ -99,11 +99,25 @@ def test_fixture_parity_field_by_field():
         assert col not in df_trace.columns, f"{col=} should be computed later in run()"
     assert df_trace.height == len(reference) == 4
 
+    # pod_ip/cluster_name 为 implode_unique 聚合列：df_trace 输出去重列表，
+    # 参考平铺 dict 为标量（该 trace 任一来源 pod）
+    implode_unique_cols = {"pod_ip", "cluster_name"}
     got = {row["tid"]: row for row in df_trace.sort("tid").to_dicts()}
     assert set(got) == set(reference)
     for tid, ref in reference.items():
         for col in TRACE_COLUMNS:
-            assert got[tid][col] == ref[col], (tid, col, got[tid][col], ref[col])
+            got_val = got[tid][col]
+            if col not in ref:
+                # 参考平铺 dict 未覆盖的富化列（cluster_name/host），仅验证 df_trace 侧存在
+                continue
+            ref_val = ref[col]
+            if col in implode_unique_cols:
+                if ref_val in (None, ""):
+                    assert not got_val, (tid, col, got_val, ref_val)
+                else:
+                    assert got_val and ref_val in got_val, (tid, col, got_val, ref_val)
+            else:
+                assert got_val == ref_val, (tid, col, got_val, ref_val)
 
 
 # ---------------------------------------------------------------------------

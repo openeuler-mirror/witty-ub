@@ -17,6 +17,7 @@ import DisconnectMonitor from './DisconnectMonitor.vue'
 import DisconnectAggregateEvents from './DisconnectAggregateEvents.vue'
 import BRPCInterfaceMonitor from './BRPCInterfaceMonitor.vue'
 import BRPCFaultMonitor from './BRPCFaultMonitor.vue'
+import SimilarityAnalysis from './SimilarityAnalysis.vue'
 import PageNav from '../common/PageNav.vue'
 
 const props = defineProps<{
@@ -205,6 +206,15 @@ const brpcThreadFailureModeLabel = (id: string) =>
 const analysisLoading = computed(
   () => overviewLoading.value || brpcLoading.value || brpcFaultLoading.value,
 )
+
+// ===== 相似案例分析：当前 KVCache 已完成任务的 log_file_id =====
+const currentAnalysisLogFileId = computed(
+  () => latencyFilter.logId.value || scopeTasks.value[0]?.id || '',
+)
+const currentAnalysisLogFileName = computed(
+  () => scopeTasks.value.find((t) => t.id === currentAnalysisLogFileId.value)?.name || '',
+)
+
 const selectBrpcGraphNode = (id: string) => {
   brpcSelectedGraphNodeId.value = brpcSelectedGraphNodeId.value === id ? '' : id
 }
@@ -497,6 +507,13 @@ onMounted(() => {
         <DisconnectMonitor v-if="analysisModule.disconnect === 'faults'" />
         <DisconnectAggregateEvents v-else />
       </template>
+
+      <!-- ===== 相似案例分析 ===== -->
+      <SimilarityAnalysis
+        v-if="!isBrpcTask"
+        :log-file-id="currentAnalysisLogFileId"
+        :log-file-name="currentAnalysisLogFileName"
+      />
 
       <!-- ===== UBSocket 监控 ===== -->
       <template v-else>

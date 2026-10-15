@@ -66,7 +66,10 @@ make -C "${BUILD_DIR}" install
 # 创建软链
 COMPILED="${OUTPUT_DIR}/bin/libsimple.so"
 if [[ ! -f "${COMPILED}" ]]; then
-    echo "[ERROR] 编译后未找到 ${COMPILED}"
+    COMPILED="${OUTPUT_DIR}/bin/libsimple.dylib"
+fi
+if [[ ! -f "${COMPILED}" ]]; then
+    echo "[ERROR] 编译后未找到 libsimple.so 或 libsimple.dylib"
     exit 1
 fi
 

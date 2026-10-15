@@ -20,7 +20,7 @@ function createAssetsState() {
   const { toast } = useToast()
   const { writeRestricted, writeRestrictedMessage } = useServiceHealth()
 
-  const view = ref<'assets' | 'home'>('assets')
+  const view = ref<'assets' | 'home' | 'knowledge'>('assets')
   const assetTab = ref<'overview' | 'tasks'>('overview')
 
   const assets = ref<LogKnowledge[]>([])
@@ -145,6 +145,10 @@ function createAssetsState() {
     assetTab.value = 'overview'
   }
 
+  const openKnowledge = () => {
+    view.value = 'knowledge'
+  }
+
   const assetModalOpen = ref(false)
   const assetModalMode = ref<AssetModalMode>('create')
   const savingAsset = ref(false)
@@ -244,6 +248,7 @@ function createAssetsState() {
     assetError,
     enterAsset,
     goAssetList,
+    openKnowledge,
     assetModalOpen,
     assetModalMode,
     savingAsset,

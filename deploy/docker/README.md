@@ -135,11 +135,19 @@ RAG Core 读取与 `deploy.conf` 同目录的 `deploy/rag-core.toml`。部署前
 1. **拉取镜像**：优先使用本地镜像，否则从 `hub-harbor.oepkgs.net/neocopilot/witty-ub:<角色tag>` 拉取
 2. **验证镜像**：检查镜像完整性（frontend 校验 Nginx/Web/Agent 资产，其余校验 BRPC 工具与数据）
 3. **创建网络**：复用已有的 Docker 网络
-4. **创建数据卷**：all/backend 建 `witty-ub-data/logs/uploads/results`，frontend 建 `witty-ub-experience-data`
+4. **创建数据卷**：all/backend 建 `witty-ub-data/case/uploads/results`，all/frontend 建 `witty-ub-experience-data`；所有角色挂载 `witty-ub-logs/reports`
 5. **配置 OpenCode**：all/frontend 准备 OpenCode 配置目录
 6. **自动检测 PG**：all/backend 检测 PostgreSQL 部署方式，自动配置连接参数；frontend 不连数据库
 7. **启动容器**：容器名分别为 `<名称>`、`<名称>-backend`、`<名称>-frontend`；backend 暴露 9772，frontend 暴露 32413 并按 `WITTY_BACKEND_URL` 反代后端
-8. **健康检查**：等待应用就绪（最多 180 秒）
+8. **健康检查**：等待应用就绪（最多 180 秒）；all/frontend 除检查后端，还经 Nginx 检查 SKILL/WIKI 两类管理接口
+
+### experience-skill Web 服务
+
+`all` 和 `frontend` 容器自动启动经验库 Web 服务；分离部署时服务和经验库数据都留在前端容器。启动流程参照 host/RPM：使用镜像内已安装的技能 venv，先执行 `python -m experience_skill_cli.cli sync`，再执行 `web --host 127.0.0.1 --port 8082 --no-browser`，启动时不下载依赖。
+
+访问路径为 `http://<部署地址>:<Web端口>/experience_api/experiences`，Nginx 转发到容器内 `8082`，无需发布此端口。经验库通过 `witty-ub-experience-data` 卷持久化，运行日志为 `/var/log/witty-ub/experience_server.log`（同时输出到 `docker logs`）。依赖缺失、同步失败或 SKILL/WIKI 接口未就绪会使启动失败；运行期间接口失败会使容器健康检查失败。
+
+源码镜像和 RPM 容器镜像均在构建时准备技能运行环境；试验性前端 overlay 同时更新入口及健康检查脚本。已有容器需重建镜像并重新创建容器，单纯重启旧镜像不会获得修复。
 
 > 分离部署顺序：先后端（`install-pg` + `install-backend`），后前端（`install-frontend`）。
 > 密钥权限按读取方自动设置：容器化 PG → `0440`，宿主机/远端 PG → `0400`。
@@ -184,7 +192,26 @@ WITTY_EXTRA_MOUNTS="/home:/home:ro"     # 额外挂载（可选）
 WITTY_BACKEND_HOST_PORT="9772"          # 后端容器宿主机端口（容器内 9772）
 WITTY_FRONTEND_HOST_PORT="32413"        # 前端容器宿主机端口（容器内 8080）
 WITTY_BACKEND_URL=""                    # 前端容器内反代上游；留空 = http://witty-ub-backend:9772，跨机填 http://<后端IP>:9772
+
+# ---------- 容器运行时（网络 / SSL / seccomp） ----------
+WITTY_NETWORK_MODE="bridge"             # bridge（默认，接入 PG_NETWORK 组网）| host（共享宿主机网络）
+WITTY_SSL_VERIFY="true"                 # true（默认校验 OpenCode/LLM 出网 HTTPS 证书）| false（关闭校验）
+WITTY_SECCOMP="default"                 # default（Docker 默认过滤）| unconfined（关闭，旧版 Docker/libseccomp）
+
+# 容器级网络模式覆盖（留空继承 WITTY_NETWORK_MODE）
+WITTY_NETWORK_MODE_PG=""                # PG 容器（postgres）
+WITTY_NETWORK_MODE_APP=""               # 一体容器（--role all）
+WITTY_NETWORK_MODE_BACKEND=""           # 分离：后端容器（--role backend）
+WITTY_NETWORK_MODE_FRONTEND=""          # 分离：前端容器（--role frontend）
+WITTY_NETWORK_SELFCHECK="true"          # 部署后逐链路自检（true|false）
+WITTY_NETWORK_FALLBACK="prompt"         # 自检失败回退：prompt（提示命令）| auto（自动切 host 重跑）| off
 ```
+
+> **网络模式与自检**：`WITTY_NETWORK_MODE="host"` 时脚本改用 `--network host`、跳过 `-p` 端口映射与网络创建，
+> 容器内 PG 地址改为 `127.0.0.1:5432`，前端反代改为 `http://127.0.0.1:9772`，Web UI 直接占用宿主机 8080
+> （`WITTY_HOST_PORT` 不再生效）。容器级键 `WITTY_NETWORK_MODE_PG/_APP/_BACKEND/_FRONTEND` 可覆盖全局键（一体
+> 只认 `_APP`，分离同机要求前后端一致）；自检失败按 `WITTY_NETWORK_FALLBACK`（`prompt`/`auto`/`off`）处理。
+> 完整规则（含混合组合、探针判定、回退细节）见[配置参考](../../docs/usage/03-configuration-reference.md)。
 
 ### 镜像拉取优先级
 
@@ -207,9 +234,12 @@ WITTY_BACKEND_URL=""                    # 前端容器内反代上游；留空 =
 | 优先级 | 检测条件 | 连接结果 |
 | ------ | ------ | ------ |
 | 0 | `deploy.conf` 显式设置 `PG_HOST_IN_CONTAINER` | 使用配置值 |
-| 1 | 同网络 PG 容器正在运行 | `postgres:5432` |
-| 2 | 宿主机 RPM PG 正在运行 | `Docker网关IP:监听端口` |
-| 3 | 以上都未检测到 | 默认 `postgres:5432` |
+| 1 | PG 容器 `host` + 应用 `host` | `127.0.0.1:5432` |
+| 2 | PG 容器 `host` + 应用 `bridge` | `Docker网关IP:5432`（混合组合，不保证） |
+| 3 | PG 容器 `bridge` + 应用 `host` | `127.0.0.1:<PG_PORT>`（混合组合，不保证） |
+| 4 | 同网络 PG 容器正在运行（都 `bridge`） | `postgres:5432` |
+| 5 | 宿主机 RPM PG 正在运行 | `Docker网关IP:监听端口` |
+| 6 | 以上都未检测到 | 默认 `postgres:5432` |
 
 ---
 
@@ -278,6 +308,24 @@ bash manage.sh install-backend
 WITTY_BACKEND_URL=http://<后端机器IP>:9772 bash manage.sh install-frontend
 ```
 
+### Docker 网络不被信任（容器间无法通信）
+
+PG 容器 `healthy` 但与应用容器互相不可达时，多为宿主机把 Docker 网桥视为不可信区域：
+
+```bash
+# 方案 A（推荐）: 把 Docker 网络加入 firewalld 信任域
+SUBNET=$(docker network inspect witty-ub-network --format '{{(index .IPAM.Config 0).Subnet}}')
+sudo firewall-cmd --permanent --zone=trusted --add-source="$SUBNET" && sudo firewall-cmd --reload
+# 方案 B: PG 与应用都改用 host 网络模式
+WITTY_NETWORK_MODE=host bash manage.sh install-all
+```
+
+> 完整取证步骤与两方案取舍见[故障排查 §3](../../docs/troubleshooting/02-container-runtime.md)。
+
+### 内网自签证书导致 OpenCode 调用 LLM 报证书错误
+
+在 `deploy/deploy.conf` 设 `WITTY_SSL_VERIFY="false"`（关闭的只是 OpenCode/LLM 出网 HTTPS 证书校验，不影响 Nginx 与数据库连接）。
+
 ### 完全卸载
 
 ```bash
@@ -307,8 +355,13 @@ bash manage.sh
 | PG RPM 未检测到 | 在 `deploy.conf` 中手动设置 `PG_HOST_IN_CONTAINER`（宿主机 PG 需 `listen_addresses='*'` 且已重启） |
 | 部署失败只提示 `Latency Plugin failed to start` | PG 口令不匹配：查看脚本追加打印的 `/var/log/witty-ub/latency_server.log`，见[常见问题 §10](../../docs/troubleshooting/01-common-issues.md) |
 | 分离前端 unhealthy，但前端页面能打开 | 远端后端不可达：先在 BE 执行 `curl http://<BE>:9772/health_check`，见[常见问题 §11](../../docs/troubleshooting/01-common-issues.md) |
+| Skill/Wiki 管理 502 或容器 unhealthy | 检查 `/var/log/witty-ub/experience_server.log`；在容器内执行 `/healthcheck.sh --experience` 检查 Nginx → experience-skill 链路 |
 | 报 `Cannot access the Docker daemon socket (permission denied)` | 当前用户不在 `docker` 组：`sudo usermod -aG docker $USER && newgrp docker`（脚本已区分该错误与"守护进程未启动"） |
 | 端口冲突 | `ss -tlnp \| grep <端口>` 检查占用 |
+| 同网络内 PG 与 witty-ub 互相不可达（PG 自身 healthy） | Docker 网络被服务器视为不可信：加 firewalld 信任域，或设 `WITTY_NETWORK_MODE=host`，见[故障排查 §3](../../docs/troubleshooting/02-container-runtime.md) |
+| host 模式下 `docker port witty-ub` 输出为空 | 正常现象（host 模式无端口映射）：Web UI 直接占用宿主机 8080，`manage.sh status` 显示为 `host net (:8080)` |
+| OpenCode 调用 LLM 报证书错误 | 内网自签证书/代理拦截：导入 CA，或设 `WITTY_SSL_VERIFY="false"` 关闭校验 |
+| 旧版 Docker 容器启动报 `can't start new thread` | 设 `WITTY_SECCOMP="unconfined"` 关闭 seccomp 过滤（Docker<20.10 / libseccomp<2.5） |
 | 容器已有数据但无法启动 | 检查数据卷完整性、PG 数据目录权限 |
 | 与 compose 混用报容器名冲突 | 脚本与 `docker-compose.yml` 互斥（容器名/卷名/网络名一致），请二选一 |
 
@@ -318,6 +371,7 @@ bash manage.sh
 
 - [宿主机脚本部署](../../docs/deployment/02-script-host.md)
 - [容器脚本部署](../../docs/deployment/03-script-container.md)
+- [配置参考](../../docs/usage/03-configuration-reference.md)
 - [手动数据库部署](../../docs/deployment/05-database.md)
 - [手动源码部署](../../docs/deployment/06-source.md)
 - [手动 RPM 部署](../../docs/deployment/07-rpm.md)

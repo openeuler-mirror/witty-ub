@@ -1,0 +1,116 @@
+{
+  "id": "5c264a23-89fd-411e-be1a-14e83b935094",
+  "kb_id": "783cee3d-5386-4ac2-9b93-bc322d26b3bd",
+  "root_cause_type": "UB端口down",
+  "description": "",
+  "task_ids": [
+    "2a096c71-e590-48bc-a349-a6a01e45790b"
+  ],
+  "task_names": [
+    "UB端口down.tar.gz"
+  ],
+  "log_file_id": "41e4cc7d-31d9-454b-ba4e-aa8a86a6355b",
+  "log_file_name": "UB端口down.tar.gz",
+  "attachment_path": null,
+  "fault_category": "mixed",
+  "features": {
+    "fault_category": "mixed",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          18.025593800000017
+        ],
+        [
+          "c2w_latency",
+          9.817857142857141
+        ],
+        [
+          "c2w_urma_latency",
+          9.817857142857141
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          18.025593800000017
+        ],
+        [
+          "c2w_latency",
+          9.817857142857141
+        ],
+        [
+          "c2w_urma_latency",
+          9.817857142857141
+        ],
+        [
+          "urma_total_latency",
+          0.7017243553008592
+        ],
+        [
+          "urma_link_latency",
+          0.15651338461538464
+        ]
+      ],
+      "p99_p50_ratio": 1.0097370983446932,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_GET": 1.01,
+        "DS_KV_CLIENT_SET": 2.129
+      },
+      "pod_concentration": "multi_pod",
+      "affected_pods_count": 60,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_GET": 4986,
+        "DS_KV_CLIENT_SET": 14
+      },
+      "anomalous_ratio": 0.3984381225595665,
+      "trace_context_pods_count": 60,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": {
+      "failure_mode_dist": {
+        "kvcache_runtime_906": 12003,
+        "kvcache_access_022": 12000,
+        "kvcache_access_008": 11,
+        "kvcache_access_020": 23,
+        "kvcache_runtime_1377": 3,
+        "kvcache_runtime_2295": 2,
+        "kvcache_runtime_2303": 2,
+        "kvcache_runtime_391": 2,
+        "kvcache_runtime_403": 2,
+        "kvcache_runtime_406": 2,
+        "kvcache_runtime_247": 1
+      },
+      "status_code_dist": {
+        "1004": 12000,
+        "8": 11,
+        "1001": 23
+      },
+      "spatial_pod": {
+        "unique_count": 60,
+        "scope": "multi_pod"
+      },
+      "spatial_host": {
+        "unique_count": 1,
+        "scope": "single_host"
+      },
+      "spatial_cluster": {
+        "unique_count": 1,
+        "scope": "single_cluster"
+      },
+      "affected_operation_dist": {
+        "GET": 12032,
+        "SET": 2
+      },
+      "src_dst_pair_count": 3
+    },
+    "summary": {
+      "anomalous_event_count": 5000,
+      "failure_event_count": 12035,
+      "total_parse_result_count": 12549
+    }
+  },
+  "created_at": "2026-09-24 06:42:31",
+  "case_category": "UB-端口故障"
+}

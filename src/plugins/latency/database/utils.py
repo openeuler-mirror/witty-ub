@@ -126,25 +126,29 @@ def parse_pod_ips(value: str | list[str] | None) -> list[str] | None:
 
 
 def format_timestamp(value: datetime | None) -> str | None:
-    """Format datetime back to API string, preserving the timezone offset.
+    """Format event timestamps as server wall clock without an offset.
 
-    Aware datetimes (e.g. asyncpg ``timestamptz`` results) are converted to the
-    local timezone and emitted with an explicit offset suffix, e.g.
-    ``2026-07-31 22:17:19.529+08:00``, so the frontend can parse them as local
-    time instead of a naive (UTC-looking) string. Naive values keep their
-    historical format unchanged.
+    Event timestamps are emitted without a timezone offset, as
+    ``YYYY-MM-DD HH:MM:SS[.mmm]`` in the server local timezone. Aware datetimes
+    (e.g. asyncpg ``timestamptz`` results) are converted to the local timezone
+    first; naive values are already server wall clock and stay unchanged.
     """
     if value is None:
         return None
     if value.tzinfo is not None:
         refresh_local_timezone()
         value = value.astimezone()
-        base = value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        tz = value.strftime("%z")  # e.g. "+0800"
-        if len(tz) == 5:  # "+0800" -> "+08:00"
-            tz = tz[:3] + ":" + tz[3:]
-        return base + tz
+        return value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     return value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+
+def format_asset_timestamp(value: datetime | None) -> str | None:
+    """Keep asset instants explicit so clients can choose their display timezone."""
+    if value is None or value.tzinfo is None:
+        # Legacy naive values have no known source timezone; do not invent one.
+        return format_timestamp(value)
+    refresh_local_timezone()
+    return value.astimezone().isoformat(sep=" ", timespec="milliseconds")
 
 
 def format_ip(value: Any) -> str | None:

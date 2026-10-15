@@ -1,0 +1,78 @@
+{
+  "id": "175ad64b-bc0e-41bb-9906-04f925f4f620",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Client进程跨节点退出",
+  "description": "自动导入: dfx_client_process_set_exit_cross_node",
+  "task_ids": [],
+  "task_names": [
+    "lingqu_kvcache_dfx_client_process_set_exit_cross_node_002_20260519_14_40_17"
+  ],
+  "log_file_id": "61952759-5f53-4cd7-91ba-b7d6d2a1d968",
+  "log_file_name": "lingqu_kvcache_dfx_client_process_set_exit_cross_node_002_20260519_14_40_17",
+  "attachment_path": null,
+  "fault_category": "mixed",
+  "case_category": "Client-退出",
+  "features": {
+    "fault_category": "mixed",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          60082.784
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          60082.784
+        ]
+      ],
+      "p99_p50_ratio": 1.0027231839983166,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_SET": 1.003
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 2,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_SET": 4
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 2,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": {
+      "failure_mode_dist": {
+        "kvcache_runtime_1226": 30,
+        "kvcache_runtime_106": 3,
+        "kvcache_runtime_241": 2,
+        "kvcache_access_021": 4
+      },
+      "status_code_dist": {
+        "1002": 6
+      },
+      "spatial_pod": {
+        "unique_count": 3,
+        "scope": "few_pods"
+      },
+      "spatial_host": {
+        "unique_count": 1,
+        "scope": "single_host"
+      },
+      "spatial_cluster": {
+        "unique_count": 1,
+        "scope": "single_cluster"
+      },
+      "affected_operation_dist": {
+        "SET": 2
+      },
+      "src_dst_pair_count": 2
+    },
+    "summary": {
+      "anomalous_event_count": 4,
+      "failure_event_count": 38,
+      "total_parse_result_count": 4
+    }
+  },
+  "created_at": "2026-09-28 18:29:39"
+}

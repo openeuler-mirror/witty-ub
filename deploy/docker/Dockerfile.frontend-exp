@@ -3,9 +3,9 @@
 #
 # 试验性前端（exp）overlay 镜像：
 #   release 前端运行时（Nginx + OpenCode + 诊断工具 + Agent bundle）
-#   + 当日 exp 前端静态产物（/var/witty-ub/web-exp/）
+#   + 当日 exp 前端静态产物（/var/witty-ub/web-exp/）+ 当前服务启动/健康检查脚本
 #
-# 构建上下文由 scripts/publish_frontend_exp.sh 组装（仅 dist/ + nginx.conf.template），
+# 构建上下文由 scripts/publish_frontend_exp.sh 组装（dist/ + nginx.conf.template + docker/），
 # 不要直接用仓库根目录作为上下文。
 ARG BASE_IMAGE=hub-harbor.oepkgs.net/neocopilot/witty-ub:frontend-v1.0.4-5
 FROM ${BASE_IMAGE}
@@ -19,10 +19,13 @@ ARG BASE_DIGEST=unknown
 # exp 前端产物（含 BUILD_INFO）
 COPY dist/ /var/witty-ub/web-exp/
 
-# 唯一改动的运行时配置：静态根指向 web-exp，监听端口保持 8080
+# 静态根指向 web-exp，监听端口保持 8080
 COPY nginx.conf.template /etc/witty-ub/web/nginx.conf.template
+COPY docker/entrypoint.sh /entrypoint.sh
+COPY docker/healthcheck.sh /healthcheck.sh
 
-RUN chmod 0644 /etc/witty-ub/web/nginx.conf.template && \
+RUN chmod +x /entrypoint.sh /healthcheck.sh && \
+    chmod 0644 /etc/witty-ub/web/nginx.conf.template && \
     find /var/witty-ub/web-exp -type d -exec chmod 0755 {} + && \
     find /var/witty-ub/web-exp -type f -exec chmod 0644 {} +
 

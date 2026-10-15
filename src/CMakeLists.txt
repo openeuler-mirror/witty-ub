@@ -30,26 +30,17 @@ add_subdirectory(log)
 add_subdirectory(brpc_diag_tool)
 add_subdirectory(diagnosis_tool)
 
-#add_executable(copilot-worker
-#    ubse_main.cpp
-    # framework/database/database_module.cpp
-    # topology/node_global_collector_module.cpp
-    # topology/node_local_collector_module.cpp
-#)
-#target_include_directories(copilot-worker PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-#target_link_libraries(copilot-worker PRIVATE database ubse_context topology lcne obmm failure_log rack_http)
-
 add_executable(witty-ub-log
     witty_ub_log_main.cpp
 )
 target_include_directories(witty-ub-log PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(witty-ub-log PRIVATE ubse_context failure_log rack_http)
+target_link_libraries(witty-ub-log PRIVATE ubse_context failure_log)
 
 add_executable(witty-ub-topo
     witty_ub_topo_main.cpp
 )
 target_include_directories(witty-ub-topo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(witty-ub-topo PRIVATE ubse_context topology lcne rack_http urma witty_json)
+target_link_libraries(witty-ub-topo PRIVATE ubse_context topology lcne urma witty_json)
 
 add_executable(witty-ub-diag-tool
     witty_ub_diag_tool_main.cpp
@@ -67,7 +58,7 @@ add_executable(util-code-analyzer
     util_code_analyzer_main.cpp
 )
 target_include_directories(util-code-analyzer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(util-code-analyzer PRIVATE ubse_context code_analyzer rack_http)
+target_link_libraries(util-code-analyzer PRIVATE ubse_context code_analyzer)
 
 add_executable(util-view-visualizer
     util_view_visualizer_main.cpp

@@ -17,6 +17,9 @@
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#if defined(__APPLE__)
+extern char **environ;
+#endif
 #include <algorithm>
 #include <cctype>
 #include <cerrno>

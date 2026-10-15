@@ -1,0 +1,80 @@
+{
+  "id": "72b9810b-36a6-49f1-8280-aaa887aaefcc",
+  "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
+  "root_cause_type": "Worker写入网卡丢包",
+  "description": "自动导入: dfx_worker_process_write_net_card_loss",
+  "task_ids": [],
+  "task_names": [
+    "lingqu_kvcache_dfx_worker_process_write_net_card_loss_001_20260528_17_02_31"
+  ],
+  "log_file_id": "209db3f8-79de-4fba-bd42-60d579d667ca",
+  "log_file_name": "lingqu_kvcache_dfx_worker_process_write_net_card_loss_001_20260528_17_02_31",
+  "attachment_path": null,
+  "fault_category": "latency",
+  "case_category": "网络/TCP故障",
+  "features": {
+    "fault_category": "latency",
+    "latency": {
+      "timeout_segments": [
+        [
+          "total_latency",
+          192.89768421052625
+        ],
+        [
+          "c2w_latency",
+          192.88989473684208
+        ],
+        [
+          "c2w_urma_latency",
+          192.88989473684208
+        ],
+        [
+          "master_rpc_total",
+          192.2382631578947
+        ]
+      ],
+      "segment_ranking": [
+        [
+          "total_latency",
+          192.89768421052625
+        ],
+        [
+          "c2w_latency",
+          192.88989473684208
+        ],
+        [
+          "c2w_urma_latency",
+          192.88989473684208
+        ],
+        [
+          "master_rpc_total",
+          192.2382631578947
+        ],
+        [
+          "worker_total_latency",
+          0.00778947368421053
+        ]
+      ],
+      "p99_p50_ratio": 1.013611658433041,
+      "op_p99_p50_ratio": {
+        "DS_KV_CLIENT_SET": 1.014
+      },
+      "pod_concentration": "few_pods",
+      "affected_pods_count": 3,
+      "affected_operation_dist": {
+        "DS_KV_CLIENT_SET": 38
+      },
+      "anomalous_ratio": 1.0,
+      "trace_context_pods_count": 3,
+      "trace_context_hosts_count": 1,
+      "trace_context_clusters_count": 1
+    },
+    "connectivity": null,
+    "summary": {
+      "anomalous_event_count": 38,
+      "failure_event_count": 0,
+      "total_parse_result_count": 38
+    }
+  },
+  "created_at": "2026-09-28 18:29:39"
+}
