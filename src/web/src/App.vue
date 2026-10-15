@@ -2971,7 +2971,6 @@ watch(selectedLogFileId, (id) => {
 const formatSimilarity = (sim: number) => (sim * 100).toFixed(1) + '%'
 
 const getAttachmentUrl = (caseId: string) => `${apiBase}/case_library/attachment/${encodeURIComponent(caseId)}`
-const getLogFileUrl = (logFileId: string) => `${apiBase}/case_library/log_file/${encodeURIComponent(logFileId)}`
 const getAttachmentDisplayName = (p: string) => {
   if (!p) return ''
   const parts = p.split('_')
@@ -14746,32 +14745,19 @@ onBeforeUnmount(() => {
                         <span v-if="!c.case_category" class="case-card-cat-badge case-card-cat-uncat">未分类</span>
                         <span v-if="c.fault_category" class="case-card-fault-badge">{{ c.fault_category }}</span>
                         <span class="case-card-time">{{ c.created_at }}</span>
+                        <a
+                          v-if="c.attachment_path"
+                          :href="getAttachmentUrl(c.id)"
+                          class="case-attachment-btn"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >📎 下载附件</a>
                         <button class="case-edit-btn" type="button" @click="startEditCase(c)" title="修改分类">✎ 编辑</button>
                         <button class="case-delete-btn" type="button" @click="deleteCase(c.id)">删除</button>
                       </template>
                     </div>
                     <div class="case-card-body">
                       <div class="case-card-row" v-if="c.description"><span class="case-card-label">说明：</span><span>{{ c.description }}</span></div>
-                      <div class="case-card-row" v-if="c.attachment_path || c.log_file_id">
-                        <span class="case-card-label">关联文件：</span>
-                        <span>
-                          <a
-                            v-if="c.attachment_path"
-                            :href="getAttachmentUrl(c.id)"
-                            class="case-file-link"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >📎 下载附件</a>
-                          <a
-                            v-if="c.log_file_id"
-                            :href="getLogFileUrl(c.log_file_id)"
-                            class="case-file-link"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >📁 原始日志</a>
-                          <span v-if="c.log_file_name && !c.attachment_path && !c.log_file_id" class="case-card-file-meta">来源：{{ c.log_file_name }}</span>
-                        </span>
-                      </div>
                       <div class="case-card-row" v-if="c.features?.latency"><span class="case-card-label">时延特征：</span><span>超时分段: {{ c.features.latency.timeout_segments?.join(', ') || '无' }}；P99/P50: {{ c.features.latency.p99_p50_ratio?.toFixed(1) || '-' }}；Pod集中度: {{ c.features.latency.pod_concentration || '-' }}</span></div>
                       <div class="case-card-row" v-if="c.features?.connectivity"><span class="case-card-label">通断特征：</span><span>故障模式: {{ Object.keys(c.features.connectivity.failure_mode_dist || {}).join(', ') || '无' }}；Pod范围: {{ c.features.connectivity.spatial_pod?.scope || '-' }}；节点范围: {{ c.features.connectivity.spatial_host?.scope || '-' }}</span></div>
                       <div class="case-card-row" v-if="c.features?.summary"><span class="case-card-label">统计：</span><span>异常事件 {{ c.features.summary.anomalous_event_count }}，故障事件 {{ c.features.summary.failure_event_count }}，总记录 {{ c.features.summary.total_parse_result_count }}</span></div>
@@ -17095,6 +17081,14 @@ onBeforeUnmount(() => {
                   >
                     <span class="subtype-rank">{{ mIdx + 1 }}</span>
                     <span class="subtype-name">{{ match.root_cause_type }}</span>
+                    <a
+                      v-if="match.attachment_path"
+                      :href="getAttachmentUrl(match.case_id)"
+                      class="similarity-link"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      @click.stop
+                    >📎 附件</a>
                     <span class="fault-cat" :class="similarityFaultCategoryClass(match.fault_category)">
                       {{ similarityFaultCategoryLabel(match.fault_category) }}
                     </span>
@@ -17104,22 +17098,6 @@ onBeforeUnmount(() => {
                   <div v-if="similarityExpandedTypes.has(gIdx + '-' + mIdx)" class="similarity-subtype-detail">
                     <div v-if="match.description" class="similarity-desc">{{ match.description }}</div>
                     <div v-if="match.log_file_name" class="similarity-meta">来源：{{ match.log_file_name }}</div>
-                    <div v-if="match.attachment_path || match.log_file_id" class="similarity-links">
-                      <a
-                        v-if="match.attachment_path"
-                        :href="getAttachmentUrl(match.case_id)"
-                        class="similarity-link"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >📎 附件</a>
-                      <a
-                        v-if="match.log_file_id"
-                        :href="getLogFileUrl(match.log_file_id)"
-                        class="similarity-link"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >📁 原始日志</a>
-                    </div>
                     <div class="similarity-reason">
                       <div class="reason-title">📝 分析原因</div>
                       <div class="reason-text">{{ match.reason }}</div>
