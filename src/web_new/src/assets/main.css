@@ -1823,12 +1823,9 @@ html.is-modal-open {
 .asset-card-desc {
   font-size: 13px;
   color: var(--text2);
-  line-height: 1.6;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  line-height: 21px;
+  height: 42px;
   overflow: hidden;
-  min-height: 42px;
   word-break: break-word;
 }
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import LineClampText from '../common/LineClampText.vue'
 import { fetchSimilarFaultTypes, type SimilarityMatch, type SimilarityResult } from '../../api/analysis'
 import { apiBase } from '../../api/http'
 
@@ -135,9 +136,7 @@ const getAttachmentDisplayName = (attachmentPath: string) => {
                 来源：{{ match.log_file_name }}
               </span>
             </div>
-            <div v-if="match.description" class="match-desc">
-              {{ match.description }}
-            </div>
+            <LineClampText v-if="match.description" class="match-desc" :text="match.description" />
             <div v-if="match.attachment_path" class="match-links">
               <a
                 :href="getAttachmentUrl(match.case_id)"
@@ -372,13 +371,9 @@ const getAttachmentDisplayName = (attachmentPath: string) => {
   font-size: 12px;
   color: var(--text-secondary, #666);
   margin-top: 4px;
-  line-height: 1.5;
-  max-height: 60px;
+  line-height: 18px;
+  height: 36px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
 }
 
 .match-links {

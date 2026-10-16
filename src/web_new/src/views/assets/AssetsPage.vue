@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { watch } from 'vue'
+import LineClampText from '../../components/common/LineClampText.vue'
 import { formatTime } from '../../utils/format'
 import { assetLogFileCountText } from '../../utils/inspectionCounts'
 import { useAssets } from '../../composables/useAssets'
@@ -101,9 +102,7 @@ const assetTaskBadge = (assetId: string) => {
           {{ assetTaskBadge(asset.id)?.label }}
         </span>
       </div>
-      <div class="asset-card-desc" :title="asset.description">
-        {{ asset.description || '—' }}
-      </div>
+      <LineClampText class="asset-card-desc" :text="asset.description || '—'" />
       <div class="asset-card-stats">
         <!-- 计数取 /log_file/list 的 total：资产列表里的 task_cnt 只在 KVCache 任务收尾时
              刷新，UBSocket 资产的该列会恒为 0 -->
