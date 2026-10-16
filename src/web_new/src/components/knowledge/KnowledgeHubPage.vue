@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import BaseModal from '../common/BaseModal.vue'
 import { useExperience } from '../../composables/useExperience'
 import { formatTime } from '../../utils/format'
+import { renderAgentMarkdown } from '../../utils/agentMarkdown'
 import CaseLibrarySection from './CaseLibrarySection.vue'
 
 // 知识库两个板块：经验（Skill/Wiki）与案例库（全局故障案例）
@@ -145,7 +146,7 @@ onMounted(() => void loadList())
     <BaseModal
       :open="detailOpen"
       :title="detailItem?.name || '详情'"
-      size="xl"
+      size="doc"
       @close="closeDetail"
     >
       <div v-if="detailLoading" class="empty">
@@ -175,7 +176,10 @@ onMounted(() => void loadList())
           </div>
         </div>
         <div class="knowledge-detail-content">
-          <pre>{{ detailItem.content || '（无正文内容）' }}</pre>
+          <div
+            class="knowledge-markdown"
+            v-html="renderAgentMarkdown(detailItem.content || '（无正文内容）')"
+          ></div>
         </div>
       </div>
       <template #footer>
@@ -330,15 +334,98 @@ onMounted(() => void loadList())
 }
 
 .knowledge-detail-content {
-  max-height: 50vh;
-  overflow: auto;
+  font-size: 13.5px;
+  line-height: 1.7;
 }
 
-.knowledge-detail-content pre {
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 13px;
-  line-height: 1.6;
+.knowledge-markdown {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.knowledge-markdown :deep(h1),
+.knowledge-markdown :deep(h2),
+.knowledge-markdown :deep(h3),
+.knowledge-markdown :deep(h4) {
+  margin: 14px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.knowledge-markdown :deep(h1) {
+  font-size: 16px;
+}
+
+.knowledge-markdown :deep(h2) {
+  font-size: 15px;
+}
+
+.knowledge-markdown :deep(h1:first-child),
+.knowledge-markdown :deep(h2:first-child),
+.knowledge-markdown :deep(h3:first-child),
+.knowledge-markdown :deep(h4:first-child) {
+  margin-top: 0;
+}
+
+.knowledge-markdown :deep(p) {
+  margin: 6px 0;
+}
+
+.knowledge-markdown :deep(ul),
+.knowledge-markdown :deep(ol) {
+  margin: 6px 0;
+  padding-left: 1.4em;
+}
+
+.knowledge-markdown :deep(li) {
+  margin: 2px 0;
+}
+
+.knowledge-markdown :deep(code) {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
   font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 12px;
+}
+
+.knowledge-markdown :deep(pre) {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  overflow-x: auto;
+}
+
+.knowledge-markdown :deep(pre code) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.knowledge-markdown :deep(.agent-markdown-table-wrap) {
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.knowledge-markdown :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.knowledge-markdown :deep(th),
+.knowledge-markdown :deep(td) {
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: left;
+}
+
+.knowledge-markdown :deep(th) {
+  background: var(--bg);
+  font-weight: 600;
 }
 </style>

@@ -1149,6 +1149,13 @@ html.is-modal-open {
   max-height: 92vh;
 }
 
+/* 文档阅读类弹窗（Skill/Wiki 详情） */
+.modal--doc {
+  width: min(880px, 94vw);
+  height: min(86vh, 940px);
+  max-height: 92vh;
+}
+
 /* 右侧抽屉 */
 .modal--drawer {
   width: 560px;
