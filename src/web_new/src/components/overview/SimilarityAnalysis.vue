@@ -68,10 +68,6 @@ const getAttachmentUrl = (caseId: string) => {
   return `${apiBase}/case_library/attachment/${encodeURIComponent(caseId)}`
 }
 
-const getLogFileUrl = (logFileId: string) => {
-  return `${apiBase}/case_library/log_file/${encodeURIComponent(logFileId)}`
-}
-
 const getAttachmentDisplayName = (attachmentPath: string) => {
   if (!attachmentPath) return ''
   const parts = attachmentPath.split('_')
@@ -142,24 +138,14 @@ const getAttachmentDisplayName = (attachmentPath: string) => {
             <div v-if="match.description" class="match-desc">
               {{ match.description }}
             </div>
-            <div v-if="match.attachment_path || match.log_file_id" class="match-links">
+            <div v-if="match.attachment_path" class="match-links">
               <a
-                v-if="match.attachment_path"
                 :href="getAttachmentUrl(match.case_id)"
                 class="file-link"
                 target="_blank"
                 rel="noopener noreferrer"
               >
                 📎 下载附件：{{ getAttachmentDisplayName(match.attachment_path) }}
-              </a>
-              <a
-                v-if="match.log_file_id"
-                :href="getLogFileUrl(match.log_file_id)"
-                class="file-link"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                📁 原始日志文件
               </a>
             </div>
           </div>

@@ -99,6 +99,3 @@ export const deleteType = (typeId: string, recursive: boolean) =>
 
 export const caseAttachmentUrl = (caseId: string) =>
   `${apiBase}/case_library/attachment/${encodeURIComponent(caseId)}`
-
-export const caseLogFileUrl = (logFileId: string) =>
-  `${apiBase}/case_library/log_file/${encodeURIComponent(logFileId)}`

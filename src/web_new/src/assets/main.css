@@ -469,14 +469,9 @@ a:focus-visible,
   flex-shrink: 0;
 }
 
-.case-file-link {
-  color: var(--primary);
+/* 案例卡片底部操作区复用 .btn-text 的文字按钮，链接形态需去下划线 */
+a.btn-text {
   text-decoration: none;
-  margin-right: 12px;
-}
-
-.case-file-link:hover {
-  text-decoration: underline;
 }
 
 /* Layout */

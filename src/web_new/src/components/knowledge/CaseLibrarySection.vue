@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useCaseLibrary } from '../../composables/useCaseLibrary'
-import { caseAttachmentUrl, caseLogFileUrl, type CaseRecord } from '../../api/caseLibrary'
+import { caseAttachmentUrl, type CaseRecord } from '../../api/caseLibrary'
 
 const {
   cases,
@@ -306,6 +306,16 @@ onMounted(() => void load())
               <span class="badge badge-success">{{ c.case_category || '未分类' }}</span>
               <span v-if="c.fault_category" class="badge badge-normal">{{ c.fault_category }}</span>
               <span class="case-card-time">{{ c.created_at || '—' }}</span>
+              <a
+                v-if="c.attachment_path"
+                :href="caseAttachmentUrl(c.id)"
+                class="btn btn-sm btn-text"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="下载附件"
+              >
+                📎 附件
+              </a>
               <button
                 class="btn btn-sm btn-text"
                 type="button"
@@ -327,30 +337,6 @@ onMounted(() => void load())
             <div v-if="c.description" class="case-card-row">
               <span class="case-card-label">说明：</span>
               <span>{{ c.description }}</span>
-            </div>
-            <div v-if="c.attachment_path || c.log_file_id || c.log_file_name" class="case-card-row">
-              <span class="case-card-label">关联文件：</span>
-              <span>
-                <a
-                  v-if="c.attachment_path"
-                  :href="caseAttachmentUrl(c.id)"
-                  class="case-file-link"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  >📎 下载附件</a
-                >
-                <a
-                  v-if="c.log_file_id"
-                  :href="caseLogFileUrl(c.log_file_id)"
-                  class="case-file-link"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  >📁 原始日志</a
-                >
-                <span v-if="c.log_file_name && !c.attachment_path && !c.log_file_id">
-                  来源：{{ c.log_file_name }}
-                </span>
-              </span>
             </div>
             <div v-for="line in featureLines(c)" :key="line" class="case-card-row">
               <span>{{ line }}</span>
