@@ -5186,6 +5186,19 @@ const isAnomalyListLatencyMetricAbnormal = (
 const getTraceDelayValue = (trace: TraceDetailRow | null | undefined, column: TraceDelayColumn) =>
   trace ? trace[column.key] : null
 
+const hasTruncatedTotalLatency = (trace: TraceDetailRow | null | undefined) => {
+  const totalLatency = trace?.sdkMs
+  if (typeof totalLatency !== 'number' || !Number.isFinite(totalLatency) || totalLatency < 0) {
+    return false
+  }
+
+  return traceDelayColumns.some((column) => {
+    if (column.key === 'sdkMs') return false
+    const latency = getTraceDelayValue(trace, column)
+    return typeof latency === 'number' && Number.isFinite(latency) && latency >= 0 && latency > totalLatency
+  })
+}
+
 const isTraceDelayAbnormal = (
   trace: TraceDetailRow | null | undefined,
   column: TraceDelayColumn,
@@ -20763,7 +20776,7 @@ onBeforeUnmount(() => {
           <section>
             <div class="trace-section-title trace-section-title-with-hint">
               <span>⏱️ 时延明细</span>
-              <span class="trace-section-hint">
+              <span v-if="hasTruncatedTotalLatency(selectedTrace)" class="trace-section-hint">
                 总时延低于别的分时延，属于总时延统计被截断，结果不可靠，分析异常请参考分时延。
               </span>
             </div>
@@ -21057,7 +21070,7 @@ onBeforeUnmount(() => {
           <section>
             <div class="trace-section-title trace-section-title-with-hint">
               <span>⏱️ 时延明细</span>
-              <span class="trace-section-hint">
+              <span v-if="hasTruncatedTotalLatency(selectedFaultTrace)" class="trace-section-hint">
                 总时延低于别的分时延，属于总时延统计被截断，结果不可靠，分析异常请参考分时延。
               </span>
             </div>
