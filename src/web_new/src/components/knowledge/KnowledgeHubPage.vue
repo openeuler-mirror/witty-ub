@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import BaseModal from '../common/BaseModal.vue'
+import KeywordTags from '../common/KeywordTags.vue'
+import LineClampText from '../common/LineClampText.vue'
+import PageNav from '../common/PageNav.vue'
 import { useExperience } from '../../composables/useExperience'
 import { formatTime } from '../../utils/format'
 import { renderAgentMarkdown } from '../../utils/agentMarkdown'
@@ -44,6 +47,23 @@ const {
 } = useExperience()
 
 onMounted(() => void loadList())
+
+// 关键词差异化排序：当前页内出现次数少的（更稀有、更有区分度）排前面，
+// 同频次保持原序；通用词（每张卡都有）自然沉底
+const rankedPagedItems = computed(() => {
+  const freq = new Map<string, number>()
+  for (const item of pagedItems.value) {
+    for (const kw of item.keywords ?? []) {
+      freq.set(kw, (freq.get(kw) ?? 0) + 1)
+    }
+  }
+  return pagedItems.value.map((item) => ({
+    ...item,
+    keywords: [...(item.keywords ?? [])].sort(
+      (a, b) => (freq.get(a) ?? 0) - (freq.get(b) ?? 0),
+    ),
+  }))
+})
 </script>
 
 <template>
@@ -106,40 +126,25 @@ onMounted(() => void loadList())
 
       <!-- 列表 -->
       <div v-else class="card-grid">
-        <div class="card knowledge-card" v-for="item in pagedItems" :key="item.id">
+        <div class="card knowledge-card" v-for="item in rankedPagedItems" :key="item.id">
           <div class="knowledge-card-head">
             <div class="knowledge-card-name" :title="item.name">{{ item.name }}</div>
-            <span class="badge badge-normal">{{ expType === 'SKILL' ? 'Skill' : 'Wiki' }}</span>
+            <span class="knowledge-type-badge">{{ expType === 'SKILL' ? 'Skill' : 'Wiki' }}</span>
           </div>
-          <div class="knowledge-card-desc" :title="item.description">
-            {{ item.description || '—' }}
-          </div>
-          <div class="knowledge-card-keywords" v-if="item.keywords?.length">
-            <span v-for="kw in item.keywords.slice(0, 5)" :key="kw" class="knowledge-kw-tag">{{
-              kw
-            }}</span>
-            <span v-if="item.keywords.length > 5" class="knowledge-kw-more"
-              >+{{ item.keywords.length - 5 }}</span
-            >
-          </div>
-          <div class="knowledge-card-stats">
-            <span>更新 {{ formatTime(item.updated_at) }}</span>
-          </div>
-          <div class="knowledge-card-actions">
-            <button class="btn btn-sm btn-text" @click="openDetail(item)">查看</button>
-            <button class="btn btn-sm btn-text btn-text-danger" @click="removeItem(item)">
-              删除
-            </button>
+          <LineClampText class="knowledge-card-desc" :text="item.description || '—'" />
+          <KeywordTags class="knowledge-card-keywords" :keywords="item.keywords ?? []" />
+          <div class="knowledge-card-footer">
+            <span class="knowledge-card-time">更新 {{ formatTime(item.updated_at) }}</span>
+            <div class="knowledge-card-actions">
+              <button class="knowledge-view-btn" @click="openDetail(item)">查看</button>
+              <button class="knowledge-delete-btn" @click="removeItem(item)">删除</button>
+            </div>
           </div>
         </div>
       </div>
 
       <!-- 分页 -->
-      <div class="pagination" v-if="totalPages > 1">
-        <button v-for="p in totalPages" :key="p" :class="{ active: page === p }" @click="page = p">
-          {{ p }}
-        </button>
-      </div>
+      <PageNav v-if="totalPages > 1" v-model:page="page" :pages="totalPages" />
     </template>
 
     <!-- 查看详情弹窗 -->
@@ -246,6 +251,15 @@ onMounted(() => void loadList())
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.knowledge-card:hover {
+  transform: none;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
 .knowledge-card-head {
@@ -256,6 +270,8 @@ onMounted(() => void loadList())
 }
 
 .knowledge-card-name {
+  min-width: 0;
+  flex: 1;
   font-weight: 600;
   font-size: 15px;
   overflow: hidden;
@@ -263,22 +279,24 @@ onMounted(() => void loadList())
   white-space: nowrap;
 }
 
-.knowledge-card-desc {
-  font-size: 13px;
-  color: var(--text2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  min-height: 38px;
+.knowledge-type-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-bg);
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.knowledge-card-keywords {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  min-height: 22px;
+.knowledge-card-desc {
+  font-size: 13px;
+  line-height: 19px;
+  height: 38px;
+  color: var(--text2);
+  overflow: hidden;
+  word-break: break-word;
 }
 
 .knowledge-kw-tag {
@@ -290,24 +308,51 @@ onMounted(() => void loadList())
   white-space: nowrap;
 }
 
-.knowledge-kw-more {
-  font-size: 11px;
-  color: var(--text3);
-  align-self: center;
+.knowledge-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--bg);
 }
 
-.knowledge-card-stats {
+.knowledge-card-time {
   font-size: 12px;
   color: var(--text3);
 }
 
 .knowledge-card-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 8px;
-  margin-top: auto;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
+}
+
+.knowledge-view-btn,
+.knowledge-delete-btn {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: none;
+  transition: background 0.15s;
+}
+
+.knowledge-view-btn {
+  color: var(--primary);
+  border: 1px solid #bfdbfe;
+}
+
+.knowledge-view-btn:hover {
+  background: var(--primary-bg);
+}
+
+.knowledge-delete-btn {
+  color: var(--danger);
+  border: 1px solid #fecaca;
+}
+
+.knowledge-delete-btn:hover {
+  background: #fef2f2;
 }
 
 .knowledge-detail-meta {
