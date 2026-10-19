@@ -267,11 +267,33 @@ export function createAgentChatState() {
           (right.time?.updated ?? right.time?.created ?? 0) -
           (left.time?.updated ?? left.time?.created ?? 0),
       )
+      void backfillSessionAssets(instance, loaded)
     } catch (error) {
       if (sequence !== sessionListSequence || instance !== api.value) return
       connectionError.value = error instanceof Error ? error.message : '读取会话失败'
     } finally {
       if (sequence === sessionListSequence) isSessionsLoading.value = false
+    }
+  }
+
+  // 会话与资产的绑定存在本机 localStorage，换浏览器后列表会整体缺失；
+  // 对未登记的会话用首条用户消息里的知识库 ID 惰性回填，失败不影响其余会话
+  const backfillSessionAssets = async (instance: AgentApi, loaded: OpenCodeSession[]) => {
+    for (const session of loaded) {
+      if (sessionAssetIndex.value[session.id]) continue
+      try {
+        const history = (await instance.listMessages(session.id)) ?? []
+        if (instance !== api.value) return
+        const context = history
+          .find((message) => message.info.role === 'user')
+          ?.parts?.find((part) => part.type === 'text')?.text
+        const assetId = context?.match(KNOWLEDGE_ID_RE)?.[1]
+        if (assetId && !sessionAssetIndex.value[session.id]) {
+          registerSessionAsset(session.id, assetId)
+        }
+      } catch {
+        // 单个会话回填失败按未关联展示
+      }
     }
   }
 

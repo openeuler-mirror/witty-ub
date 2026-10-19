@@ -658,7 +658,7 @@ const onInputKeydown = (event: KeyboardEvent) => {
                 @click="openConversation(session.id)"
               >
                 <strong>{{ session.title || '无标题会话' }}</strong>
-                <span>{{ sessionAssetName(session.id) || '未知资产库' }}</span>
+                <span>{{ sessionAssetName(session.id) || '未关联资产' }}</span>
                 <span>{{
                   sessionStatuses[session.id]?.type === 'busy'
                     ? '正在回答'
