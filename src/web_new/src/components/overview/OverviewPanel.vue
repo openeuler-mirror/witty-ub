@@ -998,7 +998,7 @@ onMounted(() => {
         >异常 Trace <b>{{ objectDetail.total }}</b></span
       >
       <span class="stat-pill">{{
-        objectDetail.domain === 'latency' ? '时延异常口径' : '通断故障口径'
+        objectDetail.domain === 'latency' ? '时延异常' : '通断故障'
       }}</span>
     </div>
     <div v-if="objectDetail.error" class="error-banner">{{ objectDetail.error }}</div>
