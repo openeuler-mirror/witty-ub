@@ -109,17 +109,17 @@ def _trace_row_count(trace_index: Any) -> int:
 def _diagnosis_threshold_ms(diagnosis_config) -> float:
     """时延异常阈值（ms），对齐 _aggregate_three_way 的读取语义。
 
-    threshold 位于 ``log_analyzer_params.total_p99_threshold_ms``；缺省 5.0。
+    threshold 位于 ``log_analyzer_params.total_p99_threshold_ms``；缺省 2.0。
     parse_log 用它限定 build_trace_frame 的 yuanrong 明细子集，保证与
     run() 的 anomalous_tids 判定同阈值，__ 列对子集必然非空。
     """
     try:
         lp = getattr(diagnosis_config, "log_analyzer_params", None)
         if lp is not None:
-            return float(getattr(lp, "total_p99_threshold_ms", 5.0) or 5.0)
+            return float(getattr(lp, "total_p99_threshold_ms", 2.0) or 2.0)
     except Exception:
         pass
-    return 5.0
+    return 2.0
 
 
 def _merge_light_then_wide(light_rows, scan_ctx, threshold_ms: float, *, compact: bool = False):
@@ -1244,10 +1244,10 @@ class KVCacheLogParseWorker(BaseWorker):
         ``_merge_and_finalize`` 兜底。
         """
         # ── config ──────────────────────────────────────────────────
-        threshold_ms = 5.0
+        threshold_ms = 2.0
         if diagnosis_config is not None:
             threshold_ms = float(
-                getattr(diagnosis_config, "total_p99_threshold_ms", 5.0) or 5.0
+                getattr(diagnosis_config, "total_p99_threshold_ms", 2.0) or 2.0
             )
 
         _t_agg_start = time.perf_counter()
@@ -1944,7 +1944,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     await DiagnosisConfigPGManager.get_or_create(kb_id)
                 ).log_analyzer_params
             threshold_ms = float(
-                getattr(analyzer_config, "total_p99_threshold_ms", 5.0) or 5.0
+                getattr(analyzer_config, "total_p99_threshold_ms", 2.0) or 2.0
             )
 
             # 检查任务是否被取消

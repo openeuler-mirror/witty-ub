@@ -62,9 +62,7 @@ def _ubsocket_update() -> UBSocketDiagnosisConfig:
     [
         "total_p99_threshold_ms",
         "c2w_p99_threshold_ms",
-        "w2w_p99_threshold_ms",
         "urma_link_p99_threshold_ms",
-        "query_meta_p99_threshold_ms",
         "total_p9999_threshold_ms",
         "total_pmax_threshold_ms",
         "total_ave_threshold_ms",

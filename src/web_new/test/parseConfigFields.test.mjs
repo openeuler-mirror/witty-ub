@@ -13,9 +13,7 @@ import {
 const analyzerParams = (overrides = {}) => ({
   total_p99_threshold_ms: 5,
   c2w_p99_threshold_ms: 1,
-  w2w_p99_threshold_ms: 1,
   urma_link_p99_threshold_ms: 1,
-  query_meta_p99_threshold_ms: 1,
   total_p9999_threshold_ms: 5,
   total_pmax_threshold_ms: 5,
   total_ave_threshold_ms: 5,
@@ -23,14 +21,12 @@ const analyzerParams = (overrides = {}) => ({
   ...overrides,
 })
 
-test('界面隐藏的正好是后端没消费的四个阶段阈值', () => {
+test('界面隐藏的正好是后端没消费的两个阶段阈值', () => {
   // 后端当前只消费 total_p99_threshold_ms；一旦后端补上阶段判定，把对应键从
   // HIDDEN_THRESHOLD_KEYS 移出即可重新显示（这个用例会随之需要更新）。
   assert.deepEqual([...HIDDEN_THRESHOLD_KEYS].sort(), [
     'c2w_p99_threshold_ms',
-    'query_meta_p99_threshold_ms',
     'urma_link_p99_threshold_ms',
-    'w2w_p99_threshold_ms',
   ])
   assert.deepEqual(
     EDITABLE_THRESHOLD_OPTIONS.map((option) => option.key),
@@ -83,9 +79,7 @@ test('隐藏字段非法时整组回落到默认，可见字段与文件名 Patt
   assert.equal(sanitized.total_p99_threshold_ms, 8)
   assert.equal(sanitized.total_pmax_threshold_ms, 12)
   assert.equal(sanitized.c2w_p99_threshold_ms, defaults.c2w_p99_threshold_ms)
-  assert.equal(sanitized.w2w_p99_threshold_ms, defaults.w2w_p99_threshold_ms)
   assert.equal(sanitized.urma_link_p99_threshold_ms, defaults.urma_link_p99_threshold_ms)
-  assert.equal(sanitized.query_meta_p99_threshold_ms, defaults.query_meta_p99_threshold_ms)
   assert.equal(sanitized.zone_anomaly_density_threshold, defaults.zone_anomaly_density_threshold)
 })
 
@@ -99,12 +93,12 @@ test('withSanitizedHiddenParams 只整理 analyzer 参数，Pattern 原样带过
       ds_worker_info_log_file: ['*worker*.INFO*'],
       resource_log_file: ['*resource*.log'],
     },
-    logAnalyzerParams: analyzerParams({ w2w_p99_threshold_ms: -1 }),
+    logAnalyzerParams: analyzerParams({ c2w_p99_threshold_ms: -1 }),
   }
   const sanitized = withSanitizedHiddenParams(form, {
     logFilenamePattern: form.logFilenamePattern,
     logAnalyzerParams: defaults,
   })
   assert.deepEqual(sanitized.logFilenamePattern, form.logFilenamePattern)
-  assert.equal(sanitized.logAnalyzerParams.w2w_p99_threshold_ms, defaults.w2w_p99_threshold_ms)
+  assert.equal(sanitized.logAnalyzerParams.c2w_p99_threshold_ms, defaults.c2w_p99_threshold_ms)
 })

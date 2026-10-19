@@ -220,9 +220,7 @@ type LogFilenamePatternKey =
 type LogAnalyzerThresholdKey =
   | 'total_p99_threshold_ms'
   | 'c2w_p99_threshold_ms'
-  | 'w2w_p99_threshold_ms'
   | 'urma_link_p99_threshold_ms'
-  | 'query_meta_p99_threshold_ms'
   | 'total_p9999_threshold_ms'
   | 'total_pmax_threshold_ms'
   | 'total_ave_threshold_ms'
@@ -2846,16 +2844,10 @@ const analyzerThresholdOptions: Array<{
 }> = [
   { key: 'total_p99_threshold_ms', label: '总时延 P99 阈值', description: '端到端总耗时' },
   { key: 'c2w_p99_threshold_ms', label: 'C2W 时延 P99 阈值', description: 'Client 到 Worker' },
-  { key: 'w2w_p99_threshold_ms', label: 'W2W 时延 P99 阈值', description: 'Worker 间调用' },
   {
     key: 'urma_link_p99_threshold_ms',
     label: 'URMA 建链 P99 阈值',
     description: 'URMA 链路建立耗时',
-  },
-  {
-    key: 'query_meta_p99_threshold_ms',
-    label: 'QueryMeta 时延阈值',
-    description: '查询元数据时延阈值',
   },
   {
     key: 'total_p9999_threshold_ms',
@@ -3019,9 +3011,7 @@ const createDefaultDiagnosisConfig = (): DiagnosisConfigForm => ({
   logAnalyzerParams: {
     total_p99_threshold_ms: diagnosisConfig.log_analyzer_params.total_p99_threshold_ms,
     c2w_p99_threshold_ms: diagnosisConfig.log_analyzer_params.c2w_p99_threshold_ms,
-    w2w_p99_threshold_ms: diagnosisConfig.log_analyzer_params.w2w_p99_threshold_ms,
     urma_link_p99_threshold_ms: diagnosisConfig.log_analyzer_params.urma_link_p99_threshold_ms,
-    query_meta_p99_threshold_ms: diagnosisConfig.log_analyzer_params.query_meta_p99_threshold_ms,
     total_p9999_threshold_ms: diagnosisConfig.log_analyzer_params.total_p9999_threshold_ms,
     total_pmax_threshold_ms: diagnosisConfig.log_analyzer_params.total_pmax_threshold_ms,
     total_ave_threshold_ms: diagnosisConfig.log_analyzer_params.total_ave_threshold_ms,
@@ -3044,9 +3034,7 @@ const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfi
   logAnalyzerParams: {
     total_p99_threshold_ms: config.log_analyzer_params.total_p99_threshold_ms,
     c2w_p99_threshold_ms: config.log_analyzer_params.c2w_p99_threshold_ms,
-    w2w_p99_threshold_ms: config.log_analyzer_params.w2w_p99_threshold_ms,
     urma_link_p99_threshold_ms: config.log_analyzer_params.urma_link_p99_threshold_ms,
-    query_meta_p99_threshold_ms: config.log_analyzer_params.query_meta_p99_threshold_ms,
     total_p9999_threshold_ms: config.log_analyzer_params.total_p9999_threshold_ms,
     total_pmax_threshold_ms: config.log_analyzer_params.total_pmax_threshold_ms,
     total_ave_threshold_ms: config.log_analyzer_params.total_ave_threshold_ms,
@@ -3059,9 +3047,7 @@ const toDiagnosisConfigApi = (config: DiagnosisConfigDraft): DiagnosisConfigApiM
   log_analyzer_params: {
     total_p99_threshold_ms: Number(config.logAnalyzerParams.total_p99_threshold_ms),
     c2w_p99_threshold_ms: Number(config.logAnalyzerParams.c2w_p99_threshold_ms),
-    w2w_p99_threshold_ms: Number(config.logAnalyzerParams.w2w_p99_threshold_ms),
     urma_link_p99_threshold_ms: Number(config.logAnalyzerParams.urma_link_p99_threshold_ms),
-    query_meta_p99_threshold_ms: Number(config.logAnalyzerParams.query_meta_p99_threshold_ms),
     total_p9999_threshold_ms: Number(config.logAnalyzerParams.total_p9999_threshold_ms),
     total_pmax_threshold_ms: Number(config.logAnalyzerParams.total_pmax_threshold_ms),
     total_ave_threshold_ms: Number(config.logAnalyzerParams.total_ave_threshold_ms),
