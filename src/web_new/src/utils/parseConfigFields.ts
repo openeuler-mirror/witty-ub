@@ -4,7 +4,7 @@
  * 可见性口径对齐当前后端实现（见 harness `references/decisions.md` 第 3 节）：
  * - 后端解析链路真正消费：`total_p99_threshold_ms`（外加 `log_filename_pattern.*`，见 `PATTERN_TYPES`）；
  * - 新版前端自己用（总览表 / 曲线异常标色）：P99.99 / Pmax / 均值；
- * - 其余（C2W / W2W / URMA 建链 / QueryMeta 四个阶段阈值、区间异常密度阈值）
+ * - 其余（C2W / URMA 建链两个阶段阈值、区间异常密度阈值）
  *   当前没有任何消费方 → 界面隐藏。字段仍随配置保存 / 导入导出，**后端实现对应判定后把键从
  *   `HIDDEN_*` 移出即可重新显示**。
  */
@@ -19,9 +19,7 @@ export type DiagnosisPatternKey =
 export type DiagnosisThresholdKey =
   | 'total_p99_threshold_ms'
   | 'c2w_p99_threshold_ms'
-  | 'w2w_p99_threshold_ms'
   | 'urma_link_p99_threshold_ms'
-  | 'query_meta_p99_threshold_ms'
   | 'total_p9999_threshold_ms'
   | 'total_pmax_threshold_ms'
   | 'total_ave_threshold_ms'
@@ -50,16 +48,10 @@ export const THRESHOLD_OPTIONS: {
 }[] = [
   { key: 'total_p99_threshold_ms', label: '总时延 P99 阈值', description: '端到端总耗时' },
   { key: 'c2w_p99_threshold_ms', label: 'C2W 时延 P99 阈值', description: 'Client 到 Worker' },
-  { key: 'w2w_p99_threshold_ms', label: 'W2W 时延 P99 阈值', description: 'Worker 间调用' },
   {
     key: 'urma_link_p99_threshold_ms',
     label: 'URMA 建链 P99 阈值',
     description: 'URMA 链路建立耗时',
-  },
-  {
-    key: 'query_meta_p99_threshold_ms',
-    label: 'QueryMeta 时延阈值',
-    description: '查询元数据时延阈值',
   },
   {
     key: 'total_p9999_threshold_ms',

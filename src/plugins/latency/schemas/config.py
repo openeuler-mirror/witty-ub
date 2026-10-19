@@ -109,28 +109,22 @@ class DSLogAnalyzerConfig(BaseModel):
     )
 
     total_p99_threshold_ms: LatencyThreshold = Field(
-        default=5.0, description="总时延P99阈值，单位毫秒"
+        default=2.0, description="总时延P99阈值，单位毫秒"
     )
     c2w_p99_threshold_ms: LatencyThreshold = Field(
         default=1.0, description="C2W时延P99阈值，单位毫秒"
     )
-    w2w_p99_threshold_ms: LatencyThreshold = Field(
-        default=1.0, description="W2W时延P99阈值，单位毫秒"
-    )
     urma_link_p99_threshold_ms: LatencyThreshold = Field(
         default=1.0, description="URMA建链时延P99阈值，单位毫秒"
-    )
-    query_meta_p99_threshold_ms: LatencyThreshold = Field(
-        default=1.0, description="Worker QueryMeta时延P99阈值，单位毫秒"
     )
     total_p9999_threshold_ms: LatencyThreshold = Field(
         default=5.0, description="总时延P9999阈值，单位毫秒"
     )
     total_pmax_threshold_ms: LatencyThreshold = Field(
-        default=5.0, description="总时延Pmax阈值，单位毫秒"
+        default=20.0, description="总时延Pmax阈值，单位毫秒"
     )
     total_ave_threshold_ms: LatencyThreshold = Field(
-        default=5.0, description="总时延均值阈值，单位毫秒"
+        default=2.0, description="总时延均值阈值，单位毫秒"
     )
 
 
