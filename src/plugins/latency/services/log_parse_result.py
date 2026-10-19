@@ -7,6 +7,7 @@ from latency.schemas.response import (
     GetLogParseOptionsMsg,
 )
 from latency.database.managers.log_parse_result import LogParseResultPGManager
+from latency.database.managers.log_failure_event import LogFailureEventPGManager
 from latency.common.sampler import LatencyMetricsSampler
 from latency.exceptions import NotFoundBizException
 
@@ -17,6 +18,16 @@ class LogParseResultService:
     @staticmethod
     async def list_log_parse_results(req: ListLogParseResultRequest) -> ListLogParseResultsMsg:
         total, results = await LogParseResultPGManager.list_log_parse_results(req)
+        trace_ids = sorted({row.trace_id for row in results if row.trace_id})
+        if trace_ids:
+            # Match the runtime log dialog's KB/log scope in one page query.
+            context_pods = await LogFailureEventPGManager.get_trace_pod_names(
+                trace_ids, kb_id=req.kb_id, log_id=req.log_id,
+            )
+            for row in results:
+                pods = context_pods.get(row.trace_id)
+                if pods:
+                    row.pod_ips = sorted(set(row.pod_ips or []) | set(pods))
         return ListLogParseResultsMsg(total=total, log_parse_results=results)
 
     @staticmethod

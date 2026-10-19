@@ -304,6 +304,11 @@ def _project(label: str, entry: "tuple | LogEntry", row: dict[str, object]) -> N
         row["pod_ip"] = str(pod_ip) if pod_ip else None
         cluster_name = _get(entry, TupleField.CLUSTER_NAME)
         row["cluster_name"] = str(cluster_name) if cluster_name else None
+    elif label == CLIENT_RPC_LABEL:
+        pod_ip = _get(entry, TupleField.POD_IP)
+        row["pod_ip"] = str(pod_ip) if pod_ip else None
+        cluster_name = _get(entry, TupleField.CLUSTER_NAME)
+        row["cluster_name"] = str(cluster_name) if cluster_name else None
     # 其他 label（未知 bucket entry_type）→ 无列填充
 
 
