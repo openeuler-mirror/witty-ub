@@ -71,4 +71,5 @@ LABEL_TO_COLUMNS: dict[str, tuple[str, ...]] = {
     REMOTE_WORKER_RPC_LABEL: ("remote_worker_rpc", "src", "dst", "pod_ip", "cluster_name"),
     MASTER_PROCESS_LABEL: ("master_process", "pod_ip", "cluster_name"),
     MASTER_RPC_LABEL: ("master_rpc_total", "pod_ip", "cluster_name"),
+    CLIENT_RPC_LABEL: ("pod_ip", "cluster_name"),
 }

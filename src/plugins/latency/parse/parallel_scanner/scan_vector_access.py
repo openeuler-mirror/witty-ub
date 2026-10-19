@@ -755,6 +755,9 @@ def _client_rpc_rows(base: pl.LazyFrame, meta: _FileMeta, log_ids: dict[str, str
 
     values: dict[str, pl.Expr] = {
         "tid": trace_id,
+        "pod_ip": _pod_ip_expr(pl.col("_pod_name")),
+        "cluster_name": pl.when(pl.col("_cluster") != "")
+            .then(pl.col("_cluster")).otherwise(pl.lit(None, dtype=pl.Utf8)),
         "_elapsed_us": elapsed_expr.cast(pl.Float64),
         "_resp_msg": _format_timed_resp_msg(pl.col("_groups")),
     }

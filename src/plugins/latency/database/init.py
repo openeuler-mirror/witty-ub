@@ -542,6 +542,7 @@ async def create_manual_indexes() -> None:
         "CREATE INDEX IF NOT EXISTS idx_lpr_host ON log_parse_result (host, aggregated_event_id) WHERE existed_status = TRUE",
         "CREATE INDEX IF NOT EXISTS idx_lpr_trace_id ON log_parse_result (trace_id) WHERE existed_status = TRUE AND trace_id IS NOT NULL",
         "CREATE INDEX IF NOT EXISTS idx_lpr_log_total_latency ON log_parse_result (log_id, total_latency) WHERE existed_status = TRUE AND total_latency IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_lfe_log_trace ON log_failure_event (log_id, trace_id)",
         "CREATE INDEX IF NOT EXISTS idx_twa_kb_time ON time_window_aggregated (kb_id, time_bucket) WHERE existed_status = TRUE",
         "CREATE INDEX IF NOT EXISTS idx_twa_log_time_pair ON time_window_aggregated (log_id, time_bucket, src_ip, dst_ip) WHERE existed_status = TRUE",
         "CREATE INDEX IF NOT EXISTS idx_twa_kb_src_dst ON time_window_aggregated (kb_id, src_ip, dst_ip) WHERE existed_status = TRUE",

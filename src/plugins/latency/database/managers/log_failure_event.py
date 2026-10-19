@@ -709,6 +709,40 @@ class LogFailureEventPGManager:
             return 0, []
 
     @staticmethod
+    async def get_trace_pod_names(
+        trace_ids: list[str],
+        *,
+        kb_id: str,
+        log_id: str | None = None,
+    ) -> dict[str, list[str]]:
+        """Fetch distinct context pods for a page of traces, within its log scope.
+
+        Context includes ordinary runtime lines that have no latency metric and
+        therefore never contribute to the latency parser's pod aggregation.
+        """
+        if not trace_ids or not kb_id:
+            return {}
+
+        pod = func.trim(LogFailureEvent.pod_name)
+        stmt = (
+            select(LogFailureEvent.trace_id, pod.label("pod_name"))
+            .where(LogFailureEvent.trace_id.in_(trace_ids), pod != "")
+            .where(LogFailureEvent.log_id.in_(
+                select(LogFile.id).where(LogFile.kb_id == kb_id)
+            ))
+            .distinct()
+        )
+        if log_id:
+            stmt = stmt.where(LogFailureEvent.log_id == log_id)
+
+        async with PGManager.session() as session:
+            rows = (await session.execute(stmt)).all()
+        pods: dict[str, list[str]] = defaultdict(list)
+        for trace_id, pod_name in rows:
+            pods[trace_id].append(pod_name)
+        return dict(pods)
+
+    @staticmethod
     async def list_log_failure_events(
         req: ListLogFailureEventResultRequest,
     ) -> tuple[int, list[LogFailureEventModel]]:
