@@ -20,6 +20,9 @@ export WITTY_AGENT_URL="${WITTY_AGENT_URL:-http://127.0.0.1:4096}"
 # Agent 提示词中的后端基址；frontend 角色默认跟随 WITTY_BACKEND_URL
 export WITTY_API_BASE="${WITTY_API_BASE:-$WITTY_BACKEND_URL}"
 export WITTY_NO_PROXY="${WITTY_NO_PROXY:-127.0.0.1}"
+# Remote MCP endpoint used by the bundled OpenCode configuration. Docker
+# deployments resolve witty-rag-core through a shared Docker network.
+export WITTY_RAG_MCP_URL="${WITTY_RAG_MCP_URL:-http://witty-rag-core:12312/sse}"
 # OpenCode 绑定地址（兜底落位 B 需改为 0.0.0.0）
 export OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
 # 诊断报告落盘根目录（由 witty-ub-reports 卷持久化；agent 子进程继承此变量）

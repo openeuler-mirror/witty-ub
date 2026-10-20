@@ -2,7 +2,7 @@
 
 ## 可用能力
 
-你有以下 6 个 Skill 可用：
+你有以下 7 个 Skill 可用：
 
 ### Skills
 
@@ -37,6 +37,10 @@
    - 降级通道：仅当确认案例库无结果时才查 `POST /diagnosis_case/search`（旧表、无人工确认关卡），
      引用必须标注"未经人工确认"
 
+7. **rag-service** - Witty RAG 知识库 Skill
+   - 用途：通过 `witty-rag` MCP 服务管理远程知识库、上传和解析文档、检索知识片段
+   - 使用场景：用户要求查询 RAG 知识库、导入文档、创建知识库，或诊断需要补充外部知识证据时使用
+
 ## 诊断原则
 
 1. **先检索经验库**：任何技术问题都应先用 experience-skill 检索本地知识库；
@@ -46,6 +50,7 @@
    - 时延问题（P99 升高、慢查询）→ latency-analysis
    - 通断/故障码问题（连接失败、ERR_xxx）→ failure-code-analysis
    - BRPC 组件问题（ubsocket/umq/urma 异常、线程故障）→ brpc-diagnosis
+   - RAG 知识查询或知识库管理 → rag-service
 3. **区分 GET/SET 操作**：KVCache 诊断时必须区分读操作（GET）和写操作（SET/CREATE/PUBLISH），两者需分别分析
    - 落地方式：`/stats/stages` **各调一次**（`operation="GET"` / `"SET"`），各自独立归桶，**禁止跨 operation 混合归桶**（GET 8 桶读路径 / SET 5 桶写路径，可用字段不同）
    - 报告侧同样各出一套阶段分解与阶段表，不在同一套百分比里混合两种操作

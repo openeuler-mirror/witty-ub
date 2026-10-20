@@ -20,6 +20,7 @@ CONF_FILE="${DEPLOY_DIR}/../deploy.conf"
 # ---------- 参数解析 ----------
 CUSTOM_IMAGE=""
 ROLE="all"
+DEPLOY_RAG=false
 
 usage() {
     cat <<EOF
@@ -33,6 +34,7 @@ Options:
                                  backend/frontend are used for split deployments;
                                  they may run on different machines, image defaults to witty-ub:<role>
   --image <name:tag>  Use a specific image (default: auto-select by priority)
+  --with-rag          Deploy openGauss and RAG Core before the all-in-one role
   -h, --help           Show this help
 
 Config file: ${CONF_FILE}
@@ -48,6 +50,10 @@ while [ $# -gt 0 ]; do
     --image)
         CUSTOM_IMAGE="$2"
         shift 2
+        ;;
+    --with-rag)
+        DEPLOY_RAG=true
+        shift
         ;;
     -h | --help)
         usage
@@ -68,6 +74,10 @@ all | backend | frontend) ;;
     exit 1
     ;;
 esac
+if [ "$DEPLOY_RAG" = true ] && [ "$ROLE" != "all" ]; then
+    echo "[ERROR] --with-rag is supported only with --role all"
+    exit 1
+fi
 
 # 保存环境变量传入的值（优先级高于配置文件）。deploy.conf 会覆盖同名 shell 变量，
 # 因此按清单快照并回填，避免环境变量被配置文件里的空值/默认值吃掉。
@@ -82,6 +92,8 @@ CONFIG_KEYS=(
     PG_HOST_IN_CONTAINER PG_PORT_IN_CONTAINER PG_CONTAINER_NAME PG_NETWORK PG_VOLUME
     OPENCODE_CONFIG_DIR PG_IMAGE PG_HEALTH_INTERVAL PG_HEALTH_TIMEOUT PG_HEALTH_RETRIES
     PG_HEALTH_START_PERIOD
+    WITTY_RAG_MCP_URL WITTY_RAG_NETWORK RAG_CONFIG_FILE RAG_DB_SECRET_FILE
+    OPENGAUSS_RAG_IMAGE WITTY_RAG_CORE_IMAGE
 )
 ENV_OVERRIDES=""
 for _key in "${CONFIG_KEYS[@]}"; do
@@ -233,6 +245,8 @@ WITTY_CONTAINER_NAME="${WITTY_CONTAINER_NAME:-witty-ub}"
 WITTY_HOST_PORT="${WITTY_HOST_PORT:-32412}"
 WITTY_NETWORK="${PG_NETWORK:-witty-ub-network}"
 WITTY_LOG_LEVEL="${WITTY_LOG_LEVEL:-info}"
+WITTY_RAG_MCP_URL="${WITTY_RAG_MCP_URL:-http://witty-rag-core:12312/sse}"
+WITTY_RAG_NETWORK="${WITTY_RAG_NETWORK:-}"
 
 # ---------- 容器运行时选项（网络模式 / SSL 校验 / seccomp / 自检） ----------
 # 枚举项校验: require_enum <变量名> <值> <允许值...>；非法值直接报错退出
@@ -503,6 +517,11 @@ echo "witty-ub Container Deployment"
 echo "========================================"
 
 check_docker
+
+if [ "$DEPLOY_RAG" = true ]; then
+    log_info "Deploying openGauss and RAG Core first ..."
+    WITTY_NETWORK="$WITTY_NETWORK" bash "${SCRIPT_DIR}/deploy_rag.sh"
+fi
 
 # Step 1: 检查/拉取镜像
 echo ""
@@ -810,6 +829,7 @@ frontend)
         "${EXTRA_MOUNT_ARGS[@]}" \
         -e WITTY_ROLE=frontend \
         -e WITTY_BACKEND_URL="${BACKEND_URL}" \
+        -e WITTY_RAG_MCP_URL="${WITTY_RAG_MCP_URL}" \
         "${SSL_ENV_ARGS[@]}" \
         "${TZ_ENV_ARGS[@]}" \
         "${SECURITY_OPT_ARGS[@]}" \
@@ -834,6 +854,7 @@ frontend)
         -e WITTY_ROLE=all \
         -e PYTHONPATH=/var/witty-ub \
         -e LOG_LEVEL="${WITTY_LOG_LEVEL}" \
+        -e WITTY_RAG_MCP_URL="${WITTY_RAG_MCP_URL}" \
         -e PG_HOST="${PG_IN_CONTAINER_HOST}" \
         -e PG_PORT="${PG_IN_CONTAINER_PORT}" \
         -e PG_DATABASE="${PG_DATABASE:-witty-ub}" \
@@ -1099,6 +1120,9 @@ echo "  SSL verify: ${WITTY_SSL_VERIFY}"
 echo "  Timezone:   ${WITTY_TZ}"
 if [ "$ROLE" != "frontend" ]; then
     echo "  PG Host:    ${PG_IN_CONTAINER_HOST}:${PG_IN_CONTAINER_PORT} (container)"
+fi
+if [ "$ROLE" != "backend" ]; then
+    echo "  RAG MCP:    ${WITTY_RAG_MCP_URL}"
 fi
 if [ ${#EXTRA_MOUNT_ARGS[@]} -gt 0 ]; then
     echo "  Extra mounts:"

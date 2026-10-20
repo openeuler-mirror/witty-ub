@@ -12,6 +12,7 @@
 | ------ | ------ |
 | `manage.sh` | 统一管理入口（交互式菜单 + 命令行，含分离部署） |
 | `deploy_witty.sh` | witty-ub 容器部署（`--role all/backend/frontend`） |
+| `deploy_rag.sh` | openGauss + RAG Core 容器部署 |
 | `../deploy_pg.sh` | PostgreSQL 部署（`--docker` / `--rpm` / `--apt`，位于 `deploy/` 目录） |
 
 ---
@@ -30,7 +31,7 @@ bash manage.sh
 ========================================
 
   📦  Install
-    1) One-shot install: PG + witty-ub (Docker)
+    1) One-shot install: PG + openGauss + RAG Core + witty-ub
     2) Install PostgreSQL only
     3) Install witty-ub only
 
@@ -53,6 +54,7 @@ bash manage.sh
   🔀  Split frontend/backend deployment
    14) Install the witty-ub backend only (role=backend)
    15) Install the witty-ub frontend only (role=frontend)
+   16) Install openGauss + RAG Core only
 
     0) Quit
 ```
@@ -75,6 +77,9 @@ bash manage.sh install-all
 # 仅安装 witty-ub（复用已有 PG）
 bash manage.sh install-witty
 
+# 仅安装 openGauss + RAG Core
+bash manage.sh install-rag
+
 # 查看状态
 bash manage.sh status
 
@@ -93,6 +98,7 @@ bash manage.sh uninstall --yes
 manage.sh
   ├── [1] 一键安装
   │     ├── deploy_pg.sh --docker
+  │     ├── deploy_rag.sh
   │     └── deploy_witty.sh
   ├── [2] 仅安装 PG
   │     └── deploy_pg.sh [--docker | --rpm]
@@ -103,6 +109,9 @@ manage.sh
   └── [15] 仅安装 witty-ub 前端（分离）
         └── deploy_witty.sh --role frontend
 ```
+
+RAG Core 读取与 `deploy.conf` 同目录的 `deploy/rag-core.toml`。部署前请补齐
+模型配置，并准备 `/etc/witty-ub/rag-opengauss.passwd`（权限 `0600`）。
 
 ---
 

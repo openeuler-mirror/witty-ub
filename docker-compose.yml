@@ -89,6 +89,8 @@ services:
       - PG_PORT=5432
       - PG_DATABASE=witty-ub
       - PG_USER=witty-ub
+      # OpenCode 通过 MCP SSE 调用 Witty RAG。
+      - WITTY_RAG_MCP_URL=${WITTY_RAG_MCP_URL:-http://witty-rag-core:12312/sse}
       # OpenCode/LLM 出网 HTTPS 证书校验（false = 关闭，见文件头说明）
       - WITTY_SSL_VERIFY=${WITTY_SSL_VERIFY:-true}
       # 时区：与全系统「本地墙钟」口径一致（日志墙钟为 +08）
@@ -166,6 +168,7 @@ services:
       - WITTY_ROLE=frontend
       # 容器网络内经服务名访问后端
       - WITTY_BACKEND_URL=http://witty-ub-backend:9772
+      - WITTY_RAG_MCP_URL=${WITTY_RAG_MCP_URL:-http://witty-rag-core:12312/sse}
       # OpenCode/LLM 出网 HTTPS 证书校验（false = 关闭，见文件头说明）
       - WITTY_SSL_VERIFY=${WITTY_SSL_VERIFY:-true}
       # 时区：与全系统「本地墙钟」口径一致（日志墙钟为 +08）
@@ -198,6 +201,7 @@ volumes:
 
 networks:
   witty-ub-network:
+    name: ${WITTY_NETWORK:-witty-ub-network}
     driver: bridge
     name: witty-ub-network
 
