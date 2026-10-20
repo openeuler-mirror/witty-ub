@@ -6743,17 +6743,6 @@ const resourceLogHeaders = [
   'Cache Hit Info',
 ]
 
-const streamCacheMetricHeaders = [
-  'Time',
-  'level',
-  'filename',
-  'pod_name',
-  'pid:tid',
-  'trace_id',
-  'cluster_name',
-  'sc_metric',
-]
-
 const splitRawLogText = (rawText: string) =>
   rawText
     .split(/\s*\|\s*/)
@@ -6773,8 +6762,6 @@ const normalizeTraceLogColumns = (headers: string[], fields: string[]) => {
 
 const buildTraceRawColumns = (
   rawText: string,
-  logFile: string,
-  sourceFilename: string,
 ): { formatName: string; columns: TraceRawLogColumn[] } => {
   const fields = splitRawLogText(rawText)
   if (fields.length === 0) {
@@ -6807,14 +6794,6 @@ const buildTraceRawColumns = (
     }
   }
 
-  const hint = `${logFile} ${sourceFilename} ${fields[7] ?? ''}`.toLowerCase()
-  if (fields.length === streamCacheMetricHeaders.length && hint.includes('sc')) {
-    return {
-      formatName: '流缓存数据日志',
-      columns: normalizeTraceLogColumns(streamCacheMetricHeaders, fields),
-    }
-  }
-
   if (fields.length >= runLogHeaders.length) {
     return {
       formatName: '运行日志',
@@ -6840,9 +6819,8 @@ const toTraceLogRow = (result: LogFailureEventResultModel): TraceLogRow => {
   const pid = getRecordString(record, ['pid'], '')
   const tid = getRecordString(record, ['tid'], '')
   const logFile = getTraceLogDisplayFilename(record)
-  const sourceFilename = getRecordString(record, ['filename', 'file_name'], '-')
   const rawText = getRecordString(record, ['raw_text', 'rawText', 'content'], '')
-  const rawLog = buildTraceRawColumns(rawText, logFile, sourceFilename)
+  const rawLog = buildTraceRawColumns(rawText)
   const failureModes = Array.isArray(result.failure_mode)
     ? result.failure_mode.filter(
         (item): item is string => typeof item === 'string' && Boolean(item),
