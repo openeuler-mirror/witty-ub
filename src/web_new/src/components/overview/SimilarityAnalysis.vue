@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import LineClampText from '../common/LineClampText.vue'
 import { fetchSimilarFaultTypes, type SimilarityMatch, type SimilarityResult } from '../../api/analysis'
 import { apiBase } from '../../api/http'
 
@@ -66,10 +67,6 @@ const faultCategoryLabel = (cat: string) => {
 
 const getAttachmentUrl = (caseId: string) => {
   return `${apiBase}/case_library/attachment/${encodeURIComponent(caseId)}`
-}
-
-const getLogFileUrl = (logFileId: string) => {
-  return `${apiBase}/case_library/log_file/${encodeURIComponent(logFileId)}`
 }
 
 const getAttachmentDisplayName = (attachmentPath: string) => {
@@ -139,27 +136,15 @@ const getAttachmentDisplayName = (attachmentPath: string) => {
                 来源：{{ match.log_file_name }}
               </span>
             </div>
-            <div v-if="match.description" class="match-desc">
-              {{ match.description }}
-            </div>
-            <div v-if="match.attachment_path || match.log_file_id" class="match-links">
+            <LineClampText v-if="match.description" class="match-desc" :text="match.description" />
+            <div v-if="match.attachment_path" class="match-links">
               <a
-                v-if="match.attachment_path"
                 :href="getAttachmentUrl(match.case_id)"
                 class="file-link"
                 target="_blank"
                 rel="noopener noreferrer"
               >
                 📎 下载附件：{{ getAttachmentDisplayName(match.attachment_path) }}
-              </a>
-              <a
-                v-if="match.log_file_id"
-                :href="getLogFileUrl(match.log_file_id)"
-                class="file-link"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                📁 原始日志文件
               </a>
             </div>
           </div>
@@ -386,13 +371,9 @@ const getAttachmentDisplayName = (attachmentPath: string) => {
   font-size: 12px;
   color: var(--text-secondary, #666);
   margin-top: 4px;
-  line-height: 1.5;
-  max-height: 60px;
+  line-height: 18px;
+  height: 36px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
 }
 
 .match-links {

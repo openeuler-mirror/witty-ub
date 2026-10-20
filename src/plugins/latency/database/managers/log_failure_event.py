@@ -15,9 +15,6 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Iterator, Protocol
 
-from sqlalchemy import func, select, text
-from sqlalchemy.dialects.postgresql import array
-
 from latency.database.engine import PGManager
 from latency.database.models import LogFailureEvent, LogFile, TraceFailureEvent
 from latency.database.utils import format_ip, format_timestamp, parse_ip, parse_timestamp
@@ -33,7 +30,8 @@ from latency.schemas.request import (
     ListTimeAggregatedFailureEventRequest,
     ListTraceFailureEventResultRequest,
 )
-
+from sqlalchemy import func, or_, select, text
+from sqlalchemy.dialects.postgresql import array
 
 logger = logging.getLogger(__name__)
 
@@ -614,6 +612,10 @@ class LogFailureEventPGManager:
             stmt = select(TraceFailureEvent)
             if log_ids:
                 stmt = stmt.where(TraceFailureEvent.log_id.in_(log_ids))
+            if req.log_id:
+                if log_ids and req.log_id not in log_ids:
+                    return 0, []
+                stmt = stmt.where(TraceFailureEvent.log_id == req.log_id)
 
             if req.trace_ids:
                 stmt = stmt.where(TraceFailureEvent.trace_id.in_(req.trace_ids))
@@ -635,6 +637,14 @@ class LogFailureEventPGManager:
             ip_cond = LogFailureEventPGManager._ip_eq(TraceFailureEvent.dst_ip, req.dst_ip)
             if ip_cond is not None:
                 stmt = stmt.where(ip_cond)
+
+            if req.endpoint_ip:
+                stmt = stmt.where(
+                    or_(
+                        func.host(TraceFailureEvent.src_ip) == req.endpoint_ip,
+                        func.host(TraceFailureEvent.dst_ip) == req.endpoint_ip,
+                    )
+                )
 
             if req.status_codes:
                 stmt = stmt.where(
@@ -659,7 +669,7 @@ class LogFailureEventPGManager:
                 )
             if req.end_time:
                 stmt = stmt.where(
-                    TraceFailureEvent.timestamp <= parse_timestamp(req.end_time)
+                    TraceFailureEvent.timestamp < parse_timestamp(req.end_time)
                 )
 
             if req.operation:
@@ -750,8 +760,6 @@ class LogFailureEventPGManager:
             log_ids = []
             if req.kb_id is not None:
                 log_ids = await LogFailureEventPGManager._log_ids_for_kb_id(req.kb_id)
-            if req.log_id is not None:
-                log_ids.append(req.log_id)
 
             if req.kb_id is not None and not log_ids:
                 return 0, []
@@ -759,6 +767,10 @@ class LogFailureEventPGManager:
             stmt = select(LogFailureEvent)
             if log_ids:
                 stmt = stmt.where(LogFailureEvent.log_id.in_(log_ids))
+            if req.log_id is not None:
+                if log_ids and req.log_id not in log_ids:
+                    return 0, []
+                stmt = stmt.where(LogFailureEvent.log_id == req.log_id)
             if req.trace_ids:
                 stmt = stmt.where(LogFailureEvent.trace_id.in_(req.trace_ids))
 
@@ -863,7 +875,7 @@ class LogFailureEventPGManager:
                 )
             if req.end_time:
                 stmt = stmt.where(
-                    TraceFailureEvent.timestamp <= parse_timestamp(req.end_time)
+                    TraceFailureEvent.timestamp < parse_timestamp(req.end_time)
                 )
 
             if req.operation:
@@ -1070,7 +1082,7 @@ class LogFailureEventPGManager:
                 )
             if req.end_time:
                 stmt = stmt.where(
-                    TraceFailureEvent.timestamp <= parse_timestamp(req.end_time)
+                    TraceFailureEvent.timestamp < parse_timestamp(req.end_time)
                 )
 
             if req.operation:
@@ -1209,7 +1221,7 @@ class LogFailureEventPGManager:
                 )
             if req.end_time:
                 stmt = stmt.where(
-                    TraceFailureEvent.timestamp <= parse_timestamp(req.end_time)
+                    TraceFailureEvent.timestamp < parse_timestamp(req.end_time)
                 )
 
             stmt = stmt.group_by(
@@ -1354,7 +1366,7 @@ class LogFailureEventPGManager:
                 )
             if req.end_time:
                 stmt = stmt.where(
-                    TraceFailureEvent.timestamp <= parse_timestamp(req.end_time)
+                    TraceFailureEvent.timestamp < parse_timestamp(req.end_time)
                 )
 
             if req.operation:

@@ -21,10 +21,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Optional
-
-from sqlalchemy import func, literal, or_, select, text
-from sqlalchemy.dialects.postgresql import array
 
 from latency.database.engine import PGManager
 from latency.database.models import (
@@ -46,6 +44,8 @@ from latency.schemas.trace_light import (
     StatsDimensionRequest,
     TraceFailureCodeStatModel,
 )
+from sqlalchemy import func, literal, or_, select, text
+from sqlalchemy.dialects.postgresql import array
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +87,13 @@ def _apply_latency_filters(stmt, req: ListLogParseResultRequest):
             stmt = stmt.where(
                 func.host(LogParseResult.dst_ip).like(f"%{req.dst_ip}%")
             )
+    if req.endpoint_ip:
+        stmt = stmt.where(
+            or_(
+                func.host(LogParseResult.src_ip) == req.endpoint_ip,
+                func.host(LogParseResult.dst_ip) == req.endpoint_ip,
+            )
+        )
     if req.pod_ip:
         stmt = stmt.where(LogParseResult.pod_ips.contains([req.pod_ip]))
     if req.host:
@@ -98,7 +105,7 @@ def _apply_latency_filters(stmt, req: ListLogParseResultRequest):
     if req.start_time:
         stmt = stmt.where(LogParseResult.timestamp >= parse_timestamp(req.start_time))
     if req.end_time:
-        stmt = stmt.where(LogParseResult.timestamp <= parse_timestamp(req.end_time))
+        stmt = stmt.where(LogParseResult.timestamp < parse_timestamp(req.end_time))
     if req.created_at_start:
         stmt = stmt.where(LogParseResult.created_at >= parse_timestamp(req.created_at_start))
     if req.created_at_end:
@@ -197,6 +204,14 @@ def _trace_filter_conditions(req, log_ids: list[str]) -> list:
         if cond is not None:
             conds.append(cond)
 
+    if req.endpoint_ip:
+        conds.append(
+            or_(
+                func.host(TraceFailureEvent.src_ip) == req.endpoint_ip,
+                func.host(TraceFailureEvent.dst_ip) == req.endpoint_ip,
+            )
+        )
+
     if req.status_codes:
         conds.append(
             TraceFailureEvent.status_code.overlap(array(req.status_codes))
@@ -208,7 +223,7 @@ def _trace_filter_conditions(req, log_ids: list[str]) -> list:
         )
     if req.end_time:
         conds.append(
-            TraceFailureEvent.timestamp <= parse_timestamp(req.end_time)
+            TraceFailureEvent.timestamp < parse_timestamp(req.end_time)
         )
 
     if req.operation:
@@ -623,7 +638,7 @@ class TraceLightPGManager:
             )
         if req.end_time:
             ev_conds.append(
-                LogFailureEvent.timestamp <= parse_timestamp(req.end_time)
+                LogFailureEvent.timestamp < parse_timestamp(req.end_time)
             )
         event_stmt = (
             select(
@@ -888,7 +903,7 @@ def _fault_stats_conds(log_ids: list[str], req: StatsDimensionRequest) -> list:
         )
     if req.end_time:
         conds.append(
-            TraceFailureEvent.timestamp <= parse_timestamp(req.end_time)
+            TraceFailureEvent.timestamp < parse_timestamp(req.end_time)
         )
     return conds
 

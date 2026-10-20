@@ -37,6 +37,7 @@ use([
 ])
 import rawDiagnosisConfig from '../../../../config/diagnosis_config.toml'
 import { useToast } from './useToast'
+import { FAULT_CHART_MAX_POINTS, faultChartMaxPoints } from '../utils/faultChartBuckets'
 import {
   UBSOCKET_P99_ABNORMAL_THRESHOLD_US,
   evaluateTraceStage,
@@ -210,8 +211,41 @@ function createOverviewStateInner() {
     latency: new Map<string, LatencyPoint[]>(),
     topSlow: new Map<string, { total: number; rows: any[] }>(),
     abnormal: new Map<string, { total: number; rows: any[] }>(),
-    faultChart: new Map<string, Record<string, Array<{ time: string; err_cnt: number }>>>(),
+    // 故障码图按「资产:操作:粒度」缓存，并记住这次取数用的抽稀上限（徽标要按它判断）
+    faultChart: new Map<
+      string,
+      { chart: Record<string, Array<{ time: string; err_cnt: number }>>; maxPoints: number }
+    >(),
     faultTraces: new Map<string, { total: number; rows: any[]; truncated: boolean }>(),
+  }
+  // 故障码时序粒度：值与后端 bucket_seconds 一一对应，换档即按新粒度重查（前端不再二次分桶）
+  const faultChartScale = ref<10 | 60 | 600 | 3600>(60)
+  const faultChartScaleOptions = [
+    { value: 10, label: '10 秒' },
+    { value: 60, label: '1 分钟' },
+    { value: 600, label: '10 分钟' },
+    { value: 3600, label: '1 小时' },
+  ] as const
+  // 本次故障码图实际用到的抽稀上限：点位数达到它说明后端已抽稀，界面需标注近似
+  const faultChartMaxPointsUsed = ref(FAULT_CHART_MAX_POINTS)
+
+  // 已加载过的任意粒度都能给出数据跨度：首次取数用上限，之后按跨度自适应
+  const faultChartSpanMsOf = (assetId: string, op: 'get' | 'set') => {
+    const prefix = `${assetId}:${op}:`
+    let min = Number.POSITIVE_INFINITY
+    let max = Number.NEGATIVE_INFINITY
+    for (const [key, entry] of sectionCaches.faultChart) {
+      if (!key.startsWith(prefix)) continue
+      for (const points of Object.values(entry.chart)) {
+        for (const point of points ?? []) {
+          const ms = tsToEpochMs(point.time)
+          if (!Number.isFinite(ms)) continue
+          if (ms < min) min = ms
+          if (ms > max) max = ms
+        }
+      }
+    }
+    return Number.isFinite(min) && max > min ? max - min : null
   }
   let lastLogFilesKey = ''
   // 切库后等新任务列表到达，再决定默认数据域（见 logFiles watcher）
@@ -234,7 +268,7 @@ function createOverviewStateInner() {
   const faultTracesTruncated = ref(false)
 
   const assetTypeFilter = ref<'kvcache' | 'brpc'>('kvcache')
-  const analysisTab = ref<'latency' | 'disconnect'>('latency')
+  const analysisTab = ref<'latency' | 'disconnect' | 'similarity'>('latency')
   const analysisModule = reactive({
     latency: 'overview',
     disconnect: 'faults' as 'faults' | 'events',
@@ -484,11 +518,20 @@ function createOverviewStateInner() {
     if (!asset) return
 
     const faultKey = `${asset.id}:${op}`
-    let faultChart = sectionCaches.faultChart.get(faultKey)
-    if (!faultChart) {
-      faultChart = await fetchFaultChart(asset.id, op)
+    // 故障码图按粒度分开缓存：换档位换的是后端分桶口径，不能复用上一档的结果
+    const chartKey = `${faultKey}:${faultChartScale.value}`
+    const cachedChart = sectionCaches.faultChart.get(chartKey)
+    let faultChart: Record<string, Array<{ time: string; err_cnt: number }>>
+    if (cachedChart) {
+      faultChart = cachedChart.chart
+      faultChartMaxPointsUsed.value = cachedChart.maxPoints
+    } else {
+      const spanMs = faultChartSpanMsOf(asset.id, op)
+      const maxPoints = faultChartMaxPoints(spanMs, faultChartScale.value)
+      faultChart = await fetchFaultChart(asset.id, op, faultChartScale.value, maxPoints)
       if (generation !== overviewRequestGeneration) return
-      sectionCaches.faultChart.set(faultKey, faultChart)
+      sectionCaches.faultChart.set(chartKey, { chart: faultChart, maxPoints })
+      faultChartMaxPointsUsed.value = maxPoints
     }
 
     let faultTraces = sectionCaches.faultTraces.get(faultKey)
@@ -2740,40 +2783,10 @@ function createOverviewStateInner() {
     if (faultTraceQuery.value) clearFaultTraceQuery()
   })
 
-  // ---------- 故障码时序时间聚合尺度（客户端对秒级点再分桶） ----------
-
-  // 与 api fetchFaultChart 的 max_points 对齐：单码秒级点达上限说明后端已峰保抽稀
-  const FAULT_CHART_MAX_POINTS = 1000
-  const faultChartScale = ref<10 | 60 | 600 | 3600>(60)
-  const faultChartScaleOptions = [
-    { value: 10, label: '10 秒' },
-    { value: 60, label: '1 分钟' },
-    { value: 600, label: '10 分钟' },
-    { value: 3600, label: '1 小时' },
-  ] as const
-
-  const faultChartDisplayData = computed(() => {
-    const scaleMs = faultChartScale.value * 1000
-    const out: Record<string, Array<{ time: string; err_cnt: number }>> = {}
-    for (const [code, points] of Object.entries(faultChartData.value)) {
-      const buckets = new Map<number, number>()
-      ;(points ?? []).forEach((point) => {
-        const ms = tsToEpochMs(point.time)
-        if (!Number.isFinite(ms)) return
-        const bucketStart = Math.floor(ms / scaleMs) * scaleMs
-        buckets.set(bucketStart, (buckets.get(bucketStart) ?? 0) + (point.err_cnt ?? 0))
-      })
-      out[code] = [...buckets.entries()]
-        .sort((a, b) => a[0] - b[0])
-        .map(([ms, err_cnt]) => ({ time: epochMsToTs(ms), err_cnt }))
-    }
-    return out
-  })
-
-  // 已抽稀时再分桶求和不再精确，UI 必须标注近似
+  // 点位数达到本次取数的 max_points，说明后端已保峰抽稀，UI 必须标注近似
   const faultChartSampled = computed(() =>
     Object.values(faultChartData.value).some(
-      (points) => (points ?? []).length >= FAULT_CHART_MAX_POINTS,
+      (points) => (points ?? []).length >= faultChartMaxPointsUsed.value,
     ),
   )
 
@@ -4377,8 +4390,8 @@ function createOverviewStateInner() {
       const el = faultChartRef.value
       if (!el) return
       const chart = getChart(el)
-      // 按所选尺度再分桶后的展示数据；原始秒级数据仅用于空态与抽稀判断
-      const displayData = faultChartDisplayData.value
+      // 后端已按当前粒度分桶返回，直接展示；抽稀与否由 faultChartSampled 标注
+      const displayData = faultChartData.value
       const codes = selectedFaultCode.value
         ? Object.prototype.hasOwnProperty.call(displayData, selectedFaultCode.value)
           ? [selectedFaultCode.value]
@@ -4742,6 +4755,8 @@ function createOverviewStateInner() {
   const loadOverviewForTab = async () => {
     const generation = ++overviewRequestGeneration
     if (!isAssetMode.value) return
+    // 相似案例分析按需自取（SimilarityAnalysis 组件内），不走监控取数
+    if (analysisTab.value === 'similarity') return
     // 任务列表还停留在上一个资产库时不发按库查询，等日志列表 watcher 再触发
     if (!assetScoped.value) return
     if (assetTypeFilter.value === 'brpc') {
@@ -4984,10 +4999,18 @@ function createOverviewStateInner() {
       { deep: true },
     )
 
-    // 故障码时序尺度变化只改展示分桶，不回写 disconnectFilter.time
+    // 故障码时序尺度变化 = 换后端分桶口径：丢掉本库本操作的旧粒度缓存后重查；
+    // 不回写 disconnectFilter.time（时间窗由框选决定）
     watch(faultChartScale, () => {
       if (!isAssetMode.value || isBrpcTask.value || analysisTab.value !== 'disconnect') return
-      renderFaultChart()
+      const asset = selectedAsset.value
+      if (!asset) return
+      const op = realOp.value
+      const scale = faultChartScale.value
+      void loadFaultSection(op).then(() => {
+        // 期间又切了档位/资产就交给后一次查询收尾
+        if (faultChartScale.value === scale && realOp.value === op) renderFaultChart()
+      })
     })
 
     // UBSocket 故障时序的聚合尺度变化 → 按新 window_size 回查预聚合桶后重绘

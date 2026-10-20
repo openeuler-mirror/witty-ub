@@ -38,6 +38,33 @@ export type OpenCodeMessage = {
 
 export type OpenCodeSessionStatus = { type?: string }
 
+/** 受限操作授权请求：Agent 要执行 bash 等操作时由服务端挂起，等前端答复（once / reject）。 */
+export type AgentPermissionRequest = {
+  id: string
+  sessionID: string
+  permission: string
+  patterns: string[]
+  metadata?: Record<string, unknown>
+  always?: string[]
+  tool?: { messageID: string; callID: string }
+}
+
+/** 结构化问询的一道题：选项由 Agent 给出，允许补充自定义答案。 */
+export type AgentQuestion = {
+  question: string
+  header: string
+  options: Array<{ label: string; description: string }>
+  multiple?: boolean
+  custom?: boolean
+}
+
+export type AgentQuestionRequest = {
+  id: string
+  sessionID: string
+  questions: AgentQuestion[]
+  tool?: { messageID: string; callID: string }
+}
+
 export type AgentStreamEvent = {
   type: string
   properties?: {
@@ -57,6 +84,19 @@ export type AgentStreamEvent = {
     partID?: string
     field?: string
     delta?: string
+    // permission.* / question.* 事件的字段（授权卡与问询卡的数据来源）
+    id?: string
+    requestID?: string
+    permission?: string
+    type?: string
+    patterns?: string[]
+    pattern?: string | string[]
+    title?: string
+    metadata?: Record<string, unknown>
+    always?: string[]
+    tool?: { messageID: string; callID: string }
+    questions?: AgentQuestion[]
+    reply?: 'once' | 'always' | 'reject'
   }
 }
 
@@ -188,6 +228,35 @@ export class AgentApi {
     })
   }
 
+  listPermissions() {
+    return this.request<AgentPermissionRequest[]>('/permission')
+  }
+
+  // 服务端只认 once / reject；「本会话始终允许」由前端记规则后继续用 once 应答
+  respondPermission(sessionId: string, requestId: string, response: 'once' | 'reject') {
+    return this.request<boolean>(
+      `/session/${encodeURIComponent(sessionId)}/permissions/${encodeURIComponent(requestId)}`,
+      { method: 'POST', body: JSON.stringify({ response }) },
+    )
+  }
+
+  listQuestions() {
+    return this.request<AgentQuestionRequest[]>('/question')
+  }
+
+  replyQuestion(requestId: string, answers: string[][]) {
+    return this.request<boolean>(`/question/${encodeURIComponent(requestId)}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ answers }),
+    })
+  }
+
+  rejectQuestion(requestId: string) {
+    return this.request<boolean>(`/question/${encodeURIComponent(requestId)}/reject`, {
+      method: 'POST',
+    })
+  }
+
   // SSE 用 fetch + ReadableStream（EventSource 无法带 Authorization header）
   async openEventStream(
     signal: AbortSignal,
@@ -247,6 +316,14 @@ export const extractAgentError = (payload: unknown): string => {
     )
   }
   return ''
+}
+
+/** 用户主动中止：服务端用 Aborted 错误收尾，界面要按「已停止」而不是「失败」处理。 */
+export const isAgentAbortError = (payload: unknown): boolean => {
+  if (!payload || typeof payload !== 'object') return false
+  const value = payload as Record<string, unknown>
+  if (value.name === 'MessageAbortedError' || value.name === 'AbortError') return true
+  return isAgentAbortError(value.error) || isAgentAbortError(value.data)
 }
 
 // agent base 默认同源 /agent-api（可被 env / 运行时注入覆盖）

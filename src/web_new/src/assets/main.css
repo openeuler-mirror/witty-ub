@@ -89,36 +89,389 @@ a:focus-visible,
   white-space: nowrap;
 }
 
-.breadcrumb {
+/* 顶层主导航 */
+.logo-btn {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.top-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.top-nav-item {
+  padding: 6px 14px;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
   font-size: 14px;
   color: var(--text2);
+  cursor: pointer;
+}
+
+.top-nav-item:hover {
+  color: var(--primary);
+  background: var(--bg2, rgba(0, 0, 0, 0.04));
+}
+
+.top-nav-item.active {
+  color: var(--primary);
+  background: var(--bg2, rgba(0, 0, 0, 0.04));
+  font-weight: 600;
+}
+
+/* 顶栏资产库页签 + 内联位置路径（资产库 › 资产名 › 子页）：
+   路径做成主题色胶囊，与相邻的导航按钮（纯文字）区分 */
+.top-nav-asset {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.top-nav-crumb {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  margin-left: 6px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  background: var(--primary-bg);
+  font-size: 13px;
+  gap: 6px;
+}
+
+.top-crumb-sep {
+  color: var(--text3);
+}
+
+.top-crumb-asset {
+  overflow: hidden;
+  max-width: 200px;
+  color: var(--text2);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top-crumb-current {
+  flex: 0 0 auto;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* 资产库内诊断报告弹层列表 */
+.asset-report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.asset-report-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.asset-report-item:hover {
+  border-color: var(--primary);
+}
+
+.asset-report-item-title {
+  font-size: 14px;
+  color: var(--text1);
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.breadcrumb-link {
-  padding: 2px 0;
+.asset-report-item-meta {
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.asset-report-notice {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text2);
+}
+
+/* ===== 案例管理（知识库·案例库 section） ===== */
+.case-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.case-sidebar {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: sticky;
+  top: 80px;
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+}
+
+.case-sidebar-search .input {
+  width: 100%;
+}
+
+.case-sidebar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.case-type-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text1);
+  cursor: pointer;
+  text-align: left;
+}
+
+.case-type-item:hover {
+  background: var(--bg2, rgba(0, 0, 0, 0.04));
+}
+
+.case-type-item.active {
+  background: var(--bg2, rgba(0, 0, 0, 0.06));
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.case-type-child {
+  padding-left: 30px;
+}
+
+.case-type-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   border: 0;
   background: transparent;
   color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.case-type-count {
+  font-size: 12px;
+  color: var(--text3);
+  flex-shrink: 0;
+}
+
+.case-cat-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.case-cat-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.case-cat-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--text3);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.case-cat-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text1);
+  text-align: left;
   cursor: pointer;
 }
 
-.breadcrumb-link:hover {
+.case-cat-name:hover,
+.case-cat-name.active {
   color: var(--primary);
+  background: var(--bg2, rgba(0, 0, 0, 0.04));
 }
 
-.breadcrumb .current {
-  color: var(--primary);
-  font-weight: 600;
-  cursor: default;
-}
-
-.breadcrumb .sep {
-  margin: 0 6px;
+.case-cat-manage-btn {
+  border: 0;
+  background: transparent;
   color: var(--text3);
-  cursor: default;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+
+.case-cat-manage-btn:hover {
+  color: var(--primary);
+}
+
+.case-cat-delete-btn:hover {
+  color: var(--danger, #d54941);
+}
+
+.case-cat-desc {
+  font-size: 12px;
+  color: var(--text3);
+  padding: 0 8px 4px 26px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.case-cat-types {
+  display: flex;
+  flex-direction: column;
+}
+
+.case-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  margin: 4px 0;
+}
+
+.case-edit-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.case-sidebar-footer {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 6px;
+}
+
+.case-type-empty {
+  font-size: 13px;
+  color: var(--text3);
+  text-align: center;
+  padding: 12px 0;
+}
+
+.case-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.case-main-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.case-main-header h2 {
+  margin: 0;
+  font-size: 17px;
+  color: var(--text1);
+}
+
+.case-main-count {
+  font-size: 13px;
+  color: var(--text2);
+}
+
+.case-main-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.case-card {
+  padding: 14px 16px;
+}
+
+.case-card-editing {
+  border-color: var(--primary);
+}
+
+.case-card-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.case-card-header .input {
+  width: 180px;
+}
+
+.case-card-time {
+  font-size: 12px;
+  color: var(--text3);
+  margin-left: auto;
+}
+
+.case-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text1);
+}
+
+.case-card-row {
+  display: flex;
+  gap: 4px;
+  line-height: 1.6;
+}
+
+.case-card-label {
+  color: var(--text2);
+  flex-shrink: 0;
+}
+
+/* 案例卡片底部操作区复用 .btn-text 的文字按钮，链接形态需去下划线 */
+a.btn-text {
+  text-decoration: none;
 }
 
 /* Layout */
@@ -414,15 +767,6 @@ tr:hover td {
   color: var(--danger);
 }
 
-/* 坏日志跳过告警（折叠态）：琥珀色摘要，全文与逐条文案走 title / 明细行 */
-.task-skip-chip {
-  overflow: hidden;
-  color: #b45309;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* 名称列的展开箭头：无明细时留同宽占位，保证多行名称对齐 */
 .task-name-row {
   display: flex;
@@ -468,27 +812,6 @@ tr:hover td {
   padding: 12px 16px;
   background: var(--bg);
   box-shadow: none;
-}
-
-.task-detail-skip {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 12px;
-  padding: 8px 12px;
-  border: 1px solid #fcd34d;
-  border-radius: var(--radius-md);
-  background: #fffbeb;
-  color: #92400e;
-  font-size: 12px;
-}
-
-.task-detail-skip-title {
-  font-weight: 600;
-}
-
-.task-detail-skip-line {
-  word-break: break-all;
 }
 
 .task-detail-timing-head {
@@ -823,6 +1146,13 @@ html.is-modal-open {
 .modal--xl {
   width: min(1400px, 96vw);
   height: min(92vh, 1040px);
+  max-height: 92vh;
+}
+
+/* 文档阅读类弹窗（Skill/Wiki 详情） */
+.modal--doc {
+  width: min(880px, 94vw);
+  height: min(86vh, 940px);
   max-height: 92vh;
 }
 
@@ -1500,12 +1830,9 @@ html.is-modal-open {
 .asset-card-desc {
   font-size: 13px;
   color: var(--text2);
-  line-height: 1.6;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  line-height: 21px;
+  height: 42px;
   overflow: hidden;
-  min-height: 42px;
   word-break: break-word;
 }
 
@@ -1685,8 +2012,8 @@ html.is-modal-open {
     padding: 0 14px;
   }
 
-  .breadcrumb {
-    font-size: 12px;
+  .top-crumb-asset {
+    max-width: 120px;
   }
 
   .page-nav-item {

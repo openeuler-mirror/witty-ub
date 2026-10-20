@@ -321,7 +321,7 @@ watch([podIpSample, traceIdSample], () => void nextTick(measureFixedColumns))
         <span
           v-if="faultChartSampled"
           class="sample-warning"
-          title="后端已抽稀，按尺度聚合后的桶计数不再精确"
+          title="时间范围较大时按所选尺度聚合展示，桶计数为近似值"
           >数据已抽稀，桶计数为近似</span
         >
         <label for="fault-chart-scale">时间尺度</label>

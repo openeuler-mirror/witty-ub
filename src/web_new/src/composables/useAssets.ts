@@ -16,12 +16,15 @@ export function useAssets() {
   return state
 }
 
+export type AppView = 'assets' | 'home' | 'knowledge'
+
 function createAssetsState() {
   const { toast } = useToast()
   const { writeRestricted, writeRestrictedMessage } = useServiceHealth()
 
-  const view = ref<'assets' | 'home' | 'knowledge'>('assets')
-  const assetTab = ref<'overview' | 'tasks'>('overview')
+  const view = ref<AppView>('assets')
+  // 资产工作区子页签：分析（监控）/ 任务 / 诊断报告
+  const assetTab = ref<'overview' | 'tasks' | 'reports'>('overview')
 
   const assets = ref<LogKnowledge[]>([])
   const assetsLoading = ref(false)

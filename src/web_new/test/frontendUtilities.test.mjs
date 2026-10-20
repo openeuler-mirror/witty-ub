@@ -76,7 +76,7 @@ test('task progress humanizes parser stages and milestones', () => {
   assert.equal(humanizeTaskProgressMessage('Task completed successfully'), '解析完成')
 })
 
-test('task progress ignores [timing]/[skip] reports and keeps the last real progress message', () => {
+test('task progress ignores [timing]/[perf] reports and keeps the last real progress message', () => {
   const file = {
     overall_status: 'running',
     task: {
@@ -86,11 +86,7 @@ test('task progress ignores [timing]/[skip] reports and keeps the last real prog
           progress: 42,
           created_at: '2026-09-18 10:00:00',
         },
-        {
-          message: '[skip] 跳过 1 个坏日志文件：broken.log（编码损坏）',
-          progress: 0,
-          created_at: '2026-09-18 10:00:03',
-        },
+        { message: '[perf][scan.summary] total=11s', progress: 0, created_at: '2026-09-18 10:00:03' },
         {
           message: '[timing] {"task_type":"kv_cache_log_parse_worker","total_s":11.885}',
           progress: 0,
@@ -112,7 +108,7 @@ test('task progress stays empty when only internal reports exist', () => {
       task: {
         task_reports: [
           { message: '[timing] {"total_s":1}', progress: 0 },
-          { message: '[skip] 跳过 1 个坏日志文件：a.log', progress: 0 },
+          { message: '[perf][polars.trace_frame] sd=1 tw=2', progress: 0 },
         ],
       },
     }),

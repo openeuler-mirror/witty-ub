@@ -10,14 +10,12 @@ import logging
 import time
 from typing import Any
 
-from sqlalchemy import Integer, func, select, text
-
 from latency.database.engine import PGManager
 from latency.database.models import (
-    LatencyBucket10min,
-    LatencyBucket10s,
     LatencyBucket1h,
     LatencyBucket1min,
+    LatencyBucket10min,
+    LatencyBucket10s,
     LogFile,
     LogParseResult,
 )
@@ -30,12 +28,13 @@ from latency.database.utils import (
 )
 from latency.ENUM.sampling import SampleMode
 from latency.exceptions.biz_exceptions import BadRequestBizException
-from latency.schemas.log import LogParseResultModel, LogParseResultStorage, YUANRONG_METRIC_FIELDS
+from latency.schemas.log import YUANRONG_METRIC_FIELDS, LogParseResultModel, LogParseResultStorage
 from latency.schemas.request import (
     GetLatencyMetricsRequest,
     ListLogParseResultRequest,
     ListTracesByHostRequest,
 )
+from sqlalchemy import Integer, func, or_, select, text
 
 logger = logging.getLogger(__name__)
 
@@ -376,7 +375,7 @@ class LogParseResultPGManager:
         if start_time:
             stmt = stmt.where(LogParseResult.timestamp >= parse_timestamp(start_time))
         if end_time:
-            stmt = stmt.where(LogParseResult.timestamp <= parse_timestamp(end_time))
+            stmt = stmt.where(LogParseResult.timestamp < parse_timestamp(end_time))
 
         stmt = stmt.group_by(
             LogParseResult.log_id,
@@ -424,7 +423,7 @@ class LogParseResultPGManager:
         if start_time:
             stmt = stmt.where(LogParseResult.timestamp >= parse_timestamp(start_time))
         if end_time:
-            stmt = stmt.where(LogParseResult.timestamp <= parse_timestamp(end_time))
+            stmt = stmt.where(LogParseResult.timestamp < parse_timestamp(end_time))
 
         stmt = stmt.group_by(time_bucket).order_by(time_bucket)
 
@@ -502,6 +501,12 @@ class LogParseResultPGManager:
                 stmt = stmt.where(
                     func.host(LogParseResult.dst_ip).like(f"%{req.dst_ip}%")
                 )
+        if req.endpoint_ip:
+            endpoint_cond = or_(
+                func.host(LogParseResult.src_ip) == req.endpoint_ip,
+                func.host(LogParseResult.dst_ip) == req.endpoint_ip,
+            )
+            stmt = stmt.where(endpoint_cond)
         if req.pod_ip:
             stmt = stmt.where(LogParseResult.pod_ips.contains([req.pod_ip]))
         if req.host:
@@ -513,7 +518,7 @@ class LogParseResultPGManager:
         if req.start_time:
             stmt = stmt.where(LogParseResult.timestamp >= parse_timestamp(req.start_time))
         if req.end_time:
-            stmt = stmt.where(LogParseResult.timestamp <= parse_timestamp(req.end_time))
+            stmt = stmt.where(LogParseResult.timestamp < parse_timestamp(req.end_time))
         if req.created_at_start:
             stmt = stmt.where(LogParseResult.created_at >= parse_timestamp(req.created_at_start))
         if req.created_at_end:
@@ -709,7 +714,7 @@ class LogParseResultPGManager:
         if req.start_time:
             stmt = stmt.where(LogParseResult.timestamp >= parse_timestamp(req.start_time))
         if req.end_time:
-            stmt = stmt.where(LogParseResult.timestamp <= parse_timestamp(req.end_time))
+            stmt = stmt.where(LogParseResult.timestamp < parse_timestamp(req.end_time))
         if req.operation:
             if req.operation.upper() == "GET":
                 stmt = stmt.where(LogParseResult.operation.ilike("%GET%"))
@@ -802,7 +807,7 @@ class LogParseResultPGManager:
         if req.start_time:
             stmt = stmt.where(table.bucket >= parse_timestamp(req.start_time))
         if req.end_time:
-            stmt = stmt.where(table.bucket <= parse_timestamp(req.end_time))
+            stmt = stmt.where(table.bucket < parse_timestamp(req.end_time))
         stmt = stmt.order_by(table.bucket)
 
         async with PGManager.session() as session:

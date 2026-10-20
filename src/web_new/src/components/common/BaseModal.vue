@@ -13,8 +13,8 @@ const props = withDefaults(
     title?: string
     /** 使用 #header 插槽时的无障碍名称 */
     label?: string
-    /** sm=480 md=520 lg=580 xl=详情大弹窗 drawer=右侧抽屉 */
-    size?: 'sm' | 'md' | 'lg' | 'xl' | 'drawer'
+    /** sm=480 md=520 lg=580 xl=详情大弹窗 doc=文档阅读 drawer=右侧抽屉 */
+    size?: 'sm' | 'md' | 'lg' | 'xl' | 'doc' | 'drawer'
     closeOnEsc?: boolean
     closeOnOverlay?: boolean
   }>(),

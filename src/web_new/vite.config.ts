@@ -100,6 +100,39 @@ export default defineConfig(({ mode }) => {
           target: 'http://127.0.0.1:9772',
           changeOrigin: true,
         },
+        // 以下与 packaging/nginx/witty-ub-web-exp.conf.template 的反代白名单保持一致
+        '/diagnosis_case': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
+        '/diag_case_library': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
+        '/case_library': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
+        '/diagnostic_report': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
+        '/stats': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
+        '/trace': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
+        '/docs': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
+        '/openapi.json': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
         '/experience_api': {
           target: 'http://127.0.0.1:8082',
           changeOrigin: true,

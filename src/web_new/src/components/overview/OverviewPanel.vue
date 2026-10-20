@@ -95,7 +95,7 @@ const {
 bindOverviewWatchers()
 
 // 数据域空态：该域没有可分析的任务时，用「去任务页面」入口替换整块空图表
-const { assetTab: appAssetTab } = useAssets()
+const { view: appView } = useAssets()
 const { statusOf: taskStatusOf, statusLabel: taskStatusLabel, openCreateTask, newTask } = useTasks()
 
 const domainLabel = computed<LogType>(() => (isBrpcTask.value ? 'UBSocket' : 'KVCache'))
@@ -160,9 +160,9 @@ const domainEmptyHint = computed(() => {
     : 'KVCache 分析汇总该资料库下已完成任务的解析结果。在任务页面创建并完成一个 KVCache 任务，这里就会显示时延与通断分析。'
 })
 
-// 跳转共用同一份 App 级页签状态（useAssets 单例），本页与任务页才会真正切过去
+// 跳转共用同一份 App 级导航状态（useAssets 单例），才能真正切到资产详情的任务区
 const goTasksPage = () => {
-  appAssetTab.value = 'tasks'
+  appView.value = 'assets'
 }
 
 const createTaskForDomain = () => {
@@ -337,7 +337,7 @@ onMounted(() => {
             <span class="analysis-loading-dot" aria-hidden="true"></span>正在加载分析数据…
           </span>
         </div>
-        <div v-if="!isBrpcTask" class="scope-controls">
+        <div v-if="!isBrpcTask && analysisTab !== 'similarity'" class="scope-controls">
           <template v-if="!isBrpcTask">
             <template v-if="analysisTab === 'latency'">
               <label class="scope-field">
@@ -396,11 +396,20 @@ onMounted(() => {
         >
           通断故障监控
         </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="analysisTab === 'similarity'"
+          :class="['analysis-tab', { active: analysisTab === 'similarity' }]"
+          @click="analysisTab = 'similarity'"
+        >
+          相似案例分析
+        </button>
       </div>
 
       <!-- 加载中不再整体替换内容：切 GET/SET 或切数据域时只提示，不清空已渲染的图与指标，
          避免整页闪烁 -->
-      <div v-if="!isBrpcTask" class="kpi-row">
+      <div v-if="!isBrpcTask && analysisTab !== 'similarity'" class="kpi-row">
         <div class="kpi-card">
           <div class="kpi-num">{{ kpiData.totalTraces.toLocaleString() }}</div>
           <div class="kpi-label">
@@ -483,7 +492,7 @@ onMounted(() => {
       </template>
 
       <!-- ===== 通断故障监控 ===== -->
-      <template v-else-if="!isBrpcTask">
+      <template v-else-if="!isBrpcTask && analysisTab === 'disconnect'">
         <div class="view-tabs" role="tablist" aria-label="通断分析视图">
           <button
             type="button"
@@ -508,15 +517,15 @@ onMounted(() => {
         <DisconnectAggregateEvents v-else />
       </template>
 
-      <!-- ===== 相似案例分析 ===== -->
+      <!-- ===== 相似案例分析（与上两个监控页签同层级） ===== -->
       <SimilarityAnalysis
-        v-if="!isBrpcTask"
+        v-if="!isBrpcTask && analysisTab === 'similarity'"
         :log-file-id="currentAnalysisLogFileId"
         :log-file-name="currentAnalysisLogFileName"
       />
 
       <!-- ===== UBSocket 监控 ===== -->
-      <template v-else>
+      <template v-if="isBrpcTask">
         <div v-if="brpcMonitorError" class="error-banner">{{ brpcMonitorError }}</div>
         <div class="analysis-tabs" role="tablist" aria-label="UBSocket 分析类型">
           <button
@@ -989,7 +998,7 @@ onMounted(() => {
         >异常 Trace <b>{{ objectDetail.total }}</b></span
       >
       <span class="stat-pill">{{
-        objectDetail.domain === 'latency' ? '时延异常口径' : '通断故障口径'
+        objectDetail.domain === 'latency' ? '时延异常' : '通断故障'
       }}</span>
     </div>
     <div v-if="objectDetail.error" class="error-banner">{{ objectDetail.error }}</div>
