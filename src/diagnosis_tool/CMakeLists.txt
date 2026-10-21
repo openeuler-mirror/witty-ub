@@ -12,6 +12,7 @@ add_library(diagnosis_tool STATIC
     diagnosis_tool_module.cpp
     diagnosis_engine.cpp
     failure_log_helper.cpp
+    runtime_record_reader.cpp
     failure_log_info.cpp
     failure_mode_controller.cpp
     failure_mode.cpp
