@@ -29,6 +29,7 @@
 #include <unistd.h>
 
 #include "failure_log_helper.h"
+#include "runtime_record_reader.h"
 #include "logger.h"
 
 namespace diag {
@@ -77,7 +78,7 @@ constexpr std::size_t URMA_LIBRARY_FIELD_INDEX = 1;
 constexpr std::size_t URMA_FUNCTION_FIELD_INDEX = 4;
 constexpr int SUCCESS_STATUS_CODE = 0;
 constexpr std::array<char, 8> RULE_CACHE_MAGIC = {'W', 'U', 'B', 'D', 'I', 'A', 'G', '1'};
-constexpr std::uint32_t RULE_CACHE_VERSION = 1;
+constexpr std::uint32_t RULE_CACHE_VERSION = 2;
 constexpr std::size_t RULE_SOURCE_COUNT = 3;
 constexpr std::uint64_t MAX_CACHED_RULES = 1000000;
 constexpr std::uint64_t MAX_CACHED_ITEMS = 10000000;
@@ -999,6 +1000,13 @@ void DiagnosisEngine::AnalyzeRuntimeLines(const std::vector<std::string_view> &l
 
 void DiagnosisEngine::MatchRuntimeLine(std::string_view line, RuntimeMatchBatch &batch) const
 {
+    // Callers may also supply an already assembled record with real newlines.
+    // Persist the same escaped representation used by the file extraction path.
+    std::string normalized;
+    if (line.find('\n') != std::string_view::npos) {
+        normalized = log_helper::EscapeNewlines(line);
+        line = normalized;
+    }
     const std::string_view traceId = ExtractRuntimeTraceId(line);
     if (traceId.empty() || accessTraceIds_.find(traceId) == accessTraceIds_.end()) {
         return;
@@ -1107,10 +1115,16 @@ bool DiagnosisEngine::AnalyzeRuntimeLogs(const std::vector<std::string> &paths)
             LOG_ERROR << "failed to open runtime log: " << path;
             return false;
         }
+        log_helper::RuntimeRecordReader records([this](std::string_view record, bool) {
+            AnalyzeRuntimeLine(record);
+            return true;
+        });
         std::string line;
         while (std::getline(stream, line)) {
-            AnalyzeRuntimeLine(line);
+            records.Feed(line);
+            records.OwnPending();
         }
+        records.Finish();
         if (stream.bad()) {
             LOG_ERROR << "failed while reading runtime log: " << path;
             return false;
@@ -1432,7 +1446,14 @@ std::vector<std::string> DiagnosisEngine::ParseKeywords(const std::string &pheno
         if (end == std::string::npos) {
             break;
         }
-        const std::string keyword = phenomenon.substr(begin + 1, end - begin - 1);
+        std::string keyword = phenomenon.substr(begin + 1, end - begin - 1);
+        // A trailing line terminator is formatting, not diagnostic content.
+        // Embedded line breaks remain required and use the same single-line
+        // representation as extracted runtime records and failure_trace.log.
+        while (!keyword.empty() && (keyword.back() == '\n' || keyword.back() == '\r')) {
+            keyword.pop_back();
+        }
+        keyword = log_helper::EscapeNewlines(keyword);
         if (!keyword.empty()) {
             keywords.push_back(keyword);
         }

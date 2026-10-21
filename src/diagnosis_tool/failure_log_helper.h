@@ -33,6 +33,8 @@ std::string_view TrimView(std::string_view str);
 bool ParseInt(std::string_view str, int &value);
 std::vector<std::string> ToStringFields(const std::vector<std::string_view> &fieldViews);
 std::string Trim(const std::string &str);
+
+std::string EscapeNewlines(std::string_view text);
 } // namespace log_helper
 } // namespace diag
 
