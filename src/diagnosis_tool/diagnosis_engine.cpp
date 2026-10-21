@@ -1529,7 +1529,7 @@ bool DiagnosisEngine::ParseRuntimeMatchView(std::string_view line, RuntimeMatchV
     view.functionName = functionSeparator == std::string_view::npos ? std::string_view{} :
                                                                       filenameFunction.substr(functionSeparator + 1);
     view.traceId = log_helper::TrimView(fields[TRACEID_IDX]);
-    view.message = log_helper::TrimView(fields[MESSAGE_IDX]);
+    view.message = fields[MESSAGE_IDX];
     view.level = level;
     return true;
 }
