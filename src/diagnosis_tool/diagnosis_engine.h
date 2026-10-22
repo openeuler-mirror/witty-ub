@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <iosfwd>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -105,6 +106,25 @@ private:
     using FunctionToRuleIndices = std::unordered_map<std::string, RuleIndices>;
     using InterfaceToAnchors = std::unordered_map<std::size_t, RuleIndices>;
 
+    struct UrmaTraceContext {
+        InterfaceToAnchors interfaceToAnchors;
+        const RuleIndexSet *allowed = nullptr;
+        RuleIndexSet activatedFailures;
+    };
+
+    struct UrmaMatchRecord {
+        std::shared_ptr<FailureLogInfoRuntime> log;
+        std::size_t failureIndex;
+        UrmaTraceContext *context;
+    };
+
+    struct UrmaMatchCache {
+        // 相同接口集合共享后代候选，避免大量单日志 trace 各自持有完整的后代集合。
+        std::map<RuleIndices, RuleIndexSet> allowedByInterfaces;
+        // 键引用本次分析的 traces；扩容不会使命中记录中的 context 指针失效。
+        std::unordered_map<std::string_view, UrmaTraceContext> contexts;
+    };
+
     bool LoadRules(const std::filesystem::path &wittyDir);
     bool LoadRuleCache(const std::filesystem::path &wittyDir);
     bool ValidateCacheStamps(std::istream &stream, const std::filesystem::path &wittyDir) const;
@@ -141,6 +161,9 @@ private:
     void ActivateKvcachePaths(const std::unordered_map<std::string, TraceContext> &traces);
     void AnalyzeUrmaRuntime(const std::vector<std::string> &candidateLines,
                             const std::unordered_map<std::string, TraceContext> &traces);
+    UrmaTraceContext &GetUrmaTraceContext(std::string_view traceId, const TraceContext &trace,
+                                         UrmaMatchCache &cache) const;
+    void RecordUrmaMatches(std::vector<UrmaMatchRecord> &records);
     InterfaceToAnchors CollectUrmaInterfaces(const TraceContext &trace) const;
     RuleIndexSet CollectUrmaFailureRules(const InterfaceToAnchors &interfaceToAnchors) const;
     void ActivateUrmaPath(std::size_t failureIndex, const InterfaceToAnchors &interfaceToAnchors);
