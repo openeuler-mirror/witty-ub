@@ -65,6 +65,7 @@ export default defineConfig(({ mode }) => {
         ...apiProxy('/brpc_profiling'),
         ...apiProxy('/brpc-diagnosis'),
         ...apiProxy('/diagnostic_report'),
+        ...apiProxy('/diag_case_library'),
         ...apiProxy('/case_library'),
         ...apiProxy('/similarity_analysis'),
         '/experience_api': {
