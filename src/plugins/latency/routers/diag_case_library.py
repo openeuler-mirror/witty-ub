@@ -7,7 +7,7 @@ and the ``operation`` field is filterable.
 """
 from typing import Annotated
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Header
 
 from latency.common.id_validation import ResourceIdPath
 from latency.schemas.diag_case_library import (
@@ -94,9 +94,10 @@ async def get_diag_case(case_id: ResourceIdPath) -> GetDiagCaseResponse:
 async def update_diag_case(
     case_id: ResourceIdPath,
     req: Annotated[UpdateDiagCaseRequest, Body()],
+    operator_header: Annotated[str | None, Header(alias="X-Witty-Operator")] = None,
 ) -> UpdateDiagCaseResponse:
     await _validate_kb_id(req.kb_id)
-    msg = await DiagCaseLibraryService.update_case(case_id, req)
+    msg = await DiagCaseLibraryService.update_case(case_id, req, operator_header)
     return UpdateDiagCaseResponse(result=msg)
 
 
@@ -118,8 +119,9 @@ async def update_diag_case(
 async def confirm_diag_case(
     case_id: ResourceIdPath,
     req: Annotated[ConfirmDiagCaseRequest, Body()],
+    operator_header: Annotated[str | None, Header(alias="X-Witty-Operator")] = None,
 ) -> ConfirmDiagCaseResponse:
-    msg = await DiagCaseLibraryService.confirm_case(case_id, req)
+    msg = await DiagCaseLibraryService.confirm_case(case_id, req, operator_header)
     return ConfirmDiagCaseResponse(result=msg)
 
 

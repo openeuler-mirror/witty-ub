@@ -37,6 +37,15 @@ _MISSING_COLUMN_DDL: list[tuple[str, str, str]] = [
     ("diag_case_library", "report_id", "VARCHAR(200)"),
     ("diag_case_library", "source_fault_id", "VARCHAR(64)"),
     ("diag_case_library", "source_fault_hash", "CHAR(64)"),
+    ("diag_case_library", "source_sidecar_hash", "CHAR(64)"),
+    ("diag_case_library", "first_level_label", "VARCHAR(128)"),
+    ("diag_case_library", "second_level_label", "VARCHAR(128)"),
+    ("diag_case_library", "label_taxonomy_version", "CHAR(64)"),
+    ("diag_case_library", "source_label_hash", "CHAR(64)"),
+    ("diag_case_library", "verification_history_json", "JSONB DEFAULT '[]'"),
+    ("diagnostic_report_index", "confirmed_by", "VARCHAR(64)"),
+    ("diagnostic_report_index", "confirmed_at", "TIMESTAMP"),
+    ("diagnostic_report_index", "confirmed_sidecar_hash", "CHAR(64)"),
     ("phenomenon_index", "pending_content_hash", "CHAR(64)"),
     ("phenomenon_index", "pending_source_fault_hash", "CHAR(64)"),
     ("rag_doc_cleanup_task", "doc_id", "VARCHAR(512)"),
@@ -626,10 +635,19 @@ PHENOMENON_INDEX_DDL = (
     "ON index_event_outbox (status, next_retry_at)",
     "CREATE INDEX IF NOT EXISTS ix_iev_outbox_lease "
     "ON index_event_outbox (status, lease_expires_at)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS ux_dcl_bound_version "
-    "ON diag_case_library (report_id, source_fault_id, source_fault_hash) "
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_dcl_bound_snapshot "
+    "ON diag_case_library (report_id, source_fault_id, source_fault_hash, "
+    "COALESCE(first_level_label, ''), COALESCE(second_level_label, '')) "
     "WHERE report_id IS NOT NULL AND source_fault_id IS NOT NULL "
     "AND status <> 'archived'",
+    "CREATE INDEX IF NOT EXISTS ix_dcl_labels "
+    "ON diag_case_library (first_level_label, second_level_label) "
+    "WHERE existed_status = TRUE",
+)
+
+# 旧唯一键不含分类快照；显式删除后由 ux_dcl_bound_snapshot 取代。
+PHENOMENON_INDEX_DROP = (
+    "DROP INDEX IF EXISTS ux_dcl_bound_version",
 )
 
 # 存量卡片升级：仅当已索引版本的文本哈希与期望版本一致时，才回填发布快照。
@@ -662,6 +680,8 @@ async def _create_check_constraint(conn, table: str, name: str, definition: str)
 async def init_phenomenon_schema() -> None:
     """创建现象索引相关的约束、部分唯一索引并回填存量发布快照。"""
     async with PGManager.engine().begin() as conn:
+        for sql in PHENOMENON_INDEX_DROP:
+            await conn.execute(text(sql))
         for sql in PHENOMENON_INDEX_DDL:
             await conn.execute(text(sql))
         for table, name, definition in PHENOMENON_CHECK_CONSTRAINTS:

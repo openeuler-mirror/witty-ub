@@ -31,6 +31,36 @@ class ListDiagnosticReportsRequest(StrictRequestModel):
 # ============================================================
 # 响应模型
 # ============================================================
+class ClassificationModel(BaseModel):
+    """Normalised two-level label result for one report fault."""
+
+    first_level_label: Optional[str] = Field(default=None, description="一级分类")
+    second_level_label: Optional[str] = Field(default=None, description="二级分类")
+    status: str = Field(
+        default="empty",
+        description="empty / first_only / pair / invalid / unavailable",
+    )
+    error: Optional[str] = Field(default=None, description="非法原因")
+    taxonomy_version: Optional[str] = Field(default=None, description="分类字典版本")
+    snapshot_hash: Optional[str] = Field(default=None, description="分类快照哈希")
+
+
+class FaultSummaryModel(BaseModel):
+    """One fault in the report workbench; labels are never inferred client-side."""
+
+    fault_id: Optional[str] = Field(default=None, description="稳定故障ID")
+    title: Optional[str] = Field(default=None, description="故障标题")
+    status: Optional[str] = Field(default=None, description="诊断状态")
+    category: Optional[str] = Field(default=None, description="报告 category")
+    confidence: Optional[float] = Field(default=None, description="置信度")
+    classification: ClassificationModel = Field(
+        default_factory=ClassificationModel, description="两级分类"
+    )
+    indexable: bool = Field(default=True, description="是否可作为案例来源")
+    synthetic: bool = Field(default=False, description="是否为 auto: 合成键")
+    excluded: bool = Field(default=False, description="是否被报告排除")
+
+
 class DiagnosticCaseRefModel(BaseModel):
     """报告故障关联的案例引用。"""
 
@@ -44,8 +74,16 @@ class DiagnosticCaseRefModel(BaseModel):
         default=False, description="是否与当前报告故障指纹一致"
     )
     status: str = Field(..., description="draft / confirmed / archived")
+    revision: int = Field(default=0, description="案例 revision，用于验证回填乐观锁")
     verification: str = Field(..., description="案例信任标签")
     binding_status: str = Field(..., description="valid / stale")
+    first_level_label: Optional[str] = Field(default=None, description="案例一级分类快照")
+    second_level_label: Optional[str] = Field(default=None, description="案例二级分类快照")
+    verification_method: Optional[str] = Field(default=None, description="验证方法")
+    observed_result: Optional[str] = Field(default=None, description="实测结果")
+    closed_loop: bool = Field(default=False, description="是否已闭环")
+    verified_by: Optional[str] = Field(default=None, description="验证人")
+    verified_at: Optional[str] = Field(default=None, description="验证时间")
 
 
 class DiagnosticReportItem(BaseModel):
@@ -86,6 +124,15 @@ class DiagnosticReportItem(BaseModel):
     case_count: int = Field(default=0, description="当前版本有效绑定案例数")
     verified_case_count: int = Field(default=0, description="当前版本已闭环案例数")
     report_available: bool = Field(default=True, description="报告文件是否存在")
+    review_status: str = Field(
+        default="unconfirmed",
+        description="unconfirmed / confirmed / stale / unavailable",
+    )
+    current_sidecar_hash: Optional[str] = Field(
+        default=None, description="当前侧车规范化哈希"
+    )
+    review_confirmed_by: Optional[str] = Field(default=None, description="报告确认人")
+    review_confirmed_at: Optional[str] = Field(default=None, description="报告确认时间")
 
 
 class ListDiagnosticReportsMsg(BaseModel):
@@ -98,10 +145,13 @@ class ListDiagnosticReportsResponse(ResponseBase):
 
 
 class DiagnosticReportDetailItem(DiagnosticReportItem):
-    """报告详情条目：在列表字段上增加关联案例引用。"""
+    """报告详情条目：在列表字段上增加关联案例引用与故障摘要。"""
 
     case_refs: list[DiagnosticCaseRefModel] = Field(
         default_factory=list, description="关联案例引用"
+    )
+    fault_summaries: list[FaultSummaryModel] = Field(
+        default_factory=list, description="逐故障分类与可建案状态"
     )
 
 
@@ -119,6 +169,9 @@ class GetDiagnosticReportResponse(ResponseBase):
 class GetDiagnosticReportFaultMsg(BaseModel):
     report: DiagnosticReportDetailItem = Field(..., description="最小报告元信息")
     fault: dict[str, Any] = Field(..., description="目标故障原文")
+    classification: ClassificationModel = Field(
+        default_factory=ClassificationModel, description="规范化两级分类"
+    )
     case_refs: list[DiagnosticCaseRefModel] = Field(
         default_factory=list, description="该故障的有效关联案例"
     )
@@ -139,3 +192,85 @@ class ReindexDiagnosticReportMsg(BaseModel):
 
 class ReindexDiagnosticReportResponse(ResponseBase):
     result: ReindexDiagnosticReportMsg = Field(..., description="报告重建受理结果")
+
+
+class ConfirmDiagnosticReportRequest(StrictRequestModel):
+    """整份报告人工确认；版本哈希必须与页面所见一致。"""
+
+    expected_sidecar_hash: str = Field(
+        ...,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+        description="页面所见的当前侧车规范化哈希",
+    )
+    reviewed_by: Optional[str] = Field(
+        default=None, max_length=64, description="操作人；未填时读取 X-Witty-Operator"
+    )
+
+
+class ConfirmDiagnosticReportResponse(ResponseBase):
+    result: DiagnosticReportDetailItem = Field(..., description="确认后的报告详情")
+
+
+class LabelPairModel(BaseModel):
+    first_level_label: str = Field(..., description="一级分类")
+    second_level_labels: list[str] = Field(
+        default_factory=list, description="该一级下的二级分类"
+    )
+
+
+class LabelTaxonomyMsg(BaseModel):
+    version: str = Field(..., description="分类字典 sha256")
+    first_level_labels: list[str] = Field(default_factory=list)
+    pairs: list[LabelPairModel] = Field(default_factory=list)
+
+
+class LabelTaxonomyResponse(ResponseBase):
+    result: LabelTaxonomyMsg = Field(..., description="两级分类字典")
+
+
+class ReportCasePreviewMsg(BaseModel):
+    report_id: str = Field(..., description="报告ID")
+    source_fault_id: str = Field(..., description="目标故障ID")
+    expected_sidecar_hash: str = Field(..., description="建案所基于的侧车哈希")
+    source_fault_hash: str = Field(..., description="目标故障指纹")
+    classification: ClassificationModel = Field(
+        default_factory=ClassificationModel, description="目标故障分类快照"
+    )
+    draft: dict[str, Any] = Field(default_factory=dict, description="预填案例草稿")
+    missing_fields: list[str] = Field(
+        default_factory=list, description="确认闸门尚缺字段"
+    )
+    ready: bool = Field(default=False, description="是否满足草稿创建条件")
+
+
+class ReportCasePreviewResponse(ResponseBase):
+    result: ReportCasePreviewMsg = Field(..., description="按故障建案预览")
+
+
+class CreateCaseFromReportRequest(StrictRequestModel):
+    """从已确认报告的指定故障生成案例草稿。"""
+
+    expected_sidecar_hash: str = Field(
+        ...,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+        description="页面所见的当前侧车规范化哈希",
+    )
+    reviewed_by: Optional[str] = Field(
+        default=None, max_length=64, description="操作人；未填时读取 X-Witty-Operator"
+    )
+
+
+class CreateCaseFromReportMsg(BaseModel):
+    case_id: Optional[str] = Field(default=None, description="生成的案例ID")
+    case_no: Optional[str] = Field(default=None, description="可读案例编号")
+    missing_fields: list[str] = Field(
+        default_factory=list, description="草稿仍缺少的确认闸门字段"
+    )
+
+
+class CreateCaseFromReportResponse(ResponseBase):
+    result: CreateCaseFromReportMsg = Field(..., description="报告派生案例草稿")

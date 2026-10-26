@@ -466,6 +466,13 @@ class DiagCaseLibrary(Base):
     report_id: Mapped[Optional[str]] = mapped_column(String(200))
     source_fault_id: Mapped[Optional[str]] = mapped_column(String(64))
     source_fault_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
+    # 建案时被确认的整份报告侧车哈希；报告换版后旧草稿不能继续确认
+    source_sidecar_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
+    # 建案时目标故障的两级分类快照；存量案例为空表示未分类/来源待核对
+    first_level_label: Mapped[Optional[str]] = mapped_column(String(128))
+    second_level_label: Mapped[Optional[str]] = mapped_column(String(128))
+    label_taxonomy_version: Mapped[Optional[str]] = mapped_column(CHAR(64))
+    source_label_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
     # 归属
     log_type: Mapped[Optional[str]] = mapped_column(String)
     kb_id: Mapped[Optional[str]] = mapped_column(String, index=True)
@@ -497,6 +504,9 @@ class DiagCaseLibrary(Base):
     counter_evidence_json: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
     remediation_json: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
     verification_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, default=dict)
+    verification_history_json: Mapped[Optional[list[Any]]] = mapped_column(
+        JSONB, default=list
+    )
     relations_json: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
     # RAG 预留
     search_text: Mapped[Optional[str]] = mapped_column(Text)
@@ -543,6 +553,10 @@ class DiagnosticReportIndex(Base):
     time_range_end: Mapped[Optional[str]] = mapped_column(String(32))
     fault_count: Mapped[Optional[int]] = mapped_column(Integer)
     sidecar_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
+    # 整份报告人工确认记录；确认版本以侧车规范化哈希为准
+    confirmed_by: Mapped[Optional[str]] = mapped_column(String(64))
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    confirmed_sidecar_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
     index_status: Mapped[str] = mapped_column(String(16), default="pending")
     index_error: Mapped[Optional[str]] = mapped_column(Text)
     indexed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))

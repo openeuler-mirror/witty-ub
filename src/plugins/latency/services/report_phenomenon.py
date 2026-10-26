@@ -84,6 +84,8 @@ class PhenomenonDoc:
     report_id: str | None = None
     source_fault_id: str | None = None
     source_fault_hash: str | None = None
+    first_level_label: str | None = None
+    second_level_label: str | None = None
     case_id: str | None = None
     case_no: str | None = None
     legacy_case_id: str | None = None
@@ -149,6 +151,11 @@ def _as_dict(value: Any) -> dict:
 
 def _as_list(value: Any) -> list:
     return value if isinstance(value, list) else []
+
+
+def _raw_text(value: Any) -> str | None:
+    """Keep report-provided label strings untouched for later validation."""
+    return value if isinstance(value, str) else None
 
 
 def _text(value: Any) -> str | None:
@@ -478,6 +485,31 @@ def _normalise_faults(payload: dict) -> list[dict]:
     return []
 
 
+def normalise_faults(payload: dict) -> list[dict]:
+    """Public wrapper for fault normalisation used by report-derived cases."""
+    return _normalise_faults(payload)
+
+
+def fault_conclusion(fault: dict) -> dict:
+    return _as_dict(fault.get("conclusion"))
+
+
+def fault_operation(payload: dict) -> str | None:
+    return _fault_operation(payload)
+
+
+def fault_category(fault: dict) -> str:
+    return _fault_category(fault)
+
+
+def valid_status_codes(fault: dict) -> list[str]:
+    return _valid_status_codes(fault)
+
+
+def valid_failure_mode_ids(fault: dict) -> list[str]:
+    return _valid_failure_mode_ids(fault)
+
+
 def _fault_symptom(scrubber: IdentityScrubber, conclusion: dict) -> str:
     findings = [
         str(item)
@@ -557,6 +589,8 @@ def extract_report(
                 source_fault_hash=compute_source_fault_hash(
                     fault, fault_id, operation
                 ),
+                first_level_label=_raw_text(conclusion.get("first_level_label")),
+                second_level_label=_raw_text(conclusion.get("second_level_label")),
                 operation=operation,
                 status_codes=status_codes,
                 failure_mode_ids=failure_mode_ids,
