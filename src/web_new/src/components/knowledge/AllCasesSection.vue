@@ -27,7 +27,6 @@ const loading = ref(false)
 const error = ref('')
 const diagMatches = ref<DiagCaseMatch[]>([])
 const legacyCases = ref<CaseRecord[]>([])
-const source = ref<'all' | CaseSource>('all')
 
 const diagClassification = (item: DiagCase) => {
   if (!item.first_level_label && !item.second_level_label) {
@@ -70,9 +69,6 @@ const rows = computed<OverviewRow[]>(() => {
     time: item.created_at || '',
   }))
   const merged = [...diagRows, ...legacyRows]
-  if (source.value !== 'all') {
-    return merged.filter((item) => item.source === source.value)
-  }
   return merged.sort((a, b) => b.time.localeCompare(a.time))
 })
 
@@ -113,20 +109,6 @@ const openRow = (row: OverviewRow) => {
   <div class="case-overview">
     <div class="operate-bar">
       <div class="filter-bar">
-        <button
-          v-for="option in [
-            { value: 'all', label: '全部来源' },
-            { value: 'diagnosis', label: '诊断案例' },
-            { value: 'legacy', label: '文件案例' },
-          ]"
-          :key="option.value"
-          type="button"
-          class="btn btn-sm"
-          :class="source === option.value ? 'btn-primary' : 'btn-default'"
-          @click="source = option.value as 'all' | CaseSource"
-        >
-          {{ option.label }}
-        </button>
         <button class="btn btn-default btn-sm" type="button" :disabled="loading" @click="load">
           刷新
         </button>

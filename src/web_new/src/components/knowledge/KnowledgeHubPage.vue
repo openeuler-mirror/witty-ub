@@ -96,7 +96,7 @@ const rankedPagedItems = computed(() => {
       </button>
     </nav>
 
-    <!-- ===== 案例库（诊断案例与文件案例统一入口） ===== -->
+    <!-- ===== 案例库 ===== -->
     <template v-if="section === 'cases'">
       <div class="case-source-bar">
         <button
