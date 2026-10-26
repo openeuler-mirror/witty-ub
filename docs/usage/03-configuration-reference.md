@@ -79,6 +79,14 @@ python -m latency.access.phenomenon_cli --init-kb   # 创建或校验专用知�
 python -m latency.access.phenomenon_cli --self-check # 上传→解析→检索→删除闭环自检
 ```
 
+### 报告审核环境变量
+
+| 变量名 | 默认值 | 说明 |
+| -------- | -------- | ------ |
+| `WITTY_REQUIRE_TRUSTED_OPERATOR` | `false` | 设为 `true` 时，报告确认、报告建案、案例确认与验证回填（含撤回、清空）只接受认证网关注入的 `X-Witty-Operator`，忽略请求体中的操作人；缺少请求头返回 `400`。未接入认证网关时保持 `false` |
+
+容器部署在 `deploy/deploy.conf` 设置同名配置项后重新部署；源码/RPM 部署在启动后端前导出同名变量，systemd 托管时通过单元覆盖写入 `Environment=`。
+
 ### PostgreSQL 容器环境变量
 
 | 变量名 | 默认值 | 说明 |

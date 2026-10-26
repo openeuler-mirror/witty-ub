@@ -96,7 +96,7 @@ CONFIG_KEYS=(
     OPENGAUSS_RAG_IMAGE WITTY_RAG_CORE_IMAGE WITTY_RAG_CORE_HOST_PORT
     RAG_ACCESS_KEY_SECRET_FILE RAG_CORE_URL RAG_ACCESS_KEY_FILE
     RAG_PHENOMENON_KB_ID PHENOMENON_INDEX_ENABLED PHENOMENON_SEARCH_ENABLED
-    RAG_MIN_SCORE RAG_TOP_K RAG_INDEX_INTERVAL
+    RAG_MIN_SCORE RAG_TOP_K RAG_INDEX_INTERVAL WITTY_REQUIRE_TRUSTED_OPERATOR
 )
 ENV_OVERRIDES=""
 for _key in "${CONFIG_KEYS[@]}"; do
@@ -280,6 +280,8 @@ require_enum WITTY_NETWORK_FALLBACK "$WITTY_NETWORK_FALLBACK" prompt auto off
 # SSL 校验交给容器入口翻译为 NODE_TLS_REJECT_UNAUTHORIZED（OpenCode 是 Node 应用）
 normalize_bool WITTY_SSL_VERIFY "${WITTY_SSL_VERIFY:-true}"
 normalize_bool WITTY_NETWORK_SELFCHECK "${WITTY_NETWORK_SELFCHECK:-true}"
+# 受控审核：只接受认证网关注入的操作人，未接入网关的部署保持 false
+normalize_bool WITTY_REQUIRE_TRUSTED_OPERATOR "${WITTY_REQUIRE_TRUSTED_OPERATOR:-false}"
 # 容器时区: 全系统时间口径统一为「本地墙钟」，日志墙钟为 +08，故默认 Asia/Shanghai
 WITTY_TZ="${WITTY_TZ:-Asia/Shanghai}"
 
@@ -503,6 +505,13 @@ fi
 
 # 容器时区：资产时间与事件时间展示基准都跟随 TZ
 TZ_ENV_ARGS=(-e "TZ=${WITTY_TZ}")
+
+# 受控审核：仅在启用时注入后端容器，关闭时保持后端的请求体操作人默认行为
+REVIEW_ENV_ARGS=()
+if [ "$WITTY_REQUIRE_TRUSTED_OPERATOR" = "true" ] && [ "$ROLE" != "frontend" ]; then
+    REVIEW_ENV_ARGS=(-e "WITTY_REQUIRE_TRUSTED_OPERATOR=true")
+    log_info "Trusted operator mode: report/case review accepts only X-Witty-Operator"
+fi
 
 # 现象索引（RAG REST）：只在启用索引/检索或显式指定 KB 时注入后端容器。
 # 访问密钥复用 RAG 的 0600 密钥文件，以只读方式挂载，不复制第二份。
@@ -848,6 +857,7 @@ backend)
         -e PG_DATABASE="${PG_DATABASE:-witty-ub}" \
         -e PG_USER="${PG_USER:-witty-ub}" \
         "${PHENOMENON_ENV_ARGS[@]}" \
+        "${REVIEW_ENV_ARGS[@]}" \
         "${SSL_ENV_ARGS[@]}" \
         "${TZ_ENV_ARGS[@]}" \
         --health-cmd="/healthcheck.sh" \
@@ -902,6 +912,7 @@ frontend)
         -e PG_DATABASE="${PG_DATABASE:-witty-ub}" \
         -e PG_USER="${PG_USER:-witty-ub}" \
         "${PHENOMENON_ENV_ARGS[@]}" \
+        "${REVIEW_ENV_ARGS[@]}" \
         "${SSL_ENV_ARGS[@]}" \
         "${TZ_ENV_ARGS[@]}" \
         --health-cmd="/healthcheck.sh" \

@@ -98,6 +98,9 @@ PG_PORT_IN_CONTAINER=""
 PG_USER="witty-ub"
 PG_PASSWORD="<CHANGE_ME>"             # 仅占位符，实际口令在 /etc/witty-ub/pg.passwd
 PG_DATABASE="witty-ub"
+
+# 报告审核
+WITTY_REQUIRE_TRUSTED_OPERATOR="false" # true 时只接受认证网关注入的 X-Witty-Operator
 ```
 
 > **网络模式**：`WITTY_NETWORK_MODE="host"` 适用于服务器把 Docker 网络视为不可信区域的场景（PG 与 witty-ub 同组网却无法通信），脚本会自动改用宿主机网络并把容器内 PG 地址改为 `127.0.0.1:5432`；此时端口映射失效，Web UI 变为 `http://<宿主机IP>:8080`。详见[容器运行时问题排查 §3](../troubleshooting/02-container-runtime.md)。
