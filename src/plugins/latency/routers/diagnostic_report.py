@@ -8,16 +8,20 @@ frontend instead of being copied out of the container by hand.
 """
 from typing import Annotated
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Path
 from starlette.responses import FileResponse
 
 from latency.common.id_validation import DiagnosticReportIdPath
 from latency.schemas.diagnostic_report import (
+    GetDiagnosticReportFaultResponse,
     GetDiagnosticReportResponse,
     ListDiagnosticReportsRequest,
     ListDiagnosticReportsResponse,
+    ReindexDiagnosticReportMsg,
+    ReindexDiagnosticReportResponse,
 )
 from latency.services.diagnostic_report import DiagnosticReportService
+from latency.services.phenomenon_index import PhenomenonIndexService
 
 
 router = APIRouter(prefix="/diagnostic_report", tags=["Diagnostic Report"])
@@ -78,4 +82,48 @@ async def get_diagnostic_report_html(report_id: DiagnosticReportIdPath) -> FileR
         filename=html.name,
         content_disposition_type="inline",
         headers={"X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.get(
+    "/{report_id}/faults/{source_fault_id}",
+    response_model=GetDiagnosticReportFaultResponse,
+    operation_id="get_diagnostic_report_fault",
+    description=(
+        "Read exactly one fault from a report so the full sidecar JSON never "
+        "enters an Agent context. Synthetic auto: keys are rejected; fall back "
+        "to the full report endpoint for those. Returns the minimal report "
+        "metadata, the untouched fault object and its bound case references."
+    ),
+)
+async def get_diagnostic_report_fault(
+    report_id: DiagnosticReportIdPath,
+    source_fault_id: Annotated[str, Path(min_length=1, max_length=64)],
+) -> GetDiagnosticReportFaultResponse:
+    msg = await DiagnosticReportService.get_fault(report_id, source_fault_id)
+    return GetDiagnosticReportFaultResponse(result=msg)
+
+
+@router.post(
+    "/{report_id}/reindex",
+    response_model=ReindexDiagnosticReportResponse,
+    status_code=202,
+    operation_id="reindex_diagnostic_report",
+    description=(
+        "Re-extract one report and queue its phenomenon cards. Cards whose "
+        "content and source-fault hashes are unchanged are skipped. Missing or "
+        "damaged sidecars return 422; the report list still shows the file."
+    ),
+)
+async def reindex_diagnostic_report(
+    report_id: DiagnosticReportIdPath,
+) -> ReindexDiagnosticReportResponse:
+    result = await PhenomenonIndexService.index_scope("report", report_id=report_id)
+    return ReindexDiagnosticReportResponse(
+        result=ReindexDiagnosticReportMsg(
+            accepted=True,
+            report_id=report_id,
+            queued_count=int(result.get("queued_count") or 0),
+            index_status=result.get("index_status"),
+        )
     )

@@ -1,4 +1,5 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
+import asyncio
 import warnings
 from contextlib import asynccontextmanager
 
@@ -44,6 +45,7 @@ from latency.routers import (
     trace,
     case_library,
     similarity_analysis,
+    phenomenon,
 )
 
 from latency.database.engine import PGManager
@@ -52,7 +54,17 @@ from latency.database.init import (
     backfill_trace_failure_event_status_codes,
     init_postgresql_database,
 )
-from latency.exceptions import NotFoundBizException, ConflictBizException, BadRequestBizException
+from latency.exceptions import (
+    NotFoundBizException,
+    ConflictBizException,
+    BadRequestBizException,
+    UnprocessableBizException,
+    UpstreamContractBizException,
+    DependencyUnavailableBizException,
+    FeatureDisabledBizException,
+)
+from latency.config import phenomenon as phenomenon_settings
+from latency.services.phenomenon_index import PhenomenonIndexService
 from pydantic import ValidationError
 
 
@@ -98,6 +110,11 @@ async def lifespan(app: fastapi.FastAPI):
         coalesce=True,
     )
     scheduler.start()
+
+    if phenomenon_settings.index_enabled():
+        _register_phenomenon_jobs()
+        if phenomenon_settings.self_check_enabled():
+            asyncio.create_task(PhenomenonIndexService.run_self_check())
 
     yield
     scheduler.shutdown(wait=False)
@@ -152,6 +169,68 @@ async def bad_request_exception_handler(request: fastapi.Request, exc: BadReques
     return JSONResponse(
         status_code=400,
         content={"code": 400, "message": exc.message, "result": None, "detail": exc.detail},
+    )
+
+
+@app.exception_handler(UnprocessableBizException)
+async def unprocessable_exception_handler(
+    request: fastapi.Request, exc: UnprocessableBizException
+):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=422,
+        content={"code": 422, "message": exc.message, "result": None, "detail": exc.detail},
+    )
+
+
+@app.exception_handler(UpstreamContractBizException)
+async def upstream_contract_exception_handler(
+    request: fastapi.Request, exc: UpstreamContractBizException
+):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=502,
+        content={
+            "code": 502,
+            "message": exc.message,
+            "result": None,
+            "detail": exc.detail,
+            "retryable": False,
+        },
+    )
+
+
+@app.exception_handler(DependencyUnavailableBizException)
+async def dependency_unavailable_exception_handler(
+    request: fastapi.Request, exc: DependencyUnavailableBizException
+):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=503,
+        content={
+            "code": 503,
+            "message": exc.message,
+            "result": None,
+            "detail": exc.detail,
+            "retryable": True,
+        },
+    )
+
+
+@app.exception_handler(FeatureDisabledBizException)
+async def feature_disabled_exception_handler(
+    request: fastapi.Request, exc: FeatureDisabledBizException
+):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=503,
+        content={
+            "code": 503,
+            "message": exc.message,
+            "result": None,
+            "detail": exc.detail,
+            "retryable": False,
+        },
     )
 
 
@@ -228,6 +307,7 @@ async def configure():
     app.include_router(trace.router)
     app.include_router(case_library.router)
     app.include_router(similarity_analysis.router)
+    app.include_router(phenomenon.router)
 
     web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
     if os.path.isdir(web_dir):
@@ -283,6 +363,34 @@ async def mk_dirs():
         if not os.path.exists(full_path):
             os.makedirs(full_path, exist_ok=True)
             logger.info(f"创建目录: {full_path}")
+
+
+def _register_phenomenon_jobs() -> None:
+    """Register workers only when the index switch is on."""
+    interval = phenomenon_settings.rag_index_interval()
+    jobs = (
+        (PhenomenonIndexService.scan_reports, interval),
+        (PhenomenonIndexService.scan_legacy, interval),
+        (PhenomenonIndexService.consume_events, phenomenon_settings.rag_event_interval()),
+        (PhenomenonIndexService.publish_due_cards, phenomenon_settings.rag_event_interval()),
+        (
+            PhenomenonIndexService.resume_parsing_cards,
+            phenomenon_settings.rag_event_interval(),
+        ),
+        (
+            PhenomenonIndexService.cleanup_documents,
+            phenomenon_settings.rag_cleanup_interval(),
+        ),
+        (PhenomenonIndexService.reconcile, phenomenon_settings.rag_reconcile_interval()),
+    )
+    for func, seconds in jobs:
+        scheduler.add_job(
+            func,
+            "interval",
+            seconds=seconds,
+            max_instances=1,
+            coalesce=True,
+        )
 
 
 def _setup_logging():
