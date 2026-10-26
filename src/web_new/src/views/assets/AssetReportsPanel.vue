@@ -2,10 +2,12 @@
 import { watch } from 'vue'
 import { useAssets } from '../../composables/useAssets'
 import { useReports } from '../../composables/useReports'
+import { useReportWorkbench } from '../../composables/useReportWorkbench'
 import { diagnosticReportHtmlUrl, type DiagnosticReportItem } from '../../api/diagnosticReport'
 
 // 资产工作区「报告」子页：只看当前资产库的报告，跨库查阅去对应资产库
 const { selectedAsset } = useAssets()
+const { openReport: openWorkbench } = useReportWorkbench()
 const {
   assetReports,
   assetReportsTotal,
@@ -15,6 +17,10 @@ const {
 } = useReports()
 
 const openReport = (report: DiagnosticReportItem) => {
+  openWorkbench(report.report_id)
+}
+
+const openReportHtml = (report: DiagnosticReportItem) => {
   window.open(diagnosticReportHtmlUrl(report.report_id), '_blank', 'noopener')
 }
 
@@ -36,6 +42,16 @@ const INDEX_STATUS_DEFAULT: IndexStatusMeta = { label: '未知', cls: 'badge-can
 
 const indexStatusMeta = (report: DiagnosticReportItem): IndexStatusMeta =>
   INDEX_STATUS_META[report.index_status] ?? INDEX_STATUS_DEFAULT
+
+const REVIEW_STATUS_META: Record<string, IndexStatusMeta> = {
+  confirmed: { label: '已确认', cls: 'badge-success' },
+  stale: { label: '确认过期', cls: 'badge-warning' },
+  unavailable: { label: '不可校验', cls: 'badge-failed' },
+  unconfirmed: { label: '未确认', cls: 'badge-pending' },
+}
+const REVIEW_DEFAULT: IndexStatusMeta = { label: '未确认', cls: 'badge-pending' }
+const reviewStatusMeta = (report: DiagnosticReportItem): IndexStatusMeta =>
+  REVIEW_STATUS_META[report.review_status] ?? REVIEW_DEFAULT
 
 const reload = () => {
   const kbId = selectedAsset.value?.id
@@ -76,6 +92,7 @@ watch(
           <th>时间范围</th>
           <th class="num">故障数</th>
           <th>现象索引</th>
+          <th>审核</th>
           <th class="num">案例</th>
           <th>生成时间</th>
           <th></th>
@@ -118,11 +135,28 @@ watch(
               {{ indexStatusMeta(report).label }}
             </span>
           </td>
-          <td class="num">{{ report.case_count }}</td>
+          <td>
+            <span
+              class="badge"
+              :class="reviewStatusMeta(report).cls"
+              :title="report.review_confirmed_by || undefined"
+            >
+              {{ reviewStatusMeta(report).label }}
+            </span>
+          </td>
+          <td class="num">
+            {{ report.case_count }}
+            <span v-if="report.verified_case_count" class="hint">
+              / {{ report.verified_case_count }} 已验证
+            </span>
+          </td>
           <td>{{ displayText(report.generated_at) }}</td>
           <td>
             <button class="btn btn-sm btn-primary" type="button" @click="openReport(report)">
-              查看
+              工作台
+            </button>
+            <button class="btn btn-sm btn-default" type="button" @click="openReportHtml(report)">
+              原文
             </button>
           </td>
         </tr>
