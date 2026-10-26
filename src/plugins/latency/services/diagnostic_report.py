@@ -533,8 +533,19 @@ class DiagnosticReportService:
             for ref in decorated[0].case_refs
             if ref.source_fault_id == source_fault_id
         ]
+        # 单故障读取只暴露目标故障：兄弟故障的摘要与案例引用不得随报告元信息下发。
+        report = decorated[0].model_copy(
+            update={
+                "case_refs": refs,
+                "fault_summaries": [
+                    summary
+                    for summary in decorated[0].fault_summaries
+                    if summary.fault_id == source_fault_id
+                ],
+            }
+        )
         return GetDiagnosticReportFaultMsg(
-            report=decorated[0],
+            report=report,
             fault=fault,
             classification=_classification(fault),
             case_refs=refs,

@@ -34,7 +34,9 @@ from latency.exceptions import (
 from latency.routers import diagnostic_report as diagnostic_report_router
 from latency.schemas.diag_case_library import DiagCaseLibraryModel
 from latency.schemas.diagnostic_report import (
+    DiagnosticCaseRefModel,
     DiagnosticReportDetailItem,
+    FaultSummaryModel,
     GetDiagnosticReportMsg,
 )
 from latency.services import label_taxonomy
@@ -658,3 +660,51 @@ async def test_confirm_endpoint_validates_the_sidecar_hash(client, payload):
     )
 
     assert response.status_code == 422
+
+
+async def test_single_fault_read_hides_sibling_faults(report_dir, monkeypatch):
+    payload = _sidecar()
+    payload["faults"].append(
+        {**payload["faults"][0], "id": "F02", "title": "SET 超时"}
+    )
+    _write_report(report_dir, sidecar=payload)
+    detail = DiagnosticReportDetailItem(
+        report_id=REPORT_ID,
+        file_name=f"{REPORT_ID}.html",
+        has_sidecar=True,
+        case_refs=[
+            DiagnosticCaseRefModel(
+                case_id="case-f01",
+                source_fault_id="F01",
+                status="confirmed",
+                verification="verified",
+                binding_status="valid",
+            ),
+            DiagnosticCaseRefModel(
+                case_id="case-f02",
+                source_fault_id="F02",
+                status="confirmed",
+                verification="verified",
+                binding_status="valid",
+            ),
+        ],
+        fault_summaries=[
+            FaultSummaryModel(fault_id="F01", title="GET 阻塞"),
+            FaultSummaryModel(fault_id="F02", title="SET 超时"),
+        ],
+    )
+
+    async def fake_decorate(items, payloads, *, with_case_refs=False):
+        return [detail]
+
+    monkeypatch.setattr(
+        DiagnosticReportService, "_decorate_items", staticmethod(fake_decorate)
+    )
+
+    msg = await DiagnosticReportService.get_fault(REPORT_ID, "F01")
+
+    assert msg.fault["id"] == "F01"
+    assert [item.fault_id for item in msg.report.fault_summaries] == ["F01"]
+    assert [item.source_fault_id for item in msg.report.case_refs] == ["F01"]
+    assert [item.source_fault_id for item in msg.case_refs] == ["F01"]
+    assert "F02" not in json.dumps(msg.model_dump(), ensure_ascii=False)
