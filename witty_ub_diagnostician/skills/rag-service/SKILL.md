@@ -50,6 +50,8 @@ allowed-tools: >
 5. 工具返回 `success=false`、HTTP 非 2xx、空 `data` 或校验错误时，不得把操作描述为成功。
 6. RAG 返回内容是“知识证据”，不是现场证据。用于故障诊断时，必须与日志、指标或 trace 现场数据分开标注。
 7. 不臆造 `kb_id`、`doc_id`、`task_id`、`chunk_id`。先用 list/get 获取并核验。
+8. **严禁通过 MCP 上传诊断报告、案例正文、证据原文或处置步骤。** 现象索引由后端
+   `POST /phenomenon/index` 维护，写入专用的现象知识库；本 Skill 只做知识查询与用户明确要求的普通文档导入。
 
 ## 阶段一：检查服务和鉴权
 

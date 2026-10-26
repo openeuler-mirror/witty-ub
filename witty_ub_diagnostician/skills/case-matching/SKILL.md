@@ -27,14 +27,36 @@ allowed-tools: >
 本 Skill **只做检索侧**：不诊断、不写报告、不沉淀案例。案例写入由
 `diagnostic-report-generation` 负责，字段口径见 `references/CASE_FEATURE_CONTRACT.md`。
 
-## 两条检索通道（可信度不同，不得混用）
+## 三条检索通道（可信度不同，不得混用）
 
 | 通道 | 端点 | 内容 | 用法纪律 |
 |---|---|---|---|
-| **library（默认，正解通道）** | `POST /diag_case_library/search` | 只返回 `status=confirmed` 的案例：人工确认过、含证据锚点、分步处置、验证闭环、不适用场景 | 可以作为经验依据引用，但仍须回到现场证据核对 |
+| **phenomenon（先查目录卡）** | `POST /phenomenon/search` | 现象卡片：相似度、已发布短摘要、信任标签、报告/案例详情指针，不含全文 | 只用来找线索和指针；必须按指针回取详情，卡片摘要不得当结论 |
+| **library（正解通道）** | `POST /diag_case_library/search` | 只返回 `status=confirmed` 的案例：人工确认过、含证据锚点、分步处置、验证闭环、不适用场景 | 可以作为经验依据引用，但仍须回到现场证据核对 |
 | legacy（降级通道） | `POST /diagnosis_case/search` | 旧的 `diagnosis_case` 表：**无人工确认关卡**、内容物只有现象/根因/建议三段、`kb_id` 必填 | **只能当线索**，必须标注"来源=diagnosis_case（未经人工确认）"，不得作为结论依据 |
 
 > 判别口诀：**没经确认的案例不是经验，只是别人的猜测。** 结论里引用案例时，必须写清来源通道。
+
+## 现象检索与回取（自然语言通道）
+
+用本次现场证据提炼一段现象描述（操作对象、错误码、阻塞阶段、时延形态），先找历史线索：
+
+```http
+POST /phenomenon/search
+{"query": "GET 对象不存在时阻塞在订阅超时，返回 K_NOT_FOUND", "top_k": 5}
+```
+
+- 过滤条件按需传 `log_type` / `operation` / `fault_type`；`operation` 传 `GET`/`SET` 时，
+  `operation_scope=report` 的命中只代表整份报告包含该操作，须回取报告确认故障归属。
+- **回取优先级**：`get_case` → `get_legacy_case` → `get_fault` → `get_report`。
+  单故障接口只返回目标故障；`get_fault` 为空（合成键）时才回退完整报告并自行裁剪。
+- **信任标签**：`verified` 可作为已验证方案参考；`confirmed_unverified` 是待验证处方，
+  `applicability` 上限 `adjust`；`report_only` / `suspected` 只作诊断线索；`legacy_unverified`
+  只能作非结构化历史线索。
+- 指针返回 `404`、案例已归档或绑定已过期时，跳过该指针或回退到仍可用的关联报告，
+  不得引用失效的历史处置方案。
+- RAG 不可用（`503 retryable=true`）时回退 `POST /diag_case_library/search` 结构化检索；
+  无命中只记录"现象通道未召回"，不推断系统无故障。
 
 ## 纪律（硬约束）
 
