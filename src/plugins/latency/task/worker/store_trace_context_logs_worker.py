@@ -1188,6 +1188,49 @@ class StoreTraceContextLogsWorker(BaseWorker):
             )
 
     @staticmethod
+    def _select_get_set_trace_ids(
+        log_files: list[tuple[str, str]],
+        trace_id_set: set[str],
+        worker_access_patterns: list[str],
+        client_access_patterns: list[str],
+    ) -> set[str]:
+        """Select whole traces by access operation before writing any context.
+
+        Runtime rows have no operation, so filtering individual rows would lose
+        GET/SET diagnostic evidence. Only pre-scan access files, in bounded
+        batches, then keep all context for the selected traces.
+        """
+        access_files = [
+            (name, path) for name, path in log_files
+            if KVCacheLogEventDiagnosisWorker._matches_any(name, worker_access_patterns)
+            or KVCacheLogEventDiagnosisWorker._matches_any(name, client_access_patterns)
+        ]
+        _, use_polars, batches, _ = StoreTraceContextLogsWorker._scan_context_rows(
+            access_files, trace_id_set, worker_access_patterns, client_access_patterns
+        )
+        selected: set[str] = set()
+        try:
+            for batch in batches:
+                if use_polars:
+                    import polars as pl
+
+                    selected.update(batch.filter(
+                        pl.col("operation").is_in(["GET", "SET"])
+                    )["trace_id"].unique().to_list())
+                else:
+                    selected.update(
+                        row["trace_id"] for row in batch
+                        if KVCacheLogEventDiagnosisWorker._extract_operation(
+                            row["raw_text"]
+                        ) in {"GET", "SET"}
+                    )
+                if selected == trace_id_set:
+                    break
+        finally:
+            batches.close()
+        return selected
+
+    @staticmethod
     async def _store_trace_context_logs(
         output_log_path: str,
         log_id: str,
@@ -1196,7 +1239,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
         task_id: str | None = None,
         progress_base: float = 0.0,
         progress_end: float = 100.0,
-    ) -> None:
+    ) -> set[str]:
         # 将output_log_path下，除了failure_trace.log以外的所有日志读到log_failure_event_table数据库中
         # 除了failure_trace.log以外，output_log_path目录下的日志都是以下模板："timestamp | level | filename | pod_name | pid:tid | trace_id | cluster_name | message"，  
         # 对应LogFailureEventModel数据结构中的相应字段。除了这些字段以外，log_id对应函数参数输入，log_file对应日志文件名，raw_text对应原始日志。
@@ -1208,7 +1251,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
         try:
             if not trace_id_set:
                 logger.info("failure_trace.log 中没有可落库的 trace_id")
-                return
+                return set()
 
             (
                 worker_access_patterns,
@@ -1216,6 +1259,17 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 failure_mode_cache,
                 log_files,
             ) = await StoreTraceContextLogsWorker._load_store_context(output_log_path, log_id)
+
+            selected_trace_ids = StoreTraceContextLogsWorker._select_get_set_trace_ids(
+                log_files, trace_id_set, worker_access_patterns, client_access_patterns
+            )
+            logger.info(
+                "Trace operation filter: selected %s GET/SET traces, skipped %s other traces",
+                len(selected_trace_ids), len(trace_id_set) - len(selected_trace_ids),
+            )
+            trace_id_set = selected_trace_ids
+            if not trace_id_set:
+                return set()
 
             (
                 total_log_failure_events,
@@ -1256,6 +1310,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                     "[utf8] 部分日志文件存在二进制字节，可能导致故障解析产生异常"
                 )
 
+            stored_trace_ids = set(trace_failure_events_map)
             await StoreTraceContextLogsWorker._write_trace_failure_events(
                 trace_failure_events_map=trace_failure_events_map,
                 failure_mode_cache=failure_mode_cache,
@@ -1267,7 +1322,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 log_id=log_id,
             )
 
-            return
+            return stored_trace_ids
 
         except Exception as e:
             # 不打第二套机制：上下文留全后照旧外抛，由 run() 统一落失败原因
@@ -1279,8 +1334,6 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 output_log_path,
             )
             raise
-
-        return
 
     @staticmethod
     async def init(op_id: str) -> str | None:
@@ -1506,7 +1559,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
             collect_scope.detail = f"定界产出 {len(trace_id_set)} 个故障 trace"
 
         with timer.stage("trace_store_write") as write_scope:
-            await StoreTraceContextLogsWorker._store_trace_context_logs(
+            trace_id_set = await StoreTraceContextLogsWorker._store_trace_context_logs(
                 output_log_path=output_log_path,
                 log_id=log_id,
                 trace_id_set=trace_id_set,

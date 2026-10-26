@@ -25,7 +25,7 @@ def _csv_records(data):
 async def test_single_pass_bounded_context_store(tmp_path, monkeypatch, fail, legacy):
     monkeypatch.setenv('WITTY_STORE_POLARS', '0' if legacy else '1')
     monkeypatch.setattr(module, '_CONTEXT_BATCH_ROWS', 8192)
-    line = '2026-09-11T12:00:00 | I | access.cpp | pod | 1:2 | t | cluster | 0 | GET | more|payload\n'
+    line = '2026-09-11T12:00:00 | I | access.cpp | pod | 1:2 | t | cluster | 0 | DS_KV_CLIENT_GET | more|payload\n'
     path = tmp_path / 'access.log'
     path.write_text(line * 16400)
     monkeypatch.setattr(module.LogFilePGManager, 'get_log_file_by_log_file_id', AsyncMock(return_value=SimpleNamespace(kb_id='kb')))
@@ -39,7 +39,7 @@ async def test_single_pass_bounded_context_store(tmp_path, monkeypatch, fail, le
     async def write_raw(batch):
         sizes.append(len(batch))
         row = batch[0]
-        assert row['message'] == '0 | GET | more|payload'
+        assert row['message'] == '0 | DS_KV_CLIENT_GET | more|payload'
         assert row['status_code'] == '0'
         import uuid
         assert uuid.UUID(row['id']).version == 4
@@ -56,7 +56,7 @@ async def test_single_pass_bounded_context_store(tmp_path, monkeypatch, fail, le
             raise RuntimeError('database unavailable')
         assert rows, 'CSV stream produced no records'
         row = dict(zip(module.LogFailureEventPGManager._LOG_FAILURE_COPY_COLUMNS, rows[0]))
-        assert row['message'] == '0 | GET | more|payload'
+        assert row['message'] == '0 | DS_KV_CLIENT_GET | more|payload'
         assert row['status_code'] == '0'
         import uuid
         assert uuid.UUID(row['id']).version == 4
@@ -64,6 +64,7 @@ async def test_single_pass_bounded_context_store(tmp_path, monkeypatch, fail, le
     monkeypatch.setattr(module.LogFailureEventPGManager, 'add_log_failure_event_csv', write_csv)
     traces = AsyncMock()
     monkeypatch.setattr(module.LogFailureEventPGManager, 'add_trace_failure_event_raw', traces)
+    monkeypatch.setattr(module.PodRolePGManager, 'add_pod_role_raw', AsyncMock())
     report = AsyncMock()
     monkeypatch.setattr(module.BaseWorker, 'report', report)
     operation = module.StoreTraceContextLogsWorker._store_trace_context_logs(
