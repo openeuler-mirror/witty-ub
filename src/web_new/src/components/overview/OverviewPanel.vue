@@ -251,6 +251,46 @@ const relatedFaultCodes = (id: string) => {
   return code ? [code] : []
 }
 
+// 抽屉容器角色：从 trace 行的 pod_role 展开各角色 pod（无数据时为空数组）
+const drawerRoleEntries = computed(() => {
+  const role = detailDrawerRow.value?.pod_role
+  if (!role) return []
+  const entries = [
+    { key: 'client', label: 'client', pods: role.client_pod ? [String(role.client_pod)] : [] },
+    {
+      key: 'entry_worker',
+      label: 'entry worker',
+      pods: Array.isArray(role.entry_worker_pods) ? role.entry_worker_pods : [],
+    },
+    {
+      key: 'meta_worker',
+      label: 'meta worker',
+      pods: Array.isArray(role.meta_worker_pods) ? role.meta_worker_pods : [],
+    },
+    {
+      key: 'data_worker',
+      label: 'data worker',
+      pods: Array.isArray(role.data_worker_pods) ? role.data_worker_pods : [],
+    },
+  ]
+  return entries.filter((entry) => entry.pods.length > 0)
+})
+// 抽屉容器角色对应的故障类型（按 trace 命中的故障模式名去重）
+const drawerRoleFaultNames = computed(() => {
+  const row = detailDrawerRow.value
+  if (!row) return []
+  const names = traceFailureModeIdsOf(row).map((id) => failureModeOf(id)?.name || id)
+  return names.filter((name, index) => names.indexOf(name) === index)
+})
+// 各角色 badge 配色（与总览页角色卡片同色系）
+const ROLE_BADGE_COLORS: Record<string, { background: string; color: string }> = {
+  client: { background: '#dbeafe', color: '#1d4ed8' },
+  entry_worker: { background: '#dcfce7', color: '#15803d' },
+  meta_worker: { background: '#fef3c7', color: '#b45309' },
+  data_worker: { background: '#fce7f3', color: '#be185d' },
+}
+const drawerRoleBadgeStyle = (key: string) => ROLE_BADGE_COLORS[key] ?? {}
+
 onMounted(() => {
   renderAnalysisModules()
 })
@@ -1111,6 +1151,58 @@ onMounted(() => {
           style="margin-left: 8px"
           >异常</span
         >
+      </div>
+
+      <div
+        v-if="drawerRoleEntries.length > 0"
+        style="
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          padding: 10px 12px;
+          margin-bottom: 14px;
+        "
+      >
+        <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">容器角色</div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div
+            v-for="entry in drawerRoleEntries"
+            :key="entry.key"
+            style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap"
+          >
+            <span
+              :style="drawerRoleBadgeStyle(entry.key)"
+              style="
+                display: inline-flex;
+                align-items: center;
+                padding: 2px 8px;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 700;
+              "
+              >{{ entry.label }}</span
+            >
+            <span
+              v-for="pod in entry.pods"
+              :key="pod"
+              class="trace-chip"
+              style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace"
+              >{{ pod }}</span
+            >
+          </div>
+        </div>
+        <div
+          v-if="drawerRoleFaultNames.length > 0"
+          style="margin-top: 8px; font-size: 12px; color: var(--text2)"
+        >
+          <span style="color: var(--text3)">对应故障类型：</span>
+          <span
+            v-for="name in drawerRoleFaultNames"
+            :key="name"
+            class="badge badge-warning"
+            style="margin-right: 6px"
+            >{{ name }}</span
+          >
+        </div>
       </div>
 
       <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">

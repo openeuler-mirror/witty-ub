@@ -46,7 +46,7 @@ __all__ = [
 
 # ── 操作类型集合（来源 base_parser.py:20-23）──────────────────────────────
 SDK_GET_OPS = frozenset({OpType.DS_KV_CLIENT_GET, OpType.DS_OBJECT_CLIENT_GET})
-WORKER_GET_OPS = frozenset({OpType.DS_POSIX_GET})
+WORKER_GET_OPS = frozenset({OpType.DS_POSIX_GET, OpType.DS_POSIX_QUERY_AND_GET})
 SDK_SET_OPS = frozenset({OpType.DS_KV_CLIENT_SET})
 WORKER_SET_OPS = frozenset({OpType.DS_POSIX_CREATE, OpType.DS_POSIX_PUBLISH})
 
@@ -66,7 +66,7 @@ TIMED_KEYWORDS = (
     "totalCost:", "Worker to master rpc QueryMeta:",
     "ProcessGetObjectRequest:", "worker SafeObject WLock:",
     "[Get/RemotePull] finish", "[Get] Remote done",
-    "QueryMeta done", "[ZMQ_RPC_FRAMEWORK_SLOW]",
+    "QueryMeta done", "[ZMQ_RPC_FRAMEWORK_SLOW]", "[BRPC_RPC_FRAMEWORK_SLOW]",
 )
 
 ALL_KEYWORDS = BASE_KEYWORDS + TIMED_KEYWORDS
@@ -74,7 +74,7 @@ ALL_KEYWORDS = BASE_KEYWORDS + TIMED_KEYWORDS
 # access 类解析器的行关键字（来源 sdk_access_log_parser.py:22 /
 # worker_access_log_parser.py:22；扫描器原先绕道解析器类去拿）
 SDK_ACCESS_KEYWORDS = ("DS_KV_CLIENT_GET", "DS_OBJECT_CLIENT_GET", "DS_KV_CLIENT_SET")
-WORKER_ACCESS_KEYWORDS = ("DS_POSIX_GET", "DS_POSIX_CREATE", "DS_POSIX_PUBLISH")
+WORKER_ACCESS_KEYWORDS = ("DS_POSIX_GET", "DS_POSIX_QUERY_AND_GET", "DS_POSIX_CREATE", "DS_POSIX_PUBLISH")
 
 # ── 正则门禁 ─────────────────────────────────────────────────────────────
 # trace_id / ip:port 抽取（来源 base_parser.py:66-77 与 worker_info_parser.py:69）

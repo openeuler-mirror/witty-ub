@@ -1,0 +1,26 @@
+TABS: [{"t":"聚合事件列表","active":true},{"t":"异常Trace列表","active":false},{"t":"聚合事件列表","active":true},{"t":"异常Trace列表","active":false}]
+BODY_STATE: {
+  "traceSectionText": "聚合事件列表\n异常Trace列表\nTrace ID\n查询\n按集群/主机过滤\n故障类型\n时间\nTrace ID\nPod IP\n操作类型\n集群\n主机\n时延\n2026-05-11 00:15:33\n199bb6a7-82e4-48c1-bbea-2455b8c67520\n192.168.219.66\n192.168.219.72\n192.168.235.172\nGET\nyxh-kv-ds\n-\n时延\n2026-05-11 00:10:58\nb982c556-1a98-41b3-be45-de3b23348e56\n192.168.210.225\n192.168.235.131\n192.168.235.134\n192.168.89.60\nGET\njingpai\n-\n时延\n2026-05-11 00:15:38\n5e829acd-ece1-4385-9b57-62f04faf07e4\n192.168.219.67\n192.168.219.99\n192.168.35.22\nGET\njingpai\n-\n时延\n2026-05-11 00:13:23\n1afff3aa-12e0-4ca5-bc7c-1fc4",
+  "abnormalEmpty": false,
+  "hasTraceTable": false
+}
+REQS: [
+  "[console debug] [vite] connecting...",
+  "[console debug] [vite] connected.",
+  "[REQ] POST /log_parse_result/metrics/latency {\"kb_id\":\"606fbcda-6c4f-49ab-b1fc-cfc071cfa702\",\"max_points\":1000,\"sample_mode\":\"p99\",\"sort_by\":\"timestamp\",\"sort_order\":\"asc\",\"operation\":\"GET\",\"bucket_seconds\":60,\"log_id\":\"d1343e1c-bf6f-46e5-8409-7a88e048a4f3\"}",
+  "[REQ] POST /log_parse_result/list {\"kb_id\":\"606fbcda-6c4f-49ab-b1fc-cfc071cfa702\",\"page_num\":1,\"page_cnt\":1000,\"sort_fields\":[{\"field\":\"total_latency\",\"order\":\"desc\"},{\"field\":\"timestamp\",\"order\":\"asc\"}],\"operation\":\"GET\"}",
+  "[REQ] POST /aggregated_event/list {\"kb_id\":\"606fbcda-6c4f-49ab-b1fc-cfc071cfa702\",\"page_num\":1,\"page_cnt\":10,\"stat_type\":\"p99\",\"sort_fields\":[{\"field\":\"total_latency\",\"order\":\"desc\"}],\"operation\":\"GET\"}",
+  "[REQ] POST /aggregated_event/list_time_window {\"kb_id\":\"606fbcda-6c4f-49ab-b1fc-cfc071cfa702\",\"page_num\":1,\"page_cnt\":10,\"interval\":60,\"stat_type\":\"p99\",\"sort_by\":\"start_time\",\"sort_order\":\"asc\",\"operation\":\"GET\"}",
+  "[REQ] POST /log_parse_result/list {\"kb_id\":\"606fbcda-6c4f-49ab-b1fc-cfc071cfa702\",\"page_cnt\":10,\"page_num\":1,\"sort_fields\":[{\"field\":\"total_latency\",\"order\":\"desc\"}],\"is_anomalous\":true,\"operation\":\"GET\"}",
+  "[REQ] POST /log_failure_event_result/list_flow_summary {\"kb_id\":\"606fbcda-6c4f-49ab-b1fc-cfc071cfa702\",\"source\":\"latency\"}",
+  "[REQ] POST /log_failure_event_result/list_time_aggregated_failure_events {\"kb_id\":\"606fbcda-6c4f-49ab-b1fc-cfc071cfa702\",\"interval\":\"minute\",\"sort_by\":\"timestamp\",\"sort_desc\":false,\"page_cnt\":10,\"page_num\":1,\"operation\":\"GET\"}",
+  "[console log] [LatencyAbnormal] percentile: p99 threshold: 5",
+  "[console log] [LatencyAbnormal] Total mark areas: 0",
+  "[RESP 200] /log_parse_result/metrics/latency len=10665 {\"code\":200,\"message\":\"success\",\"result\":{\"total\":8,\"metrics\":[{\"time\":\"2026-05-11 00:08:00.000\",\"src_ip\":\"192.168.210.225\",\"dst_ip\":\"192.168.52.198\",",
+  "[RESP 200] /aggregated_event/list len=15899 {\"code\":200,\"message\":\"success\",\"result\":{\"total\":184,\"events\":[{\"id\":\"c853556b-e63e-40f9-906f-1195a0d6a9d8\",\"kb_id\":\"\",\"src_ip\":\"192.168.89.60\",\"dst_",
+  "[RESP 200] /log_failure_event_result/list_time_aggregated_failure_events len=85 {\"code\":200,\"message\":\"success\",\"result\":{\"total\":0,\"err_codes\":[\"all\"],\"events\":[]}}",
+  "[RESP 200] /log_failure_event_result/list_flow_summary len=25572 {\"code\":200,\"message\":\"success\",\"result\":{\"result\":{\"nodes\":[{\"id\":\"client\",\"label\":\"Client\",\"role\":\"client\",\"top_ips\":[],\"top_workers\":[\"192.168.219.",
+  "[RESP 200] /aggregated_event/list_time_window len=15377 {\"code\":200,\"message\":\"success\",\"result\":{\"total\":3,\"events\":[{\"start_time\":\"2026-05-11 00:10:00\",\"end_time\":\"2026-05-11 00:11:00\",\"total_cnt\":8,\"anom",
+  "[RESP 200] /log_parse_result/list len=1853440 {\"code\":200,\"message\":\"success\",\"result\":{\"total\":941,\"log_parse_results\":[{\"id\":\"430c33cd-7617-47fb-a0ef-8bffed6be9f4\",\"log_id\":\"d1343e1c-bf6f-46e5-8",
+  "[RESP 200] /log_parse_result/list len=7957 {\"code\":200,\"message\":\"success\",\"result\":{\"total\":4,\"log_parse_results\":[{\"id\":\"430c33cd-7617-47fb-a0ef-8bffed6be9f4\",\"log_id\":\"d1343e1c-bf6f-46e5-840"
+]

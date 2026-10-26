@@ -5,19 +5,24 @@ from typing import Any, ClassVar, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from latency.ENUM.general import DiagnosisConfigLogType
 from latency.common.local_time import local_now, utc_now
+from latency.schemas.log_failure_event import PodRoleModel
 from latency.schemas.task import TaskModel
 
 YUANRONG_METRIC_FIELDS = (
-    "total_latency_us", "request_mode", "sdk_processing_us", "master_processing_us",
-    "worker_access_latency_us", "remote_worker_internal_us", "local_worker_internal_us",
-    "local_worker_internal_active_us", "sdk_rpc_network_us", "sdk_rpc_framework_us",
-    "sdk_rpc_total_us", "master_rpc_network_us", "master_rpc_framework_us",
-    "master_rpc_total_us", "remote_worker_rpc_network_us", "remote_worker_rpc_framework_us",
-    "remote_worker_rpc_total_us", "urma_processing_us", "urma_inflight_max",
-    "remote_worker_processing_us", "client_master_rpc_network_us",
-    "client_master_rpc_framework_us", "client_master_rpc_total_us",
-    "client_remote_rpc_network_us", "client_remote_rpc_framework_us",
-    "client_remote_rpc_total_us",
+    "total_latency_us", "request_mode", "sdk_processing_us",
+    "query_get_local_rpc_network_us", "query_get_local_rpc_framework_us",
+    "query_get_remote_rpc_network_us", "query_get_remote_rpc_framework_us",
+    "query_get_server_exec_us",
+    "master_processing_us", "worker_access_latency_us", "remote_worker_internal_us",
+    "local_worker_internal_us", "local_worker_internal_active_us",
+    "sdk_rpc_network_us", "sdk_rpc_framework_us", "sdk_rpc_total_us",
+    "master_rpc_network_us", "master_rpc_framework_us", "master_rpc_total_us",
+    "remote_worker_rpc_network_us", "remote_worker_rpc_framework_us",
+    "remote_worker_rpc_total_us", "urma_sched_us", "client_urma_processing_us",
+    "urma_processing_us", "urma_inflight_max", "remote_worker_processing_us",
+    "client_master_rpc_network_us", "client_master_rpc_framework_us",
+    "client_master_rpc_total_us", "client_remote_rpc_network_us",
+    "client_remote_rpc_framework_us", "client_remote_rpc_total_us",
 )
 
 
@@ -552,6 +557,11 @@ class LogParseResultModel(BaseModel):
     total_latency_us: Optional[float] = None
     request_mode: Optional[str] = None
     sdk_processing_us: Optional[float] = None
+    query_get_local_rpc_network_us: Optional[float] = None
+    query_get_local_rpc_framework_us: Optional[float] = None
+    query_get_remote_rpc_network_us: Optional[float] = None
+    query_get_remote_rpc_framework_us: Optional[float] = None
+    query_get_server_exec_us: Optional[float] = None
     master_processing_us: Optional[float] = None
     worker_access_latency_us: Optional[float] = None
     remote_worker_internal_us: Optional[float] = None
@@ -566,6 +576,8 @@ class LogParseResultModel(BaseModel):
     remote_worker_rpc_network_us: Optional[float] = None
     remote_worker_rpc_framework_us: Optional[float] = None
     remote_worker_rpc_total_us: Optional[float] = None
+    urma_sched_us: Optional[float] = None
+    client_urma_processing_us: Optional[float] = None
     urma_processing_us: Optional[float] = None
     urma_inflight_max: Optional[int] = None
     remote_worker_processing_us: Optional[float] = None
@@ -576,6 +588,7 @@ class LogParseResultModel(BaseModel):
     client_remote_rpc_framework_us: Optional[float] = None
     client_remote_rpc_total_us: Optional[float] = None
     timestamp: Optional[str] = Field(default=None, description="事件时间戳")
+    pod_role: Optional[PodRoleModel] = Field(default=None, description="trace 级容器角色聚合")
     created_at: str = Field(
         default_factory=lambda: local_now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
         description="日志解析结果创建时间",
@@ -694,6 +707,11 @@ class LogParseResultDataclass:
     total_latency_us: Optional[float] = None
     request_mode: Optional[str] = None
     sdk_processing_us: Optional[float] = None
+    query_get_local_rpc_network_us: Optional[float] = None
+    query_get_local_rpc_framework_us: Optional[float] = None
+    query_get_remote_rpc_network_us: Optional[float] = None
+    query_get_remote_rpc_framework_us: Optional[float] = None
+    query_get_server_exec_us: Optional[float] = None
     master_processing_us: Optional[float] = None
     worker_access_latency_us: Optional[float] = None
     remote_worker_internal_us: Optional[float] = None
@@ -708,6 +726,8 @@ class LogParseResultDataclass:
     remote_worker_rpc_network_us: Optional[float] = None
     remote_worker_rpc_framework_us: Optional[float] = None
     remote_worker_rpc_total_us: Optional[float] = None
+    urma_sched_us: Optional[float] = None
+    client_urma_processing_us: Optional[float] = None
     urma_processing_us: Optional[float] = None
     urma_inflight_max: Optional[int] = None
     remote_worker_processing_us: Optional[float] = None

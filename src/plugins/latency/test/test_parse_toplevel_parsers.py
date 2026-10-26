@@ -907,12 +907,29 @@ class TestClientInfoParser:
         assert e.elapsed_us == 4.0
         assert e.trace_id == "t1"
 
-    def test_non_zmq_line_rejected(self):
+    def test_non_rpc_line_rejected(self):
         parser = ClientInfoParser()
-        # 即使命中其它 WorkerInfo 关键词，ClientInfo 只认 ZMQ_SLOW
-        assert parser.match_line(run_line(URMA_MSG), "10.0.0.9") is None
+        # URMA 行独立产出 CLIENT_URMA_LABEL（客户端侧 URMA 处理分段）
+        urma_entries = parser.match_line(run_line(URMA_MSG), "10.0.0.9")
+        assert urma_entries and len(urma_entries) == 1
+        assert urma_entries[0].entry_type == EntryType.URMA
+        # 非 RPC / 非 URMA 行恒拒绝
         assert parser.match_line(run_line("plain msg"), "10.0.0.9") is None
         assert parser.match_line("", "10.0.0.9") is None
+
+    def test_valid_brpc_slow_line(self):
+        parser = ClientInfoParser()
+        line = (
+            "[BRPC_RPC_FRAMEWORK_SLOW] trace_id=t1 method=datasystem.WorkerOCService.QueryAndGet "
+            "framework_us=1 e2e_us=2 client_req_framework_us=3 remote_processing_us=4 "
+            "server_req_queue_us=5 server_exec_us=6 network_residual_us=7"
+        )
+        entries = parser.match_line(run_line(line, trace="t1"), "10.0.0.9")
+        assert entries and len(entries) == 1
+        e = entries[0]
+        assert e.entry_type == EntryType.CLIENT_RPC
+        assert e.elapsed_us == 4.0
+        assert e.trace_id == "t1"
 
     def test_zmq_line_regex_fail(self):
         parser = ClientInfoParser()

@@ -37,6 +37,9 @@ REMOTE_WORKER_RPC_LABEL = "Worker remote worker rpc parse"
 MASTER_PROCESS_LABEL = "Worker master process parse"
 MASTER_RPC_LABEL = "Worker master rpc parse"
 CLIENT_RPC_LABEL = "Client rpc parse"
+# Client info 日志中的 URMA 行（[URMA_ELAPSED_TOTAL]，客户端侧 UB 通信）：
+# 供 client_urma_processing_us 聚合（对齐 kvcache 基准 client_urma_list 语义）。
+CLIENT_URMA_LABEL = "Client urma parse"
 
 # 带独立耗时列（可直接做时延统计）的 label 子集（来源 worker_info_parser.py:42-52）
 TIMED_LABELS = (
@@ -54,10 +57,10 @@ TIMED_LABELS = (
 LABEL_TO_COLUMNS: dict[str, tuple[str, ...]] = {
     SDK_LABEL: (
         "total_ms", "total_latency", "op", "operation", "op_key",
-        "bucket_epoch", "log_id", "status_code", "timestamp", "pod_ip",
+        "bucket_epoch", "epoch_sec", "log_id", "status_code", "timestamp", "pod_ip",
         "cluster_name", "data_size", "inflight_count",
     ),
-    WORKER_ACCESS_LABEL: ("worker_total_latency", "bucket_epoch", "timestamp", "log_id", "op", "operation", "op_key", "status_code", "pod_ip", "cluster_name"),
+    WORKER_ACCESS_LABEL: ("worker_total_latency", "bucket_epoch", "epoch_sec", "timestamp", "log_id", "op", "operation", "op_key", "status_code", "pod_ip", "cluster_name"),
     # Worker info labels 也需要添加 pod_ip 和 cluster_name，确保所有相关 pod 和集群都被记录
     URMA_LABEL: ("urma_total_latency", "src", "dst", "pod_ip", "cluster_name"),
     REMOTE_PULL_LABEL: ("src", "dst", "pod_ip", "cluster_name"),
@@ -72,4 +75,7 @@ LABEL_TO_COLUMNS: dict[str, tuple[str, ...]] = {
     MASTER_PROCESS_LABEL: ("master_process", "pod_ip", "cluster_name"),
     MASTER_RPC_LABEL: ("master_rpc_total", "pod_ip", "cluster_name"),
     CLIENT_RPC_LABEL: ("pod_ip", "cluster_name"),
+    # Client info 日志中的 URMA 行：只填 pod/cluster（供 implode_unique 归并），
+    # 时延经 _elapsed_us 内部列由 trace_frame 聚合（对齐 client_urma_processing_us）。
+    CLIENT_URMA_LABEL: ("pod_ip", "cluster_name"),
 }

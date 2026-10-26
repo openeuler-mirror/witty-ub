@@ -452,7 +452,7 @@ class GetLatencyMetricsRequest(StrictRequestModel):
     bucket_seconds: int = Field(
         default=60,
         ge=1,
-        description="时间桶粒度(秒):10/60/600/3600 对应 10s/1min/10min/1h",
+        description="时间桶粒度(秒):1/10/60/600/3600 对应 1s/10s/1min/10min/1h",
     )
     log_id: Optional[str] = Field(
         default=None,
@@ -494,7 +494,7 @@ class GetErrCodeMetricsRequest(StrictRequestModel):
     )
     bucket_seconds: Optional[int] = Field(
         default=None,
-        description="时间桶粒度(秒):10/60/600/3600 对应 10s/1min/10min/1h;为空时按1秒粒度聚合后抽稀",
+        description="时间桶粒度(秒):1/10/60/600/3600 对应 1s/10s/1min/10min/1h;为空时按1秒粒度聚合后抽稀",
     )
 
 

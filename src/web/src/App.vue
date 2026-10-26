@@ -668,6 +668,7 @@ type LatencyDetailRow = {
 
 type TraceDetailRow = {
   traceId: string
+  operation?: string
   clusterName?: string
   host?: string
   podIp: string
@@ -687,9 +688,11 @@ type TraceDetailRow = {
   remoteWorkerRpc: number | null
   masterProcess: number | null
   masterRpcTotal: number | null
+  raw?: LogParseResultModel
   faultCodes: string[]
   faultType?: string
   faultDomain?: string
+  podRole?: TracePodRoleModel
 }
 
 type FaultTraceTableRow = TraceDetailRow & {
@@ -812,6 +815,91 @@ type LogFailureEventResultModel = {
   [key: string]: unknown
 }
 
+// Trace 级容器角色（后端 pod_role 表，每行一个 trace）
+type TracePodRoleModel = {
+  client_pod?: string
+  entry_worker_pods?: string[]
+  meta_worker_pods?: string[]
+  data_worker_pods?: string[]
+  operation?: string
+  [key: string]: unknown
+}
+
+// ===== 角色交互流（read flow / write flow）汇总 =====
+// 与后端 latency.schemas.flow_summary 对齐，用于渲染角色交互时延示意图。
+type FlowEdgeTraceItemModel = {
+  trace_id: string
+  value_ms: number
+  roles?: Record<string, string>
+}
+type FlowEdgeRollupModel = {
+  trace_count: number
+  avg_ms?: number | null
+  p50_ms?: number | null
+  p99_ms?: number | null
+  max_ms?: number | null
+  top_trace?: string | null
+  top_workers: string[]
+  top_ips?: string[]
+  trace_items?: FlowEdgeTraceItemModel[]
+}
+type FlowEdgeModel = {
+  name: string
+  source: string
+  target: string
+  operation: string
+  status: string // present | warn | critical | missing
+  summary: string
+  reason?: string
+  report_reading?: string
+  rollup?: FlowEdgeRollupModel
+  source_pods?: string[]
+  target_pods?: string[]
+}
+type FlowNodeModel = {
+  id: string
+  label: string
+  role: string
+  top_ips?: string[]
+  top_workers?: string[]
+  own_rollup?: FlowEdgeRollupModel | null
+  own_observed?: number | null
+}
+type FlowGraphModel = {
+  nodes: FlowNodeModel[]
+  edges: FlowEdgeModel[]
+  warn_ms?: number | null
+  critical_ms?: number | null
+}
+type TraceFlowStageModel = {
+  trace_id: string
+  operation: string
+  total_ms?: number | null
+  stages: Record<string, number>
+  roles?: Record<string, string>
+  // 32 项 YUANRONG 关键时延原始微秒值，供单 trace 时延明细表直接透传对齐
+  raw?: Record<string, unknown>
+}
+// 正交分解段：总时延按因果顺序互斥分配，Σ(段)+残差=总时延
+type FlowDecompositionSegmentModel = {
+  key: string
+  name: string
+  node: string
+  rollup?: FlowEdgeRollupModel
+}
+type FlowDecompositionModel = {
+  operation: string
+  total: FlowEdgeRollupModel
+  segments: FlowDecompositionSegmentModel[]
+}
+type FlowSummaryModel = {
+  nodes: FlowNodeModel[]
+  read: FlowGraphModel
+  write: FlowGraphModel
+  per_trace: TraceFlowStageModel[]
+  decomposition: FlowDecompositionModel[]
+}
+
 type TraceFailureEventResultModel = {
   id: string
   trace_id?: string
@@ -823,6 +911,7 @@ type TraceFailureEventResultModel = {
   status_code?: string[]
   failure_mode?: string | string[]
   operation?: string
+  pod_role?: TracePodRoleModel
   [key: string]: unknown
 }
 
@@ -877,6 +966,7 @@ type AbnormalTraceRow = {
   time: string
   traceId: string
   podIp: string
+  podRole?: TracePodRoleModel
   operation: string
   clusterName: string
   host: string
@@ -2986,9 +3076,36 @@ const latencyMetricsByPercentile = reactive<Record<LatencyPercentileValue, Laten
 })
 const isLatencyChartLoading = ref(false)
 const latencyChartError = ref('')
-const topSlowRequestLimit = 1000
+const topSlowRequestLimit = 500
 const topSlowRequests = ref<LogParseResultModel[]>([])
 const topSlowRequestsTotal = ref(0)
+const topSlowTraceRows = computed<AbnormalTraceRow[]>(() =>
+  topSlowRequests.value.map((result) => toAbnormalTraceRow(result)),
+)
+const hoveredSlowTraceRowKey = ref('')
+// Top500 时延 Trace 列表：客户端分页展示（数据一次性取回，翻页而非滚动）
+const topSlowTracePageSize = 10
+const topSlowTracePage = ref(1)
+const topSlowTracePageCount = computed(() =>
+  Math.max(1, Math.ceil(topSlowTraceRows.value.length / topSlowTracePageSize)),
+)
+const topSlowTracePageWindow = computed(() =>
+  getPageWindow(topSlowTracePage.value, topSlowTracePageCount.value),
+)
+const paginatedTopSlowTraceRows = computed(() => {
+  const start = (topSlowTracePage.value - 1) * topSlowTracePageSize
+  return topSlowTraceRows.value.slice(start, start + topSlowTracePageSize)
+})
+const goTopSlowTracePage = (page: number) => {
+  topSlowTracePage.value = Math.min(topSlowTracePageCount.value, Math.max(1, page))
+}
+const topSlowTracePageInput = ref('')
+const jumpTopSlowTracePage = () => {
+  const nextPage = normalizePageInput(topSlowTracePageInput.value, topSlowTracePageCount.value)
+  if (nextPage === null) return
+  topSlowTracePageInput.value = ''
+  goTopSlowTracePage(nextPage)
+}
 const isTopSlowChartLoading = ref(false)
 const topSlowChartError = ref('')
 const aggregatedEvents = ref<AggregatedEventModel[]>([])
@@ -3295,6 +3412,8 @@ type ColumnWidthMap = {
   faultData: number[]
   faultTraceLeft: number[]
   faultTraceActions: number[]
+  slowTraceLeft: number[]
+  slowTraceData: number[]
 }
 
 const traceListColumnWidths = reactive<ColumnWidthMap>({
@@ -3304,11 +3423,13 @@ const traceListColumnWidths = reactive<ColumnWidthMap>({
   faultData: [110, 180, 165, 170, 175, 175],
   faultTraceLeft: [110, 185, 315],
   faultTraceActions: [150],
+  slowTraceLeft: [185, 220, 170, 95, 90, 75],
+  slowTraceData: [100, 400],
 })
 
 const faultTraceScrollColumns = reactive({
-  widths: [150, 100, 110, 80, 250, 100],
-  labels: ['Pod IP', '集群', '主机', '故障码', '故障名称', '故障域'],
+  widths: [150, 100, 110, 80, 250],
+  labels: ['Pod IP', '集群', '主机', '故障码', '故障名称'],
 })
 
 const handleFaultTraceScrollColumnResizeStart = (e: MouseEvent, columnIndex: number) => {
@@ -3385,7 +3506,9 @@ const handleColumnResizeStart = (
     | 'latencyData'
     | 'faultData'
     | 'faultTraceLeft'
-    | 'faultTraceActions',
+    | 'faultTraceActions'
+    | 'slowTraceLeft'
+    | 'slowTraceData',
   columnIndex: number,
 ) => {
   e.preventDefault()
@@ -3473,6 +3596,12 @@ const getTimeWindowTotalWidth = () => {
 
 const getFaultTraceLeftGridColumnWidths = () =>
   traceListColumnWidths.faultTraceLeft.map((w) => `${w}px`).join(' ')
+
+const getSlowTraceLeftGridColumnWidths = () =>
+  traceListColumnWidths.slowTraceLeft.map((w) => `${w}px`).join(' ')
+
+const getSlowTraceDataGridColumnWidths = () =>
+  traceListColumnWidths.slowTraceData.map((w) => `${w}px`).join(' ')
 
 const getTimeWindowIpPairPage = (twIdx: number) => timeWindowIpPairPageMap.value[twIdx] ?? 1
 
@@ -3604,6 +3733,7 @@ const selectedFaultAggregateInterval = ref<FaultAggregateInterval>('minute')
 const selectedFaultOperation = ref<'get' | 'set'>('get')
 const abnormalTraceRowsMap = reactive<Record<number, AbnormalTraceRow[]>>({
   0: [],
+  1: [],
   10: [],
   60: [],
   600: [],
@@ -3611,6 +3741,7 @@ const abnormalTraceRowsMap = reactive<Record<number, AbnormalTraceRow[]>>({
 })
 const abnormalTracesTotalMap = reactive<Record<number, number>>({
   0: 0,
+  1: 0,
   10: 0,
   60: 0,
   600: 0,
@@ -3618,6 +3749,7 @@ const abnormalTracesTotalMap = reactive<Record<number, number>>({
 })
 const abnormalTracesPageMap = reactive<Record<number, number>>({
   0: 1,
+  1: 1,
   10: 1,
   60: 1,
   600: 1,
@@ -3625,6 +3757,7 @@ const abnormalTracesPageMap = reactive<Record<number, number>>({
 })
 const isAbnormalTracesLoadingMap = reactive<Record<number, boolean>>({
   0: false,
+  1: false,
   10: false,
   60: false,
   600: false,
@@ -3632,6 +3765,7 @@ const isAbnormalTracesLoadingMap = reactive<Record<number, boolean>>({
 })
 const abnormalTracesErrorMap = reactive<Record<number, string>>({
   0: '',
+  1: '',
   10: '',
   60: '',
   600: '',
@@ -3655,6 +3789,7 @@ const hoveredFaultAggregatedPodRowKey = ref('')
 const hoveredFaultTraceRowKey = ref('')
 const faultTraceRowsMap = reactive<Record<number, FaultTraceTableRow[]>>({
   0: [],
+  1: [],
   10: [],
   60: [],
   600: [],
@@ -3662,6 +3797,7 @@ const faultTraceRowsMap = reactive<Record<number, FaultTraceTableRow[]>>({
 })
 const faultTraceEventsTotalMap = reactive<Record<number, number>>({
   0: 0,
+  1: 0,
   10: 0,
   60: 0,
   600: 0,
@@ -3669,6 +3805,7 @@ const faultTraceEventsTotalMap = reactive<Record<number, number>>({
 })
 const faultTraceEventsPageMap = reactive<Record<number, number>>({
   0: 1,
+  1: 1,
   10: 1,
   60: 1,
   600: 1,
@@ -3676,6 +3813,7 @@ const faultTraceEventsPageMap = reactive<Record<number, number>>({
 })
 const isFaultTraceEventsLoadingMap = reactive<Record<number, boolean>>({
   0: false,
+  1: false,
   10: false,
   60: false,
   600: false,
@@ -3683,6 +3821,7 @@ const isFaultTraceEventsLoadingMap = reactive<Record<number, boolean>>({
 })
 const faultTraceEventsErrorMap = reactive<Record<number, string>>({
   0: '',
+  1: '',
   10: '',
   60: '',
   600: '',
@@ -3819,6 +3958,44 @@ const detailLatencyChartRef = ref<HTMLDivElement | null>(null)
 const faultChartRef = ref<HTMLDivElement | null>(null)
 const faultDetailChartRef = ref<HTMLDivElement | null>(null)
 const topSlowChartRef = ref<HTMLDivElement | null>(null)
+// 角色交互流图（read/write flow）状态与容器（仅时延监控页）
+const latencyFlowSummary = ref<FlowSummaryModel | null>(null)
+const isLatencyFlowLoading = ref(false)
+const latencyFlowError = ref('')
+const latencyReadFlowRef = ref<HTMLDivElement | null>(null)
+const latencyWriteFlowRef = ref<HTMLDivElement | null>(null)
+// 交互时延流跟随"时延故障监控"总体的 GET/SET 切换，无独立切换按钮
+const activeFlowTab = computed<'GET' | 'SET'>(
+  () => (selectedOperation.value === 'set' ? 'SET' : 'GET'),
+)
+const traceFlowChartRef = ref<HTMLDivElement | null>(null)
+// 点击总览 flow 图的边后打开的时延段 trace 明细弹窗
+type FlowEdgeDetailState = {
+  operation: string
+  source: string
+  target: string
+  status: string
+  rollup: FlowEdgeRollupModel
+}
+const flowEdgeDetail = ref<FlowEdgeDetailState | null>(null)
+// 点击总览 flow 图的节点后打开的自身处理 trace 明细弹窗
+type FlowNodeTraceItem = {
+  trace_id: string
+  value_ms: number
+  total_ms: number | null
+  roles: Record<string, string>
+}
+type FlowNodeDetailState = {
+  nodeId: string
+  label: string
+  operation: string
+  rollup: FlowEdgeRollupModel | null
+  trace_items: FlowNodeTraceItem[]
+}
+const flowNodeDetail = ref<FlowNodeDetailState | null>(null)
+// 单个 trace 的角色交互流缓存（抽屉打开时按 trace_id 请求）
+const traceFlowByTrace = ref<Map<string, FlowSummaryModel>>(new Map())
+const isTraceFlowLoading = ref(false)
 const logFilesPollingTimer = ref<ReturnType<typeof window.setInterval> | null>(null)
 const isFaultChartLoading = ref(false)
 const faultChartError = ref('')
@@ -3867,6 +4044,7 @@ const traceFailureEventsByTrace = ref<Record<string, LogFailureEventResultModel[
 const isTraceLogsLoading = ref(false)
 const traceLogsError = ref('')
 const latencyScaleOptions = [
+  { value: 1, label: '1秒' },
   { value: 10, label: '10秒' },
   { value: 60, label: '1分钟' },
   { value: 600, label: '10分钟' },
@@ -3878,11 +4056,13 @@ const selectedLatencyScale = ref<number>(60)
 const latencyChartCenterTime = ref<number | null>(null)
 
 // 每个时间尺度点击图表时，选中范围半宽 = halfSpanMultiplier * scaleSeconds（秒）
+// 1s: 60 * 1s = 1min 半宽 → 120 个点
 // 10s: 60 * 10s = 10min 半宽 → 120 个点
 // 1min: 60 * 60s = 60min 半宽 → 120 个点
 // 10min: 72 * 600s = 12h 半宽 → 144 个点（24h 总范围）
 // 1hr: 12 * 3600s = 12h 半宽 → 24 个点（24h 总范围）
 const latencyChartHalfSpanMultiplier: Record<number, number> = {
+  1: 60,
   10: 60,
   60: 60,
   600: 72,
@@ -3906,6 +4086,7 @@ const latencyChartRange = computed<LatencyChartRange | null>(() => {
 const selectedFaultScale = ref<number>(60)
 const faultChartCenterTime = ref<number | null>(null)
 const faultChartHalfSpanMultiplier: Record<number, number> = {
+  1: 60,
   10: 60,
   60: 60,
   600: 72,
@@ -4455,8 +4636,13 @@ const getLatencySeriesConfig = (
   [
     ['total_latency_us', '总时延', '#d32f2f'],
     ['sdk_processing_us', 'SDK处理', '#5470c6'],
+    ['query_get_local_rpc_network_us', 'QueryGetLocal网络', '#fac858'],
+    ['query_get_local_rpc_framework_us', 'QueryGetLocal框架', '#73c0de'],
+    ['query_get_remote_rpc_network_us', 'QueryGetRemote网络', '#3ba272'],
+    ['query_get_remote_rpc_framework_us', 'QueryGetRemote框架', '#91cc75'],
+    ['query_get_server_exec_us', 'QueryGet Worker执行', '#ca8622'],
     ['master_processing_us', 'Master处理', '#91cc75'],
-    ['worker_access_latency_us', 'Worker端总时延', '#fac858'],
+    ['worker_access_latency_us', 'Worker Access时延', '#fac858'],
     ['remote_worker_internal_us', 'Remote Worker内部', '#ee6666'],
     ['local_worker_internal_us', 'Local Worker内部', '#73c0de'],
     ['local_worker_internal_active_us', 'Local Worker内部时间2', '#3ba272'],
@@ -4469,7 +4655,9 @@ const getLatencySeriesConfig = (
     ['remote_worker_rpc_network_us', 'Remote Worker RPC网络', '#2f4554'],
     ['remote_worker_rpc_framework_us', 'Remote Worker RPC框架', '#61a0a8'],
     ['remote_worker_rpc_total_us', 'Remote Worker RPC总时延', '#bda29a'],
-    ['urma_processing_us', 'URMA+UDMA+交换机+OS处理', '#6e7074'],
+    ['urma_sched_us', '调度时间', '#e65b48'],
+    ['client_urma_processing_us', 'Client UB通信', '#c39d8f'],
+    ['urma_processing_us', 'Worker UB通信', '#6e7074'],
     ['urma_inflight_max', 'URMA并发数', '#749f83'],
     ['remote_worker_processing_us', 'Remote Worker处理', '#ca8622'],
     ['client_master_rpc_network_us', 'Client Master RPC网络', '#bda29a'],
@@ -4499,28 +4687,13 @@ const latencyBreakdownSeriesConfig = getLatencySeriesConfig
     unit: series.key === 'urma_inflight_max' ? ('count' as const) : ('us' as const),
   }))
 
-const setLatencySeriesConfig = [
-  {
-    key: 'total_latency',
-    label: '总时延',
-    color: '#5470c6',
-  },
-  {
-    key: 'create_latency',
-    label: 'CREATE阶段时延',
-    color: '#91cc75',
-  },
-  {
-    key: 'publish_latency',
-    label: 'PUBLISH阶段时延',
-    color: '#fac858',
-  },
-  {
-    key: 'worker_total_latency',
-    label: 'Worker端总时延',
-    color: '#ee6666',
-  },
-] as const
+// SET 与 GET 共用同一份完整的 yuanrong 时延分解指标，对齐参考报告
+// （kvcache.set.html）中的各阶段时延趋势：SDK处理 / Master处理 /
+// Worker Access时延 / Client UB通信 / Remote Worker处理 /
+// Client Master RPC网络·框架·总时延 / Client Remote RPC网络·框架·总时延等。
+// 各字段是否有数据由 getAvailableLatencySeriesConfig 按分桶值自动过滤，
+// SET 专属无数据的分段（如 query_get_*）不会显示。
+const setLatencySeriesConfig = getLatencySeriesConfig
 
 const latencySeriesConfig = computed(() =>
   selectedOperation.value === 'get' ? getLatencySeriesConfig : setLatencySeriesConfig,
@@ -4540,11 +4713,9 @@ type LatencyMetricKey =
   | (typeof setLatencySeriesConfig)[number]['key']
   | 'total_latency'
 
-const defaultVisibleLatencyKeys = new Set<LatencyMetricKey>([
-  'total_latency_us',
-  'sdk_processing_us',
-  'urma_processing_us',
-])
+const defaultVisibleLatencyKeys = new Set<LatencyMetricKey>(
+  getLatencySeriesConfig.map((series) => series.key),
+)
 const visibleLatencyKeys = ref<Set<LatencyMetricKey>>(new Set(defaultVisibleLatencyKeys))
 const visibleLatencySeriesConfig = computed(() =>
   availableLatencySeriesConfig.value.filter((series) => visibleLatencyKeys.value.has(series.key)),
@@ -4574,6 +4745,8 @@ const deselectAllLatencySeries = () => {
 }
 
 const totalLatencyAbnormalThresholdMs = 5
+// 总时延 P99 阈值默认 2ms，与后端 total_p99_threshold_ms 默认值保持一致
+const totalLatencyP99AbnormalThresholdMs = 2
 
 const latencyPercentileOptions = computed(() => [
   {
@@ -4581,7 +4754,7 @@ const latencyPercentileOptions = computed(() => [
     label: 'P99',
     abnormalThreshold:
       activeDiagnosisConfig.value.logAnalyzerParams.total_p99_threshold_ms ??
-      totalLatencyAbnormalThresholdMs,
+      totalLatencyP99AbnormalThresholdMs,
   },
   {
     value: 'p9999' as const,
@@ -4653,10 +4826,10 @@ const isLatencyChartBucketAbnormal = (values: Record<LatencyMetricKey, number | 
 const isDetailP99LatencyAbnormal = (value?: number | null) =>
   typeof value === 'number' &&
   Number.isFinite(value) &&
-  value > totalLatencyAbnormalThresholdMs
+  value > totalLatencyP99AbnormalThresholdMs
 
 const aggregatedLatencyColumns = [
-  { key: 'total_latency', label: '总时延 (ms)', threshold: totalLatencyAbnormalThresholdMs },
+  { key: 'total_latency', label: '总时延 (ms)', threshold: totalLatencyP99AbnormalThresholdMs },
   { key: 'query_meta_latency', label: '查询元数据时延 (ms)', threshold: 150 },
   { key: 'urma_total_latency', label: 'URMA总时延 (ms)', threshold: 150 },
   { key: 'urma_link_latency', label: 'URMA建链时延 (ms)', threshold: 150 },
@@ -4664,7 +4837,7 @@ const aggregatedLatencyColumns = [
   { key: 'w2w_urma_latency', label: 'W2W URMA时延 (ms)', threshold: 100 },
   { key: 'create_latency', label: 'CREATE阶段时延 (ms)', threshold: 100 },
   { key: 'publish_latency', label: 'PUBLISH阶段时延 (ms)', threshold: 100 },
-  { key: 'worker_total_latency', label: 'Worker端总时延 (ms)', threshold: 100 },
+  { key: 'worker_total_latency', label: 'Worker Access时延 (ms)', threshold: 100 },
   { key: 'master_rpc_total', label: 'Master RPC总时延 (ms)', threshold: 150 },
 ] as const
 
@@ -4788,13 +4961,74 @@ const buildLatencyBreakdownSegments = (
   })
 }
 
+// 列表内各阶段时延分解：复用互斥 9 段口径（对齐 kvcache _build_exclusive_segments）。
+// 输入毫秒总时延 + 微秒字段访问器（原始 *_us 列），输出互斥段 + "其他"残差（单位 ms）。
+// 无可解析段（含 SET 等非 QueryGet 场景）时返回空数组，由调用方回退旧累加口径。
+const buildExclusiveBreakdownSegments = (
+  totalLatencyMs: number | null,
+  getValue: (key: string) => number | null,
+): LatencyBreakdownSegment[] => {
+  const totalLatencyUs =
+    typeof totalLatencyMs === 'number' && Number.isFinite(totalLatencyMs) && totalLatencyMs > 0
+      ? totalLatencyMs * 1000
+      : 0
+  if (totalLatencyUs <= 0) return []
+  const row: Record<string, unknown> = {}
+  for (const key of [
+    'query_get_local_rpc_network_us',
+    'query_get_remote_rpc_network_us',
+    'query_get_local_rpc_framework_us',
+    'query_get_remote_rpc_framework_us',
+    'query_get_server_exec_us',
+    'urma_processing_us',
+    'client_urma_processing_us',
+    'sdk_processing_us',
+    'worker_access_latency_us',
+    'remote_worker_processing_us',
+    'remote_worker_internal_us',
+  ]) {
+    const value = getValue(key)
+    if (typeof value === 'number' && Number.isFinite(value)) row[key] = value
+  }
+  const { segments, otherLatency } = buildExclusiveSegments(row, totalLatencyUs)
+  if (Object.keys(segments).length === 0) return []
+  const result: LatencyBreakdownSegment[] = []
+  for (const config of getTopSlowSegmentConfig) {
+    const value = segments[config.key]
+    if (typeof value !== 'number' || value <= 0) continue
+    result.push({
+      key: config.key,
+      label: config.label,
+      shortLabel: getLatencyBreakdownShortLabel(config.label),
+      color: config.color,
+      value: value / 1000,
+      width: Math.min(100, (value / totalLatencyUs) * 100),
+      abnormal: false,
+      unit: 'ms',
+    })
+  }
+  if (otherLatency > 0) {
+    result.push({
+      key: '__other__',
+      label: '其他',
+      shortLabel: '其他',
+      color: '#94a3b8',
+      value: otherLatency / 1000,
+      width: Math.min(100, (otherLatency / totalLatencyUs) * 100),
+      abnormal: false,
+      unit: 'ms',
+    })
+  }
+  return result
+}
+
 const getLatencyRowBreakdownSegments = (row: Record<string, unknown>) => {
   const raw = row.raw && typeof row.raw === 'object' ? (row.raw as Record<string, unknown>) : row
-  const yuanrongSegments = buildLatencyBreakdownSegments(
+  const exclusiveSegments = buildExclusiveBreakdownSegments(
     getLatencyMilliseconds(raw, 'total_latency_us'),
     (key) => getNullableFiniteNumber(raw, key),
   )
-  if (yuanrongSegments.some((segment) => segment.value !== null)) return yuanrongSegments
+  if (exclusiveSegments.length > 0) return exclusiveSegments
   return buildLatencyBreakdownSegments(
     getLatencyRowValue(row, 'total_latency'),
     (key) => getLatencyRowValue(row, key),
@@ -4876,93 +5110,55 @@ const LatencyBreakdownBar = defineComponent({
 
 type AggregatedLatencyKey = (typeof aggregatedLatencyColumns)[number]['key']
 
-type TraceDelayKey =
-  | 'sdkMs'
-  | 'reqDelay'
-  | 'respDelay'
-  | 'urmaLinkLatency'
-  | 'c2wUrmaLatency'
-  | 'w2wUrmaLatency'
-  | 'sdkProcess'
-  | 'sdkRpc'
-  | 'workerTotalLatency'
-  | 'localWorkerCost'
-  | 'localWorkerLock'
-  | 'remoteWorkerCost'
-  | 'remoteWorkerRpc'
-  | 'masterProcess'
-  | 'masterRpcTotal'
+type TraceDelayKey = (typeof getLatencySeriesConfig)[number]['key']
 
-const traceDelayColumns = [
-  {
-    key: 'sdkMs',
-    label: '总时延 (ms)',
-    metric: 'total_latency',
-    threshold: totalLatencyAbnormalThresholdMs,
-    unit: 'ms',
-  },
-  {
-    key: 'reqDelay',
-    label: '查询元数据时延 (ms)',
-    metric: 'query_meta_latency',
-    threshold: 150,
-    unit: 'ms',
-  },
-  {
-    key: 'respDelay',
-    label: 'URMA总时延 (ms)',
-    metric: 'urma_total_latency',
-    threshold: 150,
-    unit: 'ms',
-  },
-  {
-    key: 'urmaLinkLatency',
-    label: 'URMA建链时延 (ms)',
-    metric: 'urma_link_latency',
-    threshold: 150,
-    unit: 'ms',
-  },
-  {
-    key: 'c2wUrmaLatency',
-    label: 'C2W URMA时延 (ms)',
-    metric: 'c2w_urma_latency',
-    threshold: 100,
-    unit: 'ms',
-  },
-  {
-    key: 'w2wUrmaLatency',
-    label: 'W2W URMA时延 (ms)',
-    metric: 'w2w_urma_latency',
-    threshold: 100,
-    unit: 'ms',
-  },
-  { key: 'sdkProcess', label: 'SDK处理时延 (ms)', threshold: 1.5, unit: 'ms' },
-  { key: 'sdkRpc', label: 'SDK RPC时延 (ms)', threshold: 1.5, unit: 'ms' },
-  {
-    key: 'workerTotalLatency',
-    label: 'Worker端总时延 (ms)',
-    metric: 'worker_total_latency',
-    threshold: 100,
-    unit: 'ms',
-  },
-  { key: 'localWorkerCost', label: '本地Worker处理时延 (ms)', threshold: 1.5, unit: 'ms' },
-  { key: 'localWorkerLock', label: '本地Worker锁时延 (ms)', threshold: 1.5, unit: 'ms' },
-  { key: 'remoteWorkerCost', label: '远端Worker处理时延 (ms)', threshold: 1.5, unit: 'ms' },
-  { key: 'remoteWorkerRpc', label: '远端Worker RPC时延 (ms)', threshold: 1.5, unit: 'ms' },
-  { key: 'masterProcess', label: 'Master处理时延 (ms)', threshold: 1.5, unit: 'ms' },
-  {
-    key: 'masterRpcTotal',
-    label: 'Master RPC总时延 (ms)',
-    metric: 'master_rpc_total',
-    threshold: 150,
-    unit: 'ms',
-  },
-] as const satisfies readonly {
+// 时延明细表格各指标的异常阈值（us）。对齐基准口径：
+// 处理/调度类 1.5ms，Worker Access 100ms，RPC 网络/框架/总时延 150ms，总时延取总时延异常阈值。
+const traceDelayThresholdsUs: Record<TraceDelayKey, number> = {
+  total_latency_us: totalLatencyP99AbnormalThresholdMs * 1000,
+  sdk_processing_us: 1500,
+  query_get_local_rpc_network_us: 150_000,
+  query_get_local_rpc_framework_us: 150_000,
+  query_get_remote_rpc_network_us: 150_000,
+  query_get_remote_rpc_framework_us: 150_000,
+  query_get_server_exec_us: 1500,
+  master_processing_us: 1500,
+  worker_access_latency_us: 100_000,
+  remote_worker_internal_us: 1500,
+  local_worker_internal_us: 1500,
+  local_worker_internal_active_us: 1500,
+  sdk_rpc_network_us: 1500,
+  sdk_rpc_framework_us: 1500,
+  sdk_rpc_total_us: 1500,
+  master_rpc_network_us: 150_000,
+  master_rpc_framework_us: 150_000,
+  master_rpc_total_us: 150_000,
+  remote_worker_rpc_network_us: 150_000,
+  remote_worker_rpc_framework_us: 150_000,
+  remote_worker_rpc_total_us: 150_000,
+  urma_sched_us: 1500,
+  client_urma_processing_us: 1500,
+  urma_processing_us: 1500,
+  urma_inflight_max: 0,
+  remote_worker_processing_us: 1500,
+  client_master_rpc_network_us: 150_000,
+  client_master_rpc_framework_us: 150_000,
+  client_master_rpc_total_us: 150_000,
+  client_remote_rpc_network_us: 150_000,
+  client_remote_rpc_framework_us: 150_000,
+  client_remote_rpc_total_us: 150_000,
+}
+
+const traceDelayColumns = getLatencySeriesConfig.map(({ key, label }) => ({
+  key,
+  label,
+  threshold: traceDelayThresholdsUs[key],
+  unit: key === 'urma_inflight_max' ? ('count' as const) : ('us' as const),
+})) as const satisfies readonly {
   key: TraceDelayKey
   label: string
-  metric?: AggregatedLatencyKey
   threshold: number
-  unit: 'ms' | 'us'
+  unit: 'us' | 'count'
 }[]
 
 type TraceDelayColumn = (typeof traceDelayColumns)[number]
@@ -5052,6 +5248,7 @@ const formatTraceDelayColumnValue = (
 ) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
   if (value < 0) return '无效值'
+  if (column.unit === 'count') return String(Math.round(value))
   return `${formatMetricValue(value)} ${column.unit}`
 }
 
@@ -5075,25 +5272,22 @@ type TopSlowChartRow = {
   segments: Record<TopSlowSegmentKey, number>
 }
 
+// 时序瀑布：互斥分段分解（对齐 kvcache 基准 _build_exclusive_segments）。
+// * QueryGet 分支（query_get_local/remote rpc 任一 > 0）：SDK处理 / QueryGet网络 /
+//   QueryGet框架 / QueryGet Worker内部 / Worker UB通信 / Client UB通信；
+// * 普通分支：SDK处理 / Entry→Data远端供数 / Worker-Meta内部（扣除UB）/
+//   Worker UB通信 / Client UB通信；
+// 两分支段互斥（非 QueryAndGet trace 的 query_get_* 段恒 0），外窗残差统一归"其他"。
+// 普通分支的 SDK/Worker-Meta内部/远端供数均按剩余预算 min 扣除，保证 Σ段 ≤ 总时延。
 const getTopSlowSegmentConfig: TopSlowSegmentConfig[] = [
   { key: 'sdk_processing_us', label: 'SDK处理', color: '#5470c6' },
-  { key: 'master_processing_us', label: 'Master处理', color: '#91cc75' },
-  { key: 'worker_access_latency_us', label: 'Worker端总时延', color: '#fac858' },
-  { key: 'remote_worker_internal_us', label: 'Remote Worker内部', color: '#ee6666' },
-  { key: 'local_worker_internal_us', label: 'Local Worker内部', color: '#73c0de' },
-  { key: 'sdk_rpc_network_us', label: 'SDK RPC网络', color: '#fc8452' },
-  { key: 'sdk_rpc_framework_us', label: 'SDK RPC框架', color: '#9a60b4' },
-  { key: 'master_rpc_network_us', label: 'Master RPC网络', color: '#ff9f7f' },
-  { key: 'master_rpc_framework_us', label: 'Master RPC框架', color: '#ffdb5c' },
-  { key: 'remote_worker_rpc_network_us', label: 'Remote Worker RPC网络', color: '#2f4554' },
-  { key: 'remote_worker_rpc_framework_us', label: 'Remote Worker RPC框架', color: '#61a0a8' },
-  { key: 'urma_processing_us', label: 'URMA+UDMA+交换机+OS处理', color: '#6e7074' },
-  { key: 'urma_inflight_max', label: 'URMA并发数', color: '#749f83', unit: 'count' },
-  { key: 'remote_worker_processing_us', label: 'Remote Worker处理', color: '#ca8622' },
-  { key: 'client_master_rpc_network_us', label: 'Client Master RPC网络', color: '#bda29a' },
-  { key: 'client_master_rpc_framework_us', label: 'Client Master RPC框架', color: '#6e7074' },
-  { key: 'client_remote_rpc_network_us', label: 'Client Remote RPC网络', color: '#c4ccd3' },
-  { key: 'client_remote_rpc_framework_us', label: 'Client Remote RPC框架', color: '#f05b72' },
+  { key: 'query_get_network_us', label: 'QueryGet网络', color: '#fac858' },
+  { key: 'query_get_framework_us', label: 'QueryGet框架', color: '#73c0de' },
+  { key: 'query_get_worker_internal_us', label: 'QueryGet Worker内部', color: '#3ba272' },
+  { key: 'entry_to_data_remote_us', label: 'Entry→Data远端供数', color: '#d97706' },
+  { key: 'worker_residual_us', label: 'Worker/Meta内部（扣除UB）', color: '#91cc75' },
+  { key: 'urma_processing_us', label: 'Worker UB通信', color: '#9a60b4' },
+  { key: 'client_urma_processing_us', label: 'Client UB通信', color: '#6e7074' },
 ]
 
 const setTopSlowSegmentConfig: TopSlowSegmentConfig[] = [
@@ -5106,6 +5300,67 @@ const topSlowSegmentConfig = computed(() => getTopSlowSegmentConfig)
 const finiteLatencyValue = (value: unknown, scale = 1) =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? value * scale : 0
 
+// 互斥瀑布计算：输入 topSlow 明细行（后端 YUANRONG_METRIC_FIELDS 字段），
+// 输出互不重叠的分段（键 = getTopSlowSegmentConfig.key）与"其他"残差。
+const buildExclusiveSegments = (
+  row: Record<string, unknown>,
+  totalLatency: number,
+): { segments: Record<string, number>; otherLatency: number } => {
+  const us = (key: string) => {
+    const value = row[key]
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0
+  }
+  const queryNet =
+    us('query_get_local_rpc_network_us') + us('query_get_remote_rpc_network_us')
+  const queryFw =
+    us('query_get_local_rpc_framework_us') + us('query_get_remote_rpc_framework_us')
+  const serverExec = us('query_get_server_exec_us')
+  const urma = us('urma_processing_us')
+  const rawClientUrma = us('client_urma_processing_us')
+  const segments: Record<string, number> = {}
+  if (queryNet > 0 || queryFw > 0) {
+    // QueryGet 分支：QueryGet Worker内部 = server_exec − UB（对齐基准）。
+    // client_urma 是客户端在等待窗口内的 UB 耗时，与 worker 侧处理重叠，
+    // 只能分配剩余预算（否则 Σ段 会超过总时延）；SDK处理 = 剩余残差，闭合总时延。
+    const workerInternal = Math.max(serverExec - urma, 0)
+    const coreUsed = queryNet + queryFw + workerInternal + urma
+    const remaining = Math.max(totalLatency - coreUsed, 0)
+    const clientUrma = Math.min(rawClientUrma, remaining)
+    const sdk = Math.max(remaining - clientUrma, 0)
+    if (sdk > 0) segments['sdk_processing_us'] = sdk
+    if (queryNet > 0) segments['query_get_network_us'] = queryNet
+    if (queryFw > 0) segments['query_get_framework_us'] = queryFw
+    if (workerInternal > 0) segments['query_get_worker_internal_us'] = workerInternal
+    if (urma > 0) segments['urma_processing_us'] = urma
+    if (clientUrma > 0) segments['client_urma_processing_us'] = clientUrma
+    return { segments, otherLatency: 0 }
+  }
+  // 普通分支：outer = Worker Access时延 优先，否则 Remote Worker处理（对齐基准）。
+  // 从 Worker/Meta内部 中切出远端供数段（Remote Worker内部 = Remote Worker处理 − UB），
+  // 作为 Entry→Data 远端供数交互段；SDK/Worker-Meta内部/远端供数均按剩余预算 min 扣除，
+  // 保证 Σ段 ≤ 总时延（修复 sdk 与 worker 窗口重叠导致 Σ段 > 总时延的问题）；
+  // client_urma 超出剩余预算的部分不展示；残差"其他"闭合总时延。
+  const sdkObs = us('sdk_processing_us')
+  const workerAccess = us('worker_access_latency_us')
+  const remProc = us('remote_worker_processing_us')
+  const rawRemote = us('remote_worker_internal_us')
+  const outer = workerAccess || remProc
+  const sdk = Math.min(sdkObs, totalLatency)
+  const urmaAlloc = Math.min(urma, Math.max(totalLatency - sdk, 0))
+  const residualRaw = Math.max(outer - urma, 0)
+  const workerResidual = Math.min(residualRaw, Math.max(totalLatency - sdk - urmaAlloc, 0))
+  const remoteData = Math.min(rawRemote, workerResidual)
+  const coreUsed = sdk + urmaAlloc + (workerResidual - remoteData)
+  const remaining = Math.max(totalLatency - coreUsed, 0)
+  const clientUrma = Math.min(rawClientUrma, remaining)
+  if (sdk > 0) segments['sdk_processing_us'] = sdk
+  if (workerResidual - remoteData > 0) segments['worker_residual_us'] = workerResidual - remoteData
+  if (remoteData > 0) segments['entry_to_data_remote_us'] = remoteData
+  if (urmaAlloc > 0) segments['urma_processing_us'] = urmaAlloc
+  if (clientUrma > 0) segments['client_urma_processing_us'] = clientUrma
+  return { segments, otherLatency: Math.max(totalLatency - coreUsed - clientUrma, 0) }
+}
+
 const topSlowChartRows = computed<TopSlowChartRow[]>(() =>
   topSlowRequests.value
     .map((request) => {
@@ -5114,13 +5369,7 @@ const topSlowChartRows = computed<TopSlowChartRow[]>(() =>
       const totalLatency = finiteLatencyValue(totalLatencyMs, 1000)
       if (!date || totalLatency <= 0) return null
 
-      const segments = {} as Record<TopSlowSegmentKey, number>
-      let displayedLatency = 0
-      topSlowSegmentConfig.value.forEach((segment) => {
-        const value = finiteLatencyValue(request[segment.key])
-        segments[segment.key] = value
-        if (segment.unit !== 'count') displayedLatency += value
-      })
+      const { segments, otherLatency } = buildExclusiveSegments(request, totalLatency)
 
       return {
         id: request.id,
@@ -5129,7 +5378,7 @@ const topSlowChartRows = computed<TopSlowChartRow[]>(() =>
         timestampLabel: formatFullTimeLabel(date),
         operation: request.operation || selectedOperation.value.toUpperCase(),
         totalLatency,
-        otherLatency: Math.max(totalLatency - displayedLatency, 0),
+        otherLatency,
         segments,
       }
     })
@@ -5144,7 +5393,7 @@ const isLatencyMetricAbnormal = (metric: AggregatedLatencyKey, value?: number | 
 }
 
 const anomalyListLatencyThresholds = {
-  total_latency: totalLatencyAbnormalThresholdMs,
+  total_latency: totalLatencyP99AbnormalThresholdMs,
   query_meta_latency: 1,
   urma_total_latency: 1,
   urma_link_latency: 1,
@@ -5169,17 +5418,32 @@ const isAnomalyListLatencyMetricAbnormal = (
   return value > anomalyListLatencyThresholds[metric]
 }
 
-const getTraceDelayValue = (trace: TraceDetailRow | null | undefined, column: TraceDelayColumn) =>
-  trace ? trace[column.key] : null
+const getTraceDelayValue = (
+  trace: TraceDetailRow | null | undefined,
+  column: TraceDelayColumn,
+) => {
+  if (!trace) return null
+  // 优先从后端明细 raw 读取与 32 项关键时延指标同名的字段
+  const raw = trace.raw as Record<string, unknown> | undefined
+  if (raw) {
+    const rawValue = raw[column.key]
+    if (typeof rawValue === 'number' && Number.isFinite(rawValue)) return rawValue
+  }
+  const fallback = (trace as Record<string, unknown>)[column.key]
+  return typeof fallback === 'number' && Number.isFinite(fallback) ? fallback : null
+}
 
 const hasTruncatedTotalLatency = (trace: TraceDetailRow | null | undefined) => {
-  const totalLatency = trace?.sdkMs
+  // 总时延取时延明细表展示的 total_latency_us（与各分段同为微秒），
+  // 不能误用毫秒级 sdkMs，否则任意分段都会大于总时延、警示恒显示。
+  const totalColumn = traceDelayColumns.find((column) => column.key === 'total_latency_us')
+  const totalLatency = totalColumn ? getTraceDelayValue(trace, totalColumn) : null
   if (typeof totalLatency !== 'number' || !Number.isFinite(totalLatency) || totalLatency < 0) {
     return false
   }
 
   return traceDelayColumns.some((column) => {
-    if (column.key === 'sdkMs') return false
+    if (column.key === 'total_latency_us') return false
     const latency = getTraceDelayValue(trace, column)
     return typeof latency === 'number' && Number.isFinite(latency) && latency >= 0 && latency > totalLatency
   })
@@ -5189,13 +5453,10 @@ const isTraceDelayAbnormal = (
   trace: TraceDetailRow | null | undefined,
   column: TraceDelayColumn,
 ) => {
+  if (column.unit === 'count') return false
   const value = getTraceDelayValue(trace, column)
   if (typeof value !== 'number' || !Number.isFinite(value)) return false
-
-  if ('metric' in column && column.metric) {
-    const threshold = anomalyListLatencyThresholds[column.metric] ?? column.threshold ?? 150
-    return value > threshold
-  }
+  if (column.key === 'total_latency_us' && trace?.raw?.is_anomalous) return true
   return value > column.threshold
 }
 
@@ -5278,8 +5539,7 @@ const latencyChartBuckets = computed<LatencyChartBucket[]>(() => {
 const detailFaultTraceChartRows = computed<TopSlowChartRow[]>(() => {
   const operation =
     selectedAggregatedEvent.value?.event?.operation || selectedOperation.value.toUpperCase()
-  const segmentConfig =
-    operation.toUpperCase() === 'SET' ? setTopSlowSegmentConfig : getTopSlowSegmentConfig
+  const isSetOperation = operation.toUpperCase() === 'SET'
 
   return allDetailParseResults.value
     .map((result) => {
@@ -5289,13 +5549,24 @@ const detailFaultTraceChartRows = computed<TopSlowChartRow[]>(() => {
       const totalLatency = finiteLatencyValue(result.total_latency, 1000)
       if (!date || totalLatency <= 0) return null
 
-      const segments = {} as Record<TopSlowSegmentKey, number>
-      let displayedLatency = 0
-      segmentConfig.forEach((segment) => {
-        const value = finiteLatencyValue(result[segment.key])
-        segments[segment.key] = value
-        if (segment.unit !== 'count') displayedLatency += value
-      })
+      // SET 无 QueryGet 分支，保持累加式 CREATE/PUBLISH 分段；
+      // GET 与最慢请求时序分解一致，使用互斥分段（对齐 kvcache 基准）。
+      let segments: Record<TopSlowSegmentKey, number>
+      let otherLatency: number
+      if (isSetOperation) {
+        segments = {} as Record<TopSlowSegmentKey, number>
+        let displayedLatency = 0
+        setTopSlowSegmentConfig.forEach((segment) => {
+          const value = finiteLatencyValue(result[segment.key])
+          segments[segment.key] = value
+          displayedLatency += value
+        })
+        otherLatency = Math.max(totalLatency - displayedLatency, 0)
+      } else {
+        const exclusive = buildExclusiveSegments(result, totalLatency)
+        segments = exclusive.segments
+        otherLatency = exclusive.otherLatency
+      }
 
       return {
         id: result.id,
@@ -5304,7 +5575,7 @@ const detailFaultTraceChartRows = computed<TopSlowChartRow[]>(() => {
         timestampLabel: formatFullTimeLabel(date),
         operation: result.operation || operation.toUpperCase(),
         totalLatency,
-        otherLatency: Math.max(totalLatency - displayedLatency, 0),
+        otherLatency,
         segments,
       }
     })
@@ -5317,6 +5588,9 @@ let detailLatencyChartInstance: ECharts | null = null
 let faultChartInstance: ECharts | null = null
 let faultDetailChartInstance: ECharts | null = null
 let topSlowChartInstance: ECharts | null = null
+let latencyReadFlowChartInstance: ECharts | null = null
+let latencyWriteFlowChartInstance: ECharts | null = null
+let traceFlowChartInstance: ECharts | null = null
 let topSlowTooltipPinned = false
 
 const getLatencyMarkAreas = (buckets: LatencyChartBucket[]) => {
@@ -6049,12 +6323,708 @@ const renderTopSlowEchart = () => {
   topSlowChartInstance.resize()
 }
 
+// ===== 角色交互流（read/write flow）渲染 =====
+// 固定阈值与后端一致：max>=50ms 红粗、>=10ms 橙、有数据蓝、无数据灰虚线。
+const FLOW_WARN_MS = 10
+const FLOW_CRITICAL_MS = 50
+// 角色节点样式（颜色/背景固定；坐标按 GET/SET 分别布局）
+const FLOW_ROLE_STYLE: Record<string, { color: string; bg: string }> = {
+  client: { color: '#1d4ed8', bg: '#dbeafe' },
+  entry: { color: '#15803d', bg: '#dcfce7' },
+  meta: { color: '#b45309', bg: '#fef3c7' },
+  data: { color: '#be185d', bg: '#fce7f3' },
+}
+// GET：Client 最左、Entry Worker 正右侧，Meta Worker 右上 / Data Worker 右下。
+// 比例坐标预留上下边距，节点下方标注文字完整露出不被截断。
+const FLOW_NODE_LAYOUT_GET: Record<string, { x: number; y: number }> = {
+  client: { x: 0.12, y: 0.42 },
+  entry: { x: 0.4, y: 0.42 },
+  meta: { x: 0.72, y: 0.16 },
+  data: { x: 0.72, y: 0.66 },
+}
+// SET：Client / Entry Worker / Meta Worker 从左到右一排（无 Data Worker）
+const FLOW_NODE_LAYOUT_SET: Record<string, { x: number; y: number }> = {
+  client: { x: 0.2, y: 0.5 },
+  entry: { x: 0.5, y: 0.5 },
+  meta: { x: 0.8, y: 0.5 },
+}
+const flowNodeLayout = (flow: 'GET' | 'SET'): Record<string, { x: number; y: number }> =>
+  flow === 'GET' ? FLOW_NODE_LAYOUT_GET : FLOW_NODE_LAYOUT_SET
+// 兜底样式：索引访问在 noUncheckedIndexedAccess 下会判为可选，故单独抽出非可选常量。
+const DEFAULT_FLOW_EDGE_STYLE = { color: '#3b82f6', width: 2.5, lineType: 'solid' as const }
+const FLOW_EDGE_STYLE: Record<string, { color: string; width: number; lineType: 'solid' | 'dashed' }> = {
+  critical: { color: '#dc2626', width: 5, lineType: 'solid' },
+  warn: { color: '#f59e0b', width: 3.5, lineType: 'solid' },
+  present: DEFAULT_FLOW_EDGE_STYLE,
+  missing: { color: '#9ca3af', width: 2, lineType: 'dashed' },
+}
+// 交互段 stage_key -> 角色边（与后端 READ_STAGES / WRITE_STAGES 对齐）。
+// "点归点线归线"：只保留真正的跨角色交互窗口；client/worker 自身处理改由正交分解标注在节点上。
+const TRACE_FLOW_STAGES: Record<
+  string,
+  { source: string; target: string; operation: string; flow: 'read' | 'write' | 'both' }
+> = {
+  client_to_entry: { source: 'client', target: 'entry', operation: 'Client UB 通信', flow: 'both' },
+  entry_to_meta: { source: 'entry', target: 'meta', operation: 'QueryGet RPC 网络/框架', flow: 'read' },
+  entry_to_data: { source: 'entry', target: 'data', operation: 'Entry→Data 远端供数', flow: 'read' },
+  data_to_entry_ub: { source: 'data', target: 'entry', operation: 'Worker UB 通信(URMA 回传)', flow: 'read' },
+  entry_to_meta_publish: { source: 'entry', target: 'meta', operation: 'Entry→Meta Publish', flow: 'write' },
+}
+// 正交分解段（与后端 _GET/_SET_DECOMP_SEGMENTS 对齐）：key -> 展示名/颜色/归属节点
+// GET 9 段互斥分解（与瀑布图 buildExclusiveSegments 完全一致）；
+// SET 与 GET 普通分支完全一致（SDK处理 + Worker/Meta内部 + Worker UB + Client UB + 其他）。
+// node 字段仅标记"点归点"的节点自身处理段；跨角色交互段（边）node 置空，不参与节点自身处理统计。
+const DECOMP_SEGMENT_META: Record<
+  string,
+  { name: string; color: string; node: string }
+> = {
+  sdk_processing_us: { name: 'SDK 处理', color: '#2563eb', node: 'client' },
+  query_get_network_us: { name: 'QueryGet 网络', color: '#f59e0b', node: '' },
+  query_get_framework_us: { name: 'QueryGet 框架', color: '#0ea5e9', node: '' },
+  query_get_worker_internal_us: { name: 'QueryGet Worker 内部', color: '#b45309', node: 'meta' },
+  urma_processing_us: { name: 'Worker UB 通信', color: '#059669', node: '' },
+  client_urma_processing_us: { name: 'Client UB 通信', color: '#60a5fa', node: '' },
+  entry_to_data_remote_us: { name: 'Entry→Data 远端供数', color: '#d97706', node: '' },
+  worker_residual_us: { name: 'Worker/Meta 内部(扣除UB)', color: '#7c3aed', node: 'entry' },
+  residual: { name: '其他', color: '#9ca3af', node: '' },
+}
+const FLOW_ROLE_LABELS: Record<string, string> = {
+  client: 'Client',
+  entry: 'Entry Worker',
+  meta: 'Meta Worker',
+  data: 'Data Worker',
+}
+
+const flowEdgeLatencyText = (edge: FlowEdgeModel) => {
+  const rollup = edge.rollup
+  if (!rollup || rollup.trace_count === 0) return edge.summary || '无该段时延数据'
+  const parts: string[] = []
+  if (rollup.avg_ms != null) parts.push(`avg=${rollup.avg_ms.toFixed(1)}ms`)
+  if (rollup.p99_ms != null) parts.push(`p99=${rollup.p99_ms.toFixed(1)}ms`)
+  return parts.join('  ')
+}
+
+const flowStageStatus = (
+  ms: number | null | undefined,
+  warnMs: number,
+  criticalMs: number,
+): string => {
+  if (ms == null) return 'missing'
+  if (ms >= criticalMs) return 'critical'
+  if (ms >= warnMs) return 'warn'
+  return 'present'
+}
+
+const buildFlowGraphOption = (
+  graph: FlowGraphModel,
+  flow: 'GET' | 'SET',
+  size: { width: number; height: number },
+  title: string,
+  decomposition?: FlowDecompositionModel | null,
+): EChartsOption => {
+  const width = Math.max(size.width || 600, 600)
+  const height = Math.max(size.height || 340, 300)
+  // 自适应分位阈值（后端下发），缺省回退固定 10/50ms
+  const warnMs = graph.warn_ms ?? FLOW_WARN_MS
+  const criticalMs = graph.critical_ms ?? FLOW_CRITICAL_MS
+  // 节点自身处理统计：优先用后端下发的 own_rollup（avg/p50/p99/max），缺失时回退
+  // 由正交分解段中"点归点"段（node 匹配）的 avg 求和。
+  const nodeOwn = (node: FlowNodeModel): FlowEdgeRollupModel | null => {
+    if (node.own_rollup && node.own_rollup.avg_ms != null) return node.own_rollup
+    const sum = (decomposition?.segments ?? [])
+      .filter((seg) => seg.node === node.id && seg.key !== 'residual')
+      .reduce((acc, seg) => acc + (seg.rollup?.avg_ms ?? 0), 0)
+    return sum > 0.001
+      ? { trace_count: 0, avg_ms: sum, top_workers: [] }
+      : null
+  }
+  const nodes = (graph.nodes?.length ? graph.nodes : [])
+    // SET 写入流无 Data Worker，仅渲染 Client/Entry/Meta
+    .filter((node) => flow !== 'SET' || node.id !== 'data')
+    .map((node) => {
+      const layout = flowNodeLayout(flow)[node.id] ?? { x: 0.5, y: 0.5 }
+      const roleStyle = FLOW_ROLE_STYLE[node.id] ?? { color: '#6b7280', bg: '#f3f4f6' }
+      const own = nodeOwn(node)
+      const baseLabel = node.label || FLOW_ROLE_LABELS[node.id] || node.id
+      return {
+        id: node.id,
+        name: node.label || FLOW_ROLE_LABELS[node.id] || node.id,
+        x: layout.x * width,
+        y: layout.y * height,
+        symbolSize: 48,
+        itemStyle: { color: roleStyle.bg, borderColor: roleStyle.color, borderWidth: 2 },
+      label: {
+        show: true,
+        position: 'bottom' as const,
+        distance: 8,
+        fontSize: 11,
+        lineHeight: 14,
+        fontWeight: 700,
+        color: roleStyle.color,
+        formatter: () => {
+          if (own == null) return baseLabel
+          const p99Text = own.p99_ms != null ? ` · p99=${own.p99_ms.toFixed(1)}ms` : ''
+          return `${baseLabel}\n自身处理 avg=${own.avg_ms?.toFixed(1)}ms${p99Text}`
+        },
+      },
+      tooltip: {
+        formatter: () => {
+          const lines = [node.label || FLOW_ROLE_LABELS[node.id] || node.id]
+          if (own != null) {
+            const parts = [`avg=${own.avg_ms?.toFixed(1)}ms`]
+            if (own.p99_ms != null) parts.push(`p99=${own.p99_ms.toFixed(1)}ms`)
+            lines.push(`自身处理：${parts.join(' · ')}`)
+            // avg 为全量 Trace 口径（含 0，可与总时延对账）；
+            // 部分 Trace 无该节点处理段时，标注实际处理水平（仅正值 Trace 的均值）
+            if (
+              node.own_observed != null &&
+              node.own_observed > 0 &&
+              own.trace_count != null &&
+              own.trace_count > node.own_observed
+            ) {
+              const actual =
+                ((own.avg_ms ?? 0) * own.trace_count) / node.own_observed
+              lines.push(
+                `实际处理 avg=${actual.toFixed(1)}ms`,
+              )
+            }
+          }
+          if (node.top_workers?.length) lines.push(`容器：${node.top_workers.slice(0, 5).join(', ')}`)
+          if (node.top_ips?.length) lines.push(`IP：${node.top_ips.slice(0, 3).join(', ')}`)
+          return lines.join('<br/>')
+        },
+      },
+    }
+  })
+
+  // 相同 (source, target) 的多条边错开曲率，避免完全重叠
+  const edgeOrder: Record<string, number> = {}
+  const links = (graph.edges ?? []).map((edge) => {
+    const pairKey = `${edge.source}->${edge.target}`
+    const index = edgeOrder[pairKey] ?? 0
+    edgeOrder[pairKey] = index + 1
+    const style = FLOW_EDGE_STYLE[edge.status] ?? DEFAULT_FLOW_EDGE_STYLE
+    const rollup = edge.rollup
+    return {
+      source: edge.source,
+      target: edge.target,
+      // 携带原始 edge 数据，供点击事件打开该时延段的 trace 明细弹窗
+      edge,
+      label: {
+        show: true,
+        formatter: `${edge.operation}\n${flowEdgeLatencyText(edge)}`,
+        fontSize: 10,
+        lineHeight: 13,
+        color: style.color,
+        fontWeight: 600,
+      },
+      lineStyle: {
+        color: style.color,
+        width: style.width,
+        type: style.lineType,
+        curveness: index % 2 === 0 ? 0.16 : -0.16,
+        opacity: edge.status === 'missing' ? 0.55 : 0.95,
+      },
+      tooltip: {
+        formatter: () => {
+          const lines = [
+            `${edge.operation}（${FLOW_ROLE_LABELS[edge.source] || edge.source} → ${FLOW_ROLE_LABELS[edge.target] || edge.target}）`,
+            flowEdgeLatencyText(edge),
+          ]
+          if (rollup?.top_trace) lines.push(`最慢 Trace：${rollup.top_trace}`)
+          if (edge.source_pods?.length) {
+            lines.push(`源角色容器（${FLOW_ROLE_LABELS[edge.source] || edge.source}）：${edge.source_pods.slice(0, 3).join(', ')}`)
+          }
+          if (edge.target_pods?.length) {
+            lines.push(`目标角色容器（${FLOW_ROLE_LABELS[edge.target] || edge.target}）：${edge.target_pods.slice(0, 3).join(', ')}`)
+          }
+          return lines.join('<br/>')
+        },
+      },
+    }
+  })
+
+  return {
+    title: {
+      text: title,
+      left: 'center',
+      top: 2,
+      textStyle: { fontSize: 13, fontWeight: 600, color: '#374151' },
+    },
+    tooltip: { trigger: 'item' },
+    animationDurationUpdate: 400,
+    series: [
+      {
+        type: 'graph',
+        layout: 'none',
+        roam: false,
+        draggable: false,
+        data: nodes,
+        links,
+        emphasis: { focus: 'adjacency', lineStyle: { width: 7 } },
+      },
+    ],
+  }
+}
+
+// 单个 trace 的 flow 图：从 per_trace 还原各交互段时延并按阈值着色
+// 从 trace 行级 pod_role 聚合中取某角色节点下的全部容器（含双重身份 pod）
+const getFlowNodePods = (trace: TraceDetailRow | null, nodeId: string): string[] => {
+  const pr = trace?.podRole
+  if (!pr) return []
+  if (nodeId === 'client') return pr.client_pod ? [pr.client_pod] : []
+  if (nodeId === 'entry') return pr.entry_worker_pods ?? []
+  if (nodeId === 'meta') return pr.meta_worker_pods ?? []
+  if (nodeId === 'data') return pr.data_worker_pods ?? []
+  return []
+}
+
+// pod 所属的全部角色（按 pod_role 聚合），用于时延流图的双重身份标注
+const getTracePodRoleIds = (trace: TraceDetailRow | null, pod: string): string[] => {
+  const pr = trace?.podRole
+  if (!pr) return []
+  const roles: string[] = []
+  if (pr.client_pod && pr.client_pod === pod) roles.push('client')
+  const add = (role: string, pods: unknown) => {
+    const list = typeof pods === 'string' ? [pods] : Array.isArray(pods) ? pods : []
+    if (list.includes(pod)) roles.push(role)
+  }
+  add('entry', pr.entry_worker_pods)
+  add('meta', pr.meta_worker_pods)
+  add('data', pr.data_worker_pods)
+  return roles
+}
+
+const buildSingleTraceFlowOption = (
+  summary: FlowSummaryModel,
+  traceId: string,
+  size: { width: number; height: number },
+  fallbackOperation?: string | null,
+  trace?: TraceDetailRow | null,
+): EChartsOption => {
+  const stage = summary.per_trace?.find((item) => item.trace_id === traceId)
+  const width = Math.max(size.width || 600, 600)
+  const height = Math.max(size.height || 340, 300)
+  // 时延未识别的 Trace（log_parse_result 无对应行）也渲染角色布局图：
+  // 操作类型取 per_trace 的 operation，缺失时回退到 trace 行的 operation，再兜底 GET。
+  const rawOperation = stage?.operation || fallbackOperation || ''
+  const upperOp = rawOperation.toUpperCase()
+  const isWrite =
+    upperOp.includes('SET') || upperOp.includes('CREATE') || upperOp.includes('PUBLISH')
+  const flowGraph = isWrite ? summary.write : summary.read
+  // 单 trace 图沿用对应 flow 的自适应分位阈值，缺省回退固定 10/50ms
+  const warnMs = flowGraph.warn_ms ?? FLOW_WARN_MS
+  const criticalMs = flowGraph.critical_ms ?? FLOW_CRITICAL_MS
+  // 是否有实际时延分解数据（stages 非空或 total_ms 有值）；仅角色无时延也显示"无数据"提示
+  const hasData = Boolean(
+    stage && (stage.total_ms != null || Object.keys(stage.stages ?? {}).length > 0),
+  )
+  const nodes = (summary.nodes?.length ? summary.nodes : [])
+    // SET 写入流无 Data Worker，仅渲染 Client/Entry/Meta
+    .filter((node) => !isWrite || node.id !== 'data')
+    .map((node) => {
+      const layout = flowNodeLayout(isWrite ? 'SET' : 'GET')[node.id] ?? { x: 0.5, y: 0.5 }
+      const roleStyle = FLOW_ROLE_STYLE[node.id] ?? { color: '#6b7280', bg: '#f3f4f6' }
+      const rolePod = stage?.roles?.[node.id]
+      // 节点容器列表：优先用 trace 行级 pod_role 聚合的全部容器（能体现双重身份 pod），
+      // 无行级数据时回退到交互流 per_trace roles 的单容器
+      const nodePods = (() => {
+        const pods = getFlowNodePods(trace, node.id)
+        return pods.length ? pods : rolePod ? [rolePod] : []
+      })()
+      // 节点自身处理 = 正交分解中归属该节点的段之和（点归点），不含残差
+      const own = Object.entries(DECOMP_SEGMENT_META)
+        .filter(([, meta]) => meta.node === node.id && node.id !== '')
+        .reduce((acc, [key]) => acc + (stage?.stages?.[key] ?? 0), 0)
+      const ownMs = own > 0.001 ? own : null
+      const podLine = (pod: string) => {
+        const ids = getTracePodRoleIds(trace, pod)
+        return ids.length > 1
+          ? `${pod}（${ids.map((r) => FLOW_ROLE_LABELS[r] || r).join('+')}）`
+          : pod
+      }
+      return {
+        id: node.id,
+        name: node.label || FLOW_ROLE_LABELS[node.id] || node.id,
+        x: layout.x * width,
+        y: layout.y * height,
+        symbolSize: 48,
+        itemStyle: { color: roleStyle.bg, borderColor: roleStyle.color, borderWidth: 2 },
+        label: {
+          show: true,
+          position: 'bottom' as const,
+          distance: 8,
+          fontSize: 11,
+          lineHeight: 14,
+          fontWeight: 700,
+          color: roleStyle.color,
+          formatter: (params: { name: string }) => {
+            const base = params.name || node.label || FLOW_ROLE_LABELS[node.id] || node.id
+            const parts = [base]
+            if (nodePods.length) parts.push(...nodePods.map(podLine))
+            if (ownMs != null) parts.push(`自身处理 ${ownMs.toFixed(1)}ms`)
+            return parts.join('\n')
+          },
+        },
+        tooltip: {
+          formatter: () => {
+            const lines = [node.label || FLOW_ROLE_LABELS[node.id] || node.id]
+            if (ownMs != null) lines.push(`自身处理（点归点）：${ownMs.toFixed(1)}ms`)
+            if (nodePods.length) {
+              nodePods.forEach((pod) => {
+                const ids = getTracePodRoleIds(trace, pod)
+                lines.push(
+                  ids.length > 1
+                    ? `容器：${pod}（${ids.map((r) => FLOW_ROLE_LABELS[r] || r).join('+')}）`
+                    : `容器：${pod}`,
+                )
+              })
+            }
+            return lines.join('<br/>')
+          },
+        },
+      }
+    })
+  const links = Object.entries(TRACE_FLOW_STAGES)
+    .filter(([, def]) => (isWrite ? def.flow !== 'read' : def.flow !== 'write'))
+    .map(([stageKey, def]) => {
+      const ms = stage?.stages?.[stageKey]
+      const status = flowStageStatus(ms, warnMs, criticalMs)
+      const style = FLOW_EDGE_STYLE[status] ?? DEFAULT_FLOW_EDGE_STYLE
+      return {
+        source: def.source,
+        target: def.target,
+        label: {
+          show: true,
+          formatter: ms != null ? `${def.operation}\n${ms.toFixed(1)}ms` : `${def.operation}\n无数据`,
+          fontSize: 10,
+          lineHeight: 13,
+          color: style.color,
+          fontWeight: 600,
+        },
+        lineStyle: {
+          color: style.color,
+          width: style.width,
+          type: style.lineType,
+          curveness: 0.1,
+          opacity: status === 'missing' ? 0.5 : 0.95,
+        },
+        tooltip: {
+          formatter: () =>
+            `${def.operation}（${FLOW_ROLE_LABELS[def.source]} → ${FLOW_ROLE_LABELS[def.target]}）：${
+              ms != null ? `${ms.toFixed(1)}ms（${status}）` : '无该段时延数据'
+            }`,
+        },
+      }
+    })
+  const residualMs = stage?.stages?.residual
+  return {
+    title: {
+      text: isWrite ? 'Write Flow' : 'Read Flow',
+      subtext: hasData
+        ? stage?.total_ms != null
+          ? `总时延 ${stage.total_ms.toFixed(1)}ms · 残差 ${
+              residualMs != null ? `${residualMs.toFixed(2)}ms` : '-'
+            }（Σ段+残差=总时延）`
+          : ''
+        : '未识别到该 Trace 的时延分解数据',
+      left: 'center',
+      top: 2,
+      textStyle: { fontSize: 13, fontWeight: 600, color: '#374151' },
+      subtextStyle: { fontSize: 10, color: '#6b7280' },
+    },
+    tooltip: { trigger: 'item' },
+    animationDurationUpdate: 300,
+    series: [
+      {
+        type: 'graph',
+        layout: 'none',
+        roam: false,
+        draggable: false,
+        data: nodes,
+        links,
+        emphasis: { focus: 'adjacency', lineStyle: { width: 7 } },
+      },
+    ],
+  }
+}
+
+// 通用渲染：绑定/复用 ECharts 实例并返回实例（供调用方保存）
+const renderFlowChart = (
+  element: HTMLDivElement | null,
+  instance: ECharts | null,
+  graph: FlowGraphModel | null,
+  flow: 'GET' | 'SET',
+  title: string,
+  decomposition?: FlowDecompositionModel | null,
+): ECharts | null => {
+  if (!element || !graph) return instance
+  if (instance && instance.getDom() !== element) {
+    instance.dispose()
+    instance = null
+  }
+  instance ??= echarts.init(element)
+  instance.setOption(
+    buildFlowGraphOption(
+      graph,
+      flow,
+      { width: element.clientWidth, height: element.clientHeight },
+      title,
+      decomposition,
+    ),
+    true,
+  )
+  instance.resize()
+  // 点击边 -> 打开该时延段的 trace 明细弹窗；点击节点 -> 打开该节点自身处理的 trace 明细弹窗
+  instance.off('click')
+  instance.on('click', (params: { dataType?: string; data?: unknown }) => {
+    if (params.dataType === 'edge') {
+      const edge = (params.data as { edge?: FlowEdgeModel } | null | undefined)?.edge
+      if (edge) showFlowEdgeDetail(edge)
+    } else if (params.dataType === 'node') {
+      const nodeId = (params.data as { id?: string } | null | undefined)?.id
+      if (nodeId) showFlowNodeDetail(nodeId)
+    }
+  })
+  return instance
+}
+
+// 正交分解总时延/残差纯文字标注（替换瀑布图）：总时延 avg/p99 + 残差 avg/p99
+const activeFlowDecompText = computed<string>(() => {
+  const summary = latencyFlowSummary.value
+  if (!summary) return ''
+  const decomp = summary.decomposition?.find((item) => item.operation === activeFlowTab.value)
+  if (!decomp) return ''
+  const total = decomp.total
+  const residual = (decomp.segments ?? []).find((seg) => seg.key === 'residual')
+  return (
+    `总时延 avg=${formatFlowMs(total?.avg_ms)} · p99=${formatFlowMs(total?.p99_ms)}` +
+    `　残差 avg=${formatFlowMs(residual?.rollup?.avg_ms)} · p99=${formatFlowMs(residual?.rollup?.p99_ms)}`
+  )
+})
+
+const renderLatencyFlowCharts = () => {
+  if (!isAbnormalMonitorPage.value || isLatencyFlowLoading.value || latencyFlowError.value) return
+  const summary = latencyFlowSummary.value
+  if (!summary) return
+  const readDecomp = summary.decomposition?.find((item) => item.operation === 'GET')
+  const writeDecomp = summary.decomposition?.find((item) => item.operation === 'SET')
+  latencyReadFlowChartInstance = renderFlowChart(
+    latencyReadFlowRef.value,
+    latencyReadFlowChartInstance,
+    summary.read,
+    'GET',
+    'Read Flow',
+    readDecomp,
+  )
+  latencyWriteFlowChartInstance = renderFlowChart(
+    latencyWriteFlowRef.value,
+    latencyWriteFlowChartInstance,
+    summary.write,
+    'SET',
+    'Write Flow',
+    writeDecomp,
+  )
+}
+
+// 点击总览 flow 图的边 -> 打开该时延段的 trace 明细弹窗
+const showFlowEdgeDetail = (edge: FlowEdgeModel) => {
+  if (!edge.rollup || edge.rollup.trace_count === 0) {
+    flowEdgeDetail.value = {
+      operation: edge.operation,
+      source: edge.source,
+      target: edge.target,
+      status: edge.status,
+      rollup: edge.rollup ?? {
+        trace_count: 0,
+        top_workers: [],
+      },
+    }
+    return
+  }
+  flowEdgeDetail.value = {
+    operation: edge.operation,
+    source: edge.source,
+    target: edge.target,
+    status: edge.status,
+    rollup: edge.rollup,
+  }
+}
+
+// 点击总览 flow 图的节点 -> 打开该节点自身处理的 trace 明细弹窗
+const showFlowNodeDetail = (nodeId: string) => {
+  const summary = latencyFlowSummary.value
+  const operation = activeFlowTab.value
+  // 节点自身处理 = 正交分解中归属该节点的段之和（不含残差/交互边）
+  const traceItems: FlowNodeTraceItem[] = (summary?.per_trace ?? [])
+    .filter((item) => item.operation === operation)
+    .map((item) => {
+      const own = Object.entries(DECOMP_SEGMENT_META)
+        .filter(([, meta]) => meta.node === nodeId && nodeId !== '')
+        .reduce((acc, [key]) => acc + (item.stages?.[key] ?? 0), 0)
+      return {
+        trace_id: item.trace_id,
+        value_ms: own,
+        total_ms: item.total_ms ?? null,
+        roles: item.roles ?? {},
+      }
+    })
+    .filter((item) => item.value_ms > 0.001)
+    .sort((a, b) => b.value_ms - a.value_ms)
+  const nodeModel = summary?.nodes?.find((node) => node.id === nodeId)
+  flowNodeDetail.value = {
+    nodeId,
+    label: FLOW_ROLE_LABELS[nodeId] || nodeId,
+    operation,
+    rollup: nodeModel?.own_rollup ?? null,
+    trace_items: traceItems,
+  }
+}
+
+// 弹窗中点击某条 trace -> 跳转到该 trace 的详情抽屉（复用时延页 trace 详情）
+const openFlowEdgeTrace = (traceId: string) => {
+  const summary = latencyFlowSummary.value
+  const stage = summary?.per_trace?.find((item) => item.trace_id === traceId)
+  const stages = stage?.stages ?? {}
+  flowEdgeDetail.value = null
+  openTraceDialog({
+    traceId,
+    podIp: stage?.roles?.client ?? stage?.roles?.entry ?? '',
+    time: '',
+    sdkMs: stage?.total_ms ?? null,
+    // 与 9 段互斥分解对齐（GET/SET 同一套普通分支）：
+    // reqDelay=QueryGet RPC 网络/框架；w2w=Worker UB 回传；sdkProcess=SDK 处理；
+    // localWorkerCost=Worker/Meta 内部（扣除 UB）；remoteWorkerCost=QueryGet Worker 内部；
+    // c2w=Client UB 通信。
+    reqDelay:
+      (stages.query_get_network_us ?? 0) + (stages.query_get_framework_us ?? 0) || null,
+    respDelay: null,
+    urmaLinkLatency: null,
+    c2wUrmaLatency: stages.client_urma_processing_us ?? null,
+    w2wUrmaLatency: stages.data_to_entry_ub ?? stages.urma_processing_us ?? null,
+    sdkProcess: stages.sdk_processing_us ?? null,
+    sdkRpc: null,
+    workerTotalLatency: null,
+    localWorkerCost: stages.worker_residual_us ?? null,
+    localWorkerLock: null,
+    remoteWorkerCost: stages.query_get_worker_internal_us ?? null,
+    remoteWorkerRpc: null,
+    masterProcess: null,
+    masterRpcTotal: null,
+    faultCodes: [],
+    raw: (stage?.raw ?? {}) as LogParseResultModel,
+  })
+}
+
+// 节点弹窗中点击某条 trace -> 跳转到该 trace 的详情抽屉（复用边弹窗的跳转逻辑）
+const openFlowNodeTrace = (traceId: string) => {
+  flowNodeDetail.value = null
+  openFlowEdgeTrace(traceId)
+}
+
+const formatFlowMs = (v: number | null | undefined): string =>
+  v != null ? `${v.toFixed(1)}ms` : '-'
+
+// trace_id -> 端到端时延文本，供弹窗表格展示
+const stageTotalMsByTrace = computed<Record<string, string>>(() => {
+  const result: Record<string, string> = {}
+  for (const item of latencyFlowSummary.value?.per_trace ?? []) {
+    result[item.trace_id] = item.total_ms != null ? `${item.total_ms.toFixed(1)}ms` : '-'
+  }
+  return result
+})
+
+const renderTraceFlowChart = () => {
+  const element = traceFlowChartRef.value
+  const trace = selectedFaultTrace.value || selectedTrace.value
+  if (!element || !trace) return
+  const summary = traceFlowByTrace.value.get(trace.traceId)
+  if (!summary) return
+  if (traceFlowChartInstance && traceFlowChartInstance.getDom() !== element) {
+    traceFlowChartInstance.dispose()
+    traceFlowChartInstance = null
+  }
+  traceFlowChartInstance ??= echarts.init(element)
+  const option = buildSingleTraceFlowOption(summary, trace.traceId, {
+    width: element.clientWidth,
+    height: element.clientHeight,
+  }, trace.operation, trace)
+  traceFlowChartInstance.setOption(option, true)
+  traceFlowChartInstance.resize()
+}
+
+const loadFlowSummaryData = async (
+  source: 'latency' | 'fault',
+): Promise<FlowSummaryModel | null> => {
+  if (!selectedAssetId.value) return null
+  const body: Record<string, unknown> = {
+    kb_id: selectedAssetId.value,
+    source,
+  }
+  const filters = appliedFilters.value
+  if (filters.startTime) body.start_time = formatDateTime(filters.startTime)
+  if (filters.endTime) body.end_time = formatDateTime(filters.endTime)
+  const result = await request<{ result: FlowSummaryModel }>(
+    '/log_failure_event_result/list_flow_summary',
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+  return result?.result ?? result ?? null
+}
+
+const loadLatencyFlowSummary = async () => {
+  if (!selectedAssetId.value) return
+  isLatencyFlowLoading.value = true
+  latencyFlowError.value = ''
+  try {
+    latencyFlowSummary.value = await loadFlowSummaryData('latency')
+    renderLatencyFlowCharts()
+  } catch (error) {
+    latencyFlowError.value = error instanceof Error ? error.message : '加载角色交互时延流失败'
+  } finally {
+    isLatencyFlowLoading.value = false
+  }
+}
+
+const loadTraceFlow = async (traceId: string) => {
+  if (!selectedAssetId.value || !traceId) return
+  if (traceFlowByTrace.value.has(traceId)) {
+    renderTraceFlowChart()
+    return
+  }
+  isTraceFlowLoading.value = true
+  try {
+    const result = await request<{ result: FlowSummaryModel }>(
+      '/log_failure_event_result/list_flow_summary',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          kb_id: selectedAssetId.value,
+          source: selectedFaultTrace.value ? 'fault' : 'latency',
+          trace_ids: [traceId],
+        }),
+      },
+    )
+    const summary = result?.result ?? result ?? null
+    if (summary) {
+      traceFlowByTrace.value = new Map(traceFlowByTrace.value).set(traceId, summary)
+      renderTraceFlowChart()
+    }
+  } catch {
+    // 单 trace flow 加载失败不阻塞日志展示
+  } finally {
+    isTraceFlowLoading.value = false
+  }
+}
+
 const resizeLatencyCharts = () => {
   latencyChartInstance?.resize()
   detailLatencyChartInstance?.resize()
   faultChartInstance?.resize()
   faultDetailChartInstance?.resize()
   topSlowChartInstance?.resize()
+  latencyReadFlowChartInstance?.resize()
+  latencyWriteFlowChartInstance?.resize()
+  traceFlowChartInstance?.resize()
   brpcSuccessChartInstance?.resize()
   brpcSingleChartInstance?.resize()
   brpcLatencyChartInstance?.resize()
@@ -6070,7 +7040,7 @@ const resizeLatencyCharts = () => {
 let assetDetailResizeObserver: ResizeObserver | null = null
 
 const loadAllLatencyData = async (chartRange?: { startTime: number; endTime: number } | null) => {
-  await Promise.all([loadLatencyChart(), loadTopSlowChart()])
+  await Promise.all([loadLatencyChart(), loadTopSlowChart(), loadLatencyFlowSummary()])
 
   await Promise.all([loadLatencyDetail(1), loadAbnormalTraces(1)])
 
@@ -6589,6 +7559,96 @@ const getTraceRowHeight = (podIpHtml: string) => {
   return `${Math.max(59, 24 + lineCount * 20)}px`
 }
 
+// 表格中 Pod 标签渲染：结合行级 pod_role 聚合，为每个 Pod 标记角色颜色
+const ROLE_CHIP_LABELS: Record<string, string> = {
+  client: 'Client',
+  entry_worker: 'Entry Worker',
+  meta_worker: 'Meta Worker',
+  data_worker: 'Data Worker',
+  other: '未知角色',
+}
+
+const ROLE_CHIP_BG: Record<string, string> = {
+  client: '#dbeafe',
+  entry_worker: '#dcfce7',
+  meta_worker: '#fef3c7',
+  data_worker: '#fce7f3',
+  other: '#f3f4f6',
+}
+
+const ROLE_CHIP_BORDER: Record<string, string> = {
+  client: '#93c5fd',
+  entry_worker: '#86efac',
+  meta_worker: '#fcd34d',
+  data_worker: '#f9a8d4',
+  other: '#e5e7eb',
+}
+
+const ROLE_CHIP_COLOR: Record<string, string> = {
+  client: '#1d4ed8',
+  entry_worker: '#15803d',
+  meta_worker: '#b45309',
+  data_worker: '#be185d',
+  other: '#6b7280',
+}
+
+// 角色优先级：client > entry_worker > meta_worker > data_worker（上游角色优先）
+const ROLE_CHIP_PRIORITY = ['client', 'entry_worker', 'meta_worker', 'data_worker']
+
+const getRoleChipLabel = (role: string) => ROLE_CHIP_LABELS[role] ?? role
+
+const getRoleChipClass = (chip: { roles: string[] }) =>
+  chip.roles.length > 1 ? 'role-chip-multi' : `role-chip-${chip.roles[0]}`
+
+// 双重角色 pod 的标签：背景按角色数均分渐变，边框/文字取优先级最高的角色色
+const getRoleChipStyle = (chip: { roles: string[] }) => {
+  if (chip.roles.length <= 1) return {}
+  const bgs = chip.roles.map((r) => ROLE_CHIP_BG[r] ?? '#f3f4f6')
+  const stops = bgs.map((bg, i) => `${bg} ${(i / bgs.length) * 100}% ${((i + 1) / bgs.length) * 100}%`)
+  const primary = chip.roles[0]
+  return {
+    background: `linear-gradient(90deg, ${stops.join(', ')})`,
+    borderColor: ROLE_CHIP_BORDER[primary] ?? '#e5e7eb',
+    color: ROLE_CHIP_COLOR[primary] ?? '#374151',
+  }
+}
+
+// 表格中 Pod 标签渲染：结合行级 pod_role 聚合，为每个 Pod 标记角色颜色；
+// 同一 pod 可能被行级识别为多个角色（如 entry 与 meta 并存），保留全部角色。
+const getPodRoleChips = (row: { podIp: string; podRole?: TracePodRoleModel }) => {
+  const podIps = row.podIp
+    .split(/<br\s*\/?\s*>/i)
+    .map((ip) => ip.trim())
+    .filter(Boolean)
+  const rolesByPod = new Map<string, string[]>()
+  const podRole = row.podRole
+  if (podRole) {
+    const assign = (role: string, pods: unknown) => {
+      const list = typeof pods === 'string' ? [pods] : Array.isArray(pods) ? pods : []
+      for (const pod of list) {
+        if (typeof pod === 'string' && pod.trim()) {
+          const roles = rolesByPod.get(pod.trim())
+          if (roles) {
+            if (!roles.includes(role)) roles.push(role)
+          } else {
+            rolesByPod.set(pod.trim(), [role])
+          }
+        }
+      }
+    }
+    assign('client', podRole.client_pod)
+    assign('entry_worker', podRole.entry_worker_pods)
+    assign('meta_worker', podRole.meta_worker_pods)
+    assign('data_worker', podRole.data_worker_pods)
+    // 稳定排序：优先级高的角色在前（主角色用于边框/文字着色）
+    for (const roles of rolesByPod.values()) {
+      roles.sort((a, b) => ROLE_CHIP_PRIORITY.indexOf(a) - ROLE_CHIP_PRIORITY.indexOf(b))
+    }
+  }
+  if (podIps.length === 0) return [{ ip: '-', roles: ['other'] }]
+  return podIps.map((ip) => ({ ip, roles: rolesByPod.get(ip) ?? ['other'] }))
+}
+
 const getMultiLineCellTitle = (html: string) =>
   html.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '')
 
@@ -6928,6 +7988,95 @@ const getTraceFailureEvents = (trace?: TraceDetailRow | null) => {
 
 const getSelectedFaultTraceLogs = () => getTraceLogs(selectedFaultTrace.value)
 
+// 日志按 pod 分组展示：pod 标识 + 角色（角色来自 pod_role 聚合 / 交互流 per_trace roles）
+const TRACE_LOG_ROLE_LABELS: Record<string, string> = {
+  client: 'Client',
+  entry: 'Entry Worker',
+  meta: 'Meta Worker',
+  data: 'Data Worker',
+  other: '未知角色',
+}
+
+const getTraceLogRoleLabel = (role: string) => TRACE_LOG_ROLE_LABELS[role] ?? role
+
+const buildTracePodRoleMap = (trace?: TraceDetailRow | null): Map<string, string[]> => {
+  const rolesByPod = new Map<string, string[]>()
+  const addPods = (role: string, pods: unknown) => {
+    const list = typeof pods === 'string' ? [pods] : Array.isArray(pods) ? pods : []
+    for (const pod of list) {
+      if (typeof pod !== 'string' || !pod) continue
+      const roles = rolesByPod.get(pod)
+      if (roles) {
+        if (!roles.includes(role)) roles.push(role)
+      } else {
+        rolesByPod.set(pod, [role])
+      }
+    }
+  }
+  const podRole = trace?.podRole
+  if (podRole) {
+    addPods('client', podRole.client_pod)
+    addPods('entry', podRole.entry_worker_pods)
+    addPods('meta', podRole.meta_worker_pods)
+    addPods('data', podRole.data_worker_pods)
+  }
+  // 兜底：交互流单 trace roles（role -> pod），两个链路窗口通用
+  const flowTrace = currentTraceFlowSummary.value?.per_trace?.find(
+    (item) => item.trace_id === trace?.traceId,
+  )
+  if (flowTrace?.roles) {
+    for (const [role, pod] of Object.entries(flowTrace.roles)) {
+      if (typeof pod !== 'string' || !pod) continue
+      const roles = rolesByPod.get(pod)
+      if (roles) {
+        if (!roles.includes(role)) roles.push(role)
+      } else {
+        rolesByPod.set(pod, [role])
+      }
+    }
+  }
+  return rolesByPod
+}
+
+const getTraceLogGroups = (trace?: TraceDetailRow | null) => {
+  const logs = getTraceLogs(trace)
+  if (logs.length === 0) return []
+  const rolesByPod = buildTracePodRoleMap(trace)
+  const groups = new Map<string, TraceLogRow[]>()
+  logs.forEach((log) => {
+    const pod = log.podIp || '未知 Pod'
+    const rows = groups.get(pod)
+    if (rows) rows.push(log)
+    else groups.set(pod, [log])
+  })
+  const roleOrder = ['client', 'entry', 'meta', 'data']
+  return [...groups.entries()]
+    .map(([pod, groupLogs]) => {
+      const roles = (rolesByPod.get(pod) ?? ['other']).sort(
+        (a, b) => roleOrder.indexOf(a) - roleOrder.indexOf(b),
+      )
+      return {
+        key: pod,
+        podName: pod,
+        roles,
+        logs: groupLogs,
+      }
+    })
+    .sort((a, b) => {
+      const ai = rolesByPod.has(a.podName)
+        ? roleOrder.indexOf(rolesByPod.get(a.podName)![0])
+        : roleOrder.length
+      const bi = rolesByPod.has(b.podName)
+        ? roleOrder.indexOf(rolesByPod.get(b.podName)![0])
+        : roleOrder.length
+      return ai - bi || a.podName.localeCompare(b.podName)
+    })
+}
+
+const getSelectedTraceLogGroups = () => getTraceLogGroups(selectedTrace.value)
+
+const getSelectedFaultTraceLogGroups = () => getTraceLogGroups(selectedFaultTrace.value)
+
 const selectedTraceFailureModeIds = computed<string[]>(() => {
   const events = getTraceFailureEvents(selectedTrace.value)
   const ids = new Set<string>()
@@ -7239,12 +8388,14 @@ const toFaultTraceTableRow = (
     remoteWorkerRpc: null,
     masterProcess: null,
     masterRpcTotal: null,
+    raw: record as LogParseResultModel,
     faultCodes,
     faultType: failureModes.length > 0 ? failureModes.map((mode) => mode.name).join('、') : '-',
     faultDomain: failureDomains.length > 0 ? failureDomains.join('、') : '-',
     failureDomains,
     failureModes,
     operation: getRecordString(record, ['operation'], ''),
+    podRole: record.pod_role as TracePodRoleModel | undefined,
   }
 }
 
@@ -7254,6 +8405,7 @@ const getFilteredFaultTraceRows = () => {
 
 const openTraceDialog = (trace: TraceDetailRow) => {
   selectedTrace.value = trace
+  void nextTick(() => loadTraceFlow(trace.traceId))
 }
 
 const closeTraceDialog = () => {
@@ -7288,6 +8440,7 @@ const openFaultTraceDialog = async (trace: TraceDetailRow) => {
   selectedFaultTrace.value = trace
   selectedFaultTraceFailureModeId.value = ''
   selectedChildFailureModeId.value = ''
+  void nextTick(() => loadTraceFlow(trace.traceId))
   await loadTraceFailureLogs(trace.traceId, true)
   const events = traceFailureEventsByTrace.value[trace.traceId] ?? []
   const failureModeIds = new Set<string>()
@@ -7325,6 +8478,7 @@ const openFaultTraceDialog = async (trace: TraceDetailRow) => {
       remoteWorkerRpc: latencyData.remote_worker_rpc ?? null,
       masterProcess: latencyData.master_process ?? null,
       masterRpcTotal: latencyData.master_rpc_total ?? null,
+      raw: latencyData,
     }
   }
 }
@@ -7334,6 +8488,13 @@ const closeFaultTraceDialog = () => {
   selectedFaultTraceFailureModeId.value = ''
   selectedChildFailureModeId.value = ''
 }
+
+// 当前打开 trace 的角色交互流（缓存命中或按 trace 请求后填充）
+const currentTraceFlowSummary = computed<FlowSummaryModel | null>(() => {
+  const trace = selectedFaultTrace.value || selectedTrace.value
+  if (!trace) return null
+  return traceFlowByTrace.value.get(trace.traceId) ?? null
+})
 
 const openParseResultChain = async (row: ParseResultTableRow) => {
   const record = row.raw as Record<string, unknown>
@@ -7366,6 +8527,8 @@ const openParseResultChain = async (row: ParseResultTableRow) => {
     remoteWorkerRpc: row.remoteWorkerRpc,
     masterProcess: row.masterProcess,
     masterRpcTotal: row.masterRpcTotal,
+    raw: row.raw,
+    podRole: row.podRole,
     faultCodes: [],
   })
   await loadTraceFailureLogs(row.traceId, true)
@@ -7757,6 +8920,8 @@ const viewAbnormalTraceLink = async (row: AbnormalTraceRow) => {
     remoteWorkerRpc: row.remoteWorkerRpc,
     masterProcess: row.masterProcess,
     masterRpcTotal: row.masterRpcTotal,
+    raw: row.raw,
+    podRole: row.podRole,
     faultCodes: [],
   }
   openTraceDialog(traceRow)
@@ -8388,9 +9553,11 @@ const loadLatencyChart = async () => {
 }
 
 watch(selectedOperation, () => {
-  visibleLatencyKeys.value = new Set<LatencyMetricKey>([
-    selectedOperation.value === 'get' ? 'total_latency_us' : 'total_latency',
-  ])
+  visibleLatencyKeys.value = new Set<LatencyMetricKey>(
+    (selectedOperation.value === 'get' ? getLatencySeriesConfig : setLatencySeriesConfig).map(
+      (series) => series.key,
+    ),
+  )
   loadLatencyChart()
   loadTopSlowChart()
   loadLatencyDetail()
@@ -8413,6 +9580,7 @@ const loadTopSlowChart = async () => {
   if (!selectedAssetId.value) {
     topSlowRequests.value = []
     topSlowRequestsTotal.value = 0
+    topSlowTracePage.value = 1
     topSlowChartError.value = ''
     isTopSlowChartLoading.value = false
     return
@@ -8460,10 +9628,12 @@ const loadTopSlowChart = async () => {
     if (selectedAssetId.value !== assetId) return
     topSlowRequestsTotal.value = Math.min(result.total ?? 0, topSlowRequestLimit)
     topSlowRequests.value = result.log_parse_results ?? []
+    topSlowTracePage.value = 1
   } catch (error) {
     if (selectedAssetId.value !== assetId) return
     topSlowRequests.value = []
     topSlowRequestsTotal.value = 0
+    topSlowTracePage.value = 1
     topSlowChartError.value = error instanceof Error ? error.message : '加载最慢请求失败'
   } finally {
     if (selectedAssetId.value === assetId) {
@@ -9025,11 +10195,11 @@ const getP99YuanrongTotalMilliseconds = (record: object) => {
 }
 
 const getTimeWindowBreakdownSegments = (twEvent: TimeWindowAggregatedEvent) => {
-  const yuanrongSegments = buildLatencyBreakdownSegments(
+  const exclusiveSegments = buildExclusiveBreakdownSegments(
     getP99YuanrongTotalMilliseconds(twEvent),
     (key) => getP99YuanrongMetric(twEvent, key),
   )
-  if (yuanrongSegments.some((segment) => segment.value !== null)) return yuanrongSegments
+  if (exclusiveSegments.length > 0) return exclusiveSegments
   return buildLatencyBreakdownSegments(
     getTimeWindowSummaryValue(twEvent, 'total_latency'),
     (key) => getTimeWindowSummaryValue(twEvent, key),
@@ -9038,11 +10208,11 @@ const getTimeWindowBreakdownSegments = (twEvent: TimeWindowAggregatedEvent) => {
 }
 
 const getTimeWindowIpPairBreakdownSegments = (ipPair: TimeWindowAggregatedIpPair) => {
-  const yuanrongSegments = buildLatencyBreakdownSegments(
+  const exclusiveSegments = buildExclusiveBreakdownSegments(
     getP99YuanrongTotalMilliseconds(ipPair),
     (key) => getP99YuanrongMetric(ipPair, key),
   )
-  if (yuanrongSegments.some((segment) => segment.value !== null)) return yuanrongSegments
+  if (exclusiveSegments.length > 0) return exclusiveSegments
   return buildLatencyBreakdownSegments(
     getTimeWindowAggregatedLatencyValue(ipPair, 'total_latency'),
     (key) => getTimeWindowAggregatedLatencyValue(ipPair, key),
@@ -9059,6 +10229,7 @@ const toAbnormalTraceRow = (result: LogParseResultModel): AbnormalTraceRow => {
     time: displayLocalTime(result.timestamp ?? result.created_at),
     traceId: result.trace_id ?? '-',
     podIp: formatPodIps(result.pod_ips),
+    podRole: (record.pod_role as TracePodRoleModel | undefined) ?? undefined,
     operation: normalizeTraceOperation(
       getRecordString(record, ['operation', 'op_type', 'operation_type', 'method']),
     ),
@@ -10608,6 +11779,9 @@ const loadLatencyPage = async () => {
   if (!isAbnormalTracesLoading.value) {
     requests.push(loadAbnormalTraces())
   }
+  if (!isLatencyFlowLoading.value && !latencyFlowSummary.value) {
+    requests.push(loadLatencyFlowSummary())
+  }
 
   await Promise.all(requests)
 }
@@ -10766,6 +11940,9 @@ const resetAssetScopedMonitorData = () => {
   }
   isLatencyChartLoading.value = false
   latencyChartError.value = ''
+  latencyFlowSummary.value = null
+  isLatencyFlowLoading.value = false
+  latencyFlowError.value = ''
   topSlowRequests.value = []
   topSlowRequestsTotal.value = 0
   isTopSlowChartLoading.value = false
@@ -13970,6 +15147,23 @@ watch(
   { deep: true },
 )
 
+watch(
+  [latencyFlowSummary, isLatencyFlowLoading, latencyFlowError, activePage, selectedOperation],
+  () => {
+    void nextTick(renderLatencyFlowCharts)
+  },
+  { deep: true },
+)
+
+// 单 trace 弹窗的角色交互流：数据就绪后必须等 DOM 渲染出 ref 容器再初始化图表
+watch(
+  [traceFlowByTrace, selectedTrace, selectedFaultTrace, isTraceFlowLoading],
+  () => {
+    void nextTick(renderTraceFlowChart)
+  },
+  { deep: true },
+)
+
 watch([selectedAssetId, activePage], () => {
   if (selectedAssetId.value && activePage.value === 'asset') {
     startLogFilesPolling()
@@ -14054,6 +15248,9 @@ onBeforeUnmount(() => {
   detailLatencyChartInstance?.dispose()
   faultChartInstance?.dispose()
   faultDetailChartInstance?.dispose()
+  latencyReadFlowChartInstance?.dispose()
+  latencyWriteFlowChartInstance?.dispose()
+  traceFlowChartInstance?.dispose()
   brpcSuccessChartInstance?.dispose()
   brpcSingleChartInstance?.dispose()
   brpcLatencyChartInstance?.dispose()
@@ -14779,7 +15976,7 @@ onBeforeUnmount(() => {
                 </button>
               </div>
             </div>
-            <p class="monitor-sub">24 项指标与总时延曲线，可交互选择展示</p>
+            <p class="monitor-sub">32 项指标与总时延曲线，可交互选择展示</p>
           </header>
 
           <div class="monitor-grid">
@@ -14918,6 +16115,255 @@ onBeforeUnmount(() => {
                   :aria-label="`Top ${topSlowRequestLimit} 最慢请求时序分解`"
                 ></div>
               </div>
+
+              <div
+                class="aggregate-table top-slow-trace-table"
+                :class="{ 'aggregate-table-state-mode': topSlowTraceRows.length === 0 }"
+              >
+                <div class="aggregate-table-frame abnormal-trace-frame fault-trace-list top-slow-trace-frame">
+                  <div class="aggregate-fixed-left">
+                    <div
+                      class="abnormal-left-grid slow-trace-left-grid aggregate-table-header"
+                      :style="{ gridTemplateColumns: getSlowTraceLeftGridColumnWidths() }"
+                    >
+                      <div class="aggregate-cell column-resizable">
+                        时间
+                        <div
+                          class="column-resize-handle"
+                          @mousedown="(e) => handleColumnResizeStart(e, 'slowTraceLeft', 0)"
+                        ></div>
+                      </div>
+                      <div class="aggregate-cell column-resizable">
+                        Trace ID
+                        <div
+                          class="column-resize-handle"
+                          @mousedown="(e) => handleColumnResizeStart(e, 'slowTraceLeft', 1)"
+                        ></div>
+                      </div>
+                      <div class="aggregate-cell column-resizable">
+                        Pod IP
+                        <div
+                          class="column-resize-handle"
+                          @mousedown="(e) => handleColumnResizeStart(e, 'slowTraceLeft', 2)"
+                        ></div>
+                      </div>
+                      <div class="aggregate-cell column-resizable">
+                        操作类型
+                        <div
+                          class="column-resize-handle"
+                          @mousedown="(e) => handleColumnResizeStart(e, 'slowTraceLeft', 3)"
+                        ></div>
+                      </div>
+                      <div class="aggregate-cell column-resizable">
+                        集群
+                        <div
+                          class="column-resize-handle"
+                          @mousedown="(e) => handleColumnResizeStart(e, 'slowTraceLeft', 4)"
+                        ></div>
+                      </div>
+                      <div class="aggregate-cell">主机</div>
+                    </div>
+                    <template v-if="topSlowTraceRows.length > 0">
+                      <div
+                        v-for="row in paginatedTopSlowTraceRows"
+                        :key="`${row.id}-slow-fixed`"
+                        class="abnormal-left-grid slow-trace-left-grid aggregate-body-row"
+                        :class="{
+                          'shared-row-hover':
+                            hoveredSlowTraceRowKey === `${row.id}:${row.traceId}`,
+                        }"
+                        :style="{
+                          gridTemplateColumns: getSlowTraceLeftGridColumnWidths(),
+                          height: getTraceRowHeight(row.podIp),
+                        }"
+                        @mouseenter="hoveredSlowTraceRowKey = `${row.id}:${row.traceId}`"
+                        @mouseleave="hoveredSlowTraceRowKey = ''"
+                      >
+                        <div class="aggregate-cell">{{ row.time }}</div>
+                        <div class="aggregate-cell trace-id">
+                          <span class="trace-id-text">{{ row.traceId }}</span>
+                        </div>
+                        <div class="aggregate-cell pod-role-tags-cell">
+                          <span class="role-pods">
+                            <span
+                              v-for="chip in getPodRoleChips(row)"
+                              :key="`${row.id}-slow-pod-${chip.ip}`"
+                              class="role-chip"
+                              :class="getRoleChipClass(chip)"
+                              :style="getRoleChipStyle(chip)"
+                              :data-roles="`角色：${chip.roles.map(getRoleChipLabel).join('、')}`"
+                            >
+                              {{ chip.ip }}
+                            </span>
+                          </span>
+                        </div>
+                        <div class="aggregate-cell">{{ row.operation }}</div>
+                        <div class="aggregate-cell">{{ row.clusterName }}</div>
+                        <div class="aggregate-cell">{{ row.host }}</div>
+                      </div>
+                    </template>
+                  </div>
+
+                  <div
+                    class="aggregate-latency-scroll scroll-section-outline"
+                    :class="{ 'scroll-section-outline-full': topSlowTraceRows.length > 0 }"
+                  >
+                    <div class="aggregate-latency-head aggregate-latency-sync">
+                      <div
+                        class="fault-trace-scroll-grid aggregate-table-header"
+                        :style="{ gridTemplateColumns: getSlowTraceDataGridColumnWidths() }"
+                      >
+                        <div class="aggregate-cell column-resizable">
+                          总时延
+                          <div
+                            class="column-resize-handle"
+                            @mousedown.stop="
+                              (e) => handleColumnResizeStart(e, 'slowTraceData', 0)
+                            "
+                          ></div>
+                        </div>
+                        <div class="aggregate-cell latency-breakdown-header column-resizable">
+                          <span>各阶段时延分解（P99）</span>
+                          <small>颜色按已解析阶段值归一化；时延单位 ms，悬停查看完整明细</small>
+                          <div
+                            class="column-resize-handle"
+                            @mousedown.stop="
+                              (e) => handleColumnResizeStart(e, 'slowTraceData', 1)
+                            "
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      class="aggregate-latency-scrollbar aggregate-latency-sync"
+                      @scroll="syncAggregateLatencyScroll"
+                    >
+                      <div
+                        class="aggregate-latency-scrollbar-spacer"
+                        :style="{
+                          width: `${traceListColumnWidths.slowTraceData.reduce(
+                            (total, width) => total + width,
+                            0,
+                          )}px`,
+                        }"
+                      ></div>
+                    </div>
+                    <div
+                      class="aggregate-latency-body aggregate-latency-sync"
+                      @scroll="syncAggregateLatencyScroll"
+                    >
+                      <template v-if="topSlowTraceRows.length > 0">
+                        <div
+                          v-for="row in paginatedTopSlowTraceRows"
+                          :key="`${row.id}-slow-data`"
+                          class="fault-trace-scroll-grid aggregate-body-row"
+                          :class="{
+                            'shared-row-hover':
+                              hoveredSlowTraceRowKey === `${row.id}:${row.traceId}`,
+                          }"
+                          :style="{
+                            gridTemplateColumns: getSlowTraceDataGridColumnWidths(),
+                            height: getTraceRowHeight(row.podIp),
+                          }"
+                          @mouseenter="hoveredSlowTraceRowKey = `${row.id}:${row.traceId}`"
+                          @mouseleave="hoveredSlowTraceRowKey = ''"
+                        >
+                          <div class="aggregate-cell">
+                            <span class="metric-value">
+                              {{ formatNullableMetricValue(row.totalLatency) }}
+                            </span>
+                          </div>
+                          <div class="aggregate-cell latency-breakdown-cell">
+                            <LatencyBreakdownBar
+                              :segments="getLatencyRowBreakdownSegments(row as any)"
+                            />
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+
+                  <div class="aggregate-fixed-actions">
+                    <div class="aggregate-cell action-cell aggregate-table-header">Trace分析</div>
+                    <template v-if="topSlowTraceRows.length > 0">
+                      <div
+                        v-for="row in paginatedTopSlowTraceRows"
+                        :key="`${row.id}-slow-action`"
+                        class="aggregate-cell action-cell trace-analysis-actions aggregate-body-row"
+                        :class="{
+                          'shared-row-hover':
+                            hoveredSlowTraceRowKey === `${row.id}:${row.traceId}`,
+                        }"
+                        :style="{ height: getTraceRowHeight(row.podIp) }"
+                        @mouseenter="hoveredSlowTraceRowKey = `${row.id}:${row.traceId}`"
+                        @mouseleave="hoveredSlowTraceRowKey = ''"
+                      >
+                        <button
+                          class="metric-action-btn detail-action-btn"
+                          type="button"
+                          @click="viewAbnormalTraceLink(row)"
+                        >
+                          查看链路
+                        </button>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
+                <div v-if="topSlowTraceRows.length === 0" class="aggregate-table-state">
+                  暂无最慢请求 Trace
+                </div>
+                <div v-if="topSlowTraceRows.length > 0" class="aggregate-pagination">
+                  <button
+                    class="ghost-btn"
+                    type="button"
+                    :disabled="topSlowTracePage <= 1"
+                    @click="goTopSlowTracePage(topSlowTracePage - 1)"
+                  >
+                    上一页
+                  </button>
+                  <span class="pagination-pages" aria-label="最慢请求 Trace 页码">
+                    <button
+                      v-for="pageNum in topSlowTracePageWindow"
+                      :key="`top-slow-page-${pageNum}`"
+                      class="pagination-page-btn"
+                      :class="{ active: pageNum === topSlowTracePage, ellipsis: pageNum < 0 }"
+                      type="button"
+                      :disabled="pageNum < 0 || pageNum === topSlowTracePage"
+                      @click="pageNum > 0 && goTopSlowTracePage(pageNum)"
+                    >
+                      {{ pageNum < 0 ? '…' : pageNum }}
+                    </button>
+                  </span>
+                  <button
+                    class="ghost-btn"
+                    type="button"
+                    :disabled="topSlowTracePage >= topSlowTracePageCount"
+                    @click="goTopSlowTracePage(topSlowTracePage + 1)"
+                  >
+                    下一页
+                  </button>
+                  <span class="pagination-jump">
+                    <span>第 {{ topSlowTracePage }} / {{ topSlowTracePageCount }} 页</span>
+                    <input
+                      v-model="topSlowTracePageInput"
+                      class="pagination-jump-input"
+                      type="number"
+                      min="1"
+                      :max="topSlowTracePageCount"
+                      aria-label="跳转最慢请求 Trace 页码"
+                      @keyup.enter="jumpTopSlowTracePage"
+                    />
+                    <button
+                      class="pagination-jump-btn"
+                      type="button"
+                      @click="jumpTopSlowTracePage"
+                    >
+                      跳转
+                    </button>
+                  </span>
+                </div>
+              </div>
             </article>
 
             <article class="monitor-card host-slot">
@@ -15026,6 +16472,38 @@ onBeforeUnmount(() => {
                         <div class="aggregate-cell">结束时间</div>
                         <div
                           class="aggregate-cell count-cell aggregate-sortable-cell"
+                          @click="handleTimeWindowSort('total_cnt')"
+                        >
+                          <span class="sort-header-content">
+                            Trace总量
+                            <span class="sort-icons">
+                              <span
+                                class="sort-icon-up"
+                                :class="{
+                                  'sort-icon-active':
+                                    getTimeWindowSortOrder('total_cnt') === 'asc',
+                                }"
+                                >▲</span
+                              >
+                              <span
+                                class="sort-icon-down"
+                                :class="{
+                                  'sort-icon-active':
+                                    getTimeWindowSortOrder('total_cnt') === 'desc',
+                                }"
+                                >▼</span
+                              >
+                              <span
+                                v-if="getTimeWindowSortPriority('total_cnt')"
+                                class="sort-priority-badge"
+                              >
+                                {{ getTimeWindowSortPriority('total_cnt') }}
+                              </span>
+                            </span>
+                          </span>
+                        </div>
+                        <div
+                          class="aggregate-cell count-cell aggregate-sortable-cell"
                           @click="handleTimeWindowSort('anomaly_cnt')"
                         >
                           <span class="sort-header-content">
@@ -15117,6 +16595,9 @@ onBeforeUnmount(() => {
                             </div>
                             <div class="aggregate-cell">{{ twEvent.start_time }}</div>
                             <div class="aggregate-cell">{{ twEvent.end_time }}</div>
+                            <div class="aggregate-cell count-cell">
+                              {{ twEvent.total_cnt }}
+                            </div>
                             <div class="aggregate-cell count-cell anomaly-count">
                               {{ twEvent.anomaly_cnt }}
                             </div>
@@ -15133,6 +16614,38 @@ onBeforeUnmount(() => {
                               <div class="aggregate-cell fault-expand-cell"></div>
                               <div class="aggregate-cell">源IP</div>
                               <div class="aggregate-cell">目标IP</div>
+                              <div
+                                class="aggregate-cell count-cell aggregate-sortable-cell"
+                                @click.stop="handleIpPairSort('total_cnt')"
+                              >
+                                <span class="sort-header-content">
+                                  Trace总量
+                                  <span class="sort-icons">
+                                    <span
+                                      class="sort-icon-up"
+                                      :class="{
+                                        'sort-icon-active':
+                                          getTimeWindowIpPairSortOrder('total_cnt') === 'asc',
+                                      }"
+                                      >▲</span
+                                    >
+                                    <span
+                                      class="sort-icon-down"
+                                      :class="{
+                                        'sort-icon-active':
+                                          getTimeWindowIpPairSortOrder('total_cnt') === 'desc',
+                                      }"
+                                      >▼</span
+                                    >
+                                    <span
+                                      v-if="getTimeWindowIpPairSortPriority('total_cnt')"
+                                      class="sort-priority-badge"
+                                    >
+                                      {{ getTimeWindowIpPairSortPriority('total_cnt') }}
+                                    </span>
+                                  </span>
+                                </span>
+                              </div>
                               <div
                                 class="aggregate-cell count-cell aggregate-sortable-cell"
                                 @click.stop="handleIpPairSort('anomaly_cnt')"
@@ -15215,6 +16728,9 @@ onBeforeUnmount(() => {
                               <div class="aggregate-cell fault-expand-cell"></div>
                               <div class="aggregate-cell">{{ ipPair.src_ip || '-' }}</div>
                               <div class="aggregate-cell">{{ ipPair.dst_ip || '-' }}</div>
+                              <div class="aggregate-cell count-cell">
+                                {{ ipPair.log_parse_result_cnt }}
+                              </div>
                               <div class="aggregate-cell count-cell anomaly-count">
                                 {{ ipPair.anomaly_log_parse_result_cnt }}
                               </div>
@@ -15228,7 +16744,7 @@ onBeforeUnmount(() => {
                               v-if="getTimeWindowIpPairTotalPages(twEvent) > 1"
                               class="aggregate-left-grid aggregate-body-row fault-aggregate-sub-row ip-pair-pagination-row"
                             >
-                              <div class="aggregate-cell ip-pair-pagination" colspan="6">
+                              <div class="aggregate-cell ip-pair-pagination" colspan="7">
                                 <button
                                   class="page-btn"
                                   :disabled="getTimeWindowIpPairPage(twIdx) <= 1"
@@ -15637,8 +17153,19 @@ onBeforeUnmount(() => {
                         <div class="aggregate-cell trace-id">
                           <span class="trace-id-text">{{ row.traceId }}</span>
                         </div>
-                        <div class="aggregate-cell multi-line-pod-cell">
-                          <span v-html="row.podIp"></span>
+                        <div class="aggregate-cell pod-role-tags-cell">
+                          <span class="role-pods">
+                            <span
+                              v-for="chip in getPodRoleChips(row)"
+                              :key="`${row.id}-pod-${chip.ip}`"
+                              class="role-chip"
+                              :class="getRoleChipClass(chip)"
+                              :style="getRoleChipStyle(chip)"
+                              :data-roles="`角色：${chip.roles.map(getRoleChipLabel).join('、')}`"
+                            >
+                              {{ chip.ip }}
+                            </span>
+                          </span>
                         </div>
                         <div class="aggregate-cell">{{ row.operation }}</div>
                         <div class="aggregate-cell">{{ row.clusterName }}</div>
@@ -15875,7 +17402,171 @@ onBeforeUnmount(() => {
               </div>
             </article>
           </div>
+
+          <article class="monitor-card flow-summary-card">
+            <div class="monitor-card-title flow-summary-title">
+              <span>🔄 角色交互时延流</span>
+              <span class="role-summary-hint">
+                仅统计时延故障 Trace · GET/SET 请求各角色交互段的时延汇总 · 边悬停查看 avg/p99 · 阈值自适应
+              </span>
+            </div>
+            <div v-if="isLatencyFlowLoading" class="chart-state">
+              正在加载角色交互时延流...
+            </div>
+            <div v-else-if="latencyFlowError" class="chart-state chart-error">
+              {{ latencyFlowError }}
+            </div>
+            <div v-else-if="!latencyFlowSummary" class="chart-state">暂无角色交互时延数据</div>
+            <div v-else class="flow-graph-wrap">
+              <div class="flow-graph-row">
+                <div v-if="activeFlowTab === 'GET'" class="flow-graph-cell">
+                  <div ref="latencyReadFlowRef" class="echarts-flow-chart" role="img"></div>
+                </div>
+                <div v-if="activeFlowTab === 'SET'" class="flow-graph-cell">
+                  <div ref="latencyWriteFlowRef" class="echarts-flow-chart" role="img"></div>
+                </div>
+              </div>
+              <p class="flow-decomp-text">
+                正交分解：节点标注角色自身处理 · 边为跨角色交互 · Σ段+残差=总时延
+              </p>
+              <p v-if="activeFlowDecompText" class="flow-decomp-metrics">
+                {{ activeFlowDecompText }}
+              </p>
+            </div>
+            <p class="flow-graph-legend">
+              <span><i class="flow-legend-line critical"></i>红 ≥critical 阈值（自适应）</span>
+              <span><i class="flow-legend-line warn"></i>橙 ≥warn 阈值（自适应）</span>
+              <span><i class="flow-legend-line present"></i>蓝 正常</span>
+              <span><i class="flow-legend-line missing"></i>灰 无数据</span>
+              <span>· 悬停边查看 avg/p99 与 Top 容器</span>
+            </p>
+            <p class="flow-click-hint">
+              💡 点击任意边可查看该时延段的 Trace 明细（按耗时降序），再点击 Trace 可进入详情
+            </p>
+          </article>
         </section>
+
+        <div v-if="flowEdgeDetail" class="modal" role="dialog" aria-modal="true">
+          <section class="modal-content flow-edge-modal-content">
+            <header class="modal-header">
+              <h2>
+                ⏱ {{ flowEdgeDetail.operation }}
+                （{{ FLOW_ROLE_LABELS[flowEdgeDetail.source] || flowEdgeDetail.source }} →
+                {{ FLOW_ROLE_LABELS[flowEdgeDetail.target] || flowEdgeDetail.target }}）
+              </h2>
+              <button class="close-modal" type="button" title="关闭" @click="flowEdgeDetail = null">
+                x
+              </button>
+            </header>
+            <div class="modal-body flow-edge-modal-body">
+              <p class="flow-edge-stats">
+                avg={{ formatFlowMs(flowEdgeDetail.rollup.avg_ms) }} ·
+                p99={{ formatFlowMs(flowEdgeDetail.rollup.p99_ms) }}
+              </p>
+              <p class="flow-edge-hint">
+                按该时延段耗时从高到低排列 · 点击任意行查看该 Trace 详情（各角色容器 / 各时延段）
+              </p>
+              <div
+                v-if="flowEdgeDetail.rollup.trace_items && flowEdgeDetail.rollup.trace_items.length"
+                class="flow-edge-table-wrapper"
+              >
+                <table class="flow-edge-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Trace</th>
+                      <th>该段时延</th>
+                      <th>端到端</th>
+                      <th>Client</th>
+                      <th>Entry</th>
+                      <th>Meta</th>
+                      <th>Data</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="(item, idx) in flowEdgeDetail.rollup.trace_items"
+                      :key="item.trace_id"
+                      class="flow-edge-row"
+                      @click="openFlowEdgeTrace(item.trace_id)"
+                    >
+                      <td>{{ idx + 1 }}</td>
+                      <td class="flow-edge-trace-id">{{ item.trace_id }}</td>
+                      <td class="flow-edge-value">{{ item.value_ms.toFixed(1) }}ms</td>
+                      <td>{{ stageTotalMsByTrace[item.trace_id] ?? '-' }}</td>
+                      <td>{{ item.roles?.client ?? '-' }}</td>
+                      <td>{{ item.roles?.entry ?? '-' }}</td>
+                      <td>{{ item.roles?.meta ?? '-' }}</td>
+                      <td>{{ item.roles?.data ?? '-' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-else class="flow-edge-empty">
+                该时延段暂无命中 Trace（原始日志可能缺失该段数据）。
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div v-if="flowNodeDetail" class="modal" role="dialog" aria-modal="true">
+          <section class="modal-content flow-edge-modal-content">
+            <header class="modal-header">
+              <h2>
+                🟢 {{ flowNodeDetail.label }} 自身处理
+                （{{ flowNodeDetail.operation }}）
+              </h2>
+              <button class="close-modal" type="button" title="关闭" @click="flowNodeDetail = null">
+                x
+              </button>
+            </header>
+            <div class="modal-body flow-edge-modal-body">
+              <p class="flow-edge-stats">
+                avg={{ formatFlowMs(flowNodeDetail.rollup?.avg_ms) }} ·
+                p99={{ formatFlowMs(flowNodeDetail.rollup?.p99_ms) }}
+              </p>
+              <p class="flow-edge-hint">
+                按该节点自身处理时延从高到低排列 · 点击任意行查看该 Trace 详情（各角色容器 / 各时延段）
+              </p>
+              <div v-if="flowNodeDetail.trace_items.length" class="flow-edge-table-wrapper">
+                <table class="flow-edge-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Trace</th>
+                      <th>该节点自身处理</th>
+                      <th>端到端</th>
+                      <th>Client</th>
+                      <th>Entry</th>
+                      <th>Meta</th>
+                      <th>Data</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="(item, idx) in flowNodeDetail.trace_items"
+                      :key="item.trace_id"
+                      class="flow-edge-row"
+                      @click="openFlowNodeTrace(item.trace_id)"
+                    >
+                      <td>{{ idx + 1 }}</td>
+                      <td class="flow-edge-trace-id">{{ item.trace_id }}</td>
+                      <td class="flow-edge-value">{{ item.value_ms.toFixed(1) }}ms</td>
+                      <td>{{ item.total_ms != null ? item.total_ms.toFixed(1) + 'ms' : '-' }}</td>
+                      <td>{{ item.roles?.client ?? '-' }}</td>
+                      <td>{{ item.roles?.entry ?? '-' }}</td>
+                      <td>{{ item.roles?.meta ?? '-' }}</td>
+                      <td>{{ item.roles?.data ?? '-' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-else class="flow-edge-empty">
+                该节点暂无自身处理时延数据（该角色在当前 flow 中无自身处理段）。
+              </div>
+            </div>
+          </section>
+        </div>
 
         <section
           v-if="isFaultCodeFeatureEnabled && activeMonitorProduct === 'KVCache'"
@@ -16768,13 +18459,6 @@ onBeforeUnmount(() => {
                             @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 4)"
                           ></div>
                         </div>
-                        <div class="aggregate-cell column-resizable">
-                          故障域
-                          <div
-                            class="column-resize-handle"
-                            @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 5)"
-                          ></div>
-                        </div>
                       </div>
                     </div>
                     <div
@@ -16865,15 +18549,6 @@ onBeforeUnmount(() => {
                               <span v-else>{{ failureMode.name }}</span>
                             </template>
                             <span v-if="trace.failureModes.length === 0">-</span>
-                          </div>
-                          <div class="aggregate-cell fault-trace-multi-value-cell">
-                            <span
-                              v-for="failureDomain in trace.failureDomains"
-                              :key="`${trace.id}-failure-domain-${failureDomain}`"
-                            >
-                              {{ failureDomain }}
-                            </span>
-                            <span v-if="trace.failureDomains.length === 0">-</span>
                           </div>
                         </div>
                       </template>
@@ -20286,7 +21961,6 @@ onBeforeUnmount(() => {
                       <div class="aggregate-cell">主机IP</div>
                       <div class="aggregate-cell">故障码</div>
                       <div class="aggregate-cell">故障名称</div>
-                      <div class="aggregate-cell">故障域</div>
                     </div>
                   </div>
                   <div
@@ -20362,15 +22036,6 @@ onBeforeUnmount(() => {
                             <span v-else>{{ failureMode.name }}</span>
                           </template>
                           <span v-if="trace.failureModes.length === 0">-</span>
-                        </div>
-                        <div class="aggregate-cell fault-trace-multi-value-cell">
-                          <span
-                            v-for="failureDomain in trace.failureDomains"
-                            :key="`${trace.id}-failure-domain-${failureDomain}`"
-                          >
-                            {{ failureDomain }}
-                          </span>
-                          <span v-if="trace.failureDomains.length === 0">-</span>
                         </div>
                       </div>
                     </template>
@@ -20500,6 +22165,18 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="modal-body trace-modal-body">
+          <section v-if="currentTraceFlowSummary" class="trace-flow-section">
+            <h3 class="trace-section-title">🔄 角色交互时延流</h3>
+            <div v-if="isTraceFlowLoading" class="trace-empty">正在加载角色交互时延流...</div>
+            <div ref="traceFlowChartRef" class="echarts-flow-chart trace-flow-chart" role="img"></div>
+            <p class="flow-graph-legend trace-flow-legend">
+              <span><i class="flow-legend-line critical"></i>红 ≥p99</span>
+              <span><i class="flow-legend-line warn"></i>橙 ≥p50</span>
+              <span><i class="flow-legend-line present"></i>蓝 正常</span>
+              <span><i class="flow-legend-line missing"></i>灰 无数据</span>
+              <span>· 阈值按当前数据分位自适应</span>
+            </p>
+          </section>
           <section>
             <h3 class="trace-section-title">📋 运行日志</h3>
             <div class="trace-log-list">
@@ -20513,53 +22190,73 @@ onBeforeUnmount(() => {
               <div v-else-if="getSelectedTraceLogs().length === 0" class="trace-empty">
                 暂无匹配日志
               </div>
-              <div v-else class="trace-raw-log-table-wrapper">
-                <table class="trace-raw-log-table">
-                  <thead>
-                    <tr>
-                      <th
-                        v-for="(column, columnIndex) in getVisibleTraceLogColumns(
-                          getSelectedTraceLogs()[0],
-                        )"
-                        :key="`${column.label}-${columnIndex}`"
-                        :class="{ 'trace-log-level-cell': column.label.toLowerCase() === 'level' }"
-                      >
-                        {{ column.label }}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="log in getSelectedTraceLogs()"
-                      :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
-                      :class="getTraceLogRowClass(log)"
+              <div v-else class="trace-log-groups">
+                <section
+                  v-for="group in getSelectedTraceLogGroups()"
+                  :key="group.key"
+                  class="trace-log-group"
+                >
+                  <header class="trace-log-group-header">
+                    <span class="trace-log-pod-name">{{ group.podName }}</span>
+                    <span
+                      v-for="role in group.roles"
+                      :key="role"
+                      class="trace-log-role-badge"
+                      :class="`role-${role}`"
                     >
-                      <td
-                        v-for="(column, columnIndex) in getVisibleTraceLogColumns(log)"
-                        :key="`${column.label}-${columnIndex}`"
-                        :title="column.value"
-                        :class="[
-                          { 'trace-log-level-cell': column.label.toLowerCase() === 'level' },
-                          column.label.toLowerCase() === 'level' ? getTraceLogLevelClass(log) : '',
-                        ]"
-                      >
-                        {{ column.value }}
-                        <template v-if="isTraceLogMessageColumn(column)">
-                          <button
-                            v-for="mode in getTraceLogFailureModeLabels(log)"
-                            :key="mode.id"
-                            type="button"
-                            class="failure-mode-tag trace-message-failure-mode"
-                            :class="{ active: selectedTraceFailureModeId === mode.id }"
-                            @click="selectTraceFailureMode(mode.id)"
+                      {{ getTraceLogRoleLabel(role) }}
+                    </span>
+                    <span class="trace-log-group-count">{{ group.logs.length }} 条</span>
+                  </header>
+                  <div class="trace-raw-log-table-wrapper">
+                    <table class="trace-raw-log-table">
+                      <thead>
+                        <tr>
+                          <th
+                            v-for="(column, columnIndex) in getVisibleTraceLogColumns(
+                              group.logs[0],
+                            )"
+                            :key="`${column.label}-${columnIndex}`"
+                            :class="{ 'trace-log-level-cell': column.label.toLowerCase() === 'level' }"
                           >
-                            🔴 {{ mode.label }}
-                          </button>
-                        </template>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                            {{ column.label }}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          v-for="log in group.logs"
+                          :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
+                          :class="getTraceLogRowClass(log)"
+                        >
+                          <td
+                            v-for="(column, columnIndex) in getVisibleTraceLogColumns(log)"
+                            :key="`${column.label}-${columnIndex}`"
+                            :title="column.value"
+                            :class="[
+                              { 'trace-log-level-cell': column.label.toLowerCase() === 'level' },
+                              column.label.toLowerCase() === 'level' ? getTraceLogLevelClass(log) : '',
+                            ]"
+                          >
+                            {{ column.value }}
+                            <template v-if="isTraceLogMessageColumn(column)">
+                              <button
+                                v-for="mode in getTraceLogFailureModeLabels(log)"
+                                :key="mode.id"
+                                type="button"
+                                class="failure-mode-tag trace-message-failure-mode"
+                                :class="{ active: selectedTraceFailureModeId === mode.id }"
+                                @click="selectTraceFailureMode(mode.id)"
+                              >
+                                🔴 {{ mode.label }}
+                              </button>
+                            </template>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
               </div>
             </div>
           </section>
@@ -20789,6 +22486,18 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="modal-body trace-modal-body">
+          <section v-if="currentTraceFlowSummary" class="trace-flow-section">
+            <h3 class="trace-section-title">🔄 角色交互时延流</h3>
+            <div v-if="isTraceFlowLoading" class="trace-empty">正在加载角色交互时延流...</div>
+            <div ref="traceFlowChartRef" class="echarts-flow-chart trace-flow-chart" role="img"></div>
+            <p class="flow-graph-legend trace-flow-legend">
+              <span><i class="flow-legend-line critical"></i>红 ≥p99</span>
+              <span><i class="flow-legend-line warn"></i>橙 ≥p50</span>
+              <span><i class="flow-legend-line present"></i>蓝 正常</span>
+              <span><i class="flow-legend-line missing"></i>灰 无数据</span>
+              <span>· 阈值按当前数据分位自适应</span>
+            </p>
+          </section>
           <section>
             <h3 class="trace-section-title">📋 运行日志</h3>
             <div class="trace-log-list">
@@ -20802,53 +22511,73 @@ onBeforeUnmount(() => {
               <div v-else-if="getSelectedFaultTraceLogs().length === 0" class="trace-empty">
                 暂无匹配日志
               </div>
-              <div v-else class="trace-raw-log-table-wrapper">
-                <table class="trace-raw-log-table">
-                  <thead>
-                    <tr>
-                      <th
-                        v-for="(column, columnIndex) in getVisibleTraceLogColumns(
-                          getSelectedFaultTraceLogs()[0],
-                        )"
-                        :key="`${column.label}-${columnIndex}`"
-                        :class="{ 'trace-log-level-cell': column.label.toLowerCase() === 'level' }"
-                      >
-                        {{ column.label }}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="log in getSelectedFaultTraceLogs()"
-                      :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
-                      :class="getTraceLogRowClass(log)"
+              <div v-else class="trace-log-groups">
+                <section
+                  v-for="group in getSelectedFaultTraceLogGroups()"
+                  :key="group.key"
+                  class="trace-log-group"
+                >
+                  <header class="trace-log-group-header">
+                    <span class="trace-log-pod-name">{{ group.podName }}</span>
+                    <span
+                      v-for="role in group.roles"
+                      :key="role"
+                      class="trace-log-role-badge"
+                      :class="`role-${role}`"
                     >
-                      <td
-                        v-for="(column, columnIndex) in getVisibleTraceLogColumns(log)"
-                        :key="`${column.label}-${columnIndex}`"
-                        :title="column.value"
-                        :class="[
-                          { 'trace-log-level-cell': column.label.toLowerCase() === 'level' },
-                          column.label.toLowerCase() === 'level' ? getTraceLogLevelClass(log) : '',
-                        ]"
-                      >
-                        {{ column.value }}
-                        <template v-if="isTraceLogMessageColumn(column)">
-                          <button
-                            v-for="mode in getTraceLogFailureModeLabels(log)"
-                            :key="mode.id"
-                            type="button"
-                            class="failure-mode-tag trace-message-failure-mode"
-                            :class="{ active: selectedFaultTraceFailureModeId === mode.id }"
-                            @click="selectFaultTraceFailureMode(mode.id)"
+                      {{ getTraceLogRoleLabel(role) }}
+                    </span>
+                    <span class="trace-log-group-count">{{ group.logs.length }} 条</span>
+                  </header>
+                  <div class="trace-raw-log-table-wrapper">
+                    <table class="trace-raw-log-table">
+                      <thead>
+                        <tr>
+                          <th
+                            v-for="(column, columnIndex) in getVisibleTraceLogColumns(
+                              group.logs[0],
+                            )"
+                            :key="`${column.label}-${columnIndex}`"
+                            :class="{ 'trace-log-level-cell': column.label.toLowerCase() === 'level' }"
                           >
-                            🔴 {{ mode.label }}
-                          </button>
-                        </template>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                            {{ column.label }}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          v-for="log in group.logs"
+                          :key="`${log.filename}-${log.time}-${log.pidTid}-${log.rawText}`"
+                          :class="getTraceLogRowClass(log)"
+                        >
+                          <td
+                            v-for="(column, columnIndex) in getVisibleTraceLogColumns(log)"
+                            :key="`${column.label}-${columnIndex}`"
+                            :title="column.value"
+                            :class="[
+                              { 'trace-log-level-cell': column.label.toLowerCase() === 'level' },
+                              column.label.toLowerCase() === 'level' ? getTraceLogLevelClass(log) : '',
+                            ]"
+                          >
+                            {{ column.value }}
+                            <template v-if="isTraceLogMessageColumn(column)">
+                              <button
+                                v-for="mode in getTraceLogFailureModeLabels(log)"
+                                :key="mode.id"
+                                type="button"
+                                class="failure-mode-tag trace-message-failure-mode"
+                                :class="{ active: selectedFaultTraceFailureModeId === mode.id }"
+                                @click="selectFaultTraceFailureMode(mode.id)"
+                              >
+                                🔴 {{ mode.label }}
+                              </button>
+                            </template>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
               </div>
             </div>
           </section>

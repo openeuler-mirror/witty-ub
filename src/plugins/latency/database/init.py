@@ -277,6 +277,10 @@ async def migrate_yuanrong_metric_columns() -> None:
         "client_master_rpc_network_us", "client_master_rpc_framework_us",
         "client_master_rpc_total_us", "client_remote_rpc_network_us",
         "client_remote_rpc_framework_us", "client_remote_rpc_total_us",
+        # QueryAndGet 拆分 RPC 分段 + 客户端 URMA/调度时延（P1/P2 对齐 kvcache 基准新增）
+        "query_get_local_rpc_network_us", "query_get_local_rpc_framework_us",
+        "query_get_remote_rpc_network_us", "query_get_remote_rpc_framework_us",
+        "query_get_server_exec_us", "urma_sched_us", "client_urma_processing_us",
     )
     async with PGManager.engine().begin() as conn:
         for column in float_columns:
@@ -292,6 +296,7 @@ async def migrate_yuanrong_metric_columns() -> None:
 
 
 LATENCY_BUCKET_TABLES = (
+    "latency_bucket_1s",
     "latency_bucket_10s",
     "latency_bucket_1min",
     "latency_bucket_10min",
@@ -361,6 +366,10 @@ async def migrate_yuanrong_bucket_columns() -> None:
         "client_master_rpc_network_us", "client_master_rpc_framework_us",
         "client_master_rpc_total_us", "client_remote_rpc_network_us",
         "client_remote_rpc_framework_us", "client_remote_rpc_total_us",
+        # QueryAndGet 拆分 RPC 分段 + 客户端 URMA/调度时延（P1/P2 对齐 kvcache 基准新增）
+        "query_get_local_rpc_network_us", "query_get_local_rpc_framework_us",
+        "query_get_remote_rpc_network_us", "query_get_remote_rpc_framework_us",
+        "query_get_server_exec_us", "urma_sched_us", "client_urma_processing_us",
     )
     async with PGManager.engine().begin() as conn:
         for table in LATENCY_BUCKET_TABLES:

@@ -1896,7 +1896,7 @@ function createOverviewStateInner() {
     { key: 'total_latency_us', label: '总时延', cat: 'SDK' },
     { key: 'sdk_processing_us', label: 'SDK处理', cat: 'SDK' },
     { key: 'master_processing_us', label: 'Master处理', cat: 'Master/Worker' },
-    { key: 'worker_access_latency_us', label: 'Worker端总时延', cat: 'Master/Worker' },
+    { key: 'worker_access_latency_us', label: 'Worker Access时延', cat: 'Master/Worker' },
     { key: 'remote_worker_internal_us', label: 'Remote Worker内部', cat: 'Master/Worker' },
     { key: 'local_worker_internal_us', label: 'Local Worker内部', cat: 'Master/Worker' },
     {
@@ -1913,7 +1913,7 @@ function createOverviewStateInner() {
     { key: 'remote_worker_rpc_network_us', label: 'Remote Worker RPC网络', cat: 'RPC远端' },
     { key: 'remote_worker_rpc_framework_us', label: 'Remote Worker RPC框架', cat: 'RPC远端' },
     { key: 'remote_worker_rpc_total_us', label: 'Remote Worker RPC总时延', cat: 'RPC远端' },
-    { key: 'urma_processing_us', label: 'URMA处理', cat: 'URMA' },
+    { key: 'urma_processing_us', label: 'Worker UB通信', cat: 'URMA' },
     { key: 'urma_inflight_max', label: 'URMA并发数', cat: 'URMA' },
     { key: 'remote_worker_processing_us', label: 'Remote Worker处理', cat: 'URMA' },
     { key: 'client_master_rpc_network_us', label: 'Client Master RPC网络', cat: 'Client Direct' },
@@ -2315,8 +2315,15 @@ function createOverviewStateInner() {
     [
       ['total_latency_us', '总时延', '#d32f2f'],
       ['sdk_processing_us', 'SDK处理', '#5470c6'],
+      // QueryAndGet（DS_POSIX_QUERY_AND_GET）独立 client→meta-worker RPC 分段
+      // （对齐 kvcache 基准 query_get_* 语义，仅 QueryAndGet trace 非空）
+      ['query_get_local_rpc_network_us', 'QueryGetLocal网络', '#fac858'],
+      ['query_get_local_rpc_framework_us', 'QueryGetLocal框架', '#73c0de'],
+      ['query_get_remote_rpc_network_us', 'QueryGetRemote网络', '#3ba272'],
+      ['query_get_remote_rpc_framework_us', 'QueryGetRemote框架', '#91cc75'],
+      ['query_get_server_exec_us', 'QueryGet Worker执行', '#ca8622'],
       ['master_processing_us', 'Master处理', '#91cc75'],
-      ['worker_access_latency_us', 'Worker端总时延', '#fac858'],
+      ['worker_access_latency_us', 'Worker Access时延', '#fac858'],
       ['remote_worker_internal_us', 'Remote Worker内部', '#ee6666'],
       ['local_worker_internal_us', 'Local Worker内部', '#73c0de'],
       ['local_worker_internal_active_us', 'Local Worker内部时间2', '#3ba272'],
@@ -2329,7 +2336,9 @@ function createOverviewStateInner() {
       ['remote_worker_rpc_network_us', 'Remote Worker RPC网络', '#2f4554'],
       ['remote_worker_rpc_framework_us', 'Remote Worker RPC框架', '#61a0a8'],
       ['remote_worker_rpc_total_us', 'Remote Worker RPC总时延', '#bda29a'],
-      ['urma_processing_us', 'URMA+UDMA+交换机+OS处理', '#6e7074'],
+      ['urma_sched_us', '调度时间', '#e65b48'],
+      ['client_urma_processing_us', 'Client UB通信', '#c39d8f'],
+      ['urma_processing_us', 'Worker UB通信', '#6e7074'],
       ['urma_inflight_max', 'URMA并发数', '#749f83'],
       ['remote_worker_processing_us', 'Remote Worker处理', '#ca8622'],
       ['client_master_rpc_network_us', 'Client Master RPC网络', '#bda29a'],
@@ -2358,7 +2367,7 @@ function createOverviewStateInner() {
   const trendPercentile = ref('p99')
   const trendScale = ref(60)
   const trendCenter = ref<number | null>(null)
-  const trendVisible = ref(new Set(['total_latency_us', 'sdk_processing_us', 'urma_processing_us']))
+  const trendVisible = ref(new Set(trendMetrics.map((metric) => metric.key)))
   // 点击数据点后显示的半窗口（单位：桶）。15 桶 × 当前尺度，形成清晰可辨的聚焦范围。
   const trendHalfSpan: Record<number, number> = { 10: 15, 60: 15, 600: 15, 3600: 15 }
   const trendRange = computed(() => {
@@ -2449,29 +2458,76 @@ function createOverviewStateInner() {
       })
   })
 
+  // 时序瀑布：互斥 9 段分解（对齐 kvcache 基准 _build_exclusive_segments）。
+  // * QueryGet 分支（query_get_local/remote rpc 任一 > 0）：SDK处理 / QueryGet网络 /
+  //   QueryGet框架 / QueryGet Worker内部 / Worker UB通信 / Client UB通信；
+  // * 普通分支：SDK处理 / Worker-Meta内部（扣除UB）/ Worker UB通信 / Client UB通信；
+  // 两分支段互斥（非 QueryAndGet trace 的 query_get_* 段恒 0），外窗残差统一归"其他"。
   const topSlowSegmentConfig = [
     { key: 'sdk_processing_us', label: 'SDK处理', color: '#5470c6' },
-    { key: 'master_processing_us', label: 'Master处理', color: '#91cc75' },
-    { key: 'worker_access_latency_us', label: 'Worker端总时延', color: '#fac858' },
-    { key: 'remote_worker_internal_us', label: 'Remote Worker内部', color: '#ee6666' },
-    { key: 'local_worker_internal_us', label: 'Local Worker内部', color: '#73c0de' },
-    { key: 'sdk_rpc_network_us', label: 'SDK RPC网络', color: '#fc8452' },
-    { key: 'sdk_rpc_framework_us', label: 'SDK RPC框架', color: '#9a60b4' },
-    { key: 'master_rpc_network_us', label: 'Master RPC网络', color: '#ff9f7f' },
-    { key: 'master_rpc_framework_us', label: 'Master RPC框架', color: '#ffdb5c' },
-    { key: 'remote_worker_rpc_network_us', label: 'Remote Worker RPC网络', color: '#2f4554' },
-    { key: 'remote_worker_rpc_framework_us', label: 'Remote Worker RPC框架', color: '#61a0a8' },
-    { key: 'urma_processing_us', label: 'URMA+UDMA+交换机+OS处理', color: '#6e7074' },
-    { key: 'urma_inflight_max', label: 'URMA并发数', color: '#749f83', unit: 'count' },
-    { key: 'remote_worker_processing_us', label: 'Remote Worker处理', color: '#ca8622' },
-    { key: 'client_master_rpc_network_us', label: 'Client Master RPC网络', color: '#bda29a' },
-    { key: 'client_master_rpc_framework_us', label: 'Client Master RPC框架', color: '#6e7074' },
-    { key: 'client_remote_rpc_network_us', label: 'Client Remote RPC网络', color: '#c4ccd3' },
-    { key: 'client_remote_rpc_framework_us', label: 'Client Remote RPC框架', color: '#f05b72' },
+    { key: 'query_get_network_us', label: 'QueryGet网络', color: '#fac858' },
+    { key: 'query_get_framework_us', label: 'QueryGet框架', color: '#73c0de' },
+    { key: 'query_get_worker_internal_us', label: 'QueryGet Worker内部', color: '#3ba272' },
+    { key: 'worker_residual_us', label: 'Worker/Meta内部（扣除UB）', color: '#91cc75' },
+    { key: 'urma_processing_us', label: 'Worker UB通信', color: '#9a60b4' },
+    { key: 'client_urma_processing_us', label: 'Client UB通信', color: '#6e7074' },
   ]
 
   const slowRows = computed(() => scopeData.value.topSlow || [])
   const slowTotal = computed(() => scopeData.value.kpi[realOp.value].traceTotal || 0)
+
+  // 互斥瀑布计算：输入 topSlow 明细行（后端 YUANRONG_METRIC_FIELDS 字段），
+  // 输出互不重叠的分段（键 = topSlowSegmentConfig.key）与"其他"残差。
+  const buildExclusiveSegments = (
+    row: Record<string, unknown>,
+    totalLatency: number,
+  ): { segments: Record<string, number>; otherLatency: number } => {
+    const us = (key: string) => {
+      const value = row[key]
+      return typeof value === 'number' && Number.isFinite(value) ? value : 0
+    }
+    const queryNet =
+      us('query_get_local_rpc_network_us') + us('query_get_remote_rpc_network_us')
+    const queryFw =
+      us('query_get_local_rpc_framework_us') + us('query_get_remote_rpc_framework_us')
+    const serverExec = us('query_get_server_exec_us')
+    const urma = us('urma_processing_us')
+    const rawClientUrma = us('client_urma_processing_us')
+    const segments: Record<string, number> = {}
+    if (queryNet > 0 || queryFw > 0) {
+      // QueryGet 分支：QueryGet Worker内部 = server_exec − UB（对齐基准）。
+      // client_urma 是客户端在等待窗口内的 UB 耗时，与 worker 侧处理重叠，
+      // 只能分配剩余预算（否则 Σ段 会超过总时延）；SDK处理 = 剩余残差，闭合总时延。
+      const workerInternal = Math.max(serverExec - urma, 0)
+      const coreUsed = queryNet + queryFw + workerInternal + urma
+      const remaining = Math.max(totalLatency - coreUsed, 0)
+      const clientUrma = Math.min(rawClientUrma, remaining)
+      const sdk = Math.max(remaining - clientUrma, 0)
+      if (sdk > 0) segments['sdk_processing_us'] = sdk
+      if (queryNet > 0) segments['query_get_network_us'] = queryNet
+      if (queryFw > 0) segments['query_get_framework_us'] = queryFw
+      if (workerInternal > 0) segments['query_get_worker_internal_us'] = workerInternal
+      if (urma > 0) segments['urma_processing_us'] = urma
+      if (clientUrma > 0) segments['client_urma_processing_us'] = clientUrma
+      return { segments, otherLatency: 0 }
+    }
+    // 普通分支：outer = Worker Access时延 优先，否则 Remote Worker处理（对齐基准）。
+    // client_urma 已包含在 worker_access 等待窗口内，超出剩余预算的部分不展示，
+    // 避免 Σ段 > 总时延；残差"其他"闭合总时延。
+    const sdk = us('sdk_processing_us')
+    const workerAccess = us('worker_access_latency_us')
+    const remProc = us('remote_worker_processing_us')
+    const outer = workerAccess || remProc
+    const residual = Math.max(outer - urma, 0)
+    const coreUsed = sdk + residual + urma
+    const remaining = Math.max(totalLatency - coreUsed, 0)
+    const clientUrma = Math.min(rawClientUrma, remaining)
+    if (sdk > 0) segments['sdk_processing_us'] = sdk
+    if (residual > 0) segments['worker_residual_us'] = residual
+    if (urma > 0) segments['urma_processing_us'] = urma
+    if (clientUrma > 0) segments['client_urma_processing_us'] = clientUrma
+    return { segments, otherLatency: Math.max(totalLatency - coreUsed - clientUrma, 0) }
+  }
 
   const slowChartRows = computed(() =>
     slowRows.value
@@ -2483,16 +2539,7 @@ function createOverviewStateInner() {
             ? row.total_latency_us
             : 0
         if (totalLatency <= 0) return null
-        const segments: Record<string, number> = {}
-        let displayed = 0
-        topSlowSegmentConfig.forEach((segment) => {
-          const value =
-            typeof row[segment.key] === 'number' && Number.isFinite(row[segment.key])
-              ? row[segment.key]
-              : 0
-          segments[segment.key] = value
-          if (segment.unit !== 'count') displayed += value
-        })
+        const { segments, otherLatency } = buildExclusiveSegments(row, totalLatency)
         return {
           raw: row,
           traceId: row.trace_id || '-',
@@ -2500,7 +2547,7 @@ function createOverviewStateInner() {
           timestampLabel: formatFullTime(date.getTime()),
           operation: row.operation || currentOp.value,
           totalLatency,
-          otherLatency: Math.max(totalLatency - displayed, 0),
+          otherLatency,
           segments,
         }
       })
@@ -2531,37 +2578,37 @@ function createOverviewStateInner() {
     return list
   })
 
-  const traceBreakdownKeys = [
-    { key: 'sdk_processing_us', label: 'SDK处理', color: '#5470c6' },
-    { key: 'master_processing_us', label: 'Master处理', color: '#91cc75' },
-    { key: 'worker_access_latency_us', label: 'Worker端总时延', color: '#fac858' },
-    { key: 'remote_worker_internal_us', label: 'Remote Worker内部', color: '#ee6666' },
-    { key: 'local_worker_internal_us', label: 'Local Worker内部', color: '#73c0de' },
-    { key: 'sdk_rpc_network_us', label: 'SDK RPC网络', color: '#ea7ccc' },
-    { key: 'sdk_rpc_framework_us', label: 'SDK RPC框架', color: '#bda29a' },
-    { key: 'master_rpc_network_us', label: 'Master RPC网络', color: '#c23531' },
-    { key: 'master_rpc_framework_us', label: 'Master RPC框架', color: '#ff9f7f' },
-    { key: 'urma_processing_us', label: 'URMA+UDMA+交换机+OS处理', color: '#6e7074' },
-    { key: 'remote_worker_processing_us', label: 'Remote Worker处理', color: '#ca8622' },
-  ]
-
+  // 列表内各阶段时延分解：复用互斥 9 段口径（对齐 kvcache _build_exclusive_segments），
+  // 与最慢请求时序瀑布图完全一致；无可解析段时回退为空（与旧累加口径相同）。
   const traceSegments = (row: any) => {
     const total = Number(row.total_latency_us) || 0
-    const segments: any[] = []
-    traceBreakdownKeys.forEach((item) => {
-      const value = Number(row[item.key]) || 0
-      if (value > 0) {
-        segments.push({
+    if (total <= 0) return []
+    const { segments, otherLatency } = buildExclusiveSegments(row, total)
+    const result: any[] = []
+    for (const item of topSlowSegmentConfig) {
+      const value = segments[item.key]
+      if (typeof value === 'number' && value > 0) {
+        result.push({
           key: item.key,
           label: item.label,
-          shortLabel: item.label.replace('+UDMA+交换机+OS', ''),
+          shortLabel: item.label,
           value,
           color: item.color,
-          width: total ? Math.max(1, (value / total) * 100) : 0,
+          width: Math.max(1, (value / total) * 100),
         })
       }
-    })
-    return segments
+    }
+    if (Object.keys(segments).length > 0 && otherLatency > 0) {
+      result.push({
+        key: '__other__',
+        label: '其他',
+        shortLabel: '其他',
+        value: otherLatency,
+        color: '#94a3b8',
+        width: Math.max(1, (otherLatency / total) * 100),
+      })
+    }
+    return result
   }
 
   const traceBreakdownTitle = (row: any) => {
@@ -2579,13 +2626,13 @@ function createOverviewStateInner() {
     { label: 'SDK RPC', color: '#ea7ccc' },
     { label: 'Master处理', color: '#91cc75' },
     { label: 'Master RPC', color: '#c23531' },
-    { label: 'Worker端总时延', color: '#fac858' },
+    { label: 'Worker Access时延', color: '#fac858' },
     { label: 'SDK RPC·网络', color: '#fc8452' },
     { label: 'SDK RPC·框架', color: '#9a60b4' },
     { label: 'Master RPC·网络', color: '#ff9f7f' },
     { label: 'Master RPC·框架', color: '#ffdb5c' },
     { label: 'Worker内部', color: '#73c0de' },
-    { label: 'URMA', color: '#6e7074' },
+    { label: 'Worker UB通信', color: '#6e7074' },
   ]
 
   // 与「指标趋势与异常分析」一致的颜色（ECharts 默认色板）
@@ -2665,12 +2712,12 @@ function createOverviewStateInner() {
       },
       {
         key: 'worker_access_latency_us',
-        label: 'Worker端总时延',
+        label: 'Worker Access时延',
         color: colorOf('worker_access_latency_us'),
         value: mv('worker_access_latency_us'),
         children: [
           sub('Worker内部', 'local_worker_internal_us', ['__worker_internal']),
-          sub('URMA', 'urma_processing_us', ['urma_processing_us']),
+          sub('Worker UB通信', 'urma_processing_us', ['urma_processing_us']),
         ],
       },
     ]

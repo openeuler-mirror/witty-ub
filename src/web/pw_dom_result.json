@@ -1,0 +1,69 @@
+CARDS: [
+  {
+    "cls": "monitor-card chart-slot",
+    "title": "📈 关键时延指标趋势红色背景区间 = P99 总时延 > 5ms时间聚合尺度：10秒1分钟10分钟1小时百分位指标：P",
+    "hasTable": false,
+    "tableRows": 0,
+    "tableText": "",
+    "tabText": []
+  },
+  {
+    "cls": "monitor-card top-slow-chart-card",
+    "title": "🐢 Top 1000 最慢请求时序分解 当前展示 941 条 / 符合条件 941 条",
+    "hasTable": false,
+    "tableRows": 0,
+    "tableText": "",
+    "tabText": []
+  },
+  {
+    "cls": "monitor-card host-slot",
+    "title": "聚合事件列表  异常Trace列表 时间间隔10秒1分钟10分钟1小时",
+    "hasTable": false,
+    "tableRows": 0,
+    "tableText": "",
+    "tabText": [
+      {
+        "t": "聚合事件列表",
+        "a": true
+      },
+      {
+        "t": "异常Trace列表",
+        "a": false
+      }
+    ]
+  },
+  {
+    "cls": "monitor-card flow-summary-card",
+    "title": "🔄 角色交互时延流（Read / Write Flow） 仅统计时延故障 Trace · GET/SET 请求各角色交",
+    "hasTable": false,
+    "tableRows": 0,
+    "tableText": "",
+    "tabText": []
+  },
+  {
+    "cls": "monitor-card chart-slot",
+    "title": "📈 故障码计数时序分布时间聚合尺度：10秒1分钟10分钟1小时",
+    "hasTable": false,
+    "tableRows": 0,
+    "tableText": "",
+    "tabText": []
+  },
+  {
+    "cls": "monitor-card host-slot",
+    "title": "聚合事件列表  异常Trace列表 时间间隔时分秒",
+    "hasTable": false,
+    "tableRows": 0,
+    "tableText": "",
+    "tabText": [
+      {
+        "t": "聚合事件列表",
+        "a": true
+      },
+      {
+        "t": "异常Trace列表",
+        "a": false
+      }
+    ]
+  }
+]
+TABLES: []

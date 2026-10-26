@@ -90,10 +90,11 @@ from sqlalchemy.dialects.postgresql import INET
 
 from latency.database.engine import PGManager
 from latency.database.models import (
-    LatencyBucket10min,
-    LatencyBucket10s,
     LatencyBucket1h,
     LatencyBucket1min,
+    LatencyBucket1s,
+    LatencyBucket10min,
+    LatencyBucket10s,
 )
 from latency.database.utils import (
     COPY_COLUMNS,
@@ -125,8 +126,14 @@ DEFAULT_BATCH_SIZE = 50_000
 # log_parse_result 的目标列序 = database.utils.COPY_COLUMNS（现状 COPY 用同一份）。
 LOG_PARSE_RESULT_COLUMNS: tuple[str, ...] = tuple(COPY_COLUMNS)
 
-# 4 张分桶表列序完全一致，直接取 ORM 模型列序（= DDL 列序 = bucket BUCKET_COLUMNS）。
-_BUCKET_MODELS = (LatencyBucket10s, LatencyBucket1min, LatencyBucket10min, LatencyBucket1h)
+# 5 张分桶表列序完全一致，直接取 ORM 模型列序（= DDL 列序 = bucket BUCKET_COLUMNS）。
+_BUCKET_MODELS = (
+    LatencyBucket1s,
+    LatencyBucket10s,
+    LatencyBucket1min,
+    LatencyBucket10min,
+    LatencyBucket1h,
+)
 BUCKET_COLUMNS: tuple[str, ...] = tuple(
     col.name for col in LatencyBucket10s.__table__.columns
 )
@@ -353,6 +360,7 @@ _BUCKET_DEFAULTS: Mapping[str, Any] = {}
 
 def _bucket_spec(seconds: int) -> CopySpec:
     table = {
+        1: "latency_bucket_1s",
         10: "latency_bucket_10s",
         60: "latency_bucket_1min",
         600: "latency_bucket_10min",
@@ -371,7 +379,7 @@ def _bucket_spec(seconds: int) -> CopySpec:
 
 # 粒度（秒）-> spec；bucket/statistics.DEFAULT_TABLES 的键口径一致。
 BUCKET_SPECS: dict[int, CopySpec] = {
-    seconds: _bucket_spec(seconds) for seconds in (10, 60, 600, 3600)
+    seconds: _bucket_spec(seconds) for seconds in (1, 10, 60, 600, 3600)
 }
 
 
