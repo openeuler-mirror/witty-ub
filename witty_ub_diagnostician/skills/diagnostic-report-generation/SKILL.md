@@ -203,16 +203,25 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 `references/REPORT_SCHEMA.md` §3（**不是**旧的 `DiagnosisCaseModel` 桥接口径）：
 
 1. 把报告路径与一句话摘要交给用户，等用户明确点头；
-2. 用户点头后：`POST /diag_case_library`（建草稿，拿 `case_id`）→
-   `POST /diag_case_library/{case_id}/confirm`（`confirmed_by` = 用户标识）——
-   通过确认闸门后案例才进入可检索集合；
-3. 处置执行 + 复测后：`PATCH /diag_case_library/{case_id}` **只补** `verification_json`
-   （`closed_loop` / `observed_result` / `verified_at`）。
+2. 用户点头后先确认**整份报告**：`GET /diagnostic_report/{report_id}` 取
+   `report.current_sidecar_hash`，再 `POST /diagnostic_report/{report_id}/confirm`
+   （`expected_sidecar_hash` = 页面所见哈希，`reviewed_by` = 用户标识）。侧车已变化时返回
+   409，必须刷新后重新确认——**未确认的报告不能派生案例**；
+3. 逐故障沉淀：`GET /diagnostic_report/{report_id}/faults/{fault_id}/case_preview` 预览
+   服务端映射（缺字段在 `missing_fields` 中列出），再
+   `POST /diagnostic_report/{report_id}/faults/{fault_id}/case` 建草稿 → 
+   `POST /diag_case_library/{case_id}/confirm`（`confirmed_by` = 用户标识）——通过确认闸门
+   后案例才进入可检索集合。两级分类与故障指纹由服务端从已确认报告复制，客户端不得自填；
+4. 处置执行 + 复测后：`PATCH /diag_case_library/{case_id}` **只补** `verification_json`
+   （`closed_loop` / `observed_result` / `verified_by`）；`closed_loop=true` 必须同时给
+   `method` / `observed_result` / `verified_by`，`verified_at` 由服务端补；请求带
+   `expected_revision`（页面所见的案例版本），版本冲突返回 409 后刷新重试。
 
 确认闸门（`confirm` 的硬条件，缺一即被拒）：`draft` 态、`evidence_json` ≥1 条带 `kind`
 的可复现锚点、`remediation_json` ≥1 步、**至少一个可匹配信号**（`status_codes` /
 `failure_mode_ids` / `latency_components` / `log_keywords` / `hosts` / `pods` / IP /
 `cluster_name`，`operation` 不计入）、`confirmed_by` 非空。**闸门不要求验证闭环**。
+报告派生案例在确认时还会复核源报告仍处于已确认状态、故障指纹与分类快照未变化。
 
 纪律：
 

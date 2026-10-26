@@ -231,22 +231,33 @@
 ## 3. CaseDraft 案例沉淀契约（映射至 `CreateDiagCaseDraftRequest`）
 
 本对象字段与 `latency/schemas/diag_case_library.py::CreateDiagCaseDraftRequest`
-一一对应，可直接 `CreateDiagCaseDraftRequest.model_validate(case_draft)` 建草稿。
+一一对应。报告派生案例由服务端映射生成：先 `GET /diagnostic_report/{report_id}/faults/
+{source_fault_id}/case_preview` 拿预填草稿与 `missing_fields`，再
+`POST /diagnostic_report/{report_id}/faults/{source_fault_id}/case` 建草稿。
+两级分类、故障指纹与分类快照由服务端从已确认报告复制，客户端不得自填；
+`draft` 中的字段仍按 §3.2 对齐（缺证据/处置/可匹配信号会在 `missing_fields` 中列出）。
 
 > ⚠️ **旧桥接（`DiagnosisCaseModel` 口径：`root_cause` / `recommendation` /
 > `fingerprint_json` / `evidence_refs_json`）已废弃**：它没有带 `kind` 的证据锚点、
 > 没有分步处置、也没有独立信号列，**过不了 `/diag_case_library/{case_id}/confirm`
 > 的确认闸门**。不要再按旧口径组织写入数据。
 
-### 3.1 三步链路（对话确认，不引入前端页面与审批流）
+### 3.1 三步链路（报告确认 → 故障建案 → 验证回填）
 
 1. 报告渲染完成 → Agent 把报告路径与摘要交给用户；
-2. 用户点头「报告 OK」→ `POST /diag_case_library`（本对象）取 `case_id` →
+2. 用户点头「报告 OK」→ 先确认整份报告：`GET /diagnostic_report/{report_id}` 取
+   `report.current_sidecar_hash`，`POST /diagnostic_report/{report_id}/confirm`
+   （`expected_sidecar_hash` = 页面所见哈希，`reviewed_by` = 用户标识）；侧车已变化返回
+   409，刷新后重新确认。未确认报告不能派生案例；
+3. `GET /diagnostic_report/{report_id}/faults/{source_fault_id}/case_preview` 预览 →
+   `POST /diagnostic_report/{report_id}/faults/{source_fault_id}/case` 取 `case_id` →
    `POST /diag_case_library/{case_id}/confirm`（`confirmed_by` = 用户标识）→
    案例进入可检索集合；
-3. 处置执行 + 复测后 → `PATCH /diag_case_library/{case_id}` **只补** `verification_json`。
+4. 处置执行 + 复测后 → `PATCH /diag_case_library/{case_id}` **只补** `verification_json`
+   （带 `expected_revision`；`closed_loop=true` 需 `method` / `observed_result` /
+   `verified_by`，`verified_at` 由服务端补）。
 
-> 步骤 2 与 3 之间案例已可检索，但 `closed_loop` 为假：检索侧按「待验证处方」处理，
+> 步骤 3 与 4 之间案例已可检索，但 `closed_loop` 为假：检索侧按「待验证处方」处理，
 > `applicability` 上限 `adjust`（见 `case-matching/SKILL.md` 纪律 9）。
 
 ### 3.2 字段映射

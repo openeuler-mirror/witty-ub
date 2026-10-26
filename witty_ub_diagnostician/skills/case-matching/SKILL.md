@@ -36,6 +36,12 @@ allowed-tools: >
 | legacy（降级通道） | `POST /diagnosis_case/search` | 旧的 `diagnosis_case` 表：**无人工确认关卡**、内容物只有现象/根因/建议三段、`kb_id` 必填 | **只能当线索**，必须标注"来源=diagnosis_case（未经人工确认）"，不得作为结论依据 |
 
 > 判别口诀：**没经确认的案例不是经验，只是别人的猜测。** 结论里引用案例时，必须写清来源通道。
+>
+> library 通道的案例带两级分类快照（`first_level_label` / `second_level_label`）。
+> `POST /diag_case_library/search` 可传同名过滤字段或 `unclassified_only=true`；
+> `GET /diag_case_library/{case_id}` 另返回 `source_report` 导航
+> （`valid` / `stale` / `deleted` / `unavailable` / `independent`）与
+> `classification_status`，引用前可据此回到源报告核对。
 
 ## 现象检索与回取（自然语言通道）
 

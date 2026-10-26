@@ -18,11 +18,14 @@
    [标签参考](references/log_label.json)，在每条故障的 `conclusion` 中填写
    `first_level_label` / `second_level_label`（无法匹配的层级填 `null`）
 3. `python3 scripts/render_report.py /tmp/report_data.json` 渲染 HTML（脚本做 schema-lite 校验）
-4. 把报告路径与摘要交给用户；用户确认「报告 OK」后沉淀为案例：
-   `POST /diag_case_library`（建草稿）→ `POST /diag_case_library/{case_id}/confirm`
-   （走确认闸门，通过后才可被检索召回）
+4. 把报告路径与摘要交给用户；用户确认「报告 OK」后先确认整份报告
+   （`POST /diagnostic_report/{report_id}/confirm`，带页面所见的 `expected_sidecar_hash`），
+   再从目标故障生成案例草稿
+   （`POST /diagnostic_report/{report_id}/faults/{fault_id}/case`）→
+   `POST /diag_case_library/{case_id}/confirm`（走确认闸门，通过后才可被检索召回）
 5. 处置执行 + 复测后：`PATCH /diag_case_library/{case_id}` 只补 `verification_json`
-   （`closed_loop` / `observed_result` / `verified_at`）；**报告阶段严禁臆造验证结果**
+   （`closed_loop` / `observed_result` / `verified_by`，带 `expected_revision`）；
+   **报告阶段严禁臆造验证结果**
 
 详细流程见 [SKILL.md](SKILL.md)，案例字段契约见
 [references/REPORT_SCHEMA.md](references/REPORT_SCHEMA.md) §3，
