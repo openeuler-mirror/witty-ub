@@ -9,9 +9,11 @@ import { formatTime } from '../../utils/format'
 import { renderAgentMarkdown } from '../../utils/agentMarkdown'
 import CaseLibrarySection from './CaseLibrarySection.vue'
 import DiagCaseSection from './DiagCaseSection.vue'
+import AllCasesSection from './AllCasesSection.vue'
 
-// 知识库三个板块：经验、文件案例库与新诊断案例
-const section = ref<'experience' | 'cases' | 'diagnosis-cases'>('experience')
+// 知识库两个板块：经验与案例库；案例库按来源区分诊断案例与文件案例
+const section = ref<'experience' | 'cases'>('experience')
+const caseSource = ref<'all' | 'diagnosis' | 'legacy'>('all')
 
 const openExperienceSection = (type: 'SKILL' | 'WIKI') => {
   section.value = 'experience'
@@ -90,20 +92,42 @@ const rankedPagedItems = computed(() => {
         :class="['page-nav-item', { active: section === 'cases' }]"
         @click="section = 'cases'"
       >
-        📋 文件案例
-      </button>
-      <button
-        type="button"
-        :class="['page-nav-item', { active: section === 'diagnosis-cases' }]"
-        @click="section = 'diagnosis-cases'"
-      >
-        🧭 诊断案例
+        📚 案例库
       </button>
     </nav>
 
-    <!-- ===== 案例管理（全局案例库） ===== -->
-    <CaseLibrarySection v-if="section === 'cases'" />
-    <DiagCaseSection v-else-if="section === 'diagnosis-cases'" />
+    <!-- ===== 案例库（诊断案例与文件案例统一入口） ===== -->
+    <template v-if="section === 'cases'">
+      <div class="case-source-bar">
+        <button
+          type="button"
+          class="btn btn-sm"
+          :class="caseSource === 'all' ? 'btn-primary' : 'btn-default'"
+          @click="caseSource = 'all'"
+        >
+          全部来源
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm"
+          :class="caseSource === 'diagnosis' ? 'btn-primary' : 'btn-default'"
+          @click="caseSource = 'diagnosis'"
+        >
+          诊断案例
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm"
+          :class="caseSource === 'legacy' ? 'btn-primary' : 'btn-default'"
+          @click="caseSource = 'legacy'"
+        >
+          文件案例
+        </button>
+      </div>
+      <AllCasesSection v-if="caseSource === 'all'" />
+      <DiagCaseSection v-else-if="caseSource === 'diagnosis'" />
+      <CaseLibrarySection v-else />
+    </template>
 
     <template v-else>
       <!-- 操作栏 -->
@@ -254,6 +278,12 @@ const rankedPagedItems = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.case-source-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .knowledge-card {
