@@ -57,6 +57,28 @@ export WITTY_CORS_ORIGINS="https://witty.example.com,http://192.168.1.10:5173"
 - `apiBase`（默认 `""`）：后端 API 基址；留空 = 同源（经 Nginx 反代），设为 `http://<后端>:9772` 则浏览器直连
 - `agentApiBase`（默认 `/agent-api`）：OpenCode Agent API 基址
 
+### 现象索引环境变量
+
+后端通过 RAG Core REST 维护现象专用知识库，与 Agent 的通用 RAG MCP 通道相互独立。容器部署由 `deploy/deploy.conf` 同名配置项注入；源码/RPM 部署在启动后端前导出同名变量。
+
+| 变量名 | 默认值 | 说明 |
+| -------- | -------- | ------ |
+| `RAG_CORE_URL` | 按部署推导 | RAG Core REST 基址；部署脚本按网络模式与 RAG 容器名推导，跨机部署显式配置 |
+| `RAG_ACCESS_KEY_FILE` | 复用 `RAG_ACCESS_KEY_SECRET_FILE` | RAG 访问密钥文件路径；容器部署以只读方式挂载，不新增第二份密钥 |
+| `RAG_PHENOMENON_KB_ID` | 空 | 现象专用知识库 ID；由 `phenomenon_cli --init-kb` 创建后回填，未填时索引不启动 |
+| `PHENOMENON_INDEX_ENABLED` | `false` | 索引扫描与发布 worker 开关 |
+| `PHENOMENON_SEARCH_ENABLED` | `false` | `/phenomenon/search` 开关；关闭时返回 `503` |
+| `RAG_MIN_SCORE` | `0.1` | 归一化召回分数阈值，按样本集校准 |
+| `RAG_TOP_K` | `5` | 默认召回条数 |
+| `RAG_INDEX_INTERVAL` | `120` | 报告目录扫描与索引重试周期，单位秒 |
+
+初始化与自检：
+
+```bash
+python -m latency.access.phenomenon_cli --init-kb   # 创建或校验专用知识库，输出 RAG_PHENOMENON_KB_ID
+python -m latency.access.phenomenon_cli --self-check # 上传→解析→检索→删除闭环自检
+```
+
 ### PostgreSQL 容器环境变量
 
 | 变量名 | 默认值 | 说明 |

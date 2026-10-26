@@ -368,6 +368,17 @@ docker run --rm -v witty-ub-data:/data -v $(pwd):/backup alpine tar czf /backup/
 | `LOG_LEVEL` | `info` | 日志级别 |
 | `WITTY_REPORT_DIR` | `/var/witty-ub/reports` | 诊断报告落盘根目录（`witty-ub-reports` 卷）；agent 写入，后端 `/diagnostic_report` 列表与下发读取 |
 
+## 现象索引初始化
+
+启用现象索引前，创建或校验专用知识库并跑闭环自检：
+
+```bash
+docker exec witty-ub python -m latency.access.phenomenon_cli --init-kb
+docker exec witty-ub python -m latency.access.phenomenon_cli --self-check
+```
+
+`--init-kb` 在未配置 `RAG_PHENOMENON_KB_ID` 时创建知识库并输出 ID；将该值写回 `deploy.conf` 后重新部署。灰度阶段保持 `PHENOMENON_SEARCH_ENABLED=false`，卡片收敛到 `indexed` 后再开启检索。
+
 ---
 
 ## 后续步骤

@@ -93,7 +93,10 @@ CONFIG_KEYS=(
     OPENCODE_CONFIG_DIR PG_IMAGE PG_HEALTH_INTERVAL PG_HEALTH_TIMEOUT PG_HEALTH_RETRIES
     PG_HEALTH_START_PERIOD
     WITTY_RAG_MCP_URL WITTY_RAG_NETWORK RAG_CONFIG_FILE RAG_DB_SECRET_FILE
-    OPENGAUSS_RAG_IMAGE WITTY_RAG_CORE_IMAGE
+    OPENGAUSS_RAG_IMAGE WITTY_RAG_CORE_IMAGE WITTY_RAG_CORE_HOST_PORT
+    RAG_ACCESS_KEY_SECRET_FILE RAG_CORE_URL RAG_ACCESS_KEY_FILE
+    RAG_PHENOMENON_KB_ID PHENOMENON_INDEX_ENABLED PHENOMENON_SEARCH_ENABLED
+    RAG_MIN_SCORE RAG_TOP_K RAG_INDEX_INTERVAL
 )
 ENV_OVERRIDES=""
 for _key in "${CONFIG_KEYS[@]}"; do
@@ -501,6 +504,44 @@ fi
 # 容器时区：资产时间与事件时间展示基准都跟随 TZ
 TZ_ENV_ARGS=(-e "TZ=${WITTY_TZ}")
 
+# 现象索引（RAG REST）：只在启用索引/检索或显式指定 KB 时注入后端容器。
+# 访问密钥复用 RAG 的 0600 密钥文件，以只读方式挂载，不复制第二份。
+PHENOMENON_ENV_ARGS=()
+if [ "$ROLE" != "frontend" ] &&
+    { [ -n "${RAG_PHENOMENON_KB_ID:-}" ] ||
+        [ "${PHENOMENON_INDEX_ENABLED:-false}" = "true" ] ||
+        [ "${PHENOMENON_SEARCH_ENABLED:-false}" = "true" ]; }; then
+    normalize_bool PHENOMENON_INDEX_ENABLED "${PHENOMENON_INDEX_ENABLED:-false}"
+    normalize_bool PHENOMENON_SEARCH_ENABLED "${PHENOMENON_SEARCH_ENABLED:-false}"
+    if [ -z "${RAG_CORE_URL:-}" ]; then
+        if [ "$WITTY_NETWORK_MODE" = "host" ]; then
+            RAG_CORE_URL="http://127.0.0.1:${WITTY_RAG_CORE_HOST_PORT:-9990}"
+        else
+            RAG_CORE_URL="http://${WITTY_RAG_CORE_CONTAINER:-witty-rag-core}:9988"
+        fi
+    fi
+    PHENOMENON_ENV_ARGS+=(
+        -e "RAG_CORE_URL=${RAG_CORE_URL}"
+        -e "RAG_PHENOMENON_KB_ID=${RAG_PHENOMENON_KB_ID:-}"
+        -e "PHENOMENON_INDEX_ENABLED=${PHENOMENON_INDEX_ENABLED}"
+        -e "PHENOMENON_SEARCH_ENABLED=${PHENOMENON_SEARCH_ENABLED}"
+    )
+    for _opt in RAG_MIN_SCORE RAG_TOP_K RAG_INDEX_INTERVAL; do
+        [ -n "${!_opt:-}" ] && PHENOMENON_ENV_ARGS+=(-e "${_opt}=${!_opt}")
+    done
+    _rag_key_file="${RAG_ACCESS_KEY_FILE:-${RAG_ACCESS_KEY_SECRET_FILE:-}}"
+    if [ -n "$_rag_key_file" ] && [ -f "$_rag_key_file" ]; then
+        PHENOMENON_ENV_ARGS+=(
+            -v "${_rag_key_file}:/run/secrets/witty-rag/access-key:ro"
+            -e "RAG_ACCESS_KEY_FILE=/run/secrets/witty-rag/access-key"
+        )
+    else
+        log_warn "Phenomenon index is enabled but no RAG access key file exists: ${_rag_key_file:-<unset>}"
+    fi
+    log_info "Phenomenon index: RAG_CORE_URL=${RAG_CORE_URL}, KB=${RAG_PHENOMENON_KB_ID:-<unset>}"
+    unset _opt _rag_key_file
+fi
+
 # ============================================================
 # witty-ub 镜像候选列表（按优先级从高到低，tag 跟随部署角色）
 # ============================================================
@@ -806,6 +847,7 @@ backend)
         -e PG_PORT="${PG_IN_CONTAINER_PORT}" \
         -e PG_DATABASE="${PG_DATABASE:-witty-ub}" \
         -e PG_USER="${PG_USER:-witty-ub}" \
+        "${PHENOMENON_ENV_ARGS[@]}" \
         "${SSL_ENV_ARGS[@]}" \
         "${TZ_ENV_ARGS[@]}" \
         --health-cmd="/healthcheck.sh" \
@@ -859,6 +901,7 @@ frontend)
         -e PG_PORT="${PG_IN_CONTAINER_PORT}" \
         -e PG_DATABASE="${PG_DATABASE:-witty-ub}" \
         -e PG_USER="${PG_USER:-witty-ub}" \
+        "${PHENOMENON_ENV_ARGS[@]}" \
         "${SSL_ENV_ARGS[@]}" \
         "${TZ_ENV_ARGS[@]}" \
         --health-cmd="/healthcheck.sh" \
