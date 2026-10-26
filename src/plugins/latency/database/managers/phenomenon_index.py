@@ -189,6 +189,93 @@ class PhenomenonIndexPGManager:
                 result.setdefault(report_id, {})[status] = int(count)
             return result
 
+    # ---------------------------------------------------------------- metrics
+    @staticmethod
+    async def report_status_counts() -> dict[str, int]:
+        """Report index status distribution for the ops snapshot."""
+        async with PGManager.session() as session:
+            rows = await session.execute(
+                select(DiagnosticReportIndex.index_status, func.count()).group_by(
+                    DiagnosticReportIndex.index_status
+                )
+            )
+            return {str(status): int(count) for status, count in rows.all()}
+
+    @staticmethod
+    async def card_status_counts_all() -> dict[str, int]:
+        """Enabled card index status distribution across every report."""
+        async with PGManager.session() as session:
+            rows = await session.execute(
+                select(PhenomenonIndex.index_status, func.count())
+                .where(PhenomenonIndex.enabled.is_(True))
+                .group_by(PhenomenonIndex.index_status)
+            )
+            return {str(status): int(count) for status, count in rows.all()}
+
+    @staticmethod
+    async def searchable_card_count() -> int:
+        async with PGManager.session() as session:
+            return int(
+                await session.scalar(
+                    select(func.count()).select_from(PhenomenonIndex).where(
+                        PhenomenonIndex.enabled.is_(True),
+                        PhenomenonIndex.searchable.is_(True),
+                    )
+                )
+                or 0
+            )
+
+    @staticmethod
+    async def cleanup_backlog() -> tuple[int, datetime | None]:
+        """Active cleanup tasks and the oldest creation time."""
+        active = (
+            RagCleanupStatus.OBSERVING.value,
+            RagCleanupStatus.PENDING.value,
+            RagCleanupStatus.DELETING.value,
+        )
+        async with PGManager.session() as session:
+            row = (
+                await session.execute(
+                    select(func.count(), func.min(RagDocCleanupTask.created_at)).where(
+                        RagDocCleanupTask.status.in_(active)
+                    )
+                )
+            ).one()
+            return int(row[0] or 0), row[1]
+
+    @staticmethod
+    async def event_backlog() -> tuple[int, datetime | None]:
+        """Unfinished outbox events and the oldest creation time."""
+        active = (
+            IndexEventStatus.PENDING.value,
+            IndexEventStatus.PROCESSING.value,
+            IndexEventStatus.FAILED.value,
+        )
+        async with PGManager.session() as session:
+            row = (
+                await session.execute(
+                    select(func.count(), func.min(IndexEventOutbox.created_at)).where(
+                        IndexEventOutbox.status.in_(active)
+                    )
+                )
+            ).one()
+            return int(row[0] or 0), row[1]
+
+    @staticmethod
+    async def stuck_parsing_count(ttl_minutes: int = 30) -> int:
+        cutoff = _now() - timedelta(minutes=ttl_minutes)
+        async with PGManager.session() as session:
+            return int(
+                await session.scalar(
+                    select(func.count()).select_from(PhenomenonIndex).where(
+                        PhenomenonIndex.index_status
+                        == PhenomenonIndexStatus.PARSING.value,
+                        PhenomenonIndex.updated_at < cutoff,
+                    )
+                )
+                or 0
+            )
+
     # ---------------------------------------------------------------- cards
     @staticmethod
     async def get_card(doc_id: str) -> PhenomenonIndex | None:

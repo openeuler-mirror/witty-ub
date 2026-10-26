@@ -1252,6 +1252,11 @@ class PhenomenonIndexService:
 
     # ---------------------------------------------------------------- self check
     @staticmethod
+    def self_check_done() -> bool:
+        """Whether the startup upload→parse→search round trip has passed."""
+        return _self_check_done
+
+    @staticmethod
     async def run_self_check() -> bool:
         """Upload → parse → search → delete one throwaway document."""
         global _self_check_done

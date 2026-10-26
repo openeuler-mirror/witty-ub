@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
+from collections import deque
 
 from latency.config import phenomenon as settings
 from latency.database.engine import PGManager
@@ -40,6 +42,45 @@ MAX_CANDIDATE_LIMIT = 200
 # mapping.  Read-interval timeouts cannot bound a slow-drip upstream, and the
 # caller must get an explicit error before the 5-second deadline.
 SEARCH_BUDGET_SECONDS = 4.5
+
+# 运维快照只看最近 5 分钟；进程重启后自动清零。
+RETRIEVAL_WINDOW_SECONDS = 300
+_RETRIEVAL_EVENTS: deque[tuple[float, float, bool]] = deque(maxlen=5000)
+
+
+def record_retrieval(
+    duration_seconds: float, ok: bool, at: float | None = None
+) -> None:
+    """Record one completed search attempt for the ops snapshot."""
+    _RETRIEVAL_EVENTS.append(
+        (time.monotonic() if at is None else at, max(0.0, duration_seconds), ok)
+    )
+
+
+def retrieval_snapshot(now: float | None = None) -> dict[str, float | int | None]:
+    """Return request count, error rate and p95 over the rolling window."""
+    global _RETRIEVAL_EVENTS
+    current = time.monotonic() if now is None else now
+    cutoff = current - RETRIEVAL_WINDOW_SECONDS
+    _RETRIEVAL_EVENTS = deque(
+        (event for event in _RETRIEVAL_EVENTS if event[0] >= cutoff),
+        maxlen=_RETRIEVAL_EVENTS.maxlen,
+    )
+    durations = [duration for _, duration, _ in _RETRIEVAL_EVENTS]
+    requests = len(durations)
+    errors = sum(1 for _, _, ok in _RETRIEVAL_EVENTS if not ok)
+    p95_ms: float | None = None
+    if durations:
+        ordered = sorted(durations)
+        index = max(0, math.ceil(len(ordered) * 0.95) - 1)
+        p95_ms = round(ordered[index] * 1000, 1)
+    return {
+        "window_seconds": RETRIEVAL_WINDOW_SECONDS,
+        "requests": requests,
+        "errors": errors,
+        "error_rate": round(errors / requests, 4) if requests else 0.0,
+        "p95_ms": p95_ms,
+    }
 
 
 def _fingerprints_equal(left: str | None, right: str | None) -> bool:
@@ -173,16 +214,22 @@ class PhenomenonSearchService:
                 message="现象检索依赖不可用", detail=str(exc)
             ) from exc
 
+        started = time.monotonic()
+        ok = False
         try:
-            return await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 PhenomenonSearchService._search(req, client, kb_id),
                 SEARCH_BUDGET_SECONDS,
             )
+            ok = True
+            return result
         except asyncio.TimeoutError as exc:  # noqa: UP041 - a separate class on Python 3.10
             raise DependencyUnavailableBizException(
                 message="现象检索超时",
                 detail=f"search budget {SEARCH_BUDGET_SECONDS}s exceeded",
             ) from exc
+        finally:
+            record_retrieval(time.monotonic() - started, ok)
 
     @staticmethod
     async def _search(

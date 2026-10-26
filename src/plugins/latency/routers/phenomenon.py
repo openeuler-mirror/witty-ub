@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Body, Path
 from latency.schemas.phenomenon import (
     GetPhenomenonResponse,
+    GetPhenomenonStatusResponse,
     IndexPhenomenonMsg,
     IndexPhenomenonRequest,
     IndexPhenomenonResponse,
@@ -13,6 +14,7 @@ from latency.schemas.phenomenon import (
 )
 from latency.services.phenomenon_index import PhenomenonIndexService
 from latency.services.phenomenon_search import PhenomenonSearchService
+from latency.services.phenomenon_status import PhenomenonStatusService
 
 router = APIRouter(prefix="/phenomenon", tags=["Phenomenon"])
 
@@ -66,6 +68,21 @@ async def index_phenomena(
             index_status=result.get("index_status"),
         )
     )
+
+
+@router.get(
+    "/status",
+    response_model=GetPhenomenonStatusResponse,
+    operation_id="get_phenomenon_status",
+    description=(
+        "Read-only operations snapshot: report/card index distribution, cleanup "
+        "and outbox backlog, recent retrieval error rate and p95, plus alerts "
+        "derived from the design thresholds. Never mutates cards or RAG state."
+    ),
+)
+async def get_phenomenon_status() -> GetPhenomenonStatusResponse:
+    msg = await PhenomenonStatusService.snapshot()
+    return GetPhenomenonStatusResponse(result=msg)
 
 
 @router.get(

@@ -132,3 +132,57 @@ class GetPhenomenonMsg(BaseModel):
 
 class GetPhenomenonResponse(ResponseBase):
     result: GetPhenomenonMsg = Field(..., description="现象卡片详情响应结果")
+
+
+class ReportIndexCountsModel(BaseModel):
+    total: int = Field(default=0, description="报告索引行数")
+    by_status: dict[str, int] = Field(default_factory=dict, description="按聚合索引状态计数")
+
+
+class CardCountsModel(BaseModel):
+    enabled: int = Field(default=0, description="启用中的卡片数")
+    searchable: int = Field(default=0, description="当前可检索的卡片数")
+    by_status: dict[str, int] = Field(default_factory=dict, description="按索引状态计数")
+
+
+class QueueCountsModel(BaseModel):
+    cleanup_active: int = Field(default=0, description="未完成的 RAG 清理任务数")
+    cleanup_oldest_age_seconds: int | None = Field(default=None, description="最老清理任务等待秒数")
+    events_active: int = Field(default=0, description="未完成的索引事件数")
+    events_oldest_age_seconds: int | None = Field(default=None, description="最老索引事件等待秒数")
+    stuck_parsing: int = Field(default=0, description="超过 30 分钟仍处于 parsing 的卡片数")
+
+
+class RetrievalStatsModel(BaseModel):
+    window_seconds: int = Field(default=300, description="滚动窗口秒数")
+    requests: int = Field(default=0, description="窗口内检索次数")
+    errors: int = Field(default=0, description="窗口内失败次数")
+    error_rate: float = Field(default=0.0, description="窗口内失败率")
+    p95_ms: float | None = Field(default=None, description="窗口内 p95 毫秒")
+
+
+class PhenomenonAlertModel(BaseModel):
+    code: str = Field(..., description="告警编码")
+    severity: Literal["warning", "critical"] = Field(..., description="告警级别")
+    message: str = Field(..., description="告警说明")
+    value: float | int | str | None = Field(default=None, description="当前值")
+    threshold: float | int | str | None = Field(default=None, description="触发阈值")
+
+
+class PhenomenonStatusMsg(BaseModel):
+    index_enabled: bool = Field(..., description="索引 worker 开关")
+    search_enabled: bool = Field(..., description="检索开关")
+    self_check_enabled: bool = Field(..., description="启动自检开关")
+    self_check_done: bool = Field(..., description="启动自检是否通过")
+    rag_configured: bool = Field(..., description="RAG 地址与专用知识库是否已配置")
+    reports: ReportIndexCountsModel = Field(..., description="报告索引概况")
+    cards: CardCountsModel = Field(..., description="现象卡片概况")
+    queues: QueueCountsModel = Field(..., description="清理与事件积压")
+    retrieval: RetrievalStatsModel = Field(..., description="近期检索指标")
+    alerts: list[PhenomenonAlertModel] = Field(
+        default_factory=list, description="按阈值派生的告警项"
+    )
+
+
+class GetPhenomenonStatusResponse(ResponseBase):
+    result: PhenomenonStatusMsg = Field(..., description="现象索引与检索运维快照")
