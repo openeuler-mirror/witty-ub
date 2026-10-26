@@ -227,9 +227,11 @@ class PhenomenonIndexPGManager:
 
     @staticmethod
     async def cleanup_backlog() -> tuple[int, datetime | None]:
-        """Active cleanup tasks and the oldest creation time."""
+        """Active cleanup tasks and the oldest creation time.
+
+        ``observing`` is the orphan grace window, not deletion backlog.
+        """
         active = (
-            RagCleanupStatus.OBSERVING.value,
             RagCleanupStatus.PENDING.value,
             RagCleanupStatus.DELETING.value,
         )
