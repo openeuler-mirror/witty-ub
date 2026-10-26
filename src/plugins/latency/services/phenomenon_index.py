@@ -39,6 +39,7 @@ from latency.exceptions import (
     NotFoundBizException,
     UnprocessableBizException,
 )
+from latency.services import label_taxonomy
 from latency.services import report_phenomenon as extractor
 from latency.services.case_service import CASE_DIR
 from latency.services.diagnostic_report import DiagnosticReportService, report_root
@@ -79,6 +80,40 @@ def _backoff(retry: int, base_seconds: int, max_seconds: int) -> datetime:
     return _now() + timedelta(
         seconds=min(base_seconds * (2 ** max(0, retry - 1)), max_seconds)
     )
+
+
+def _current_label_hash(doc: extractor.PhenomenonDoc | None) -> str | None:
+    """Snapshot hash for the fault's current two-level labels."""
+    if doc is None:
+        return None
+    try:
+        validation = label_taxonomy.validate_labels(
+            doc.first_level_label, doc.second_level_label
+        )
+    except label_taxonomy.TaxonomyError:
+        return None
+    if not validation.taxonomy_version:
+        return None
+    return label_taxonomy.label_snapshot_hash(
+        validation.first_level_label,
+        validation.second_level_label,
+        validation.taxonomy_version,
+    )
+
+
+def _select_bound_case(
+    doc: extractor.PhenomenonDoc, candidates: list[DiagCaseLibrary]
+) -> DiagCaseLibrary | None:
+    """Bind only when both the fault fingerprint and the label snapshot match."""
+    label_hash = _current_label_hash(doc)
+    for item in candidates:
+        if item.source_fault_hash != doc.source_fault_hash:
+            continue
+        stored_label_hash = getattr(item, "source_label_hash", None)
+        if stored_label_hash and stored_label_hash != label_hash:
+            continue
+        return item
+    return None
 
 
 def _read_json(path: Path, max_bytes: int) -> dict | None:
@@ -351,14 +386,7 @@ class PhenomenonIndexService:
         for doc in extraction.faults:
             current_ids.add(doc.doc_id)
             candidates = cases_by_fault.get(doc.source_fault_id or "", [])
-            case = next(
-                (
-                    item
-                    for item in candidates
-                    if item.source_fault_hash == doc.source_fault_hash
-                ),
-                None,
-            )
+            case = _select_bound_case(doc, candidates)
             if case is not None:
                 doc.case_id = case.id
                 doc.case_no = case.case_no
@@ -557,6 +585,8 @@ class PhenomenonIndexService:
         valid = bool(
             current and current.source_fault_hash == case.source_fault_hash
         )
+        if valid and getattr(case, "source_label_hash", None):
+            valid = _current_label_hash(current) == case.source_label_hash
         if valid and (card is None or force):
             await PhenomenonIndexService.index_report(case.report_id, force=force)
             card = await Mgr.get_card(report_doc_id)
