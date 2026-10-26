@@ -28,9 +28,11 @@ from latency.exceptions import (
     UnprocessableBizException,
 )
 from latency.schemas.diagnostic_report import (
+    ClassificationModel,
     DiagnosticCaseRefModel,
     DiagnosticReportDetailItem,
     DiagnosticReportItem,
+    FaultSummaryModel,
     GetDiagnosticReportFaultMsg,
     GetDiagnosticReportMsg,
     ListDiagnosticReportsMsg,
@@ -104,19 +106,37 @@ def _fault_stats(data: Optional[dict]) -> tuple[Optional[int], Optional[int]]:
     return None, None
 
 
-def _fault_hashes(report_id: str, data: Optional[dict]) -> dict[str, str]:
-    """Current source-fault fingerprints keyed by stable fault ID."""
+def _fault_snapshots(
+    report_id: str, data: Optional[dict]
+) -> dict[str, tuple[str, Optional[str]]]:
+    """Current ``(source_fault_hash, source_label_hash)`` keyed by stable fault ID."""
     if not data:
         return {}
     try:
         extraction = phenomenon_extractor.extract_report(report_id, data)
     except Exception:  # noqa: BLE001 - metadata decoration must not fail
         return {}
-    return {
-        doc.source_fault_id: doc.source_fault_hash
-        for doc in extraction.faults
-        if doc.source_fault_id and doc.source_fault_hash
-    }
+    snapshots: dict[str, tuple[str, Optional[str]]] = {}
+    for doc in extraction.faults:
+        if not (doc.source_fault_id and doc.source_fault_hash):
+            continue
+        label_hash = None
+        try:
+            from latency.services import label_taxonomy
+
+            validation = label_taxonomy.validate_labels(
+                doc.first_level_label, doc.second_level_label
+            )
+            if validation.taxonomy_version:
+                label_hash = label_taxonomy.label_snapshot_hash(
+                    validation.first_level_label,
+                    validation.second_level_label,
+                    validation.taxonomy_version,
+                )
+        except Exception:  # noqa: BLE001 - labels are optional decoration
+            label_hash = None
+        snapshots[doc.source_fault_id] = (doc.source_fault_hash, label_hash)
+    return snapshots
 
 
 def _case_verification(case: DiagCaseLibrary) -> str:
@@ -133,6 +153,84 @@ def _case_verification(case: DiagCaseLibrary) -> str:
         if closed_loop
         else VerificationLevel.CONFIRMED_UNVERIFIED.value
     )
+
+
+def _format_dt(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    try:
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    except AttributeError:
+        return str(value)
+
+
+def _classification(fault: dict) -> ClassificationModel:
+    """Validate one fault's labels for the report workbench."""
+    from latency.services import label_taxonomy
+
+    conclusion = phenomenon_extractor.fault_conclusion(fault)
+    try:
+        validation = label_taxonomy.validate_labels(
+            conclusion.get("first_level_label"),
+            conclusion.get("second_level_label"),
+        )
+    except label_taxonomy.TaxonomyError:
+        return ClassificationModel(status="unavailable", error="label_taxonomy_unavailable")
+    snapshot = None
+    if validation.taxonomy_version:
+        snapshot = label_taxonomy.label_snapshot_hash(
+            validation.first_level_label,
+            validation.second_level_label,
+            validation.taxonomy_version,
+        )
+    return ClassificationModel(
+        first_level_label=validation.first_level_label,
+        second_level_label=validation.second_level_label,
+        status=validation.status,
+        error=validation.error,
+        taxonomy_version=validation.taxonomy_version,
+        snapshot_hash=snapshot,
+    )
+
+
+def _fault_summaries(data: Optional[dict]) -> list[FaultSummaryModel]:
+    if not data:
+        return []
+    faults = phenomenon_extractor.normalise_faults(data)
+    raw_ids = [
+        str(item.get("id") or "").strip()
+        for item in faults
+        if isinstance(item, dict)
+    ]
+    counts: dict[str, int] = {}
+    for value in raw_ids:
+        if value:
+            counts[value] = counts.get(value, 0) + 1
+    summaries: list[FaultSummaryModel] = []
+    for fault, raw_id in zip(faults, raw_ids, strict=False):
+        status = str(fault.get("status") or "suspected").lower()
+        synthetic = not raw_id or raw_id.startswith("auto:") or counts.get(raw_id, 0) > 1
+        confidence = fault.get("confidence")
+        value: Optional[float] = None
+        if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
+            number = float(confidence)
+            value = max(0.0, min(1.0, number / 100 if number > 1 else number))
+        summaries.append(
+            FaultSummaryModel(
+                fault_id=None if synthetic else raw_id,
+                title=fault.get("title"),
+                status=status,
+                category=fault.get("category"),
+                confidence=value,
+                classification=_classification(fault),
+                indexable=status != "excluded" and not synthetic,
+                synthetic=synthetic,
+                excluded=status == "excluded",
+            )
+        )
+    return summaries
 
 
 class DiagnosticReportService:
@@ -214,6 +312,7 @@ class DiagnosticReportService:
         basic = basic if isinstance(basic, dict) else {}
 
         item.has_sidecar = True
+        item.current_sidecar_hash = phenomenon_extractor.compute_sidecar_hash(data)
         item.kb_id = basic.get("kb_id") or kb_dir
         item.kb_name = _opt_str(basic.get("kb_name"))
         item.title = _opt_str(report.get("title"))
@@ -276,21 +375,40 @@ class DiagnosticReportService:
                 detail.index_status = row.index_status or "pending"
                 detail.index_error = row.index_error
                 detail.report_available = bool(row.report_available)
+                detail.review_confirmed_by = row.confirmed_by
+                detail.review_confirmed_at = _format_dt(row.confirmed_at)
             elif detail.has_sidecar:
                 detail.index_status = "pending"
+            if not detail.has_sidecar or not detail.current_sidecar_hash:
+                detail.review_status = "unavailable"
+            elif row is None or not row.confirmed_sidecar_hash:
+                detail.review_status = "unconfirmed"
+            elif row.confirmed_sidecar_hash != detail.current_sidecar_hash:
+                detail.review_status = "stale"
+            else:
+                detail.review_status = "confirmed"
             detail.status_counts = status_counts.get(detail.report_id, {})
 
-            hashes = _fault_hashes(
+            snapshots = _fault_snapshots(
                 detail.report_id, payloads.get(detail.report_id)
             )
             refs: list[DiagnosticCaseRefModel] = []
             case_count = 0
             verified_count = 0
             for case in cases_by_report.get(detail.report_id, []):
+                current_hash, current_label_hash = snapshots.get(
+                    case.source_fault_id or "", (None, None)
+                )
                 is_current = bool(
                     case.source_fault_hash
-                    and hashes.get(case.source_fault_id or "") == case.source_fault_hash
+                    and current_hash == case.source_fault_hash
+                    and (
+                        not case.source_label_hash
+                        or current_label_hash == case.source_label_hash
+                    )
                 )
+                verification = case.verification_json or {}
+                verification = verification if isinstance(verification, dict) else {}
                 refs.append(
                     DiagnosticCaseRefModel(
                         case_id=case.id,
@@ -299,12 +417,20 @@ class DiagnosticReportService:
                         source_fault_hash=case.source_fault_hash,
                         is_current_version=is_current,
                         status=case.status,
+                        revision=case.revision or 0,
                         verification=_case_verification(case),
                         binding_status=(
                             BindingStatus.VALID.value
                             if is_current
                             else BindingStatus.STALE.value
                         ),
+                        first_level_label=case.first_level_label,
+                        second_level_label=case.second_level_label,
+                        verification_method=_opt_str(verification.get("method")),
+                        observed_result=_opt_str(verification.get("observed_result")),
+                        closed_loop=bool(verification.get("closed_loop")),
+                        verified_by=_opt_str(verification.get("verified_by")),
+                        verified_at=_opt_str(verification.get("verified_at")),
                     )
                 )
                 if case.status == "confirmed" and is_current:
@@ -315,6 +441,9 @@ class DiagnosticReportService:
             detail.verified_case_count = verified_count
             if with_case_refs:
                 detail.case_refs = refs  # type: ignore[attr-defined]
+                detail.fault_summaries = _fault_summaries(  # type: ignore[attr-defined]
+                    payloads.get(detail.report_id)
+                )
         return details
 
     # ---------------------------------------------------------------- 定位
@@ -405,7 +534,10 @@ class DiagnosticReportService:
             if ref.source_fault_id == source_fault_id
         ]
         return GetDiagnosticReportFaultMsg(
-            report=decorated[0], fault=fault, case_refs=refs
+            report=decorated[0],
+            fault=fault,
+            classification=_classification(fault),
+            case_refs=refs,
         )
 
     @staticmethod
