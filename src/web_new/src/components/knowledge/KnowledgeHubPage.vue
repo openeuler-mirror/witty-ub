@@ -8,9 +8,10 @@ import { useExperience } from '../../composables/useExperience'
 import { formatTime } from '../../utils/format'
 import { renderAgentMarkdown } from '../../utils/agentMarkdown'
 import CaseLibrarySection from './CaseLibrarySection.vue'
+import DiagCaseSection from './DiagCaseSection.vue'
 
-// 知识库两个板块：经验（Skill/Wiki）与案例库（全局故障案例）
-const section = ref<'experience' | 'cases'>('experience')
+// 知识库三个板块：经验、文件案例库与新诊断案例
+const section = ref<'experience' | 'cases' | 'diagnosis-cases'>('experience')
 
 const openExperienceSection = (type: 'SKILL' | 'WIKI') => {
   section.value = 'experience'
@@ -89,12 +90,20 @@ const rankedPagedItems = computed(() => {
         :class="['page-nav-item', { active: section === 'cases' }]"
         @click="section = 'cases'"
       >
-        📋 案例管理
+        📋 文件案例
+      </button>
+      <button
+        type="button"
+        :class="['page-nav-item', { active: section === 'diagnosis-cases' }]"
+        @click="section = 'diagnosis-cases'"
+      >
+        🧭 诊断案例
       </button>
     </nav>
 
     <!-- ===== 案例管理（全局案例库） ===== -->
     <CaseLibrarySection v-if="section === 'cases'" />
+    <DiagCaseSection v-else-if="section === 'diagnosis-cases'" />
 
     <template v-else>
       <!-- 操作栏 -->

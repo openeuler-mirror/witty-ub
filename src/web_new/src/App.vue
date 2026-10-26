@@ -10,6 +10,8 @@ import AssetsPage from './views/assets/AssetsPage.vue'
 import AssetWorkspace from './views/assets/AssetWorkspace.vue'
 import KnowledgeHubPage from './components/knowledge/KnowledgeHubPage.vue'
 import BrpcDiagnosisModal from './components/BrpcDiagnosisModal.vue'
+import ReportWorkbenchModal from './components/report/ReportWorkbenchModal.vue'
+import DiagCaseDetailModal from './components/knowledge/DiagCaseDetailModal.vue'
 
 const { toasts } = useToast()
 const { view, selectedAsset, assetTab, goAssetList } = useAssets()
@@ -137,6 +139,8 @@ onBeforeUnmount(() => {
   </main>
 
   <BrpcDiagnosisModal />
+  <ReportWorkbenchModal />
+  <DiagCaseDetailModal />
 
   <div class="toast">
     <div v-for="item in toasts" :key="item.id" :class="['toast-item', `toast-${item.type}`]">
