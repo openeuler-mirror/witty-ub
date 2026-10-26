@@ -13,6 +13,14 @@ export type DiagnosticReportItem = {
   file_name: string
   file_size: number
   has_sidecar: boolean
+  index_status: string
+  index_error: string | null
+  status_counts: Record<string, number>
+  indexable_fault_count: number | null
+  confirmed_fault_count: number | null
+  case_count: number
+  verified_case_count: number
+  report_available: boolean
 }
 
 export type DiagnosticReportList = {

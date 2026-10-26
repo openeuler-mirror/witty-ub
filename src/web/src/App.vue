@@ -11491,6 +11491,14 @@ type DiagnosticReportModel = {
   file_name?: string | null
   file_size?: number | null
   has_sidecar?: boolean
+  index_status?: string | null
+  index_error?: string | null
+  status_counts?: Record<string, number> | null
+  indexable_fault_count?: number | null
+  confirmed_fault_count?: number | null
+  case_count?: number | null
+  verified_case_count?: number | null
+  report_available?: boolean
 }
 
 const diagnosticReportsPageSize = 10
@@ -11509,6 +11517,30 @@ const diagnosticReportsPageWindow = computed(() =>
 )
 const diagnosticReportDisplayText = (value?: string | number | null) =>
   value === undefined || value === null || value === '' ? '—' : String(value)
+
+const diagnosticReportIndexLabels: Record<string, string> = {
+  indexed: '已索引',
+  partial: '部分索引',
+  pending: '待索引',
+  failed: '索引失败',
+  not_applicable: '无需索引',
+}
+const diagnosticReportIndexLabel = (value?: string | null) =>
+  diagnosticReportIndexLabels[value || ''] ?? '未知'
+const diagnosticReportIndexBadgeClass = (value?: string | null) => {
+  switch (value) {
+    case 'indexed':
+      return 'status-successful'
+    case 'partial':
+      return 'status-running'
+    case 'pending':
+      return 'status-pending'
+    case 'failed':
+      return 'status-failed'
+    default:
+      return 'status-unknown'
+  }
+}
 
 const loadDiagnosticReports = async (pageNum = diagnosticReportsPage.value) => {
   isDiagnosticReportsLoading.value = true
@@ -19946,6 +19978,15 @@ onBeforeUnmount(() => {
                           : diagnosticReportDisplayText(report.fault_count)
                       }}
                     </span>
+                    <span class="log-file-time">
+                      案例：{{ diagnosticReportDisplayText(report.case_count ?? 0) }}
+                    </span>
+                    <span
+                      class="status-badge"
+                      :class="diagnosticReportIndexBadgeClass(report.index_status)"
+                      :title="report.index_error || undefined"
+                      >{{ diagnosticReportIndexLabel(report.index_status) }}</span
+                    >
                     <span
                       v-if="report.has_sidecar === false"
                       class="status-badge anomaly-danger"
@@ -21018,6 +21059,15 @@ onBeforeUnmount(() => {
                       时间范围：{{ diagnosticReportDisplayText(report.time_range_start) }} ~
                       {{ diagnosticReportDisplayText(report.time_range_end) }}
                     </span>
+                    <span class="log-file-time">
+                      案例：{{ diagnosticReportDisplayText(report.case_count ?? 0) }}
+                    </span>
+                    <span
+                      class="status-badge"
+                      :class="diagnosticReportIndexBadgeClass(report.index_status)"
+                      :title="report.index_error || undefined"
+                      >{{ diagnosticReportIndexLabel(report.index_status) }}</span
+                    >
                     <span
                       v-if="report.has_sidecar === false"
                       class="status-badge anomaly-danger"

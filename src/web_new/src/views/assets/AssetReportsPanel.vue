@@ -23,6 +23,20 @@ const displayText = (value: string | number | null | undefined, fallback = '—'
   return String(value)
 }
 
+type IndexStatusMeta = { label: string; cls: string }
+
+const INDEX_STATUS_META: Record<string, IndexStatusMeta> = {
+  indexed: { label: '已索引', cls: 'badge-success' },
+  partial: { label: '部分索引', cls: 'badge-warning' },
+  pending: { label: '待索引', cls: 'badge-pending' },
+  failed: { label: '索引失败', cls: 'badge-failed' },
+  not_applicable: { label: '无需索引', cls: 'badge-cancelled' },
+}
+const INDEX_STATUS_DEFAULT: IndexStatusMeta = { label: '未知', cls: 'badge-cancelled' }
+
+const indexStatusMeta = (report: DiagnosticReportItem): IndexStatusMeta =>
+  INDEX_STATUS_META[report.index_status] ?? INDEX_STATUS_DEFAULT
+
 const reload = () => {
   const kbId = selectedAsset.value?.id
   if (kbId) void loadAssetReports(kbId, 50)
@@ -61,6 +75,8 @@ watch(
           <th>标题</th>
           <th>时间范围</th>
           <th class="num">故障数</th>
+          <th>现象索引</th>
+          <th class="num">案例</th>
           <th>生成时间</th>
           <th></th>
         </tr>
@@ -93,6 +109,16 @@ watch(
           <td class="num">
             {{ report.has_sidecar === false ? '—' : displayText(report.fault_count) }}
           </td>
+          <td>
+            <span
+              class="badge"
+              :class="indexStatusMeta(report).cls"
+              :title="report.index_error || undefined"
+            >
+              {{ indexStatusMeta(report).label }}
+            </span>
+          </td>
+          <td class="num">{{ report.case_count }}</td>
           <td>{{ displayText(report.generated_at) }}</td>
           <td>
             <button class="btn btn-sm btn-primary" type="button" @click="openReport(report)">
