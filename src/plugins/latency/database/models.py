@@ -23,6 +23,7 @@ from typing import Any, Optional
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CHAR,
     CheckConstraint,
     DateTime,
     Float,
@@ -461,6 +462,10 @@ class DiagCaseLibrary(Base):
     source: Mapped[str] = mapped_column(String, default="internal")
     source_url: Mapped[Optional[str]] = mapped_column(Text)
     title: Mapped[Optional[str]] = mapped_column(String)
+    # 报告故障版本绑定：建案时写入，PATCH 不可修改
+    report_id: Mapped[Optional[str]] = mapped_column(String(200))
+    source_fault_id: Mapped[Optional[str]] = mapped_column(String(64))
+    source_fault_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
     # 归属
     log_type: Mapped[Optional[str]] = mapped_column(String)
     kb_id: Mapped[Optional[str]] = mapped_column(String, index=True)
@@ -516,6 +521,158 @@ class DiagCaseLibrarySignal(Base):
     signal_type: Mapped[str] = mapped_column(String, primary_key=True)
     signal_value: Mapped[str] = mapped_column(String, primary_key=True)
     weight: Mapped[float] = mapped_column(Float, default=1.0)
+
+
+# ============================================================
+# 4c. 报告 / 现象索引
+#     只存元信息与指针；报告正文、案例正文仍在报告卷与业务表中。
+# ============================================================
+class DiagnosticReportIndex(Base):
+    """报告元信息与索引状态缓存；正文不落库。"""
+
+    __tablename__ = "diagnostic_report_index"
+
+    report_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    report_meta_id: Mapped[Optional[str]] = mapped_column(String(128))
+    kb_id: Mapped[Optional[str]] = mapped_column(String(128))
+    kb_name: Mapped[Optional[str]] = mapped_column(String(256))
+    title: Mapped[Optional[str]] = mapped_column(Text)
+    generated_at: Mapped[Optional[str]] = mapped_column(String(32))
+    operation: Mapped[Optional[str]] = mapped_column(String(16))
+    time_range_start: Mapped[Optional[str]] = mapped_column(String(32))
+    time_range_end: Mapped[Optional[str]] = mapped_column(String(32))
+    fault_count: Mapped[Optional[int]] = mapped_column(Integer)
+    sidecar_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
+    index_status: Mapped[str] = mapped_column(String(16), default="pending")
+    index_error: Mapped[Optional[str]] = mapped_column(Text)
+    indexed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    report_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: local_now()
+    )
+
+
+class PhenomenonIndex(Base):
+    """一条现象一张卡片；期望版本、待发布版本与已发布版本分列保存。"""
+
+    __tablename__ = "phenomenon_index"
+    __table_args__ = (
+        CheckConstraint(
+            "(rag_kb_id IS NULL) = (rag_doc_id IS NULL)",
+            name="ck_phi_rag_pair",
+        ),
+        CheckConstraint(
+            "(pending_rag_kb_id IS NULL) = (pending_rag_doc_id IS NULL)",
+            name="ck_phi_pending_rag_pair",
+        ),
+    )
+
+    doc_id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    content_source: Mapped[str] = mapped_column(String(16))
+    report_id: Mapped[Optional[str]] = mapped_column(String(200))
+    source_fault_id: Mapped[Optional[str]] = mapped_column(String(64))
+    source_fault_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
+    case_id: Mapped[Optional[str]] = mapped_column(String(64))
+    case_no: Mapped[Optional[str]] = mapped_column(String(32))
+    legacy_case_id: Mapped[Optional[str]] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(Text)
+    symptom: Mapped[str] = mapped_column(Text)
+    root_cause_summary: Mapped[Optional[str]] = mapped_column(Text)
+    log_type: Mapped[Optional[str]] = mapped_column(String(16))
+    operation: Mapped[Optional[str]] = mapped_column(String(16))
+    fault_type: Mapped[str] = mapped_column(String(16), default="unknown")
+    status_codes: Mapped[list[Any]] = mapped_column(JSONB, default=list)
+    failure_mode_ids: Mapped[list[Any]] = mapped_column(JSONB, default=list)
+    verification: Mapped[str] = mapped_column(String(24))
+    binding_status: Mapped[str] = mapped_column(String(16), default="none")
+    text: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(CHAR(64))
+    published_title: Mapped[Optional[str]] = mapped_column(Text)
+    published_symptom: Mapped[Optional[str]] = mapped_column(Text)
+    published_text: Mapped[Optional[str]] = mapped_column(Text)
+    published_source_fault_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
+    rag_kb_id: Mapped[Optional[str]] = mapped_column(String(128))
+    rag_doc_id: Mapped[Optional[str]] = mapped_column(String(128))
+    indexed_content_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
+    pending_rag_kb_id: Mapped[Optional[str]] = mapped_column(String(128))
+    pending_rag_doc_id: Mapped[Optional[str]] = mapped_column(String(128))
+    # 候选上传时的目标版本；解析完成前期望版本可能变化，切换必须按此校验。
+    pending_content_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
+    pending_source_fault_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    searchable: Mapped[bool] = mapped_column(Boolean, default=False)
+    index_status: Mapped[str] = mapped_column(String(16), default="pending")
+    index_error: Mapped[Optional[str]] = mapped_column(Text)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_retry_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    lease_owner: Mapped[Optional[str]] = mapped_column(String(128))
+    lease_token: Mapped[Optional[str]] = mapped_column(String(64))
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    indexed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: local_now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: local_now()
+    )
+
+
+class RagDocCleanupTask(Base):
+    """待删除的 RAG 文档；按 (rag_kb_id, rag_doc_id) 幂等入队。"""
+
+    __tablename__ = "rag_doc_cleanup_task"
+    __table_args__ = (
+        UniqueConstraint("rag_kb_id", "rag_doc_id", name="uq_rag_cleanup_doc"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, Identity(start=1, increment=1), primary_key=True
+    )
+    rag_kb_id: Mapped[str] = mapped_column(String(128))
+    rag_doc_id: Mapped[str] = mapped_column(String(128))
+    # 入队时释放该文档对的卡片；清理成功后据此把禁用卡片置为 deleted。
+    doc_id: Mapped[Optional[str]] = mapped_column(String(512))
+    reason: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    lease_owner: Mapped[Optional[str]] = mapped_column(String(64))
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_retry_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: local_now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: local_now()
+    )
+
+
+class IndexEventOutbox(Base):
+    """案例状态变更与索引任务之间的可靠衔接事件。"""
+
+    __tablename__ = "index_event_outbox"
+    __table_args__ = (
+        UniqueConstraint("event_key", name="uq_index_event_key"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, Identity(start=1, increment=1), primary_key=True
+    )
+    event_key: Mapped[str] = mapped_column(String(256))
+    event_type: Mapped[str] = mapped_column(String(32))
+    target_doc_id: Mapped[Optional[str]] = mapped_column(String(512))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_retry_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    lease_owner: Mapped[Optional[str]] = mapped_column(String(64))
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: local_now()
+    )
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
 
 
 # ============================================================
