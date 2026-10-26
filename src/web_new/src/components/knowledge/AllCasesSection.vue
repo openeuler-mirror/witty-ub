@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import PageNav from '../common/PageNav.vue'
 import { fetchCases, type CaseRecord } from '../../api/caseLibrary'
 import { searchDiagCases, type DiagCase, type DiagCaseMatch } from '../../api/diagCaseLibrary'
 import { useDiagCaseDetail } from '../../composables/useDiagCaseDetail'
@@ -17,14 +18,19 @@ type OverviewRow = {
   trust: string
   reportId: string | null
   faultId: string | null
+  reportStatus: string
   time: string
 }
+
+const PAGE_SIZE = 50
+const DIAG_PAGE_SIZE = 200
 
 const { openCase, caseVersion } = useDiagCaseDetail()
 const { openReport } = useReportWorkbench()
 
 const loading = ref(false)
 const error = ref('')
+const page = ref(1)
 const diagMatches = ref<DiagCaseMatch[]>([])
 const legacyCases = ref<CaseRecord[]>([])
 
@@ -44,17 +50,18 @@ const legacyClassification = (item: CaseRecord) =>
   [item.case_category || '未分类', item.root_cause_type].filter(Boolean).join(' / ')
 
 const rows = computed<OverviewRow[]>(() => {
-  const diagRows = diagMatches.value.map(({ case: item }) => ({
+  const diagRows = diagMatches.value.map((match) => ({
     source: 'diagnosis' as CaseSource,
-    key: `diagnosis:${item.id}`,
-    id: item.id,
-    title: item.title || item.case_no || item.id,
-    classification: diagClassification(item),
-    status: item.status,
-    trust: diagTrust(item),
-    reportId: item.report_id,
-    faultId: item.source_fault_id,
-    time: item.updated_at,
+    key: `diagnosis:${match.case.id}`,
+    id: match.case.id,
+    title: match.case.title || match.case.case_no || match.case.id,
+    classification: diagClassification(match.case),
+    status: match.case.status,
+    trust: diagTrust(match.case),
+    reportId: match.case.report_id,
+    faultId: match.case.source_fault_id,
+    reportStatus: match.source_report?.status ?? 'unavailable',
+    time: match.case.updated_at,
   }))
   const legacyRows = legacyCases.value.map((item) => ({
     source: 'legacy' as CaseSource,
@@ -66,22 +73,53 @@ const rows = computed<OverviewRow[]>(() => {
     trust: '旧案例未验证',
     reportId: null,
     faultId: null,
+    reportStatus: 'independent',
     time: item.created_at || '',
   }))
   const merged = [...diagRows, ...legacyRows]
   return merged.sort((a, b) => b.time.localeCompare(a.time))
 })
 
+const totalPages = computed(() => Math.max(1, Math.ceil(rows.value.length / PAGE_SIZE)))
+const pagedRows = computed(() =>
+  rows.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
+)
+
+const reportStatusText = (status: string) => {
+  const labels: Record<string, string> = {
+    deleted: '来源已删除',
+    stale: '来源已变化',
+    unavailable: '来源不可用',
+  }
+  return labels[status] ?? '无关联报告'
+}
+
+const loadDiagMatches = async () => {
+  let pageNum = 1
+  let total = 0
+  const collected: DiagCaseMatch[] = []
+  do {
+    const result = await searchDiagCases({
+      pageNum,
+      pageCnt: DIAG_PAGE_SIZE,
+    })
+    const batch = result.matches ?? []
+    collected.push(...batch)
+    total = result.total ?? 0
+    if (batch.length === 0) break
+    pageNum += 1
+  } while (collected.length < total)
+  return collected
+}
+
 const load = async () => {
   loading.value = true
   error.value = ''
   try {
-    const [diag, legacy] = await Promise.all([
-      searchDiagCases({ pageCnt: 200 }),
-      fetchCases(),
-    ])
-    diagMatches.value = diag.matches ?? []
+    const [diag, legacy] = await Promise.all([loadDiagMatches(), fetchCases()])
+    diagMatches.value = diag
     legacyCases.value = legacy ?? []
+    if (page.value > totalPages.value) page.value = totalPages.value
   } catch (err) {
     error.value = err instanceof Error ? err.message : '案例加载失败'
     diagMatches.value = []
@@ -95,6 +133,9 @@ onMounted(() => void load())
 
 // 诊断案例确认或验证后，聚合列表要及时反映状态变化。
 watch(caseVersion, () => void load())
+watch(rows, () => {
+  if (page.value > totalPages.value) page.value = totalPages.value
+})
 
 const sourceLabel = (value: CaseSource) => (value === 'diagnosis' ? '诊断案例' : '文件案例')
 
@@ -142,7 +183,7 @@ const openRow = (row: OverviewRow) => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in rows" :key="row.key">
+          <tr v-for="row in pagedRows" :key="row.key">
             <td>
               <span class="badge" :class="{ 'badge-pending': row.source === 'legacy' }">
                 {{ sourceLabel(row.source) }}
@@ -164,13 +205,16 @@ const openRow = (row: OverviewRow) => {
             <td>{{ row.trust }}</td>
             <td>
               <button
-                v-if="row.reportId"
+                v-if="row.reportId && row.reportStatus === 'valid'"
                 class="btn-text btn"
                 type="button"
                 @click="openReport(row.reportId, row.faultId ?? '')"
               >
                 {{ row.reportId }}
               </button>
+              <span v-else-if="row.reportId" class="hint">
+                {{ reportStatusText(row.reportStatus) }}
+              </span>
               <span v-else class="hint">—</span>
             </td>
             <td>{{ row.time || '—' }}</td>
@@ -178,6 +222,8 @@ const openRow = (row: OverviewRow) => {
         </tbody>
       </table>
     </div>
+
+    <PageNav v-if="rows.length > PAGE_SIZE" v-model:page="page" :pages="totalPages" />
   </div>
 </template>
 

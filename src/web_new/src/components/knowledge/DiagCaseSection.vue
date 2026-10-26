@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import PageNav from '../common/PageNav.vue'
 import {
   searchDiagCases,
   type DiagCase,
@@ -9,6 +10,8 @@ import { fetchReportLabelTaxonomy, type ReportLabelTaxonomy } from '../../api/di
 import { useDiagCaseDetail } from '../../composables/useDiagCaseDetail'
 import { useReportWorkbench } from '../../composables/useReportWorkbench'
 
+const PAGE_SIZE = 50
+
 const { open, openCase } = useDiagCaseDetail()
 const { openReport } = useReportWorkbench()
 
@@ -16,6 +19,7 @@ const loading = ref(false)
 const error = ref('')
 const matches = ref<DiagCaseMatch[]>([])
 const total = ref(0)
+const page = ref(1)
 const taxonomy = ref<ReportLabelTaxonomy | null>(null)
 const firstLabel = ref('')
 const secondLabel = ref('')
@@ -40,17 +44,22 @@ const verificationText = (item: DiagCase) => {
   return item.verification_json?.closed_loop ? '已验证' : '已确认未验证'
 }
 
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
+
 const load = async () => {
   loading.value = true
   error.value = ''
   try {
     const result = await searchDiagCases({
+      pageNum: page.value,
+      pageCnt: PAGE_SIZE,
       firstLevelLabel: firstLabel.value || null,
       secondLevelLabel: secondLabel.value || null,
       unclassifiedOnly: unclassifiedOnly.value,
     })
     matches.value = result.matches ?? []
     total.value = result.total ?? 0
+    if (page.value > totalPages.value) page.value = totalPages.value
   } catch (err) {
     error.value = err instanceof Error ? err.message : '诊断案例加载失败'
     matches.value = []
@@ -58,6 +67,23 @@ const load = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const applyFilter = () => {
+  if (page.value === 1) {
+    void load()
+  } else {
+    page.value = 1
+  }
+}
+
+const reportStatusText = (status?: string | null) => {
+  const labels: Record<string, string> = {
+    deleted: '来源已删除',
+    stale: '来源已变化',
+    unavailable: '来源不可用',
+  }
+  return labels[status ?? ''] ?? '无关联报告'
 }
 
 const loadTaxonomy = async () => {
@@ -70,7 +96,7 @@ const loadTaxonomy = async () => {
 
 const changeFirst = () => {
   secondLabel.value = ''
-  void load()
+  applyFilter()
 }
 
 const changeUnclassified = () => {
@@ -78,7 +104,7 @@ const changeUnclassified = () => {
     firstLabel.value = ''
     secondLabel.value = ''
   }
-  void load()
+  applyFilter()
 }
 
 onMounted(() => {
@@ -89,6 +115,8 @@ onMounted(() => {
 watch(open, (value, previous) => {
   if (previous && !value) void load()
 })
+
+watch(page, () => void load())
 </script>
 
 <template>
@@ -109,7 +137,7 @@ watch(open, (value, previous) => {
           class="select"
           v-model="secondLabel"
           :disabled="!firstLabel || unclassifiedOnly"
-          @change="load"
+          @change="applyFilter"
         >
           <option value="">全部二级分类</option>
           <option v-for="label in secondOptions" :key="label" :value="label">
@@ -176,13 +204,16 @@ watch(open, (value, previous) => {
             </td>
             <td>
               <button
-                v-if="item.case.report_id"
+                v-if="item.case.report_id && item.source_report?.status === 'valid'"
                 class="btn-text btn"
                 type="button"
                 @click="openReport(item.case.report_id, item.case.source_fault_id ?? '')"
               >
                 {{ item.case.report_id }}
               </button>
+              <span v-else-if="item.case.report_id" class="hint">
+                {{ reportStatusText(item.source_report?.status) }}
+              </span>
               <span v-else class="hint">无关联报告</span>
             </td>
             <td>{{ item.case.updated_at }}</td>
@@ -190,5 +221,7 @@ watch(open, (value, previous) => {
         </tbody>
       </table>
     </div>
+
+    <PageNav v-if="total > PAGE_SIZE" v-model:page="page" :pages="totalPages" />
   </div>
 </template>

@@ -48,7 +48,8 @@ test('来源导航覆盖五种状态且只对当前版本开放跳转', () => {
   assert.match(DETAIL, /source\.value\?\.status === 'valid' && source\.value\.report_id/)
 })
 
-test('案例列表支持按来源报告跳转工作台', () => {
+test('案例列表只对有效来源报告开放跳转', () => {
+  assert.match(SECTION, /item\.case\.report_id && item\.source_report\?\.status === 'valid'/)
   assert.match(SECTION, /@click="openReport\(item\.case\.report_id, item\.case\.source_fault_id \?\? ''\)"/)
-  assert.match(SECTION, /v-else class="hint">无关联报告/)
+  assert.match(SECTION, /reportStatusText\(item\.source_report\?\.status\)/)
 })
