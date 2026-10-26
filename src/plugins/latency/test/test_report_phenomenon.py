@@ -295,7 +295,10 @@ def test_binding_request_requires_pair():
     with pytest.raises(ValidationError):
         CreateDiagCaseDraftRequest(**base, source_fault_id="F01")
     request = CreateDiagCaseDraftRequest(
-        **base, report_id="r1", source_fault_id="F01"
+        **base,
+        report_id="r1",
+        source_fault_id="F01",
+        expected_sidecar_hash="a" * 64,
     )
     assert request.report_id == "r1"
     assert request.source_fault_id == "F01"
