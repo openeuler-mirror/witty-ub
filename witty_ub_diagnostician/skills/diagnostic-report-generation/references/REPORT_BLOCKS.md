@@ -28,6 +28,7 @@
   "category": "mixed",
   "affected_scope": "host-101 / pod-worker-3；67.6% 故障 trace；12:03-12:11",
   "conclusion": {"first_level_label": null, "second_level_label": null},
+  "error": {},
   "latency": {},
   "root_cause": {},
   "propagation": {},
@@ -45,6 +46,19 @@
 - `status`: `confirmed` 已确认 / `suspected` 疑似（候选假设，模板有专门提示条）/ `excluded` 已排除
 - `severity`: `P1` / `P2` / `P3`
 - `category`（故障类型，控制档案头标签）：`error` 错误/通断类（连接失败、错误码突增）/ `latency` 时延类（P99 超阈、慢调用，可无报错）/ `mixed` 时延与错误并存且同源（如丢包既导致慢又导致超时错误）。
+
+### error 块（通断故障分布，错误类/mixed 有证据时填写）
+
+`faults[].error` 与 `latency` 同级，渲染在故障结论之后、时延阶段定位和根因推理链之前。
+结构为 `metrics?[] / breakdowns[] / conclusion`；每套 breakdown 独立携带
+`operation / scope / code_filter / unit / source / coverage / code_distribution / timeline`。
+GET/SET 各一套，展示 Top 错误码构成和时间窗 × 错误码热力表，不关联时延阶段。
+
+使用 `scripts/error_features.py` 从真实时间聚合分页响应提取；完整结构、输入示例、
+计算公式和展示规则见 [ERROR_FEATURES.md](ERROR_FEATURES.md)，紧凑字段清单用 `--spec error`。
+计数口径为**逐码命中次数**，不是去重失败请求数；分页不全时不填比例、未知窗不补零。
+同一故障必须有自己的查询范围/错误码筛选，不能复制事件级统计。
+未取到可靠数据时省略并在结论说明；历史报告缺省不影响渲染。
 
 ### latency 块（时延阶段定位，时延类/mixed 故障必填）
 

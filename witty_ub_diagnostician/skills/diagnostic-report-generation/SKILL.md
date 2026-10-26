@@ -11,7 +11,7 @@ compatibility: >
   渲染需要 python3 + jinja2（镜像已内置 python3-jinja2）。
 metadata:
   author: witty-ub-diagnostician
-  version: "2.2"
+  version: "2.3"
   keywords: [诊断报告, report, HTML报告, 推理链, 故障传播, 源码分析, 统计分析, 知识库匹配, 工作追踪, brpc, ubsocket, umq, urma]
 allowed-tools: >
   Bash(curl:*) Bash(cd:*) Bash(python3:*)
@@ -94,7 +94,7 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 （单故障为 `01→05`）。**统计分析放在故障档案之前**：先给事件级横向定位，
 再逐个档案纵向深挖。
 
-**单故障兼容**：可直接传旧的扁平变量（`conclusion` / `solution` / `root_cause` /
+**单故障兼容**：可直接传旧的扁平变量（`conclusion` / `error` / `latency` / `solution` / `root_cause` /
 `propagation` / `knowledge_matches` / `source_code`），模板自动包装成 F01 档案。
 
 ### 故障标签
@@ -143,7 +143,7 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 
 ### 故障档案与折叠纪律
 
-`faults[]` 每项独立携带结论/时延阶段/根因/传播链/知识库/方案/源码。多故障时档案
+`faults[]` 每项独立携带结论/错误码时间分布/时延阶段/根因/传播链/知识库/方案/源码。多故障时档案
 **默认全部收起**，收起态卡片头必须给出一行一句话结论
 （复用 `conclusion.one_line_conclusion`，使不展开也能看出发生了什么）；单故障默认展开，
 此时不重复展示该行。故障清单、关系图、处置计划、统计阶段表中的编号链接会自动展开
@@ -156,6 +156,19 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 `stage_breakdown`（同时存在时以 `stage_breakdowns` 为准）。**禁止把两种操作的阶段
 混进同一套 `share_bar` 百分比**；也禁止为 SET 编造 `create_latency` /
 `publish_latency` / `urma_processing_us` 分段（解析路径不产出）。
+
+### 通断故障分布（faults[].error）
+
+`error` / `mixed` 类故障有时间聚合证据时，填 `faults[].error`：错误码构成、
+随时间的分布及结论；扁平单故障同样支持顶层 `error`。不关联时延阶段。
+从本次已保存的 `/log_failure_event_result/list_time_aggregated_failure_events`
+分页请求/响应，用 `scripts/error_features.py` 离线提取；字段查 `--spec error`，
+输入示例、来源和缺失纪律见 [references/ERROR_FEATURES.md](references/ERROR_FEATURES.md)。
+
+- 每条故障限定自己的时间/故障域/错误码范围，GET/SET 各一套；无可靠数据则省略并说明限制。
+- 计数为**逐码命中次数**，同一 trace 可命中多码，不称为去重失败请求数或业务失败率。
+- 分页不全不补零，未知窗/不完整窗分别显示 `—` / 已取得计数下界，比例留空。
+- 长时段合并相邻原始桶求和，保留展示粒度和真实查询；不把合并后的峰值说成原始秒级峰值。
 
 ### 时延段特征（有上游响应才填）
 
