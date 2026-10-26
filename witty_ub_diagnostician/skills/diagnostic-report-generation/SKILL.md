@@ -11,7 +11,7 @@ compatibility: >
   渲染需要 python3 + jinja2（镜像已内置 python3-jinja2）。
 metadata:
   author: witty-ub-diagnostician
-  version: "2.1"
+  version: "2.2"
   keywords: [诊断报告, report, HTML报告, 推理链, 故障传播, 源码分析, 统计分析, 知识库匹配, 工作追踪, brpc, ubsocket, umq, urma]
 allowed-tools: >
   Bash(curl:*) Bash(cd:*) Bash(python3:*)
@@ -156,6 +156,21 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 `stage_breakdown`（同时存在时以 `stage_breakdowns` 为准）。**禁止把两种操作的阶段
 混进同一套 `share_bar` 百分比**；也禁止为 SET 编造 `create_latency` /
 `publish_latency` / `urma_processing_us` 分段（解析路径不产出）。
+
+### 时延段特征（有上游响应才填）
+
+`faults[].latency.stages[].features` 可携带归因桶的分布、计数、Client 对照、
+长尾程度、基线比较、分窗走势及代表 trace 拓扑/错误码。保留现有 `p99` 等展示字段；
+新特征契约、逐字段来源/作用和提取方法见 [references/LATENCY_FEATURES.md](references/LATENCY_FEATURES.md)。
+
+- 优先用 `scripts/latency_features.py` 从本次已保存的请求/响应提取，按桶 key 取结果；
+  它不联网，不自动把桶匹配成物理阶段，也不替 Agent 决定 `status`。
+- `/stats/stages` 是互斥归因桶，只有证据耗时 P50/P90/max，**不能补出 P99**；
+  请求计数占比不等于耗时占比，`fail_cnt` 是异常标记数，不等于请求失败数/超时数。
+- 对照/分窗须有各自 `/stats/stages` 响应；拓扑/错误码须来自同桶 Top trace 的
+  `/trace/list` 响应。没取到就省略对应可选块，不填 0 或推测值。
+- 所有比例只描述参与分类的样本；保留 `sample_cnt`、`truncated`、口径注记和请求范围。
+  Top trace 补查覆盖率不代表全量数据覆盖率，不从 Top 样本推断总体节点集中度。
 
 ### 知识库匹配纪律
 
