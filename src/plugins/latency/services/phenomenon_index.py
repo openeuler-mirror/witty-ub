@@ -899,3 +899,364 @@ class PhenomenonIndexService:
         else:
             raise ValueError(f"unknown index event type {event_type}")
 
+    # ---------------------------------------------------------------- publish
+    @staticmethod
+    def _rag_targets() -> tuple[RAGClient, str]:
+        client = RAGClient.from_env()
+        kb_id = settings.rag_kb_id()
+        if not kb_id:
+            raise RAGUnavailableError("RAG_PHENOMENON_KB_ID is not configured")
+        return client, kb_id
+
+    @staticmethod
+    async def publish_due_cards() -> int:
+        try:
+            client, kb_id = PhenomenonIndexService._rag_targets()
+        except RAGError as exc:
+            logger.warning("phenomenon publish skipped: %s", exc)
+            return 0
+        cards = await Mgr.claim_due_cards(
+            WORKER_ID,
+            settings.rag_publish_workers(),
+            settings.publish_lease_seconds(),
+        )
+        if not cards:
+            return 0
+        await asyncio.gather(
+            *[
+                PhenomenonIndexService._publish_card(card, client, kb_id)
+                for card in cards
+            ],
+            return_exceptions=True,
+        )
+        return len(cards)
+
+    @staticmethod
+    async def resume_parsing_cards() -> int:
+        try:
+            client, kb_id = PhenomenonIndexService._rag_targets()
+        except RAGError as exc:
+            logger.warning("phenomenon parse poll skipped: %s", exc)
+            return 0
+        cards = await Mgr.claim_parsing_cards(
+            WORKER_ID,
+            settings.rag_publish_workers(),
+            settings.publish_lease_seconds(),
+        )
+        for card in cards:
+            await PhenomenonIndexService._poll_parsing(card, client, kb_id)
+        return len(cards)
+
+    @staticmethod
+    async def _publish_card(
+        card: PhenomenonIndex, client: RAGClient, kb_id: str
+    ) -> None:
+        owner = card.lease_owner or WORKER_ID
+        token = card.lease_token or ""
+        target_hash = card.content_hash or ""
+        target_source = card.source_fault_hash
+
+        if (
+            card.indexed_content_hash == target_hash
+            and card.published_source_fault_hash == target_source
+            and card.rag_kb_id == kb_id
+            and card.rag_doc_id
+        ):
+            status = await Mgr.metadata_publish(
+                card.doc_id, owner, token, kb_id, target_hash, target_source
+            )
+            if status == "published":
+                await PhenomenonIndexService._refresh_after_publish(card)
+                return
+            if status in {"lost_lease", "version_changed", "disabled", "not_found"}:
+                return
+
+        filename = f"{RAG_DOC_PREFIX}{extractor.sha256_hex(card.doc_id)[:16]}.txt"
+        try:
+            rag_doc_id = await client.upload_text(kb_id, filename, card.text or "")
+        except RAGError as exc:
+            await PhenomenonIndexService._fail_publish(card, str(exc))
+            return
+
+        registered = await Mgr.register_pending_candidate(
+            card.doc_id,
+            owner,
+            token,
+            kb_id,
+            rag_doc_id,
+            target_hash,
+            target_source,
+        )
+        if not registered:
+            await Mgr.enqueue_cleanup(kb_id, rag_doc_id, "expired", card.doc_id)
+            await Mgr.record_publish_failure(
+                card.doc_id,
+                owner,
+                token,
+                error="candidate_rejected",
+                next_retry_at=_backoff(1, 30, 1800),
+                terminal=False,
+            )
+            return
+
+        if not await Mgr.mark_parsing(card.doc_id, owner, token, kb_id, rag_doc_id):
+            # The desired version moved on after this upload; release it.
+            await Mgr.withdraw_candidate(card.doc_id, owner, token)
+            await Mgr.enqueue_cleanup(kb_id, rag_doc_id, "expired", card.doc_id)
+            return
+        refreshed = await Mgr.get_card(card.doc_id)
+        if refreshed is not None:
+            await PhenomenonIndexService._poll_parsing(refreshed, client, kb_id)
+
+    @staticmethod
+    async def _poll_parsing(
+        card: PhenomenonIndex, client: RAGClient, kb_id: str
+    ) -> None:
+        owner = card.lease_owner or WORKER_ID
+        token = card.lease_token or ""
+        rag_doc_id = card.pending_rag_doc_id or ""
+        pending_kb = card.pending_rag_kb_id or kb_id
+        if not rag_doc_id:
+            return
+        if card.next_retry_at is not None and card.next_retry_at < _now():
+            await PhenomenonIndexService._fail_publish(card, "parse_timeout")
+            return
+        try:
+            status = await client.parse_status(rag_doc_id)
+        except RAGUnavailableError as exc:
+            await Mgr.record_publish_failure(
+                card.doc_id,
+                owner,
+                token,
+                error=str(exc)[:256],
+                next_retry_at=_backoff(1, 30, 1800),
+                terminal=False,
+            )
+            return
+        except RAGContractError as exc:
+            await PhenomenonIndexService._fail_publish(card, f"contract:{exc}")
+            return
+
+        if status == "success":
+            target_hash = card.pending_content_hash or ""
+            if not target_hash:
+                await Mgr.withdraw_candidate(card.doc_id, owner, token)
+                await Mgr.enqueue_cleanup(pending_kb, rag_doc_id, "expired", card.doc_id)
+                return
+            result = await Mgr.switch_published(
+                card.doc_id,
+                owner,
+                token,
+                pending_kb,
+                rag_doc_id,
+                target_hash,
+                card.pending_source_fault_hash,
+            )
+            if result.status != "switched":
+                await Mgr.withdraw_candidate(card.doc_id, owner, token)
+                await Mgr.enqueue_cleanup(pending_kb, rag_doc_id, "expired", card.doc_id)
+                if result.status in {
+                    "cleanup_conflict",
+                    "doc_locked",
+                    "version_changed",
+                    "candidate_version_mismatch",
+                }:
+                    await Mgr.record_publish_failure(
+                        card.doc_id,
+                        owner,
+                        token,
+                        error=result.status,
+                        next_retry_at=_backoff(1, 30, 1800),
+                        terminal=False,
+                    )
+                return
+            await PhenomenonIndexService._refresh_after_publish(card)
+            return
+
+        if status in {"failed", "failed_pending", "canceled"}:
+            await PhenomenonIndexService._fail_publish(card, f"parse_{status}")
+            return
+
+        await Mgr.renew_lease(
+            card.doc_id, owner, token, settings.publish_lease_seconds()
+        )
+
+    @staticmethod
+    async def _fail_publish(card: PhenomenonIndex, error: str) -> None:
+        owner = card.lease_owner or WORKER_ID
+        token = card.lease_token or ""
+        pair = await Mgr.withdraw_candidate(
+            card.doc_id, owner, token, reason="expired"
+        )
+        if pair and pair[0] and pair[1]:
+            await Mgr.enqueue_cleanup(pair[0], pair[1], "expired", card.doc_id)
+        retries = int(card.retry_count or 0) + 1
+        terminal = retries >= MAX_PUBLISH_RETRIES
+        await Mgr.record_publish_failure(
+            card.doc_id,
+            owner,
+            token,
+            error=error[:256],
+            next_retry_at=None if terminal else _backoff(retries, 30, 1800),
+            terminal=terminal,
+        )
+        await PhenomenonIndexService._refresh_after_publish(card)
+
+    @staticmethod
+    async def _refresh_after_publish(card: PhenomenonIndex) -> None:
+        if card.report_id:
+            await PhenomenonIndexService.refresh_report_status(card.report_id)
+
+    # ---------------------------------------------------------------- cleanup
+    @staticmethod
+    async def cleanup_documents(limit: int = 10) -> int:
+        try:
+            client, _kb_id = PhenomenonIndexService._rag_targets()
+        except RAGError as exc:
+            logger.warning("cleanup skipped: %s", exc)
+            return 0
+        done = 0
+        for _ in range(limit):
+            task = await Mgr.claim_cleanup_task(
+                WORKER_ID, settings.cleanup_lease_seconds()
+            )
+            if task is None:
+                break
+            try:
+                await client.delete_document(task.rag_doc_id)
+                await Mgr.finish_cleanup(task.id, WORKER_ID, success=True)
+                done += 1
+            except RAGError as exc:
+                retries = int(task.retry_count or 0) + 1
+                await Mgr.finish_cleanup(
+                    task.id,
+                    WORKER_ID,
+                    success=False,
+                    error=str(exc)[:256],
+                    next_retry_at=(
+                        None
+                        if retries >= MAX_CLEANUP_RETRIES
+                        else _backoff(retries, 60, 21600)
+                    ),
+                )
+        return done
+
+    # ---------------------------------------------------------------- reconcile
+    @staticmethod
+    async def reconcile() -> dict[str, int]:
+        stats = {"drift": 0, "invalid": 0, "stuck": 0, "missing": 0, "orphans": 0}
+        await Mgr.promote_observing(600)
+
+        for card in await Mgr.cards_with_source_drift():
+            await Mgr.set_searchable(card.doc_id, False)
+            await Mgr.requeue(card.doc_id)
+            stats["drift"] += 1
+
+        for card in await Mgr.cards_with_invalid_mapping():
+            await Mgr.set_searchable(card.doc_id, False)
+            if card.enabled:
+                await Mgr.requeue(card.doc_id)
+            stats["invalid"] += 1
+
+        for card in await Mgr.stuck_parsing_cards(PARSE_DEADLINE_MINUTES):
+            await Mgr.fail_card(
+                card.doc_id, error="parse_timeout", next_retry_at=None
+            )
+            stats["stuck"] += 1
+
+        try:
+            client, kb_id = PhenomenonIndexService._rag_targets()
+        except RAGError:
+            return stats
+        try:
+            remote = await PhenomenonIndexService._list_all_remote_docs(client, kb_id)
+        except RAGError as exc:
+            logger.warning("reconcile skipped RAG document list: %s", exc)
+            return stats
+
+        local_pairs = {
+            (kb, doc)
+            for _doc_id, kb, doc in await Mgr.list_mapped_pairs()
+            if kb == kb_id
+        }
+        remote_ids = {
+            str(doc.get("id")) for doc in remote if doc.get("id") is not None
+        }
+        for doc in remote:
+            rag_doc_id = doc.get("id")
+            if not rag_doc_id or not str(doc.get("name", "")).startswith(RAG_DOC_PREFIX):
+                continue
+            if (kb_id, str(rag_doc_id)) not in local_pairs:
+                await Mgr.observe_orphan(kb_id, str(rag_doc_id))
+                stats["orphans"] += 1
+
+        for _doc_id, kb, rag_doc_id in await Mgr.list_mapped_pairs():
+            if kb != kb_id:
+                continue
+            if rag_doc_id not in remote_ids:
+                card = await Mgr.get_card_by_rag_doc(kb, rag_doc_id)
+                if card is not None:
+                    await Mgr.clear_mapping(
+                        card.doc_id, error="remote_document_missing", requeue=True
+                    )
+                    stats["missing"] += 1
+        return stats
+
+    @staticmethod
+    async def _list_all_remote_docs(
+        client: RAGClient, kb_id: str
+    ) -> list[dict[str, Any]]:
+        documents: list[dict[str, Any]] = []
+        page_num = 1
+        while True:
+            total, page = await client.list_documents(
+                kb_id, page_size=100, page_num=page_num
+            )
+            documents.extend(page)
+            if len(documents) >= total or not page:
+                break
+            page_num += 1
+            if page_num > 1000:
+                raise RAGContractError("document listing did not converge")
+        return documents
+
+    # ---------------------------------------------------------------- self check
+    @staticmethod
+    async def run_self_check() -> bool:
+        """Upload → parse → search → delete one throwaway document."""
+        global _self_check_done
+        if _self_check_done:
+            return True
+        try:
+            client, kb_id = PhenomenonIndexService._rag_targets()
+        except RAGError as exc:
+            logger.warning("phenomenon self-check skipped: %s", exc)
+            return False
+        marker = f"witty-phenomenon-self-check-{uuid.uuid4().hex[:8]}"
+        doc_id: str | None = None
+        try:
+            doc_id = await client.upload_text(
+                kb_id, f"{RAG_DOC_PREFIX}self_check.txt", marker
+            )
+            for _ in range(30):
+                if await client.parse_status(doc_id) == "success":
+                    break
+                await asyncio.sleep(2)
+            else:
+                logger.warning("phenomenon self-check parse timed out")
+                return False
+            chunks = await client.search_chunks(kb_id, marker, 3)
+            matched = any(str(item.get("doc_id")) == doc_id for item in chunks)
+            if not matched:
+                logger.warning("phenomenon self-check search did not recall the test doc")
+            _self_check_done = True
+            return matched
+        except RAGError as exc:
+            logger.warning("phenomenon self-check failed: %s", exc)
+            return False
+        finally:
+            if doc_id:
+                try:
+                    await client.delete_document(doc_id)
+                except RAGError:
+                    logger.warning("failed to remove self-check document")
