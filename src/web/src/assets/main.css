@@ -10088,6 +10088,16 @@ body.agent-panel-resizing-corner {
   display: flex;
   flex-direction: column;
 }
+.diag-source-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.diag-source-bar .ghost-btn.active {
+  background: #2563eb;
+  color: #fff;
+}
 .diag-workbench-content .modal-body,
 .diag-detail-content .modal-body {
   overflow-y: auto;

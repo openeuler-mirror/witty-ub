@@ -18,6 +18,7 @@ import { useTableSort, type SortField } from './composables/useTableSort'
 import ReportWorkbench from './components/ReportWorkbench.vue'
 import DiagCasePanel from './components/DiagCasePanel.vue'
 import DiagCaseDetail from './components/DiagCaseDetail.vue'
+import CaseOverview from './components/CaseOverview.vue'
 import {
   ASSET_REPORT_DIALOG_PAGE_SIZE,
   assetReportButtonTitle,
@@ -11777,6 +11778,8 @@ const openDiagCasesPage = () => {
   activePage.value = 'diag-cases'
 }
 
+const caseSource = ref<'all' | 'diagnosis' | 'legacy'>('all')
+
 // 资产库内报告入口（docs/design/asset-report-entry.md）：进详情页时用 page_cnt=1
 // 轻量探测该库报告总数决定按钮三态，≥2 份时才拉列表弹层。
 const assetReportTotal = ref(0)
@@ -15649,8 +15652,8 @@ onBeforeUnmount(() => {
             @keydown.space.prevent="openDiagCasesPage"
           >
             <span class="asset-item-main">
-              <strong>诊断案例</strong>
-              <small>报告派生案例、分类与复测验证</small>
+              <strong>案例库</strong>
+              <small>诊断案例与文件案例统一入口</small>
             </span>
           </div>
         </div>
@@ -20266,14 +20269,47 @@ onBeforeUnmount(() => {
       <div v-else-if="activePage === 'diag-cases'" class="diag-cases-page">
         <header class="detail-header">
           <div class="detail-title-block">
-            <p class="eyebrow">诊断案例库</p>
-            <h1>诊断案例</h1>
+            <p class="eyebrow">案例库</p>
+            <h1>案例库</h1>
             <p class="detail-description">
-              报告人工确认后可派生案例；案例保留两级分类快照并支持回到源报告与复测验证。
+              诊断案例与文件案例统一入口；文件案例只读，诊断案例支持来源导航与复测验证。
             </p>
           </div>
         </header>
+        <div class="diag-source-bar">
+          <button
+            type="button"
+            class="ghost-btn"
+            :class="{ active: caseSource === 'all' }"
+            @click="caseSource = 'all'"
+          >
+            全部来源
+          </button>
+          <button
+            type="button"
+            class="ghost-btn"
+            :class="{ active: caseSource === 'diagnosis' }"
+            @click="caseSource = 'diagnosis'"
+          >
+            诊断案例
+          </button>
+          <button
+            type="button"
+            class="ghost-btn"
+            :class="{ active: caseSource === 'legacy' }"
+            @click="caseSource = 'legacy'"
+          >
+            文件案例
+          </button>
+        </div>
+        <CaseOverview
+          v-if="caseSource !== 'diagnosis'"
+          :source="caseSource === 'legacy' ? 'legacy' : 'all'"
+          @open-case="openDiagCaseDetail"
+          @open-report="openReportWorkbench"
+        />
         <DiagCasePanel
+          v-else
           @open-case="openDiagCaseDetail"
           @open-report="openReportWorkbench"
         />
