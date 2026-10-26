@@ -80,6 +80,14 @@ async def _run(args: argparse.Namespace) -> dict:
     )
 
 
+async def _run_and_close(args: argparse.Namespace) -> dict:
+    """Keep engine disposal on the same event loop that opened the pool."""
+    try:
+        return await _run(args)
+    finally:
+        await PGManager.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Phenomenon index operations")
     group = parser.add_mutually_exclusive_group(required=True)
@@ -99,11 +107,9 @@ def main() -> None:
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
     try:
-        result = asyncio.run(_run(args))
+        result = asyncio.run(_run_and_close(args))
     except RAGError as exc:
         raise SystemExit(f"RAG 操作失败：{exc}") from exc
-    finally:
-        asyncio.run(PGManager.close())
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

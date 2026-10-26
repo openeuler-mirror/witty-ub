@@ -896,3 +896,59 @@ def test_truncation_counts_the_ellipsis():
 
     assert len(truncated) <= TEXT_HARD_LIMIT
     assert truncated.endswith("…")
+
+
+@pytest.mark.asyncio
+async def test_reconcile_ignores_deleted_remote_tombstones(monkeypatch):
+    observed: list[str] = []
+
+    async def promote(_seconds=600):
+        return 0
+
+    async def no_cards(*_args, **_kwargs):
+        return []
+
+    async def no_pairs():
+        return []
+
+    async def observe(_kb_id, rag_doc_id):
+        observed.append(rag_doc_id)
+
+    def rag_targets():
+        return None, "kb"
+
+    async def remote_docs(_client, _kb_id):
+        return [
+            {"id": "active-doc", "name": "phenomenon_a.txt", "status": "existed"},
+            {"id": "deleted-doc", "name": "phenomenon_b.txt", "status": "deleted"},
+        ]
+
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "promote_observing", staticmethod(promote)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "cards_with_source_drift", staticmethod(no_cards)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "cards_with_invalid_mapping", staticmethod(no_cards)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "stuck_parsing_cards", staticmethod(no_cards)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "observe_orphan", staticmethod(observe)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "list_mapped_pairs", staticmethod(no_pairs)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexService, "_rag_targets", staticmethod(rag_targets)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexService, "_list_all_remote_docs", staticmethod(remote_docs)
+    )
+
+    stats = await PhenomenonIndexService.reconcile()
+
+    assert stats["orphans"] == 1
+    assert observed == ["active-doc"]

@@ -1209,10 +1209,14 @@ class PhenomenonIndexService:
             for _doc_id, kb, doc in await Mgr.list_mapped_pairs()
             if kb == kb_id
         }
+        # RAG 文档清单会保留已删除文档的墓碑记录；墓碑不算孤儿，也不能当作映射仍存在。
+        active_remote = [
+            doc for doc in remote if str(doc.get("status") or "") != "deleted"
+        ]
         remote_ids = {
-            str(doc.get("id")) for doc in remote if doc.get("id") is not None
+            str(doc.get("id")) for doc in active_remote if doc.get("id") is not None
         }
-        for doc in remote:
+        for doc in active_remote:
             rag_doc_id = doc.get("id")
             if not rag_doc_id or not str(doc.get("name", "")).startswith(RAG_DOC_PREFIX):
                 continue
