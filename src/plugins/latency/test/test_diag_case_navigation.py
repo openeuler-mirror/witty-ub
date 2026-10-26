@@ -14,7 +14,11 @@ from latency.database.managers.diag_case_library import (
 )
 from latency.database.managers.phenomenon_index import PhenomenonIndexPGManager
 from latency.exceptions import NotFoundBizException
-from latency.schemas.diag_case_library import DiagCaseLibraryModel
+from latency.schemas.diag_case_library import (
+    DiagCaseLibraryMatchModel,
+    DiagCaseLibraryModel,
+    SearchDiagCaseLibraryRequest,
+)
 from latency.services import label_taxonomy
 from latency.services.diag_case_library import DiagCaseLibraryService
 from latency.services.report_phenomenon import (
@@ -158,6 +162,39 @@ async def test_case_detail_marks_a_deleted_report(report_dir, monkeypatch):
     assert msg.source_report.status == "deleted"
     assert msg.source_report.report_id == REPORT_ID
     assert msg.source_report.get_report is None
+
+
+async def test_search_returns_source_navigation_for_every_match(report_dir, monkeypatch):
+    payload = _payload()
+    _write_report(report_dir, payload)
+    valid_case = _bound_case(payload)
+    deleted_case = valid_case.model_copy(
+        update={"id": "case-2", "report_id": "report_missing"}
+    )
+    matches = [
+        DiagCaseLibraryMatchModel(case=valid_case, match_score=1.0, score_norm=1.0),
+        DiagCaseLibraryMatchModel(case=deleted_case, match_score=0.5, score_norm=0.5),
+    ]
+
+    async def search_cases(req):
+        return len(matches), matches
+
+    monkeypatch.setattr(Manager, "search_cases", staticmethod(search_cases))
+    _install_report_index(
+        monkeypatch,
+        SimpleNamespace(
+            confirmed_by="alice",
+            confirmed_at=datetime(2026, 10, 21, 11, 0, 0),
+            confirmed_sidecar_hash=compute_sidecar_hash(payload),
+        ),
+    )
+
+    msg = await DiagCaseLibraryService.search_cases(SearchDiagCaseLibraryRequest())
+
+    assert msg.matches[0].source_report.status == "valid"
+    assert msg.matches[0].source_report.get_report == f"/diagnostic_report/{REPORT_ID}"
+    assert msg.matches[1].source_report.status == "deleted"
+    assert msg.matches[1].source_report.get_report is None
 
 
 async def test_case_detail_degrades_when_navigation_fails(monkeypatch):

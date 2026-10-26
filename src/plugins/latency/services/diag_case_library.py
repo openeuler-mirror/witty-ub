@@ -557,6 +557,11 @@ class DiagCaseLibraryService:
                 detail="second_level_label 必须与 first_level_label 同时使用",
             )
         total, matches = await DiagCaseLibraryPGManager.search_cases(req)
+        sources = await ReportReviewService.describe_case_sources(
+            [match.case for match in matches]
+        )
+        for match, source in zip(matches, sources, strict=False):
+            match.source_report = SourceReportModel.model_validate(source)
         return SearchDiagCasesMsg(total=total, matches=matches)
 
     @staticmethod

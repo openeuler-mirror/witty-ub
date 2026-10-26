@@ -213,12 +213,37 @@ class DiagCaseLibraryModel(BaseModel):
     updated_at: str = Field(default_factory=_now, description="更新时间")
 
 
+class SourceReportModel(BaseModel):
+    """Navigation from a case back to its report fault."""
+
+    status: str = Field(
+        ...,
+        description="valid / stale / deleted / unavailable / independent",
+    )
+    report_id: Optional[str] = Field(default=None, description="源报告ID")
+    source_fault_id: Optional[str] = Field(default=None, description="源故障ID")
+    report_title: Optional[str] = Field(default=None, description="当前报告标题")
+    source_fault_title: Optional[str] = Field(default=None, description="故障标题")
+    review_status: Optional[str] = Field(default=None, description="报告审核状态")
+    classification_status: str = Field(
+        default="unclassified",
+        description="unclassified / valid / changed / unavailable",
+    )
+    current_first_level_label: Optional[str] = Field(default=None)
+    current_second_level_label: Optional[str] = Field(default=None)
+    get_report: Optional[str] = Field(default=None, description="打开报告工作台的链接")
+    get_fault: Optional[str] = Field(default=None, description="定位故障的链接")
+
+
 class DiagCaseLibraryMatchModel(BaseModel):
     case: DiagCaseLibraryModel = Field(..., description="命中的超节点诊断案例")
     match_score: float = Field(..., description="未归一化匹配分")
     score_norm: float = Field(..., description="按查询侧权重和归一化后的分数，0~1")
     matched_signals: list[DiagCaseLibrarySignalModel] = Field(
         default_factory=list, description="命中的结构化信号"
+    )
+    source_report: Optional[SourceReportModel] = Field(
+        default=None, description="来源报告导航；链接仅在来源有效时提供"
     )
 
 
@@ -485,28 +510,6 @@ class CreateDiagCaseDraftMsg(BaseModel):
 
 class CreateDiagCaseDraftResponse(ResponseBase):
     result: CreateDiagCaseDraftMsg = Field(..., description="创建超节点诊断案例草稿响应结果")
-
-
-class SourceReportModel(BaseModel):
-    """Navigation from a case back to its report fault."""
-
-    status: str = Field(
-        ...,
-        description="valid / stale / deleted / unavailable / independent",
-    )
-    report_id: Optional[str] = Field(default=None, description="源报告ID")
-    source_fault_id: Optional[str] = Field(default=None, description="源故障ID")
-    report_title: Optional[str] = Field(default=None, description="当前报告标题")
-    source_fault_title: Optional[str] = Field(default=None, description="故障标题")
-    review_status: Optional[str] = Field(default=None, description="报告审核状态")
-    classification_status: str = Field(
-        default="unclassified",
-        description="unclassified / valid / changed / unavailable",
-    )
-    current_first_level_label: Optional[str] = Field(default=None)
-    current_second_level_label: Optional[str] = Field(default=None)
-    get_report: Optional[str] = Field(default=None, description="打开报告工作台的链接")
-    get_fault: Optional[str] = Field(default=None, description="定位故障的链接")
 
 
 class GetDiagCaseMsg(BaseModel):

@@ -268,8 +268,16 @@ class ReportReviewService:
         return None
 
     @staticmethod
-    async def describe_case_source(case: Any) -> dict[str, Any]:
-        """Navigation metadata; never treats an attachment as a report source."""
+    async def describe_case_source(
+        case: Any,
+        current: ReportSnapshot | None = None,
+        extraction: Any = None,
+    ) -> dict[str, Any]:
+        """Navigation metadata; never treats an attachment as a report source.
+
+        ``current`` / ``extraction`` let list responses share one report scan
+        across every case bound to the same report.
+        """
         report_id = getattr(case, "report_id", None)
         fault_id = getattr(case, "source_fault_id", None)
         if not report_id or not fault_id:
@@ -284,32 +292,33 @@ class ReportReviewService:
                 "get_report": None,
                 "get_fault": None,
             }
-        try:
-            current = ReportReviewService._unique_report(report_id)
-        except NotFoundBizException:
-            return {
-                "status": SOURCE_DELETED,
-                "report_id": report_id,
-                "source_fault_id": fault_id,
-                "report_title": None,
-                "source_fault_title": None,
-                "review_status": None,
-                "classification_status": "unavailable",
-                "get_report": None,
-                "get_fault": None,
-            }
-        except (ConflictBizException, BadRequestBizException):
-            return {
-                "status": SOURCE_UNAVAILABLE,
-                "report_id": report_id,
-                "source_fault_id": fault_id,
-                "report_title": None,
-                "source_fault_title": None,
-                "review_status": None,
-                "classification_status": "unavailable",
-                "get_report": None,
-                "get_fault": None,
-            }
+        if current is None:
+            try:
+                current = ReportReviewService._unique_report(report_id)
+            except NotFoundBizException:
+                return {
+                    "status": SOURCE_DELETED,
+                    "report_id": report_id,
+                    "source_fault_id": fault_id,
+                    "report_title": None,
+                    "source_fault_title": None,
+                    "review_status": None,
+                    "classification_status": "unavailable",
+                    "get_report": None,
+                    "get_fault": None,
+                }
+            except (ConflictBizException, BadRequestBizException):
+                return {
+                    "status": SOURCE_UNAVAILABLE,
+                    "report_id": report_id,
+                    "source_fault_id": fault_id,
+                    "report_title": None,
+                    "source_fault_title": None,
+                    "review_status": None,
+                    "classification_status": "unavailable",
+                    "get_report": None,
+                    "get_fault": None,
+                }
         if current.sidecar_state != "ok" or current.payload is None:
             return {
                 "status": SOURCE_UNAVAILABLE,
@@ -335,16 +344,19 @@ class ReportReviewService:
                 "get_report": None,
                 "get_fault": None,
             }
-        try:
-            extraction = report_phenomenon.extract_report(
-                report_id, current.payload, kb_dir=current.kb_dir
-            )
+        if extraction is None:
+            try:
+                extraction = report_phenomenon.extract_report(
+                    report_id, current.payload, kb_dir=current.kb_dir
+                )
+            except Exception:  # noqa: BLE001 - navigation must not fail browsing
+                extraction = False
+        doc = None
+        if extraction:
             doc = next(
                 (item for item in extraction.faults if item.source_fault_id == fault_id),
                 None,
             )
-        except Exception:  # noqa: BLE001 - navigation must not fail browsing
-            doc = None
         labels = ReportReviewService.labels_from_fault(fault)
         current_label_hash = None
         if labels.get("label_taxonomy_version"):
@@ -388,3 +400,41 @@ class ReportReviewService:
                 else None
             ),
         }
+
+    @staticmethod
+    async def describe_case_sources(cases: list[Any]) -> list[dict[str, Any]]:
+        """Resolve source navigation for a page of cases with one scan per report."""
+        snapshots: dict[str, Any] = {}
+        extractions: dict[str, Any] = {}
+        sources: list[dict[str, Any]] = []
+        for case in cases:
+            report_id = getattr(case, "report_id", None)
+            if not report_id or not getattr(case, "source_fault_id", None):
+                sources.append(await ReportReviewService.describe_case_source(case))
+                continue
+            if report_id not in snapshots:
+                try:
+                    snapshots[report_id] = ReportReviewService._unique_report(report_id)
+                except (
+                    NotFoundBizException,
+                    ConflictBizException,
+                    BadRequestBizException,
+                ) as exc:
+                    snapshots[report_id] = exc
+            current = snapshots[report_id]
+            if isinstance(current, Exception):
+                sources.append(await ReportReviewService.describe_case_source(case))
+                continue
+            if report_id not in extractions and current.sidecar_state == "ok":
+                try:
+                    extractions[report_id] = report_phenomenon.extract_report(
+                        report_id, current.payload, kb_dir=current.kb_dir
+                    )
+                except Exception:  # noqa: BLE001 - navigation must not fail browsing
+                    extractions[report_id] = False
+            sources.append(
+                await ReportReviewService.describe_case_source(
+                    case, current=current, extraction=extractions.get(report_id)
+                )
+            )
+        return sources
