@@ -133,7 +133,12 @@ export type DiagCaseDetail = {
 
 export type DiagCaseSearchResult = {
   total: number
-  matches: Array<{ case: DiagCase; match_score?: number; score_norm?: number }>
+  matches: Array<{
+    case: DiagCase
+    match_score?: number
+    score_norm?: number
+    source_report?: SourceReport | null
+  }>
 }
 
 export type LabelTaxonomy = {

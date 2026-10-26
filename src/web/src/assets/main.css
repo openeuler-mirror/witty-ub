@@ -10098,6 +10098,13 @@ body.agent-panel-resizing-corner {
   background: #2563eb;
   color: #fff;
 }
+.diag-pagination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
 .diag-workbench-content .modal-body,
 .diag-detail-content .modal-body {
   overflow-y: auto;

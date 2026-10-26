@@ -49,6 +49,14 @@ test('关闭详情也会触发工作台刷新', () => {
 })
 
 test('案例列表可打开详情与来源报告', () => {
-  assert.match(PANEL, /@click="emit\('open-case', item\.id\)"/)
-  assert.match(PANEL, /@click="emit\('open-report', item\.report_id, item\.source_fault_id \|\| ''\)"/)
+  assert.match(PANEL, /@click="emit\('open-case', item\.case\.id\)"/)
+  assert.match(PANEL, /item\.case\.report_id && item\.source_report\?\.status === 'valid'/)
+  assert.match(PANEL, /@click="emit\('open-report', item\.case\.report_id, item\.case\.source_fault_id \|\| ''\)"/)
+})
+
+test('案例列表确认后重新加载并支持翻页', () => {
+  assert.match(PANEL, /watch\(\s*\(\) => props\.refreshToken/)
+  assert.match(PANEL, /watch\(page, \(\) => void load\(\)\)/)
+  assert.match(PANEL, /const PAGE_SIZE = 50/)
+  assert.match(PANEL, /共 \{\{ total \}\} 条/)
 })

@@ -20305,11 +20305,13 @@ onBeforeUnmount(() => {
         <CaseOverview
           v-if="caseSource !== 'diagnosis'"
           :source="caseSource === 'legacy' ? 'legacy' : 'all'"
+          :refresh-token="workbenchRefreshToken"
           @open-case="openDiagCaseDetail"
           @open-report="openReportWorkbench"
         />
         <DiagCasePanel
           v-else
+          :refresh-token="workbenchRefreshToken"
           @open-case="openDiagCaseDetail"
           @open-report="openReportWorkbench"
         />

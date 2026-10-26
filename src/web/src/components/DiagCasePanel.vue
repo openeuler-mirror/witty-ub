@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   fetchLabelTaxonomy,
   searchDiagCases,
@@ -7,6 +7,9 @@ import {
   type LabelTaxonomy,
 } from '../api/diagCase'
 
+const PAGE_SIZE = 50
+
+const props = defineProps<{ refreshToken?: number }>()
 const emit = defineEmits<{
   'open-case': [caseId: string]
   'open-report': [reportId: string, faultId: string]
@@ -14,13 +17,15 @@ const emit = defineEmits<{
 
 const loading = ref(false)
 const error = ref('')
-const cases = ref<DiagCase[]>([])
+const cases = ref<Array<{ case: DiagCase; source_report?: { status: string } | null }>>([])
 const total = ref(0)
+const page = ref(1)
 const taxonomy = ref<LabelTaxonomy | null>(null)
 const firstLabel = ref('')
 const secondLabel = ref('')
 const unclassifiedOnly = ref(false)
 
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 const secondOptions = computed(
   () =>
     taxonomy.value?.pairs.find((item) => item.first_level_label === firstLabel.value)
@@ -36,6 +41,14 @@ const verificationText = (item: DiagCase) => {
   if (item.status !== 'confirmed') return '未确认'
   return item.verification_json?.closed_loop ? '已验证' : '已确认未验证'
 }
+const reportStatusText = (status?: string | null) => {
+  const labels: Record<string, string> = {
+    deleted: '来源已删除',
+    stale: '来源已变化',
+    unavailable: '来源不可用',
+  }
+  return labels[status ?? ''] ?? '无关联报告'
+}
 
 const load = async () => {
   loading.value = true
@@ -43,14 +56,15 @@ const load = async () => {
   try {
     const result = await searchDiagCases({
       include_status: ['draft', 'confirmed', 'archived'],
-      page_num: 1,
-      page_cnt: 200,
+      page_num: page.value,
+      page_cnt: PAGE_SIZE,
       first_level_label: firstLabel.value || undefined,
       second_level_label: secondLabel.value || undefined,
       unclassified_only: unclassifiedOnly.value || undefined,
     })
-    cases.value = result.matches.map((item) => item.case)
+    cases.value = result.matches
     total.value = result.total
+    if (page.value > totalPages.value) page.value = totalPages.value
   } catch (err) {
     error.value = err instanceof Error ? err.message : '诊断案例加载失败'
     cases.value = []
@@ -60,16 +74,24 @@ const load = async () => {
   }
 }
 
+const applyFilter = () => {
+  if (page.value === 1) {
+    void load()
+  } else {
+    page.value = 1
+  }
+}
+
 const changeFirst = () => {
   secondLabel.value = ''
-  void load()
+  applyFilter()
 }
 const changeUnclassified = () => {
   if (unclassifiedOnly.value) {
     firstLabel.value = ''
     secondLabel.value = ''
   }
-  void load()
+  applyFilter()
 }
 
 onMounted(async () => {
@@ -80,6 +102,12 @@ onMounted(async () => {
   }
   await load()
 })
+
+watch(page, () => void load())
+watch(
+  () => props.refreshToken,
+  () => void load(),
+)
 </script>
 
 <template>
@@ -95,7 +123,7 @@ onMounted(async () => {
         class="diag-select"
         v-model="secondLabel"
         :disabled="!firstLabel || unclassifiedOnly"
-        @change="load"
+        @change="applyFilter"
       >
         <option value="">全部二级分类</option>
         <option v-for="label in secondOptions" :key="label" :value="label">{{ label }}</option>
@@ -114,33 +142,63 @@ onMounted(async () => {
       <button class="ghost-btn" type="button" @click="load">重试</button>
     </div>
     <div v-else-if="cases.length === 0" class="state-text">暂无诊断案例</div>
-    <div v-else class="log-file-list">
-      <div v-for="item in cases" :key="item.id" class="log-file-item">
-        <div class="log-file-info">
-          <div class="log-file-summary">
-            <button class="table-link-btn" type="button" @click="emit('open-case', item.id)">
-              {{ item.case_no || item.id }}
-            </button>
-            <span class="diag-case-title">{{ item.title || '未命名案例' }}</span>
-            <span class="status-badge">{{ item.status }}</span>
-            <span class="status-badge">{{ verificationText(item) }}</span>
-            <span class="status-badge">{{ classificationText(item) }}</span>
-            <span class="log-file-time">
-              来源：
+    <template v-else>
+      <div class="log-file-list">
+        <div v-for="item in cases" :key="item.case.id" class="log-file-item">
+          <div class="log-file-info">
+            <div class="log-file-summary">
               <button
-                v-if="item.report_id"
                 class="table-link-btn"
                 type="button"
-                @click="emit('open-report', item.report_id, item.source_fault_id || '')"
+                @click="emit('open-case', item.case.id)"
               >
-                {{ item.report_id }}
+                {{ item.case.case_no || item.case.id }}
               </button>
-              <template v-else>无关联报告</template>
-            </span>
-            <span class="log-file-time">{{ item.updated_at }}</span>
+              <span class="diag-case-title">{{ item.case.title || '未命名案例' }}</span>
+              <span class="status-badge">{{ item.case.status }}</span>
+              <span class="status-badge">{{ verificationText(item.case) }}</span>
+              <span class="status-badge">{{ classificationText(item.case) }}</span>
+              <span class="log-file-time">
+                来源：
+                <button
+                  v-if="item.case.report_id && item.source_report?.status === 'valid'"
+                  class="table-link-btn"
+                  type="button"
+                  @click="emit('open-report', item.case.report_id, item.case.source_fault_id || '')"
+                >
+                  {{ item.case.report_id }}
+                </button>
+                <template v-else-if="item.case.report_id">
+                  {{ reportStatusText(item.source_report?.status) }}
+                </template>
+                <template v-else>无关联报告</template>
+              </span>
+              <span class="log-file-time">{{ item.case.updated_at }}</span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+      <div class="diag-pagination" v-if="totalPages > 1">
+        <button class="ghost-btn" type="button" :disabled="page <= 1" @click="page -= 1">
+          上一页
+        </button>
+        <span class="pagination-pages">
+          <button
+            v-for="p in totalPages"
+            :key="p"
+            class="pagination-page-btn"
+            :class="{ active: page === p }"
+            type="button"
+            @click="page = p"
+          >
+            {{ p }}
+          </button>
+        </span>
+        <button class="ghost-btn" type="button" :disabled="page >= totalPages" @click="page += 1">
+          下一页
+        </button>
+        <span class="diag-hint">第 {{ page }} / {{ totalPages }} 页</span>
+      </div>
+    </template>
   </div>
 </template>
