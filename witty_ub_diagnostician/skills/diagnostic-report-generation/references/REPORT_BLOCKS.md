@@ -27,7 +27,7 @@
   "confidence": 92,
   "category": "mixed",
   "affected_scope": "host-101 / pod-worker-3；67.6% 故障 trace；12:03-12:11",
-  "conclusion": {},
+  "conclusion": {"first_level_label": null, "second_level_label": null},
   "latency": {},
   "root_cause": {},
   "propagation": {},
@@ -192,8 +192,20 @@
 
 ## 板块 2：分析结论 (conclusion)
 
+`first_level_label`（一级标签）和 `second_level_label`（二级标签）为新报告必填的
+`string | null` 字段，取值与配对以 [log_label.json](log_label.json) 为准。
+每次生成时读取参考文件并按诊断证据做语义匹配，具体选择规则见
+[SKILL.md「故障标签」](../SKILL.md#故障标签)。只确定一级时二级为 `null`，
+无法确定一级时两者均为 `null`。例如确认 Worker 进程退出时，填写
+`"first_level_label": "Worker故障", "second_level_label": "Worker故障-进程退出"`。
+下例只定位到 RPC/网络，尚不能确定参考文件中的具体故障类别，故两级均为 `null`。
+多故障写在各自的 `faults[].conclusion`，扁平单故障写在 `conclusion`；
+这些标签独立于原有诊断类型 `fault_type`、档案 `category` 和自由文本 `fault_domain`。
+
 ```json
 {
+  "first_level_label": null,
+  "second_level_label": null,
   "one_line_conclusion": "pod-worker-3 (host-101) 与 etcd 节点之间网络抖动导致 RPC 连接超时，引发 kvcache GET 请求大面积返回 -1002 错误，影响 67.6% 的故障请求，持续 8 分钟。",
   "fault_domain": "RPC/网络",
   "fault_component": "etcd 连接",
