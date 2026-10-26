@@ -345,10 +345,10 @@ def _install_update_store(monkeypatch, cases):
     async def get_case(case_id):
         return store.get(case_id)
 
-    async def update_draft(case_id, case):
+    async def update_draft(case_id, case, *, expected_revision=None):
         return _apply(case_id, case, "draft")
 
-    async def update_verification(case_id, case):
+    async def update_verification(case_id, case, *, expected_revision=None):
         return _apply(case_id, case, "verification")
 
     monkeypatch.setattr(Manager, "get_case", get_case)
@@ -365,12 +365,14 @@ def test_update_case_is_partial_and_bumps_revision(monkeypatch):
         DiagCaseLibraryService.update_case(
             draft.id,
             UpdateDiagCaseRequest(
+                expected_revision=0,
                 verification_json={
                     "method": "复测 SET 时延",
                     "observed_result": "SET 恢复正常",
                     "closed_loop": True,
                     "verified_at": "2026-09-21 10:00:00",
-                }
+                    "verified_by": "ops",
+                },
             ),
         )
     )
@@ -445,12 +447,14 @@ def test_update_case_on_confirmed_freezes_content_but_accepts_verification(monke
         DiagCaseLibraryService.update_case(
             confirmed.id,
             UpdateDiagCaseRequest(
+                expected_revision=0,
                 verification_json={
                     "method": "复测 SET 时延",
                     "observed_result": "SET 恢复正常",
                     "closed_loop": True,
                     "verified_at": "2026-09-21 10:00:00",
-                }
+                    "verified_by": "ops",
+                },
             ),
         )
     )
@@ -497,12 +501,17 @@ def test_update_case_requires_source_url_for_external_source_on_merged_result(mo
 
 def test_update_request_has_same_field_set_as_create_without_metadata():
     update_fields = set(UpdateDiagCaseRequest.model_fields)
-    # 绑定列只在建案时写入，PATCH 不允许修改。
+    # 绑定列、报告侧哈希与分类快照只在建案时写入，PATCH 不允许修改。
     assert update_fields == set(CreateDiagCaseDraftRequest.model_fields) - {
         "created_by",
         "report_id",
         "source_fault_id",
-    }
+        "expected_sidecar_hash",
+        "first_level_label",
+        "second_level_label",
+    } | {"expected_revision"}
+    assert "expected_revision" in update_fields
+    assert "expected_revision" not in CreateDiagCaseDraftRequest.model_fields
     assert not update_fields & {
         "id",
         "case_no",
@@ -541,12 +550,23 @@ def test_updatable_columns_cover_content_but_no_metadata():
         "report_id",
         "source_fault_id",
         "source_fault_hash",
+        # 建案时确认的整份报告版本随绑定冻结。
+        "source_sidecar_hash",
+        # 分类快照随建案冻结，PATCH 不可修改。
+        "first_level_label",
+        "second_level_label",
+        "label_taxonomy_version",
+        "source_label_hash",
     }
     assert set(Manager.UPDATABLE_COLUMNS) == set(
         DiagCaseLibraryModel.model_fields
-    ) - metadata
-    # 事后证据白名单必须落在内容物列内，否则 confirmed 通道会写不动。
-    assert set(Manager.VERIFICATION_COLUMNS) <= set(Manager.UPDATABLE_COLUMNS)
+    ) - metadata - {"verification_history_json"}
+    # 事后证据白名单必须落在内容物列内，否则 confirmed 通道会写不动；
+    # 验证历史是审计留痕，不进 draft 的内容物通道。
+    assert set(Manager.VERIFICATION_COLUMNS) - {"verification_history_json"} <= set(
+        Manager.UPDATABLE_COLUMNS
+    )
+    assert "verification_history_json" not in Manager.UPDATABLE_COLUMNS
 
 
 class _FakeSession:
