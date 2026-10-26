@@ -2,6 +2,8 @@
 """Service layer for the supernode diagnosis case library."""
 from __future__ import annotations
 
+from sqlalchemy.exc import IntegrityError
+
 from latency.ENUM.case_library import DiagCaseSource, DiagCaseStatus
 from latency.database.managers.diag_case_library import DiagCaseLibraryPGManager
 from latency.exceptions import (
@@ -9,6 +11,7 @@ from latency.exceptions import (
     ConflictBizException,
     NotFoundBizException,
 )
+from latency.services.phenomenon_index import PhenomenonIndexService
 from latency.schemas.diag_case_library import (
     ArchiveDiagCaseRequest,
     ConfirmDiagCaseRequest,
@@ -60,12 +63,54 @@ class DiagCaseLibraryService:
         return errors
 
     @staticmethod
+    async def _resolve_binding(req: CreateDiagCaseDraftRequest):
+        """Validate and fingerprint a report-fault binding; None when unbound."""
+        if not (req.report_id and req.source_fault_id):
+            return None
+        doc, error = await PhenomenonIndexService.resolve_current_fault(
+            req.report_id, req.source_fault_id
+        )
+        if error or doc is None:
+            raise BadRequestBizException(
+                message="报告故障绑定校验失败",
+                detail=error or "fault_not_found",
+            )
+        if doc.source_fault_id.startswith("auto:"):
+            raise BadRequestBizException(
+                message="报告故障ID不稳定，不能绑定案例",
+                detail="请先为源报告补齐稳定的 faults[].id",
+            )
+        return doc
+
+    @staticmethod
     async def create_draft(
         req: CreateDiagCaseDraftRequest,
     ) -> CreateDiagCaseDraftMsg:
+        binding = await DiagCaseLibraryService._resolve_binding(req)
         case = DiagCaseLibraryModel.model_validate(req.model_dump())
         case.status = DiagCaseStatus.DRAFT
-        case_id = await DiagCaseLibraryPGManager.add_draft(case)
+        if binding is not None:
+            case.report_id = req.report_id
+            case.source_fault_id = binding.source_fault_id
+            case.source_fault_hash = binding.source_fault_hash
+        try:
+            case_id = await DiagCaseLibraryPGManager.add_draft(case)
+        except IntegrityError as exc:
+            existing = None
+            if binding is not None:
+                existing = await DiagCaseLibraryPGManager.find_active_bound_case(
+                    req.report_id or "",
+                    binding.source_fault_id or "",
+                    binding.source_fault_hash or "",
+                )
+            detail = (
+                f"已有案例 case_id={existing.id}, case_no={existing.case_no}"
+                if existing is not None
+                else "同一报告故障的同一版本已存在活跃案例"
+            )
+            raise ConflictBizException(
+                message="案例绑定冲突", detail=detail
+            ) from exc
         return CreateDiagCaseDraftMsg(case_id=case_id or None, case_no=case.case_no)
 
     @staticmethod
@@ -141,6 +186,21 @@ class DiagCaseLibraryService:
         case = await DiagCaseLibraryPGManager.get_case(case_id)
         if case is None:
             raise NotFoundBizException(resource=RESOURCE_NAME)
+
+        if case.report_id and case.source_fault_id:
+            doc, error = await PhenomenonIndexService.resolve_current_fault(
+                case.report_id, case.source_fault_id
+            )
+            if error or doc is None:
+                raise ConflictBizException(
+                    message="源报告故障已不可校验",
+                    detail=error or "fault_not_found_or_excluded",
+                )
+            if doc.source_fault_hash != case.source_fault_hash:
+                raise ConflictBizException(
+                    message="源报告版本已变更",
+                    detail="故障指纹与建案时不一致，请归档后按新版本重新建案",
+                )
 
         errors = DiagCaseLibraryService._confirm_gate_errors(case, req.confirmed_by)
         if errors:

@@ -497,7 +497,12 @@ def test_update_case_requires_source_url_for_external_source_on_merged_result(mo
 
 def test_update_request_has_same_field_set_as_create_without_metadata():
     update_fields = set(UpdateDiagCaseRequest.model_fields)
-    assert update_fields == set(CreateDiagCaseDraftRequest.model_fields) - {"created_by"}
+    # 绑定列只在建案时写入，PATCH 不允许修改。
+    assert update_fields == set(CreateDiagCaseDraftRequest.model_fields) - {
+        "created_by",
+        "report_id",
+        "source_fault_id",
+    }
     assert not update_fields & {
         "id",
         "case_no",
@@ -533,6 +538,9 @@ def test_updatable_columns_cover_content_but_no_metadata():
         "existed_status",
         "created_at",
         "updated_at",
+        "report_id",
+        "source_fault_id",
+        "source_fault_hash",
     }
     assert set(Manager.UPDATABLE_COLUMNS) == set(
         DiagCaseLibraryModel.model_fields
@@ -606,7 +614,9 @@ def test_update_verification_only_writes_the_closure_and_keeps_signals(monkeypat
     assert not {"title", "search_text", "status_codes", "latency_components"} & set(values)
     # 状态白名单含 confirmed（draft 与 confirmed 都可回填）
     assert set(values["status_1"]) == {"draft", "confirmed"}
-    assert len(session.statements) == 1  # 不重建信号
+    # 不重建信号；同事务追加一条 outbox 事件保证标签传播。
+    assert len(session.statements) == 2
+    assert "index_event_outbox" in str(session.statements[1])
 
 
 def test_update_draft_returns_false_when_row_is_no_longer_draft(monkeypatch):

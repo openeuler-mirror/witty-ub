@@ -20,12 +20,14 @@ from sqlalchemy import delete, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
 from latency.ENUM.case_library import DiagCaseStatus
+from latency.ENUM.phenomenon import IndexEventType
 from latency.common.local_time import local_now
 from latency.database.engine import PGManager
 from latency.database.managers.diagnosis_case import (
     _iter_values,
     _normalize_signal_value,
 )
+from latency.database.managers.phenomenon_index import PhenomenonIndexPGManager
 from latency.database.models import DiagCaseLibrary, DiagCaseLibrarySignal
 from latency.database.utils import format_timestamp
 from latency.schemas.diag_case_library import (
@@ -314,6 +316,9 @@ class DiagCaseLibraryPGManager:
             source=row.source or "internal",
             source_url=row.source_url,
             title=row.title,
+            report_id=row.report_id or None,
+            source_fault_id=row.source_fault_id or None,
+            source_fault_hash=row.source_fault_hash or None,
             log_type=row.log_type,
             kb_id=row.kb_id or None,
             kb_name=row.kb_name,
@@ -425,6 +430,7 @@ class DiagCaseLibraryPGManager:
         columns: tuple[str, ...],
         allowed_status: tuple[DiagCaseStatus, ...],
         rebuild_signals: bool,
+        event: dict[str, Any] | None = None,
     ) -> bool:
         """按列白名单与状态白名单落库一次更新，``revision + 1``。"""
         data = case.model_dump(mode="json")
@@ -447,6 +453,8 @@ class DiagCaseLibraryPGManager:
                 return False
             if rebuild_signals:
                 await DiagCaseLibraryPGManager._replace_signals(session, case_id, case)
+            if event:
+                await PhenomenonIndexPGManager.enqueue_event(session, **event)
         return True
 
     @staticmethod
@@ -476,6 +484,12 @@ class DiagCaseLibraryPGManager:
             columns=DiagCaseLibraryPGManager.VERIFICATION_COLUMNS,
             allowed_status=(DiagCaseStatus.DRAFT, DiagCaseStatus.CONFIRMED),
             rebuild_signals=False,
+            event={
+                "event_key": f"case_verification:{case_id}:{case.revision + 1}",
+                "event_type": IndexEventType.CASE_VERIFICATION.value,
+                "target_doc_id": None,
+                "payload": {"case_id": case_id},
+            },
         )
 
     @staticmethod
@@ -502,6 +516,14 @@ class DiagCaseLibraryPGManager:
                     "case_id": case_id,
                 },
             )
+            if (result.rowcount or 0) > 0:
+                await PhenomenonIndexPGManager.enqueue_event(
+                    session,
+                    event_key=f"case_confirmed:{case_id}",
+                    event_type=IndexEventType.CASE_CONFIRMED.value,
+                    target_doc_id=None,
+                    payload={"case_id": case_id},
+                )
         return (result.rowcount or 0) > 0
 
     @staticmethod
@@ -527,7 +549,36 @@ class DiagCaseLibraryPGManager:
                     "case_id": case_id,
                 },
             )
+            if (result.rowcount or 0) > 0:
+                await PhenomenonIndexPGManager.enqueue_event(
+                    session,
+                    event_key=f"case_archived:{case_id}",
+                    event_type=IndexEventType.CASE_ARCHIVED.value,
+                    target_doc_id=None,
+                    payload={"case_id": case_id},
+                )
         return (result.rowcount or 0) > 0
+
+    @staticmethod
+    async def find_active_bound_case(
+        report_id: str, source_fault_id: str, source_fault_hash: str
+    ) -> DiagCaseLibraryModel | None:
+        async with PGManager.session() as session:
+            rows = await session.execute(
+                select(DiagCaseLibrary)
+                .where(
+                    DiagCaseLibrary.report_id == report_id,
+                    DiagCaseLibrary.source_fault_id == source_fault_id,
+                    DiagCaseLibrary.source_fault_hash == source_fault_hash,
+                    DiagCaseLibrary.status != DiagCaseStatus.ARCHIVED.value,
+                    DiagCaseLibrary.existed_status.is_(True),
+                )
+                .limit(1)
+            )
+            row = rows.scalars().first()
+        return (
+            DiagCaseLibraryPGManager._orm_to_case(row) if row is not None else None
+        )
 
     @staticmethod
     async def mark_hit(case_id: str) -> bool:

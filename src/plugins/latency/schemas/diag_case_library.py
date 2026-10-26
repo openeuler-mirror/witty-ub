@@ -144,6 +144,13 @@ class DiagCaseLibraryModel(BaseModel):
     source: DiagCaseSource = Field(default=DiagCaseSource.INTERNAL, description="案例来源")
     source_url: Optional[str] = Field(default=None, description="community / online 来源链接")
     title: Optional[str] = Field(default=None, description="案例标题")
+    # 报告故障版本绑定
+    report_id: Optional[str] = Field(default=None, description="绑定的报告 API ID")
+    source_fault_id: Optional[str] = Field(default=None, description="绑定的报告故障 ID")
+    source_fault_hash: Optional[str] = Field(
+        default=None, description="建案时服务端计算的源故障版本哈希"
+    )
+    # 归属
     log_type: Optional[str] = Field(default=None, description="日志类型 KVCache / UBSocket")
     kb_id: Optional[str] = Field(default=None, description="来源知识库ID，可空表示全局案例")
     kb_name: Optional[str] = Field(default=None, description="来源知识库名称")
@@ -264,6 +271,12 @@ class CreateDiagCaseDraftRequest(StrictRequestModel):
     )
     relations_json: list[RelationModel] = Field(default_factory=list, description="关联案例")
     source_log_ids: list[str] = Field(default_factory=list, description="来源日志ID")
+    report_id: Optional[str] = Field(
+        default=None, max_length=200, description="绑定报告 API ID，与 source_fault_id 成对"
+    )
+    source_fault_id: Optional[str] = Field(
+        default=None, max_length=64, description="绑定的报告故障 ID"
+    )
 
     @model_validator(mode="after")
     def _require_source_url(self) -> "CreateDiagCaseDraftRequest":
@@ -271,6 +284,8 @@ class CreateDiagCaseDraftRequest(StrictRequestModel):
             self.source_url or ""
         ).strip():
             raise ValueError("source 为 community / online 时 source_url 必填")
+        if bool(self.report_id) != bool(self.source_fault_id):
+            raise ValueError("report_id 与 source_fault_id 必须同时提供或同时为空")
         return self
 
 
