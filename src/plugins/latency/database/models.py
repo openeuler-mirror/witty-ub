@@ -158,6 +158,11 @@ class LogParseResult(Base):
     total_latency_us: Mapped[Optional[float]] = mapped_column(Float)
     request_mode: Mapped[Optional[str]] = mapped_column(String)
     sdk_processing_us: Mapped[Optional[float]] = mapped_column(Float)
+    query_get_local_rpc_network_us: Mapped[Optional[float]] = mapped_column(Float)
+    query_get_local_rpc_framework_us: Mapped[Optional[float]] = mapped_column(Float)
+    query_get_remote_rpc_network_us: Mapped[Optional[float]] = mapped_column(Float)
+    query_get_remote_rpc_framework_us: Mapped[Optional[float]] = mapped_column(Float)
+    query_get_server_exec_us: Mapped[Optional[float]] = mapped_column(Float)
     master_processing_us: Mapped[Optional[float]] = mapped_column(Float)
     worker_access_latency_us: Mapped[Optional[float]] = mapped_column(Float)
     remote_worker_internal_us: Mapped[Optional[float]] = mapped_column(Float)
@@ -172,6 +177,8 @@ class LogParseResult(Base):
     remote_worker_rpc_network_us: Mapped[Optional[float]] = mapped_column(Float)
     remote_worker_rpc_framework_us: Mapped[Optional[float]] = mapped_column(Float)
     remote_worker_rpc_total_us: Mapped[Optional[float]] = mapped_column(Float)
+    urma_sched_us: Mapped[Optional[float]] = mapped_column(Float)
+    client_urma_processing_us: Mapped[Optional[float]] = mapped_column(Float)
     urma_processing_us: Mapped[Optional[float]] = mapped_column(Float)
     urma_inflight_max: Mapped[Optional[int]] = mapped_column(Integer)
     remote_worker_processing_us: Mapped[Optional[float]] = mapped_column(Float)
@@ -223,6 +230,11 @@ class _LatencyBucketBase(Base):
     total_latency_us: Mapped[Optional[float]] = mapped_column(Float)
     request_mode: Mapped[Optional[str]] = mapped_column(String(16))
     sdk_processing_us: Mapped[Optional[float]] = mapped_column(Float)
+    query_get_local_rpc_network_us: Mapped[Optional[float]] = mapped_column(Float)
+    query_get_local_rpc_framework_us: Mapped[Optional[float]] = mapped_column(Float)
+    query_get_remote_rpc_network_us: Mapped[Optional[float]] = mapped_column(Float)
+    query_get_remote_rpc_framework_us: Mapped[Optional[float]] = mapped_column(Float)
+    query_get_server_exec_us: Mapped[Optional[float]] = mapped_column(Float)
     master_processing_us: Mapped[Optional[float]] = mapped_column(Float)
     worker_access_latency_us: Mapped[Optional[float]] = mapped_column(Float)
     remote_worker_internal_us: Mapped[Optional[float]] = mapped_column(Float)
@@ -237,6 +249,8 @@ class _LatencyBucketBase(Base):
     remote_worker_rpc_network_us: Mapped[Optional[float]] = mapped_column(Float)
     remote_worker_rpc_framework_us: Mapped[Optional[float]] = mapped_column(Float)
     remote_worker_rpc_total_us: Mapped[Optional[float]] = mapped_column(Float)
+    urma_sched_us: Mapped[Optional[float]] = mapped_column(Float)
+    client_urma_processing_us: Mapped[Optional[float]] = mapped_column(Float)
     urma_processing_us: Mapped[Optional[float]] = mapped_column(Float)
     urma_inflight_max: Mapped[Optional[int]] = mapped_column(Integer)
     remote_worker_processing_us: Mapped[Optional[float]] = mapped_column(Float)
@@ -246,6 +260,15 @@ class _LatencyBucketBase(Base):
     client_remote_rpc_network_us: Mapped[Optional[float]] = mapped_column(Float)
     client_remote_rpc_framework_us: Mapped[Optional[float]] = mapped_column(Float)
     client_remote_rpc_total_us: Mapped[Optional[float]] = mapped_column(Float)
+
+
+class LatencyBucket1s(_LatencyBucketBase):
+    """1 秒粒度分位统计表,按 log_id HASH 分区。"""
+
+    __tablename__ = "latency_bucket_1s"
+    __table_args__ = (
+        {"postgresql_partition_by": "HASH (log_id)"},
+    )
 
 
 class LatencyBucket10s(_LatencyBucketBase):

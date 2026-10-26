@@ -1,0 +1,65 @@
+OVERVIEW: {
+  "containerCount": 2,
+  "containers": [
+    {
+      "class": "echarts-flow-chart",
+      "width": 572,
+      "height": 340,
+      "display": "block",
+      "visibility": "visible",
+      "canvasCount": 1,
+      "text": ""
+    },
+    {
+      "class": "echarts-flow-chart",
+      "width": 572,
+      "height": 340,
+      "display": "block",
+      "visibility": "visible",
+      "canvasCount": 1,
+      "text": ""
+    }
+  ]
+}
+TABS: [{"text":"GET","tag":"BUTTON"},{"text":"SET","tag":"BUTTON"},{"text":"GET","tag":"BUTTON"},{"text":"SET","tag":"BUTTON"}]
+OVERVIEW2: {
+  "containerCount": 2,
+  "containers": [
+    {
+      "class": "echarts-flow-chart",
+      "width": 572,
+      "height": 340,
+      "canvasCount": 1
+    },
+    {
+      "class": "echarts-flow-chart",
+      "width": 572,
+      "height": 340,
+      "canvasCount": 1
+    }
+  ]
+}
+CANVAS_PIXELS: [
+  {
+    "w": 572,
+    "h": 340,
+    "total": 194480,
+    "nonEmpty": 18056
+  },
+  {
+    "w": 572,
+    "h": 340,
+    "total": 194480,
+    "nonEmpty": 13991
+  }
+]
+traceClicked: false
+MODAL: {"traceFlowCanvasCount":[],"traceFlowContainerCount":0,"hasModal":false}
+LOGS: [
+  "[debug] [vite] connecting...",
+  "[debug] [vite] connected.",
+  "[req] http://localhost:5173/log_failure_event_result/list_flow_summary",
+  "[log] [LatencyAbnormal] percentile: p99 threshold: 5",
+  "[log] [LatencyAbnormal] Total mark areas: 0",
+  "[resp 200] len=25572"
+]

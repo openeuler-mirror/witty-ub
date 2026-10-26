@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from latency.common.trace_context import collect_trace_context_logs
 from latency.database.managers.log_failure_event import LogFailureEventPGManager
@@ -113,17 +114,26 @@ class LogFailureEventResultService:
         req: ListTraceFailureEventResultRequest,
         results: list[TraceFailureEventModel],
     ) -> None:
-        """把 pod_role 聚合结果挂到每个 trace 响应上（一次批量查询）。"""
+        """把 pod_role 聚合结果挂到每个 trace 响应上（一次批量查询）。
+
+        pod_role 按 trace_id 全局聚合，同一 trace 在多个 log_id 下可能都有
+        角色记录（同一批日志被多个资产库上传/解析）。这里不按 kb 的 log_ids
+        过滤，全量查询后在结果中优先取属于当前 kb 日志的行，避免部分 trace
+        匹配不到角色。
+        """
         trace_ids = [r.trace_id for r in results if r.trace_id]
         if not trace_ids:
             return
         log_ids = await LogFailureEventPGManager._log_ids_for_kb_id(req.kb_id)
-        if req.log_id:
-            log_ids.append(req.log_id)
+        log_ids_set = set(log_ids)
         roles = await PodRolePGManager.list_pod_roles_by_trace_ids(
-            trace_ids, log_ids=log_ids or None
+            trace_ids, log_ids=None
         )
-        role_by_trace = {role.trace_id: role for role in roles}
+        role_by_trace: dict[str, Any] = {}
+        for role in roles:
+            prev = role_by_trace.get(role.trace_id)
+            if prev is None or (role.log_id in log_ids_set and prev.log_id not in log_ids_set):
+                role_by_trace[role.trace_id] = role
         for result in results:
             role = role_by_trace.get(result.trace_id)
             if role is None:

@@ -143,7 +143,16 @@ def _merge_light_then_wide(light_rows, scan_ctx, threshold_ms: float, *, compact
     # all-trace sort/group selection runs only once per parse task.
     from latency.bucket.representatives import select_bucket_representatives
     representatives = select_bucket_representatives(trace_light)
-    needed = pl.concat([needed, *(rows["tid"] for rows in representatives.values())]).unique()
+    rep_tids = [
+        rows["tid"] for rows in representatives.values()
+    ] + [
+        rows["tid_local"].drop_nulls()
+        for rows in representatives.values() if "tid_local" in rows.columns
+    ] + [
+        rows["tid_remote"].drop_nulls()
+        for rows in representatives.values() if "tid_remote" in rows.columns
+    ]
+    needed = pl.concat([needed, *rep_tids]).unique()
     if needed.is_empty():
         return trace_light
 

@@ -160,6 +160,19 @@ def _bucket_epoch_10s(ts_raw: str | None) -> int | None:
     return None
 
 
+def _epoch_sec(ts_raw: str | None) -> int | None:
+    """trace 时间戳的**原始秒级** epoch（不做 10s 对齐）。
+
+    分桶统计的 1s 粒度需要秒级桶号：``bucket_epoch // 1`` 会退化为 10s 对齐值
+    （一个"1秒桶"实际容纳 10s 窗口的 trace），这里保留未对齐的秒级 epoch 供
+    统计路径的 ``select_bucket_representatives`` 使用（2026-10 新增 1s 粒度）。
+    """
+    ts = parse_timestamp(ts_raw)
+    if ts is not None:
+        return int(ts.replace(tzinfo=timezone.utc).timestamp())
+    return None
+
+
 def _effective_label(label: str, entry: "tuple | LogEntry") -> str:
     """bucket（"Worker info parse"）按 entry_type 路由到子 label。
 
@@ -191,6 +204,7 @@ def _project(label: str, entry: "tuple | LogEntry", row: dict[str, object]) -> N
             row["op_key"] = None
         ts_raw = _get(entry, TupleField.TIMESTAMP)
         row["bucket_epoch"] = _bucket_epoch_10s(ts_raw)
+        row["epoch_sec"] = _epoch_sec(ts_raw)
         row["log_id"] = _get(entry, TupleField.LOG_ID) or ""
         row["status_code"] = _get(entry, TupleField.STATUS_CODE)
         row["timestamp"] = str(ts_raw) if ts_raw else None
@@ -205,6 +219,7 @@ def _project(label: str, entry: "tuple | LogEntry", row: dict[str, object]) -> N
         row["worker_total_latency"] = _latency_ms(entry)
         ts_raw = _get(entry, TupleField.TIMESTAMP)
         row["bucket_epoch"] = _bucket_epoch_10s(ts_raw)
+        row["epoch_sec"] = _epoch_sec(ts_raw)
         row["timestamp"] = str(ts_raw) if ts_raw else None
         row["log_id"] = _get(entry, TupleField.LOG_ID) or ""
         op_raw = _get(entry, TupleField.OPERATION)
@@ -322,7 +337,10 @@ def entries_to_columns(merged: dict[str, list]) -> dict[str, list]:
 
     额外输出 5 个内部列（不进 ALL_COLUMNS，build_trace_frame 消费）：
     ``_elapsed_us`` / ``_resp_msg`` / ``_rpc_e2e_us`` / ``_rpc_server_exec_us`` /
-    ``_rpc_network_us``，供 yuanrong 分段时延分解使用。
+    ``_rpc_network_us``，供 yuanrong 分段时延分解使用。另外补 ``urma_sched_us`` /
+    ``query_get_transport`` 两个扫描内部列的 None 占位（逐行路径不在 LogEntry
+    上提取，值由列式扫描路径产出；补占位保证 ``_YUANRONG_EXTRA_COLS``
+    列集对齐，trace_frame 的 do_yuanrong 检查不回归）。
     """
     columns: dict[str, list] = {name: [] for name in ALL_COLUMNS}
     columns["_elapsed_us"] = []
@@ -330,13 +348,15 @@ def entries_to_columns(merged: dict[str, list]) -> dict[str, list]:
     columns["_rpc_e2e_us"] = []
     columns["_rpc_server_exec_us"] = []
     columns["_rpc_network_us"] = []
+    columns["urma_sched_us"] = []
+    columns["query_get_transport"] = []
     for label, entries in merged.items():
         for entry in entries:
             eff_label = _effective_label(label, entry)
-            row = dict.fromkeys(TRACE_COLUMNS)  # 全部 None
+            row = dict.fromkeys((*TRACE_COLUMNS, "epoch_sec"))  # 全部 None
             row["tid"] = _get(entry, TupleField.TRACE_ID)  # 每行带 tid
             _project(eff_label, entry, row)
-            for name in TRACE_COLUMNS:
+            for name in (*TRACE_COLUMNS, "epoch_sec"):
                 columns[name].append(row[name])
             columns["_label"].append(eff_label)
             columns["_src_rank"].append(_SRC_RANK.get(eff_label, 0))
@@ -347,6 +367,9 @@ def entries_to_columns(merged: dict[str, list]) -> dict[str, list]:
             columns["_rpc_e2e_us"].append(e2e)
             columns["_rpc_server_exec_us"].append(se)
             columns["_rpc_network_us"].append(nw)
+            # 逐行路径不产这些值（列式扫描路径才提取）；None 占位对齐列集契约
+            columns["urma_sched_us"].append(None)
+            columns["query_get_transport"].append(None)
     return columns
 
 

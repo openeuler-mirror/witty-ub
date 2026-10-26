@@ -49,6 +49,7 @@ from latency.parse.keywords import (
     WORKER_SET_OPS,
     AccessCol,
 )
+from latency.parse.labels import CLIENT_URMA_LABEL
 from latency.parse.parallel_scanner.columnar import (
     ALL_COLUMNS,
     CLIENT_RPC_LABEL,
@@ -77,6 +78,10 @@ _INTERNAL_COLUMNS: tuple[str, ...] = (
     "_rpc_e2e_us",
     "_rpc_server_exec_us",
     "_rpc_network_us",
+    # QueryAndGet（DS_POSIX_QUERY_AND_GET）传输类型原始值：仅 worker access 行产出，
+    # 供 trace_frame 按 trace 取首个非空判断 local/remote meta-worker（对齐 kvcache
+    # 基准 transportType 语义；非 QueryAndGet 行为 null）。
+    "query_get_transport",
 )
 _OUTPUT_COLUMNS: tuple[str, ...] = (*ALL_COLUMNS, *_INTERNAL_COLUMNS, _FILE_COLUMN, _ROW_COLUMN)
 
@@ -92,6 +97,7 @@ _RUN_PIPES = 7              # 8 段的 '|' 数
 _STRICT_TS_RE = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?$"
 _TRACE_STRIP = "[]{}()\"'"
 _ZMQ_KEYWORD = "[ZMQ_RPC_FRAMEWORK_SLOW]"
+_BRPC_KEYWORD = "[BRPC_RPC_FRAMEWORK_SLOW]"
 _DIGITS_RE = r"^\d+$"
 
 # op 白名单 = 各解析器的 get/set 集合（StrEnum 成员，取字符串）
@@ -109,6 +115,20 @@ _WORKER_KW_RE = "|".join(WORKER_ACCESS_KEYWORDS)
 # 否则 str.extract 恒返回 null（实测），UUID 回退静默失效、整行被丢。
 V_UUID_RE = "(" + UUID_RE.pattern + ")"
 V_TRACE_FIELD_RE = TRACE_FIELD_RE.pattern
+
+#: 客户端侧 URMA 行正则（与 scan_vector_info.V_URMA_RE 同语义：命名捕获组 + ms，
+#: 同时兼容新旧两种 URMA 日志格式）。
+#: 客户端 INFO 日志与 worker 侧同一 marker，仅路径不同（meta.client_paths）。
+V_URMA_RE = (
+    r"(?i)\[URMA_ELAPSED_TOTAL\].*?cost\s*(?::\s*)?(?P<cost>[\d.]+)ms.*?"
+    r"(?:src\s+address|urmaSrcAddress)\s*(?::|=)\s*(?P<src>[^,]*?)\s*,.*?"
+    r"(?:(?:target|dst|destination)\s+address|urmaDstAddress)\s*(?::|=)\s*(?P<dst>[^,]*?)\s*,.*?"
+    r"(?:urma_inflight_wr_count|inflight_wr_cnt)\s*:\s*(?P<inflight>\d+)"
+)
+#: access params 里的传输类型（{k1:v1,k2:v2} 逗号分隔冒号分隔；对齐基准
+#: ``(query_get_wa.get('params') or {}).get('transportType','')``）。仅
+#: QueryAndGet 行有该键，其余行为 null。
+V_TRANSPORT_TYPE_RE = r"transportType\s*:\s*([^,}\s]+)"
 
 _LATENCY_COLUMNS: dict[str, tuple[str, ...]] = {
     SDK_LABEL: ("total_ms", "total_latency"),
@@ -270,7 +290,7 @@ def _empty_frame(light: bool = False) -> pl.DataFrame:
 def _dtype_of(name: str) -> type[pl.DataType]:
     if name in ("__row",):
         return pl.Int64
-    if name in ("bucket_epoch", "status_code"):
+    if name in ("bucket_epoch", "epoch_sec", "status_code"):
         return pl.Int64
     if name in ("_elapsed_us", "_rpc_e2e_us", "_rpc_server_exec_us", "_rpc_network_us",
                 "total_ms", "total_latency", "worker_total_latency"):
@@ -553,6 +573,11 @@ def _project_exprs(label: str, values: dict[str, pl.Expr], *,
                 select.append(_lit_null(pl.Float64).alias(name))   # 稍后用物化除数补
             elif name in values:
                 select.append(values[name].alias(name))
+        # 内部轻列（epoch_sec 等）：在 LIGHT_COLUMNS / LABEL_TO_COLUMNS 里，但不在
+        # TRACE_COLUMNS 契约中 —— 上面的循环按 TRACE_COLUMNS 遍历会漏掉它们。
+        for name in lights - set(TRACE_COLUMNS):
+            if name in values:
+                select.append(values[name].alias(name))
         select.append(pl.lit(_SRC_RANK.get(label, 0), dtype=pl.Int64).alias("_src_rank"))
         # _elapsed_us 只为算毫秒列而进计划（_finish 里算完即丢）；
         # _label / _resp_msg / _rpc_* 是宽列，light 一律不算。
@@ -566,6 +591,11 @@ def _project_exprs(label: str, values: dict[str, pl.Expr], *,
         # 该 label 没有的列**不在这里生成 null**：一个 label 通常只填 3~6 列，
         # 直接铺 40 列等于每行白算 ~30 个 null（实测占 final collect 的 2/3）。
         # 缺列统一交给 scan_vector._normalize 一次性补（带类型）。
+    # 内部列（epoch_sec 等）：与 light 分支同理，不在 TRACE_COLUMNS 契约里，
+    # 上面的循环按 TRACE_COLUMNS 遍历会漏掉它们（values 有值 → 投影真值）。
+    # _elapsed_us / _resp_msg 在下方 select 尾部单独处理，此处跳过避免重名列。
+    for name in sorted(set(values) - set(TRACE_COLUMNS) - {"_elapsed_us", "_resp_msg"}):
+        select.append(values[name].alias(name))
     select.append(pl.lit(label, dtype=pl.Utf8).alias("_label"))
     select.append(pl.lit(_SRC_RANK.get(label, 0), dtype=pl.Int64).alias("_src_rank"))
     select.append(values["_elapsed_us"].alias("_elapsed_us"))
@@ -678,6 +708,7 @@ def _access_rows(base: pl.LazyFrame, meta: _FileMeta, log_ids: dict[str, str] | 
         "operation": pl.when(op != "").then(op).otherwise(_lit_null(pl.Utf8)),
         "op_key": _op_key(op),
         "bucket_epoch": ts_bucket,
+        "epoch_sec": ts_epoch,
         "timestamp": ts_str,
         "log_id": _log_id_expr(),
         "status_code": status_expr,
@@ -693,9 +724,18 @@ def _access_rows(base: pl.LazyFrame, meta: _FileMeta, log_ids: dict[str, str] | 
         )
         values["inflight_count"] = _lit_null(pl.Float64)
 
-    plan = lf.filter(valid.fill_null(False)).select(
-        _project_exprs(label, values, light=light)
-    )
+    exprs = _project_exprs(label, values, light=light)
+    if label == WORKER_ACCESS_LABEL:
+        # QueryAndGet 传输类型原始值：从 req_msg params 提取 transportType。
+        # 任何模式都提取（含 light —— 分桶代表行需按 local/remote 分别选代表，
+        # 传输类型必须随全量行一起扫描；见 columns.LIGHT_COLUMNS 注释）。
+        # 非 QueryAndGet 行无该键 → null；由 trace_frame 按 trace 取首个非空判断
+        # local/remote meta-worker（对齐 kvcache 基准 transportType 语义）。
+        exprs.append(
+            pl.col("_req_msg").str.extract(V_TRANSPORT_TYPE_RE, 1)
+            .alias("query_get_transport")
+        )
+    plan = lf.filter(valid.fill_null(False)).select(exprs)
     return _finish(_collect(plan), label, light=light)
 
 
@@ -723,7 +763,10 @@ def _client_rpc_rows(base: pl.LazyFrame, meta: _FileMeta, log_ids: dict[str, str
     gate = (
         line.str.starts_with("2")
         & parts[_RUN_PIPES].is_not_null()
-        & line.str.contains(_ZMQ_KEYWORD, literal=True)
+        & (
+            line.str.contains(_ZMQ_KEYWORD, literal=True)
+            | line.str.contains(_BRPC_KEYWORD, literal=True)
+        )
     )
     if light and defer_unused:
         # RPC records have no light metrics. Keep their source locator; the
@@ -785,6 +828,80 @@ def _client_rpc_rows(base: pl.LazyFrame, meta: _FileMeta, log_ids: dict[str, str
     return _finish(_collect(plan), CLIENT_RPC_LABEL, light=light)
 
 
+def _client_urma_rows(base: pl.LazyFrame, meta: _FileMeta, log_ids: dict[str, str] | None, *,
+                      window: tuple[int, int] | None = None,
+                      min_elapsed_us: float | None = None,
+                      light: bool = False, defer_unused: bool = False,
+                      sparse: bool = False) -> pl.DataFrame | None:
+    """客户端 INFO 日志中的 URMA 行（``[URMA_ELAPSED_TOTAL]``，Run 格式）。
+
+    产出 ``CLIENT_URMA_LABEL`` 行：只带 tid / pod_ip / cluster_name 与
+    ``_elapsed_us``（ms×1000），不填任何 TRACE_COLUMNS 时延列（避免影响既有
+    ``urma_total_latency`` 的 first() 归并口径）；trace_frame 按 trace 对
+    ``_elapsed_us`` 取 max 聚合出 client_urma_processing_us（对齐 kvcache 基准
+    client_urma_list 语义）。
+    """
+    paths = meta.client_paths
+    if not paths:
+        return None
+    lf = base.filter(pl.col(_FILE_COLUMN).is_in(paths))
+    line = pl.col("line")
+    lf = lf.with_columns(_parts_alias(line, 8))
+    parts = _splitn_fields(8)
+    ts_raw = parts[0].str.strip_chars()
+    pod_name = parts[3].str.strip_chars()
+    trace_col = parts[5].str.strip_chars()
+    cluster = parts[6].str.strip_chars()
+    msg = parts[7].str.strip_chars()
+    lf = lf.with_columns(
+        ts_raw.alias("_ts_raw"), pod_name.alias("_pod_name"), trace_col.alias("_trace_col"),
+        cluster.alias("_cluster"), msg.alias("_msg"),
+    )
+    gate = (
+        line.str.starts_with("2")
+        & parts[_RUN_PIPES].is_not_null()
+        & line.str.contains("URMA_ELAPSED_TOTAL", literal=True)
+    )
+    if light and defer_unused:
+        # URMA 行与 RPC 行同属 metric-free 候选：轻列只留定位键，宽列再算。
+        return _collect(lf.filter(gate.fill_null(False)).select(
+            _trace_id_expr("_trace_col", ["line"]).alias("tid"),
+            pl.lit(0, dtype=pl.Int64).alias("_src_rank"),
+            pl.col(_FILE_COLUMN), pl.col(_ROW_COLUMN), pl.col(_RANK_COLUMN),
+        ))
+    lf = lf.filter(gate.fill_null(False)).with_columns(
+        pl.col("_msg").str.extract_groups(V_URMA_RE).alias("_groups")
+    )
+    lf = lf.filter(pl.col("_groups").struct.field("cost").is_not_null())
+    ok_ts, ts_str, ts_bucket, ts_epoch = _ts_exprs("_ts_raw")
+    elapsed_expr = (
+        pl.col("_groups").struct.field("cost").cast(pl.Float64, strict=False) * 1000.0
+    )
+    lf = lf.with_columns(
+        _trace_id_expr("_trace_col", ["line"]).alias("_trace_id")
+    )
+    trace_id = pl.col("_trace_id")
+    valid = elapsed_expr.is_not_null() & ok_ts & (trace_id != "")
+    if min_elapsed_us is not None:
+        valid = valid & (elapsed_expr >= int(min_elapsed_us))
+    if window is not None:
+        start_s, end_s = window
+        valid = valid & (ts_epoch >= start_s) & (ts_epoch <= end_s)
+
+    values: dict[str, pl.Expr] = {
+        "tid": trace_id,
+        "pod_ip": _pod_ip_expr(pl.col("_pod_name")),
+        "cluster_name": _cluster_expr(pl.col("_cluster")),
+        "_elapsed_us": elapsed_expr,
+        "_resp_msg": _lit_null(pl.Utf8),
+    }
+    # 与 _client_rpc_rows 不同：_resp_msg 本就是 null 常量，sparse 省略无收益，
+    # 且省略后 _finish 的 _rpc_expr("_resp_msg", ...) 会因缺列报错，故保留。
+    exprs = _project_exprs(CLIENT_URMA_LABEL, values, light=light)
+    plan = lf.filter(valid.fill_null(False)).select(exprs)
+    return _finish(_collect(plan), CLIENT_URMA_LABEL, light=light)
+
+
 def access_label_columns(
     frame: pl.DataFrame,
     files: Sequence,
@@ -813,11 +930,11 @@ def access_label_columns(
     # base 现在是惰性帧（行数要执行才知道）：空输入由下面"没有 builder 产出"的分支兜底。
 
     frames: list[pl.DataFrame] = []
-    for builder in (_sdk_rows, _worker_access_rows, _client_rpc_rows):
+    for builder in (_sdk_rows, _worker_access_rows, _client_rpc_rows, _client_urma_rows):
         part = builder(base, meta, log_ids, window=window,
                        min_elapsed_us=min_elapsed_us, light=light,
                        **({"defer_unused": defer_unused, "sparse": sparse}
-                          if builder is _client_rpc_rows else {}))
+                          if builder in (_client_rpc_rows, _client_urma_rows) else {}))
         if part is not None and part.height:
             frames.append(part)
     if not frames:

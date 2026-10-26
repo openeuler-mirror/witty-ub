@@ -1,0 +1,149 @@
+[console] debug [vite] connecting...
+[console] debug [vite] connected.
+ASSETS: [{"text":"444","tag":"STRONG"},{"text":"444","tag":"SMALL"},{"text":"333","tag":"STRONG"},{"text":"333","tag":"SMALL"},{"text":"222","tag":"STRONG"},{"text":"222","tag":"SMALL"},{"text":"111","tag":"STRONG"},{"text":"111","tag":"SMALL"}]
+NAV_MATCHES: [
+  {
+    "tag": "HTML",
+    "cls": "",
+    "text": "Vite App\n  \n.vue-inspector-container[dat",
+    "children": 2
+  },
+  {
+    "tag": "BODY",
+    "cls": "",
+    "text": "资产管理444444333333222222111111诊断报告报告库查看 Ag",
+    "children": 6
+  },
+  {
+    "tag": "DIV",
+    "cls": "",
+    "text": "资产管理444444333333222222111111诊断报告报告库查看 Ag",
+    "children": 1
+  },
+  {
+    "tag": "DIV",
+    "cls": "app-layout",
+    "text": "资产管理444444333333222222111111诊断报告报告库查看 Ag",
+    "children": 2
+  },
+  {
+    "tag": "ASIDE",
+    "cls": "asset-sidebar",
+    "text": "资产管理444444333333222222111111诊断报告报告库查看 Ag",
+    "children": 6
+  },
+  {
+    "tag": "SECTION",
+    "cls": "nav-section monitor-nav-section",
+    "text": "章节导航KVCache 📊 时延故障监控  ⚠️ 通断故障监控  🔗 相似案",
+    "children": 2
+  },
+  {
+    "tag": "DIV",
+    "cls": "monitor-nav-list",
+    "text": "KVCache 📊 时延故障监控  ⚠️ 通断故障监控  🔗 相似案例分析 ",
+    "children": 2
+  },
+  {
+    "tag": "DIV",
+    "cls": "monitor-nav-group",
+    "text": "KVCache 📊 时延故障监控  ⚠️ 通断故障监控  🔗 相似案例分析",
+    "children": 2
+  },
+  {
+    "tag": "DIV",
+    "cls": "monitor-nav-sublist",
+    "text": "📊 时延故障监控  ⚠️ 通断故障监控  🔗 相似案例分析",
+    "children": 3
+  },
+  {
+    "tag": "BUTTON",
+    "cls": "monitor-nav-item",
+    "text": "📊 时延故障监控",
+    "children": 0
+  }
+]
+[console] log [LatencyAbnormal] percentile: p99 threshold: 5
+[console] log [LatencyAbnormal] Total mark areas: 0
+FLOW_ELS: [
+  {
+    "tag": "HTML",
+    "cls": "",
+    "text": "Vite App\n  \n.vue-inspector-container[data-v-31d1379f] {\n  cursor: pointer;\n  pos",
+    "children": 2
+  },
+  {
+    "tag": "HEAD",
+    "cls": "",
+    "text": "Vite App\n  \n.vue-inspector-container[data-v-31d1379f] {\n  cursor: pointer;\n  pos",
+    "children": 10
+  },
+  {
+    "tag": "STYLE",
+    "cls": "",
+    "text": ":root {\n  --page-bg: #f0f2f8;\n  --panel-bg: #ffffff;\n  --panel-soft: #fafcff;\n  ",
+    "children": 0
+  },
+  {
+    "tag": "BODY",
+    "cls": "",
+    "text": "资产管理444444333333222222111111诊断报告报告库查看 Agent 生成的诊断报告章节导航KVCache 📊 时延故障监控  ⚠️ 通断故",
+    "children": 12
+  },
+  {
+    "tag": "DIV",
+    "cls": "",
+    "text": "资产管理444444333333222222111111诊断报告报告库查看 Agent 生成的诊断报告章节导航KVCache 📊 时延故障监控  ⚠️ 通断故",
+    "children": 1
+  },
+  {
+    "tag": "DIV",
+    "cls": "app-layout",
+    "text": "资产管理444444333333222222111111诊断报告报告库查看 Agent 生成的诊断报告章节导航KVCache 📊 时延故障监控  ⚠️ 通断故",
+    "children": 3
+  },
+  {
+    "tag": "MAIN",
+    "cls": "asset-detail",
+    "text": "当前资产库：333时延故障监控 GET  SET 24 项指标与总时延曲线，可交互选择展示📈 关键时延指标趋势红色背景区间 = P99 总时延 > 5ms时间",
+    "children": 1
+  },
+  {
+    "tag": "DIV",
+    "cls": "monitor-page",
+    "text": "当前资产库：333时延故障监控 GET  SET 24 项指标与总时延曲线，可交互选择展示📈 关键时延指标趋势红色背景区间 = P99 总时延 > 5ms时间",
+    "children": 4
+  },
+  {
+    "tag": "SECTION",
+    "cls": "monitor-section",
+    "text": "时延故障监控 GET  SET 24 项指标与总时延曲线，可交互选择展示📈 关键时延指标趋势红色背景区间 = P99 总时延 > 5ms时间聚合尺度：10秒1",
+    "children": 3
+  },
+  {
+    "tag": "ARTICLE",
+    "cls": "monitor-card flow-summary-card",
+    "text": "🔄 角色交互时延流（Read / Write Flow） 仅统计时延故障 Trace · GET/SET 请求各角色交互段的时延汇总 · 阈值按当前数据分位自",
+    "children": 5
+  },
+  {
+    "tag": "DIV",
+    "cls": "monitor-card-title flow-summary-title",
+    "text": "🔄 角色交互时延流（Read / Write Flow） 仅统计时延故障 Trace · GET/SET 请求各角色交互段的时延汇总 · 阈值按当前数据分位自",
+    "children": 2
+  },
+  {
+    "tag": "SPAN",
+    "cls": "",
+    "text": "🔄 角色交互时延流（Read / Write Flow）",
+    "children": 0
+  },
+  {
+    "tag": "SPAN",
+    "cls": "role-summary-hint",
+    "text": "仅统计时延故障 Trace · GET/SET 请求各角色交互段的时延汇总 · 阈值按当前数据分位自适应",
+    "children": 0
+  }
+]
+STATES: {"noFlowData":false,"loadingFlow":false,"flowError":false}
+TABS: ["聚合事件列表","异常Trace列表","聚合事件列表","异常Trace列表"]

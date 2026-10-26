@@ -1,5 +1,6 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
 import warnings
+from contextlib import asynccontextmanager
 
 # 过滤 APScheduler 中 pkg_resources 弃用警告
 warnings.filterwarnings(
@@ -54,7 +55,55 @@ from latency.database.init import (
 from latency.exceptions import NotFoundBizException, ConflictBizException, BadRequestBizException
 from pydantic import ValidationError
 
-app = fastapi.FastAPI(docs_url=None, redoc_url=None)
+
+@asynccontextmanager
+async def lifespan(app: fastapi.FastAPI):
+    """应用生命周期：启动时初始化数据库/任务队列/调度器，关闭时停止调度器。
+
+    替代已弃用的 @app.on_event("startup")，逻辑与原 startup_event 完全一致。
+    """
+    await configure()
+    await mk_dirs()
+
+    config = Config().get_config()
+    PGManager.initialize(
+        config.db.pg_dsn_url(),
+        pool_size=config.db.pg_pool_size,
+        max_overflow=config.db.pg_max_overflow,
+    )
+    await PGManager.init_timezone()
+    await init_postgresql_database()
+    logger.info("PostgreSQL backend initialized")
+
+    await FailureModeKnowledge().init_failure_mode_knowledge()
+    await backfill_trace_failure_event_status_codes()
+    # 子进程不会随服务重启恢复。遗留的 RUNNING 任务必须先走 worker.reinit()
+    # 清理上一次尝试的半成品，再由任务调度器从头执行。
+    await TaskHandler.init_task_queue()
+    # 任务状态查询和迁移不是数据库原子抢占；同一轮处理必须串行，避免两个
+    # handle_tasks 实例同时 reinit/启动同一个任务。coalesce 合并执行期间积压的 tick。
+    scheduler.add_job(
+        TaskHandler.handle_tasks,
+        "interval",
+        seconds=1,
+        max_instances=1,
+        coalesce=True,
+    )
+    # 收尸独立成 job：它要 join 子进程，慢的时候不该吃掉派发的节拍。
+    scheduler.add_job(
+        TaskHandler.reap_finished_processes,
+        "interval",
+        seconds=1,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.start()
+
+    yield
+    scheduler.shutdown(wait=False)
+
+
+app = fastapi.FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
 
 DATABASE_UNAVAILABLE_MESSAGE = "数据服务暂时不可用，请稍后重试或联系管理员"
 @app.exception_handler(SQLAlchemyError)
@@ -234,46 +283,6 @@ async def mk_dirs():
         if not os.path.exists(full_path):
             os.makedirs(full_path, exist_ok=True)
             logger.info(f"创建目录: {full_path}")
-
-
-@app.on_event("startup")
-async def startup_event():
-    await configure()
-    await mk_dirs()
-
-    config = Config().get_config()
-    PGManager.initialize(
-        config.db.pg_dsn_url(),
-        pool_size=config.db.pg_pool_size,
-        max_overflow=config.db.pg_max_overflow,
-    )
-    await PGManager.init_timezone()
-    await init_postgresql_database()
-    logger.info("PostgreSQL backend initialized")
-
-    await FailureModeKnowledge().init_failure_mode_knowledge()
-    await backfill_trace_failure_event_status_codes()
-    # 子进程不会随服务重启恢复。遗留的 RUNNING 任务必须先走 worker.reinit()
-    # 清理上一次尝试的半成品，再由任务调度器从头执行。
-    await TaskHandler.init_task_queue()
-    # 任务状态查询和迁移不是数据库原子抢占；同一轮处理必须串行，避免两个
-    # handle_tasks 实例同时 reinit/启动同一个任务。coalesce 合并执行期间积压的 tick。
-    scheduler.add_job(
-        TaskHandler.handle_tasks,
-        "interval",
-        seconds=1,
-        max_instances=1,
-        coalesce=True,
-    )
-    # 收尸独立成 job：它要 join 子进程，慢的时候不该吃掉派发的节拍。
-    scheduler.add_job(
-        TaskHandler.reap_finished_processes,
-        "interval",
-        seconds=1,
-        max_instances=1,
-        coalesce=True,
-    )
-    scheduler.start()
 
 
 def _setup_logging():

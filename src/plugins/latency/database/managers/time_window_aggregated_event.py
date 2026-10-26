@@ -486,7 +486,7 @@ class TimeWindowAggregatedEventPGManager:
         未来应改读 latency_bucket_*；注意语义差异——桶表是每 (bucket, op, mode) 的
         代表行原始值，而这里是各字段独立计算的 P99，两者口径不同，需先对齐前端展示语义。
 
-        补齐当前页的 yuanrong_tool 分阶段 P99。
+        补齐当前页的 yuanrong_tool 分阶段平均值/P99。
 
         主列表仍从物化时间窗口表读取；这里只对已经分页出的时间桶查询明细表，
         因而保留上游预聚合路径的性能收益，同时避免横向时延柱只剩旧指标颜色。
@@ -547,18 +547,23 @@ class TimeWindowAggregatedEventPGManager:
             .label(f"p99_{name}")
             for name, column in _YUANRONG_BREAKDOWN_FIELDS
         ]
+        ave_columns = [
+            func.avg(column).label(f"ave_{name}")
+            for name, column in _YUANRONG_BREAKDOWN_FIELDS
+        ]
         pair_stmt = (
             select(
                 bucket_epoch,
                 LogParseResult.src_ip,
                 LogParseResult.dst_ip,
                 *p99_columns,
+                *ave_columns,
             )
             .where(*filters)
             .group_by(bucket_epoch, LogParseResult.src_ip, LogParseResult.dst_ip)
         )
         parent_stmt = (
-            select(bucket_epoch, *p99_columns)
+            select(bucket_epoch, *p99_columns, *ave_columns)
             .where(*filters)
             .group_by(bucket_epoch)
         )
@@ -590,9 +595,11 @@ class TimeWindowAggregatedEventPGManager:
                 None,
             )
             for name, _ in _YUANRONG_BREAKDOWN_FIELDS:
-                value = getattr(row, f"p99_{name}")
+                p99_value = getattr(row, f"p99_{name}")
+                ave_value = getattr(row, f"ave_{name}")
                 if pair is not None:
-                    pair[f"p99_{name}"] = value
+                    pair[f"p99_{name}"] = p99_value
+                    pair[f"ave_{name}"] = ave_value
 
         for row in parent_rows:
             event = events_by_epoch.get(int(row.bucket_epoch))
@@ -600,6 +607,7 @@ class TimeWindowAggregatedEventPGManager:
                 continue
             for name, _ in _YUANRONG_BREAKDOWN_FIELDS:
                 event[f"p99_{name}"] = getattr(row, f"p99_{name}")
+                event[f"ave_{name}"] = getattr(row, f"ave_{name}")
 
     @staticmethod
     async def list_time_window_events(
@@ -656,12 +664,14 @@ class TimeWindowAggregatedEventPGManager:
             * interval
         ).label("bucket_epoch")
 
-        stmt = (
+        inner = (
             select(
-                bucket_epoch,
+                bucket_epoch.label("bucket_epoch"),
                 TimeWindowAggregated.src_ip,
                 TimeWindowAggregated.dst_ip,
-                func.sum(TimeWindowAggregated.log_parse_result_cnt).label("total_cnt"),
+                func.sum(TimeWindowAggregated.log_parse_result_cnt).label(
+                    "total_cnt"
+                ),
                 func.sum(TimeWindowAggregated.anomaly_cnt).label("anomaly_cnt"),
                 (
                     func.sum(
@@ -690,8 +700,33 @@ class TimeWindowAggregatedEventPGManager:
                 TimeWindowAggregated.src_ip,
                 TimeWindowAggregated.dst_ip,
             )
-            .having(func.sum(TimeWindowAggregated.anomaly_cnt) > 0)
-            .order_by(bucket_epoch)
+            .subquery()
+        )
+        # 窗口 total_cnt 需覆盖该时间桶内全部 pod 对（含正常请求），因此不再用
+        # having(anomaly_cnt>0) 过滤单对行；改为按 bucket_epoch 判定窗口是否有
+        # 异常后整窗保留，保证事件集合仍只含有异常的窗口。
+        outer = (
+            select(
+                inner.c.bucket_epoch,
+                inner.c.src_ip,
+                inner.c.dst_ip,
+                inner.c.total_cnt,
+                inner.c.anomaly_cnt,
+                inner.c.ave,
+                inner.c.min_lat,
+                inner.c.max_lat,
+                inner.c.p95,
+                inner.c.p99,
+                func.sum(inner.c.anomaly_cnt)
+                .over(partition_by=inner.c.bucket_epoch)
+                .label("win_anomaly"),
+            )
+            .subquery()
+        )
+        stmt = (
+            select(outer)
+            .where(outer.c.win_anomaly > 0)
+            .order_by(outer.c.bucket_epoch)
         )
 
         async with PGManager.session() as session:

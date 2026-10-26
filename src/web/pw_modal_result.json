@@ -1,0 +1,12 @@
+CLICKED: NO ROWS
+MODAL: {
+  "modalOpen": false,
+  "traceFlowSections": 0,
+  "chartContainers": [],
+  "modalTitle": "",
+  "modalBodyText": ""
+}
+REQS: [
+  "[REQ] {\"kb_id\":\"606fbcda-6c4f-49ab-b1fc-cfc071cfa702\",\"source\":\"latency\"}",
+  "[RESP 200] len=25572 {\"code\":200,\"message\":\"success\",\"result\":{\"result\":{\"nodes\":[{\"id\":\"client\",\"label\":\"Client\",\"role\":\"client\",\"top_ips\":[],\"top_workers\":[\"192.168.219."
+]

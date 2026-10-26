@@ -1,0 +1,20 @@
+CLICKED: clicked
+MODAL: {
+  "modalOpen": true,
+  "flowSectionCount": 1,
+  "modalTitle": "📜 Trace：199bb6a7-82e4-48c1-bbea-2455b8c67520",
+  "chartContainers": [
+    {
+      "w": 1496,
+      "h": 320,
+      "canvas": 1
+    }
+  ]
+}
+MODAL_PIXELS: [{"nonEmpty":18365,"total":478720}]
+REQS: [
+  "[REQ] {\"kb_id\":\"606fbcda-6c4f-49ab-b1fc-cfc071cfa702\",\"source\":\"latency\"}",
+  "[RESP 200] len=25572",
+  "[REQ] {\"kb_id\":\"606fbcda-6c4f-49ab-b1fc-cfc071cfa702\",\"source\":\"latency\",\"trace_ids\":[\"199bb6a7-82e4-48c1-bbea-2455b8c67520\"]}",
+  "[RESP 200] len=5992"
+]

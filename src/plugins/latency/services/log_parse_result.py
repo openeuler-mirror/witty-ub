@@ -6,10 +6,15 @@ from latency.schemas.response import (
     GetLatencyMetricsMsg,
     GetLogParseOptionsMsg,
 )
+from latency.schemas.log_failure_event import PodRoleModel
+from latency.schemas.log import LogParseResultModel
 from latency.database.managers.log_parse_result import LogParseResultPGManager
 from latency.database.managers.log_failure_event import LogFailureEventPGManager
+from latency.database.managers.pod_role import PodRolePGManager
+from latency.database.utils import format_timestamp
 from latency.common.sampler import LatencyMetricsSampler
 from latency.exceptions import NotFoundBizException
+from typing import Any
 
 
 class LogParseResultService:
@@ -28,7 +33,50 @@ class LogParseResultService:
                 pods = context_pods.get(row.trace_id)
                 if pods:
                     row.pod_ips = sorted(set(row.pod_ips or []) | set(pods))
+        await LogParseResultService._attach_pod_roles(req, results)
         return ListLogParseResultsMsg(total=total, log_parse_results=results)
+
+    @staticmethod
+    async def _attach_pod_roles(
+        req: ListLogParseResultRequest,
+        results: list[LogParseResultModel],
+    ) -> None:
+        """把 pod_role 聚合结果挂到每个解析结果响应上（一次批量查询）。
+
+        供时延故障监控的 Top500 / 异常 Trace 列表按角色着色 Pod 标签使用。
+
+        注意：pod_role 按 trace_id 全局聚合，同一批日志被多个资产库上传时，
+        同一 trace_id 会在不同 log_id 下各有一条角色记录。这里不按 kb 的
+        log_ids 过滤（否则 Top500 中大部分 trace 匹配不到角色），而是在
+        全量结果中优先取属于当前 kb 日志的那一行，取不到时回退任意一行。
+        """
+        trace_ids = [r.trace_id for r in results if r.trace_id]
+        if not trace_ids:
+            return
+        log_ids = await LogFailureEventPGManager._log_ids_for_kb_id(req.kb_id)
+        log_ids_set = set(log_ids)
+        roles = await PodRolePGManager.list_pod_roles_by_trace_ids(
+            trace_ids, log_ids=None
+        )
+        role_by_trace: dict[str, Any] = {}
+        for role in roles:
+            prev = role_by_trace.get(role.trace_id)
+            if prev is None or (role.log_id in log_ids_set and prev.log_id not in log_ids_set):
+                role_by_trace[role.trace_id] = role
+        for result in results:
+            role = role_by_trace.get(result.trace_id)
+            if role is None:
+                continue
+            result.pod_role = PodRoleModel(
+                trace_id=role.trace_id or "",
+                log_id=role.log_id,
+                operation=role.operation or "",
+                client_pod=role.client_pod,
+                entry_worker_pods=role.entry_worker_pods or [],
+                meta_worker_pods=role.meta_worker_pods or [],
+                data_worker_pods=role.data_worker_pods or [],
+                timestamp=format_timestamp(role.timestamp) or "",
+            )
 
     @staticmethod
     async def get_log_parse_result_by_id(result_id: str) -> GetLogParseResultMsg:
