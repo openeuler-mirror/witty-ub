@@ -166,7 +166,7 @@ def validate_callgraph(callgraph: dict) -> list[str]:
     return errors
 
 
-def validate_final(nodes: list[dict], tree: dict) -> list[str]:
+def validate_final(nodes: list[dict], tree: dict, error_definitions: dict[str, int]) -> list[str]:
     errors: list[str] = []
     ids = [node.get("故障编号") for node in nodes]
     if len(set(ids)) != len(ids) or None in ids:
@@ -176,6 +176,18 @@ def validate_final(nodes: list[dict], tree: dict) -> list[str]:
                    if (match := re.fullmatch(re.escape(prefix) + r"(\d+)", node.get("故障编号", "")))]
         if numbers != list(range(1, len(numbers) + 1)):
             errors.append(f"{kind} 编号不连续或顺序错误")
+    access_nodes = [node for node in nodes if node.get("节点类型") == "access_log_entry"]
+    expected_access_codes = [f"{name}({value})" for name, value in error_definitions.items()]
+    actual_access_codes = [node.get("错误码") for node in access_nodes if node.get("错误码") is not None]
+    if Counter(actual_access_codes) != Counter(expected_access_codes):
+        missing = sorted(set(expected_access_codes) - set(actual_access_codes))
+        extra = sorted(set(actual_access_codes) - set(expected_access_codes))
+        errors.append(f"access 根未恰好覆盖全部 error_definitions：缺失={missing[:5]}，多余={extra[:5]}")
+    fatal_access_nodes = [node for node in access_nodes if node.get("错误码") is None]
+    if len(fatal_access_nodes) != 1:
+        errors.append("access 根必须且只能包含一个错误码为 null 的 FATAL 根")
+    if len(access_nodes) != len(error_definitions) + 1:
+        errors.append("access 根数必须等于 error_definitions 数量 + 1")
     expected_partial_success_condition = {"status_code": 0, "resp_msg_nonempty": True}
     conditional_nodes = [node for node in nodes if "匹配条件" in node]
     if len(conditional_nodes) != 1 or conditional_nodes[0].get("节点类型") != "access_log_entry" or \
@@ -277,7 +289,9 @@ def main() -> int:
         if bool(args.nodes) != bool(args.tree):
             raise ValueError("--nodes 和 --tree 必须同时提供")
         if args.nodes:
-            errors.extend(validate_final(read_json(args.nodes), read_json(args.tree)))
+            errors.extend(validate_final(
+                read_json(args.nodes), read_json(args.tree), runtime.get("error_definitions", {})
+            ))
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 1

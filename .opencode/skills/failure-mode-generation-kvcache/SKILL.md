@@ -64,7 +64,7 @@ python3 .opencode/skills/failure-mode-generation-kvcache/scripts/analyze_kvcache
 ## Token 受控工作流
 
 1. 校验中间产物 fingerprint 和数量，建立全部 K_* 错误码信息表。
-2. 根据 runtime groups 实际出现的非零 K_* 建 access 根，再追加 code=0/respMsg 和 FATAL 两个特殊根。
+2. 为 `status.h` 中每个非零 K_* 建 access 根，不依赖该错误码是否出现在 runtime groups；无 runtime 子节点时在树中保留空数组。随后追加 code=0/respMsg 和 FATAL 两个特殊根。
 3. 先处理 `deterministic` groups；它们的错误码和日志模板均已由脚本确定，可直接采用，不重复逐物理点阅读源码。脚本不得把 `template_confidence=dynamic_only` 的组放入该 lane。
 4. 对 `semantic` groups，按 `skill_analysis` 的任务类型处理：`resolve_status_code` 先采用 `kvcache_status_ast.json` 中同 `content_hash` 的完整唯一归码；`resolve_log_template` 必须读取当前 callable，追踪局部字符串构造、包装宏及上游消息来源。其余未解决任务按 batch 顺序处理。一个 callable 只读取一次，同时完成其中所有组。
 5. 每组完成后将分析记录写为小 JSON，并执行：
