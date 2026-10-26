@@ -14,7 +14,9 @@
 ## 使用流程
 
 1. 调用 latency-analysis / failure-code-analysis / brpc-diagnosis skill 完成诊断
-2. 用 `scripts/render_report.py --spec <板块>` 查字段清单，据此写数据 JSON
+2. 用 `scripts/render_report.py --spec <板块>` 查字段清单，据此写数据 JSON；读取
+   [标签参考](references/log_label.json)，在每条故障的 `conclusion` 中填写
+   `first_level_label` / `second_level_label`（无法匹配的层级填 `null`）
 3. `python3 scripts/render_report.py /tmp/report_data.json` 渲染 HTML（脚本做 schema-lite 校验）
 4. 把报告路径与摘要交给用户；用户确认「报告 OK」后沉淀为案例：
    `POST /diag_case_library`（建草稿）→ `POST /diag_case_library/{case_id}/confirm`

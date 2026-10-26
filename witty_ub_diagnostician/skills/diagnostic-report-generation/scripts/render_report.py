@@ -27,6 +27,7 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_TEMPLATE = SKILL_DIR / "templates" / "report.html"
+LABEL_REFERENCE = SKILL_DIR / "references" / "log_label.json"
 FALLBACK_OUT_DIR = Path("/tmp/reports")
 KB_SLUG_FALLBACK = "unknown"
 
@@ -80,6 +81,36 @@ def _check_enum(path, value, enum, errors, required=True):
         return
     if value not in enum:
         errors.append(f"{path}: {value!r} 不是合法取值（{'|'.join(enum)}）")
+
+
+def _check_fault_labels(path, conclusion, errors, warnings):
+    if not isinstance(conclusion, dict):
+        return
+    fields = ("first_level_label", "second_level_label")
+    if not any(field in conclusion for field in fields):
+        warnings.append(f"{path}: 新报告须填写 first_level_label / second_level_label（无法匹配填 null）")
+        return  # 兼容未包含标签的历史报告。
+    for field in fields:
+        if field not in conclusion:
+            errors.append(f"{path}.{field}: 必填，无法匹配时填 null")
+        elif conclusion[field] is not None and not isinstance(conclusion[field], str):
+            errors.append(f"{path}.{field}: 必须是字符串或 null")
+    if any(field not in conclusion or
+           (conclusion[field] is not None and not isinstance(conclusion[field], str))
+           for field in fields):
+        return
+    first, second = (conclusion[field] for field in fields)
+    if first is None and second is None:
+        return
+    try:
+        rows = json.loads(LABEL_REFERENCE.read_text(encoding="utf-8"))
+        pairs = {(row[fields[0]], row[fields[1]]) for row in rows}
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise Fatal(f"无法读取故障标签参考: {LABEL_REFERENCE}", str(exc)) from exc
+    if first not in {pair[0] for pair in pairs}:
+        errors.append(f"{path}.first_level_label: 必须取自 references/log_label.json；一级为 null 时二级也须为 null")
+    elif second is not None and (first, second) not in pairs:
+        errors.append(f"{path}.second_level_label: 必须与一级标签组成 references/log_label.json 中已有的标签对")
 
 
 def _check_evidence_traces(path, traces, errors, warnings):
@@ -188,6 +219,7 @@ def validate(data) -> tuple[list[str], list[str]]:
         if not isinstance(data.get("conclusion"), dict):
             errors.append("faults / conclusion: 二者必须至少提供一个（单故障可用扁平 conclusion）")
         else:
+            _check_fault_labels("conclusion", data["conclusion"], errors, warnings)
             _check_evidence_traces("evidence_traces", data.get("evidence_traces"), errors, warnings)
     elif not isinstance(faults, list) or not faults:
         errors.append("faults: 必须是至少含 1 个故障的数组")
@@ -209,6 +241,7 @@ def validate(data) -> tuple[list[str], list[str]]:
                 errors.append(f"{p}.title: 缺少故障名称")
             if not isinstance(f.get("conclusion"), dict):
                 errors.append(f"{p}.conclusion: 必填对象（一句话结论/故障域/影响面）")
+            _check_fault_labels(f"{p}.conclusion", f.get("conclusion"), errors, warnings)
             _check_enum(f"{p}.role", f.get("role"), ROLE_ENUM, errors)
             _check_enum(f"{p}.status", f.get("status"), STATUS_ENUM, errors)
             _check_enum(f"{p}.severity", f.get("severity"), SEVERITY_ENUM, errors)
@@ -361,9 +394,11 @@ workflow{session_id,total_steps,api_calls,duration,steps[]}
      category=error|latency|mixed; stage.status=ok|warn|bottleneck; share_bar.cls=s-ok|s-warn|s-bottleneck
      fault_relations.type=causes|common_cause|independent|correlated; evidence_traces[].kind=latency|error
 单故障可用扁平 conclusion/root_cause/propagation/evidence_traces/knowledge_matches/solution/source_code，模板自动包成 F01
+每条 conclusion 新增 first_level_label / second_level_label（string|null）；每次生成须读取 references/log_label.json，按证据选已有标签对；只确定一级则二级为 null，均无法匹配则均为 null
 示例与逐字段说明：references/REPORT_BLOCKS.md""",
     "basic_info": "kb_id,kb_name,log_file,operation,time_range_start,time_range_end,total_trace_cnt,fault_trace_cnt,fault_ratio,parse_ok,diagnosis_ok",
-    "conclusion": "one_line_conclusion,fault_domain,fault_component,fault_function,fault_function_loc,affected_scope_pct,affected_scope_desc,confidence,key_findings[]",
+    "conclusion": """first_level_label,second_level_label,one_line_conclusion,fault_domain,fault_component,fault_function,fault_function_loc,affected_scope_pct,affected_scope_desc,confidence,key_findings[]
+first_level_label / second_level_label：一级/二级标签，新报告必填 string|null，取值及配对见 references/log_label.json；按诊断证据语义匹配，未知层级填 null，一级 null 时二级也须 null""",
     "latency": "metrics[]{label,value,sub,tone},stages[]{name,p99,baseline,ratio,share,status,detail},conclusion",
     "root_cause": "reasoning_chain[]{step_label,title,description,evidence,excluded,confirmed},confirmed_root_cause,supporting_knowledge",
     "evidence_traces": "可选，0~5 条；trace_id(必填,逐字来自工具响应),kind(必填,latency|error),why(必填,含桶key或过滤条件),evidence_ms,client_ms,status_code,failure_mode_id,pod,host,timestamp；latency 类取 /stats/stages 归因桶 top_traces[]；缺省/[]/null 均不渲染",

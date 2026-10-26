@@ -48,6 +48,8 @@ python3 render_report.py --spec statistics   # 单板块字段清单（可换任
 ```
 
 字段含义、示例与各板块撰写原则按需查 `references/REPORT_BLOCKS.md` 对应小节。
+每次生成报告前必须读取 [references/log_label.json](references/log_label.json)，
+按下文「故障标签」规则为每条故障填写一级、二级标签。
 
 **步骤 3 渲染**：
 
@@ -79,6 +81,24 @@ GET/SET 混桶），成功后**只回显 ≤15 行摘要**（输出路径/侧车
 
 **单故障兼容**：可直接传旧的扁平变量（`conclusion` / `solution` / `root_cause` /
 `propagation` / `knowledge_matches` / `source_code`），模板自动包装成 F01 档案。
+
+### 故障标签
+
+[references/log_label.json](references/log_label.json) 是随 Skill 固化的标签参考，
+也是标签取值的唯一来源，仅包含去重后的两级标签及其配对关系：
+`first_level_label` 为一级标签，`second_level_label` 为二级标签。
+
+- 新报告的每个 `faults[].conclusion` 必须包含 `first_level_label`、`second_level_label`；
+  扁平单故障写在顶层 `conclusion` 内。两者类型均为 `string | null`，侧车 JSON 原样保留。
+- 仅根据本次诊断的根因、故障组件、异常表现和现场证据，与两级标签做语义匹配，
+  尽可能选择最具体且有依据的标签。不得利用日志文件名、训练样例名称或样例到标签的映射
+  推断标签，也不能只看到超时就推断为网卡故障。
+- 非空值必须逐字使用参考文件中的值，不翻译、不改大小写、不自造标签；
+  二级标签非空时，两级标签必须来自参考文件中的同一对，不能通过二级标签的文字前缀推导一级标签。
+- 能确定一级、不能确定二级时，保留一级并将二级写为 `null`；两级都不匹配或证据不足时均写 `null`。
+  一级为 `null` 时二级也必须为 `null`，不要用空字符串、`"null"` 或 `"未知"` 代替。
+- 多故障逐条选择，不把主故障标签复制给所有故障；同一故障有多个候选时依据证据选择，
+  无法区分则只保留能确定的层级。标签不能提高原诊断的确认程度。
 
 ### 多故障分诊（先分诊，再分配诊断深度）
 

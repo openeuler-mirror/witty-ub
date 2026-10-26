@@ -487,6 +487,11 @@ body {  font-family: var(--font-sans);
   background: var(--accent);
 }
 .conclusion-text { font-weight: 700; color: var(--gray-900); line-height: 1.7; margin-bottom: 18px; max-width: 850px; font-size: 18px; letter-spacing: -.1px; }
+.conclusion-tags { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.conclusion-tags .ctag-label { font-size: 11px; letter-spacing: .6px; color: #98a2b3; font-weight: 600; flex-shrink: 0; }
+.conclusion-tags .ctag { display: inline-flex; align-items: center; font-size: 12.5px; font-weight: 600; border-radius: 999px; padding: 3px 12px; border: 1px solid var(--border); }
+.conclusion-tags .ctag-l1 { background: #fff7e6; color: #b45309; border-color: #fde68a; }
+.conclusion-tags .ctag-l2 { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
 .conclusion-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .conclusion-card { min-width: 0; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); padding: 15px 16px; text-align: left; box-shadow: none; }
 .conclusion-card:hover { border-color: var(--border); box-shadow: none; }
@@ -1072,6 +1077,13 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
 {% if c %}
 <div class="conclusion-box">
   <div class="conclusion-text">{{ c.one_line_conclusion }}</div>
+  {% if c.first_level_label or c.second_level_label %}
+  <div class="conclusion-tags">
+    <span class="ctag-label">故障标签</span>
+    {% if c.first_level_label %}<span class="ctag ctag-l1">{{ c.first_level_label }}</span>{% endif %}
+    {% if c.second_level_label %}<span class="ctag ctag-l2">{{ c.second_level_label }}</span>{% endif %}
+  </div>
+  {% endif %}
   {% if c.fault_domain or c.fault_component %}
   <div class="conclusion-cards">
     <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">{{ c.fault_domain }}</div></div>
