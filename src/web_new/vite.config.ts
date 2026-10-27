@@ -109,6 +109,10 @@ export default defineConfig(({ mode }) => {
           target: 'http://127.0.0.1:9772',
           changeOrigin: true,
         },
+        '/phenomenon': {
+          target: 'http://127.0.0.1:9772',
+          changeOrigin: true,
+        },
         '/case_library': {
           target: 'http://127.0.0.1:9772',
           changeOrigin: true,
