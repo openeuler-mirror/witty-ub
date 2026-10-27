@@ -47,6 +47,91 @@ database_port = 5432
 
 模型名称、地址、API Key 和数据库密码按实际环境填写，不要提交到 Git。
 
+## 0. 配置 embedding 模型（必填项）
+
+语义检索依赖 embedding。RAG Core 只认 **OpenAI 兼容的 `/v1/embeddings` 接口**，
+因此可以指向任何实现了该协议的服务：公网 SaaS、内网自建 vLLM/TEI，或宿主机上的本地推理服务。
+
+默认使用硅基流动 `BAAI/bge-m3`。要改用其它服务，部署时通过环境变量覆盖：
+
+| 变量 | 说明 | 默认 |
+| --- | --- | --- |
+| `RAG_EMBEDDING_ENDPOINT` | 完整的 `/v1/embeddings` 地址 | `https://api.siliconflow.cn/v1/embeddings` |
+| `RAG_EMBEDDING_MODEL_NAME` | 端点上的模型名 | `BAAI/bge-m3` |
+| `RAG_EMBEDDING_DIMENSION` | 向量维度上限，写入 `[service] max_vector_dimension` | `1024` |
+| `RAG_EMBEDDING_API_KEY` | API Key，**可留空** | 空（无鉴权） |
+| `RAG_MODEL_API_KEY_SECRET_FILE` | 需要持久化 Key 时的文件路径 | `/etc/witty-ub/rag-secrets/model-api-key` |
+| `RAG_RERANK_ENABLED` | 是否启用 rerank，`0`/`1` | `0`（关闭） |
+
+### API Key 与鉴权
+
+- 本地服务常常**没有鉴权**：不填 `RAG_EMBEDDING_API_KEY` 即可，脚本不会强制生成密钥文件。
+- 有鉴权时 Key 长度不受限制（不校验长度或字符集），但仍以 `Authorization: Bearer <key>` 发送。
+- Key 会写入 `RAG_MODEL_API_KEY_SECRET_FILE`（权限 `0600`），不会进入容器环境变量或 Git。
+
+### 服务在宿主机（不在 Docker 网络内）
+
+RAG Core 运行在容器里，要访问宿主机上的模型服务需要一个容器可达的地址：
+
+```bash
+# 宿主机在 Docker 默认网桥上的地址（通常为 172.17.0.1）
+RAG_EMBEDDING_ENDPOINT="http://172.17.0.1:8000/v1/embeddings"
+
+# 或直接填宿主机的局域网 IP
+RAG_EMBEDDING_ENDPOINT="http://<宿主机IP>:8000/v1/embeddings"
+```
+
+示例（openEuler 上用 vLLM 提供 embedding 服务）：
+
+```bash
+# 宿主机起服务，模型与端口按实际情况选择；vLLM 会暴露 /v1/embeddings
+vllm serve BAAI/bge-m3 --port 8000
+
+# 部署时指向该端点
+RAG_EMBEDDING_ENDPOINT="http://172.17.0.1:8000/v1/embeddings" \
+RAG_EMBEDDING_MODEL_NAME="BAAI/bge-m3" \
+RAG_EMBEDDING_DIMENSION="1024" \
+  bash deploy/docker/manage.sh install-rag
+```
+
+vLLM、TEI、Xinference 等服务的 embedding 接口路径都是 `/v1/embeddings`，可直接使用；
+只有提供 chat 接口、没有 embedding 接口的服务不能用于语义检索。
+
+### 维度与换模型
+
+- `max_vector_dimension` 是**上限**，实际向量不足时会补齐，超过则写入失败：
+  维度不高于上限的模型可以直接用；3072 维模型（如 `text-embedding-3-large`）需要调大上限。
+- **更换 embedding 模型必须全量重建索引**（不同模型的向量不可比），维度变化还需重建向量集合。
+  重建后要重新校准 `RAG_MIN_SCORE`。
+- 换知识库（含知识库被删后重建成新 ID）同理：旧卡片挂在旧知识库上，检索永远命中不到。
+  后端启动时跑一次核对，会把指向旧知识库的映射退役并重新发布；也可以手动触发：
+
+  ```bash
+  docker exec witty-ub /var/witty-ub/latency/.venv/bin/python \
+    -m latency.access.phenomenon_cli --reconcile
+  ```
+
+  返回里的 `stale_kb` 就是本轮退役的旧知识库映射数量；随后
+  `GET /phenomenon/status` 从 `cards.searchable` 观察重建进度。
+
+### 健康检查
+
+部署结束会探测一次端点；之后随时可用 `manage.sh status` 复查：
+
+```text
+RAG health:
+  openGauss   healthy
+  RAG REST    ok
+  RAG MCP     ok
+  embedding   BAAI/bge-m3 @ http://172.17.0.1:8000/v1/embeddings [ok]
+  rerank      disabled
+```
+
+`embedding` 行出现 `unreachable` / `auth-failed` 时，语义检索不可用（结构化检索不受影响），
+优先检查端点可达性、端口映射和 API Key。
+
+---
+
 ## 1. 创建共享网络
 
 ### 部署脚本一键启动（推荐）
@@ -125,6 +210,10 @@ curl -fsS http://127.0.0.1:9990/health_check
 ```
 
 ## 4. 在 RAG Core 中启动 MCP SSE
+
+> 部署脚本（`manage.sh install-rag` / `deploy_rag.sh`）现在**默认拉取预构建的**
+> `hub-harbor.oepkgs.net/neocopilot/witty-rag-core:mcp`，目标机不需要源码和编译环境。
+> 只有镜像仓库不可达时才需要下面的手工步骤（`WITTY_RAG_MCP_BUILD=1` 可在本地构建）。
 
 当前 RAG MCP 源码使用 MCP Python SDK 1.x 的 `FastMCP` API，因此必须固定 `mcp<2`：
 

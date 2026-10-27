@@ -129,6 +129,41 @@ PG_HOST_IN_CONTAINER=172.18.0.1 bash deploy/docker/manage.sh
 
 ---
 
+## 语义检索与内置案例
+
+`install-all` 会一并部署 openGauss + RAG Core，并启用现象语义检索。embedding 模型由部署时的
+环境变量指定，支持任何兼容 OpenAI 的 `/v1/embeddings` 接口（可以是容器外的服务）：
+
+```bash
+RAG_EMBEDDING_ENDPOINT="http://172.17.0.1:8000/v1/embeddings" \
+RAG_EMBEDDING_MODEL_NAME="BAAI/bge-m3" \
+RAG_EMBEDDING_DIMENSION="1024" \
+  bash deploy/docker/manage.sh install-all
+```
+
+- 三项留空时使用部署默认值（硅基流动），详见 [RAG 与 MCP 部署](../rag-mcp-deployment.md)。
+- `RAG_EMBEDDING_API_KEY` 可留空；连不上不影响结构化检索，只在 `manage.sh status` 的
+  `RAG health` 段反映为 `unreachable` / `auth-failed`。
+- `RAG_RERANK_ENABLED=0`（默认）不启用 rerank。
+- openGauss 口令在首次部署时自动生成并写入 `/etc/witty-ub/rag-opengauss.passwd`（`0600`）。
+
+镜像内置定界报告压缩包，容器启动后按压缩包哈希自动导入（报告与案例），换新镜像即按新包重载：
+
+- 导入结果写 `/var/witty-ub/builtin-reports/import-state.json`，日志在
+  `/var/log/witty-ub/builtin_report_import.log`。
+- 状态文件与数据卷都在宿主机上，可能比数据库活得久；重新导入前会核对数据库里是否真有这些报告，
+  缺了就重导，因此清库后重启即可自动恢复。
+- `WITTY_BUILTIN_REPORTS=0` 可关闭自动导入。
+
+现象检索使用专用知识库，其 id 落在 `/etc/witty-ub/rag-phenomenon-kb`；重新部署时会校验该知识库
+是否还在，不在就新建并重新发布卡片。观察进度：
+
+```bash
+curl -s http://localhost:32412/phenomenon/status   # cards.searchable 逐步收敛到卡片总数
+```
+
+---
+
 ## 分离部署（前后端分角色）
 
 使用按角色构建的镜像（`witty-ub:backend` / `witty-ub:frontend`，多架构发布见 [镜像分发](../package/03-distribution.md)），前后端可同机也可分机：
