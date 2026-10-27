@@ -115,6 +115,48 @@ bash deploy/host/import_builtin_reports.sh --force  # 重新导入
 更换压缩包后重跑该脚本即会重新导入，并被新版本替换的旧报告会自动归档案例、移除文件。
 `deploy.sh` 启动后端后会自动调用该脚本；`WITTY_BUILTIN_REPORTS=0` 可关闭。
 
+### 启用语义检索与现象索引（RAG）
+
+现象检索依赖 RAG（openGauss + RAG Core）。源码部署用 Podman/Docker 起这两个容器，
+并把后端需要的连接信息写进运行时环境文件：
+
+```bash
+bash deploy/host/deploy_rag.sh              # 部署容器并生成 .deploy-run/rag.env
+bash deploy/host/deploy_rag.sh --env-only   # 只重算环境文件，不动容器
+```
+
+- 容器名 `opengauss-rag` / `witty-rag-core`，RAG Core 暴露 `127.0.0.1:9990`。
+- 密钥与状态都在 `.deploy-run/`：`rag-secrets/`（openGauss 口令、访问密钥）、
+  `rag-phenomenon-kb`（现象检索知识库 id）、`rag.env`（后端环境）。
+- 后端通过 `witty-ub-backend.service` 的 `EnvironmentFile` 或 `run_backend.sh` 读取 `rag.env`；
+  文件不存在时后端照常启动，只是语义检索关闭。
+- `deploy.sh` 会在启动后端之前自动调用本脚本；`WITTY_RAG_ENABLE=0` 可跳过。
+- `WITTY_RAG_KEEP=1` 让 `--clean` 保留 RAG 容器与向量库。
+
+embedding 端点支持任何 OpenAI 兼容的 `/v1/embeddings` 服务，通过环境变量或
+`.deploy-run/rag.local.env` 指定（后者不入库，用于机器本地取值）：
+
+```bash
+RAG_EMBEDDING_ENDPOINT="http://127.0.0.1:8000/v1/embeddings"   # 例：宿主机上的 vLLM
+RAG_EMBEDDING_MODEL_NAME="BAAI/bge-m3"
+RAG_EMBEDDING_DIMENSION="1024"
+RAG_EMBEDDING_API_KEY=""
+RAG_RERANK_ENABLED="0"
+```
+
+以非 root 用户运行时，容器内的 UID 映射依赖 subordinate ID，需确保部署用户在
+`/etc/subuid` 与 `/etc/subgid` 中有范围（如 `100000:65536`），否则镜像内 `chown` 会失败，
+报 `potentially insufficient UIDs or GIDs available in user namespace`。
+
+验证：
+
+```bash
+curl -s http://127.0.0.1:9990/health_check        # {"status":"ok"}
+curl -s http://127.0.0.1:9772/phenomenon/status   # index_enabled/search_enabled 均为 true
+```
+
+首次启用后卡片需要数分钟建立索引，`cards.searchable` 逐步收敛到卡片总数。
+
 ### 启动 experience-skill Web 服务（知识库管理 API）
 
 experience-skill Web 服务提供 Skill/Wiki 管理的增删改查 API，监听端口 8082。

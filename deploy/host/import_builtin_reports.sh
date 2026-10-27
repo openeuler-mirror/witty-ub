@@ -33,6 +33,11 @@ if [ "${WITTY_BUILTIN_REPORTS:-1}" = "0" ]; then
     exit 0
 fi
 
+# 报告正文根目录必须与后端一致，否则导入把 HTML 写到回落目录 /tmp/reports，
+# 后端却在 /var/witty-ub/reports 里找，表现为"文档全都不见了"。
+export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
+export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-$WITTY_DIR/reports}"
+
 ARCHIVE="${WITTY_BUILTIN_REPORT_ARCHIVE:-$PROJECT_DIR/data/builtin-reports/builtin-diagnostic-reports.zip}"
 RUN_DIR="${WITTY_BUILTIN_REPORT_DIR:-$PROJECT_DIR/.deploy-run/builtin-reports}"
 OPERATOR="${WITTY_BUILTIN_REPORT_OPERATOR:-builtin-reports}"
