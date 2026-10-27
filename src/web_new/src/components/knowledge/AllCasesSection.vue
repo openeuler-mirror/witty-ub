@@ -1,236 +1,330 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import PageNav from '../common/PageNav.vue'
-import { fetchCases, type CaseRecord } from '../../api/caseLibrary'
-import { searchDiagCases, type DiagCase, type DiagCaseMatch } from '../../api/diagCaseLibrary'
+import BaseModal from '../common/BaseModal.vue'
+import { caseAttachmentUrl, fetchCases, type CaseRecord } from '../../api/caseLibrary'
+import { searchDiagCases, type DiagCaseMatch } from '../../api/diagCaseLibrary'
+import {
+  fetchDiagnosticReports, fetchImportOptions, fetchReportLabelTaxonomy, importCases, importReportPath,
+  type DiagnosticReportItem, type ReportLabelTaxonomy,
+} from '../../api/diagnosticReport'
 import { useDiagCaseDetail } from '../../composables/useDiagCaseDetail'
 import { useReportWorkbench } from '../../composables/useReportWorkbench'
-
-type CaseSource = 'diagnosis' | 'legacy'
-
-type OverviewRow = {
-  source: CaseSource
-  key: string
-  id: string
-  title: string
-  classification: string
-  status: string
-  trust: string
-  reportId: string | null
-  faultId: string | null
-  reportStatus: string
-  time: string
-}
+import { useOperator } from '../../composables/useOperator'
+import {
+  belongsToScope, caseOrigin, collectPages, documentProgress, filterDocuments, legacyCaseOrigin,
+  formatReportTime, submitReportImport, validDocumentClassifications,
+  loadKnowledgeWorkspace, matchesClassification, materialKey, populatedLabels, selectPrimary,
+  sourceReportLabel, UNCLASSIFIED, type DocumentFilter, type KnowledgeView, type ImportBatch, type ImportMode, type ImportOptions,
+} from '../../utils/caseWorkflow'
 
 const PAGE_SIZE = 50
-const DIAG_PAGE_SIZE = 200
-
-const { openCase, caseVersion } = useDiagCaseDetail()
+const props = defineProps<{ view: KnowledgeView; initialDocumentFilter?: DocumentFilter }>()
+const emit = defineEmits<{ 'show-pending': [] }>()
+const { openCase, caseVersion, bumpCaseVersion } = useDiagCaseDetail()
 const { openReport } = useReportWorkbench()
-
+const { operator, setOperator } = useOperator()
 const loading = ref(false)
 const error = ref('')
-const page = ref(1)
-const diagMatches = ref<DiagCaseMatch[]>([])
+const matches = ref<DiagCaseMatch[]>([])
+const reports = ref<DiagnosticReportItem[]>([])
 const legacyCases = ref<CaseRecord[]>([])
+const taxonomy = ref<ReportLabelTaxonomy | null>(null)
+const selection = ref(selectPrimary(''))
+const reportPage = ref(1)
+const documentFilter = ref<DocumentFilter>(props.initialDocumentFilter ?? 'all')
+const legacyPage = ref(1)
+const importing = ref(false)
+const importOpen = ref(false)
+const importDialogOpen = computed(() => importOpen.value && props.view === 'documents')
+const importError = ref('')
+const file = ref<File | null>(null)
+const importMode = ref<ImportMode>('upload')
+const serverPath = ref('')
+const importOptions = ref<ImportOptions | null>(null)
+const optionsError = ref('')
+const sourceName = ref('')
+const declaredVerified = ref(true)
+const batch = ref<ImportBatch | null>(null)
+let loadVersion = 0
 
-const diagClassification = (item: DiagCase) => {
-  if (!item.first_level_label && !item.second_level_label) {
-    return item.label_taxonomy_version ? '未分类' : '未分类 / 来源待核对'
-  }
-  return [item.first_level_label, item.second_level_label].filter(Boolean).join(' / ')
+const scopedMatches = computed(() => matches.value.filter((item) => belongsToScope(item.case, 'library')))
+const documentBase = computed(() => filterDocuments(reports.value, documentFilter.value))
+const classificationItems = computed(() => props.view === 'documents'
+  ? reports.value.flatMap(validDocumentClassifications)
+  : scopedMatches.value.map((item) => item.case))
+const firstOptions = computed(() => populatedLabels(
+  taxonomy.value?.first_level_labels ?? [],
+  classificationItems.value.map((item) => item.first_level_label),
+))
+const secondOptions = computed(() => populatedLabels(
+  taxonomy.value?.pairs.find((pair) => pair.first_level_label === selection.value.first)?.second_level_labels ?? [],
+  classificationItems.value.filter((item) => item.first_level_label === selection.value.first)
+    .map((item) => item.second_level_label),
+))
+const count = (first: string, second = '') =>
+  props.view === 'documents'
+    ? filterDocuments(documentBase.value, 'all', first, second).length
+    : scopedMatches.value.filter((item) => matchesClassification(item.case, first, second)).length
+const filtered = computed(() => scopedMatches.value.filter((item) =>
+  matchesClassification(item.case, selection.value.first, selection.value.second)))
+const pages = computed(() => Math.max(1, Math.ceil(filtered.value.length / PAGE_SIZE)))
+const pagedCases = computed(() => filtered.value.slice((selection.value.page - 1) * PAGE_SIZE, selection.value.page * PAGE_SIZE))
+const filteredReports = computed(() => filterDocuments(reports.value, documentFilter.value, selection.value.first, selection.value.second))
+const reportPages = computed(() => Math.max(1, Math.ceil(filteredReports.value.length / PAGE_SIZE)))
+const pagedReports = computed(() => filteredReports.value.slice((reportPage.value - 1) * PAGE_SIZE, reportPage.value * PAGE_SIZE))
+const legacyPages = computed(() => Math.max(1, Math.ceil(legacyCases.value.length / PAGE_SIZE)))
+const pagedLegacy = computed(() => legacyCases.value.slice((legacyPage.value - 1) * PAGE_SIZE, legacyPage.value * PAGE_SIZE))
+const outcomeLabels: Record<string, string> = {
+  imported: '已导入', duplicate: '重复，已保留原记录', failed: '导入失败',
+  confirmed: '已验证', draft: '待验证', skipped: '已跳过', existing: '已存在',
 }
-
-const diagTrust = (item: DiagCase) => {
-  if (item.status !== 'confirmed') return '未确认'
-  return item.verification_json?.closed_loop ? '已验证' : '已确认未验证'
-}
-
-const legacyClassification = (item: CaseRecord) =>
-  [item.case_category || '未分类', item.root_cause_type].filter(Boolean).join(' / ')
-
-const rows = computed<OverviewRow[]>(() => {
-  const diagRows = diagMatches.value.map((match) => ({
-    source: 'diagnosis' as CaseSource,
-    key: `diagnosis:${match.case.id}`,
-    id: match.case.id,
-    title: match.case.title || match.case.case_no || match.case.id,
-    classification: diagClassification(match.case),
-    status: match.case.status,
-    trust: diagTrust(match.case),
-    reportId: match.case.report_id,
-    faultId: match.case.source_fault_id,
-    reportStatus: match.source_report?.status ?? 'unavailable',
-    time: match.case.updated_at,
-  }))
-  const legacyRows = legacyCases.value.map((item) => ({
-    source: 'legacy' as CaseSource,
-    key: `legacy:${item.id}`,
-    id: item.id,
-    title: item.description || item.root_cause_type || item.id,
-    classification: legacyClassification(item),
-    status: '历史',
-    trust: '旧案例未验证',
-    reportId: null,
-    faultId: null,
-    reportStatus: 'independent',
-    time: item.created_at || '',
-  }))
-  const merged = [...diagRows, ...legacyRows]
-  return merged.sort((a, b) => b.time.localeCompare(a.time))
-})
-
-const totalPages = computed(() => Math.max(1, Math.ceil(rows.value.length / PAGE_SIZE)))
-const pagedRows = computed(() =>
-  rows.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
-)
-
-const reportStatusText = (status: string) => {
-  const labels: Record<string, string> = {
-    deleted: '来源已删除',
-    stale: '来源已变化',
-    unavailable: '来源不可用',
-  }
-  return labels[status] ?? '无关联报告'
-}
-
-const loadDiagMatches = async () => {
-  let pageNum = 1
-  let total = 0
-  const collected: DiagCaseMatch[] = []
-  do {
-    const result = await searchDiagCases({
-      pageNum,
-      pageCnt: DIAG_PAGE_SIZE,
-    })
-    const batch = result.matches ?? []
-    collected.push(...batch)
-    total = result.total ?? 0
-    if (batch.length === 0) break
-    pageNum += 1
-  } while (collected.length < total)
-  return collected
-}
+const outcomeLabel = (status: string) => outcomeLabels[status] ?? status
 
 const load = async () => {
+  const version = ++loadVersion
+  const view = props.view
   loading.value = true
   error.value = ''
   try {
-    const [diag, legacy] = await Promise.all([loadDiagMatches(), fetchCases()])
-    diagMatches.value = diag
-    legacyCases.value = legacy ?? []
-    if (page.value > totalPages.value) page.value = totalPages.value
+    const result = await loadKnowledgeWorkspace(view, {
+      cases: () => collectPages(async (pageNum, pageCnt) => {
+        const result = await searchDiagCases({
+          scope: 'library', includeStatus: ['confirmed'],
+          pageNum, pageCnt,
+        })
+        return { total: result.total, items: result.matches ?? [] }
+      }),
+      documents: (pageNum, pageCnt) => fetchDiagnosticReports({ pageNum, pageCnt }),
+      legacy: fetchCases,
+    })
+    if (version !== loadVersion) return
+    matches.value = result.cases
+    reports.value = result.documents
+    if (selection.value.first && selection.value.first !== UNCLASSIFIED && !firstOptions.value.includes(selection.value.first)) {
+      selection.value = selectPrimary('')
+    } else if (selection.value.second && !secondOptions.value.includes(selection.value.second)) {
+      selection.value = { ...selection.value, second: '', page: 1 }
+    }
+    legacyCases.value = result.legacy ?? []
+    selection.value.page = Math.min(selection.value.page, pages.value)
+    reportPage.value = Math.min(reportPage.value, reportPages.value)
+    legacyPage.value = Math.min(legacyPage.value, legacyPages.value)
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '案例加载失败'
-    diagMatches.value = []
-    legacyCases.value = []
+    if (version === loadVersion) error.value = err instanceof Error ? err.message : '案例加载失败'
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
-
-onMounted(() => void load())
-
-// 诊断案例确认或验证后，聚合列表要及时反映状态变化。
-watch(caseVersion, () => void load())
-watch(rows, () => {
-  if (page.value > totalPages.value) page.value = totalPages.value
+const selectFirst = (first: string) => { selection.value = selectPrimary(first); reportPage.value = 1 }
+const selectSecond = (second: string) => { selection.value = { ...selection.value, second, page: 1 }; reportPage.value = 1 }
+const loadImportOptions = async () => {
+  optionsError.value = ''
+  try { importOptions.value = await fetchImportOptions() }
+  catch { importOptions.value = null; optionsError.value = '无法读取服务器路径导入配置，文件上传仍可使用' }
+}
+const closeImport = () => { if (!importing.value) importOpen.value = false }
+const toggleImport = () => {
+  if (importing.value || props.view !== 'documents') return
+  if (importOpen.value) { closeImport(); return }
+  importOpen.value = true
+  void loadImportOptions()
+}
+const submitImport = async () => {
+  if (importing.value) return
+  importError.value = ''
+  batch.value = null
+  try {
+    setOperator(operator.value.trim())
+    importing.value = true
+    batch.value = await submitReportImport({
+      mode: importMode.value, file: file.value, path: serverPath.value,
+      operator: operator.value, sourceName: sourceName.value, verified: declaredVerified.value,
+    }, importOptions.value, { upload: importCases, path: importReportPath })
+    bumpCaseVersion()
+  } catch (err) {
+    importError.value = err instanceof Error ? err.message : '导入失败'
+  } finally {
+    importing.value = false
+  }
+}
+onMounted(async () => {
+  void fetchReportLabelTaxonomy().then((value) => { taxonomy.value = value }).catch(() => {})
+  await load()
 })
-
-const sourceLabel = (value: CaseSource) => (value === 'diagnosis' ? '诊断案例' : '文件案例')
-
-const openRow = (row: OverviewRow) => {
-  if (row.source === 'diagnosis') {
-    openCase(row.id)
-  }
-}
+watch(() => props.view, (view) => {
+  if (view !== 'documents') closeImport()
+  selection.value = selectPrimary('')
+  reportPage.value = 1
+  legacyPage.value = 1
+  void load()
+})
+watch(documentFilter, () => { reportPage.value = 1; selection.value = { ...selection.value, second: '', page: 1 } })
+watch(() => props.initialDocumentFilter, (value) => { documentFilter.value = value ?? 'all' })
+watch(caseVersion, () => void load())
 </script>
 
 <template>
-  <div class="case-overview">
-    <div class="operate-bar">
-      <div class="filter-bar">
-        <button class="btn btn-default btn-sm" type="button" :disabled="loading" @click="load">
-          刷新
-        </button>
-        <span class="hint">共 {{ rows.length }} 条</span>
+  <div class="case-workspace">
+    <header class="workspace-header">
+      <div>
+        <h2>{{ view === 'library' ? '已知案例' : '定界文档' }}</h2>
+        <p>{{ view === 'library' ? '查看已检验的定界结论，以及从真实任务日志自动生成的有效案例。' : '跨资产阅读定界文档，人工检验定界结论的正确性，形成有效案例。' }}</p>
       </div>
-    </div>
+      <div class="workspace-actions">
+        <button class="btn btn-default" type="button" :disabled="loading || importing" @click="load">刷新</button>
+        <button v-if="view === 'documents'" class="btn btn-primary" type="button" aria-haspopup="dialog" :aria-expanded="importDialogOpen" :disabled="importing" @click="toggleImport">导入定界报告</button>
+      </div>
+    </header>
 
-    <div v-if="loading" class="empty">
-      <div class="icon">⏳</div>
-      <div>正在加载案例...</div>
-    </div>
-    <div v-else-if="error" class="error-banner" role="alert">
-      {{ error }}
-      <button class="btn btn-sm btn-default" type="button" @click="load">重试</button>
-    </div>
-    <div v-else-if="rows.length === 0" class="empty">
-      <div class="icon">📭</div>
-      <div>暂无案例</div>
-    </div>
-    <div v-else class="table-wrap">
-      <table class="task-table">
-        <thead>
-          <tr>
-            <th>来源</th>
-            <th>案例</th>
-            <th>分类</th>
-            <th>状态</th>
-            <th>验证</th>
-            <th>来源报告</th>
-            <th>时间</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in pagedRows" :key="row.key">
-            <td>
-              <span class="badge" :class="{ 'badge-pending': row.source === 'legacy' }">
-                {{ sourceLabel(row.source) }}
-              </span>
-            </td>
-            <td>
-              <button
-                v-if="row.source === 'diagnosis'"
-                class="btn-text btn"
-                type="button"
-                @click="openRow(row)"
-              >
-                {{ row.title }}
-              </button>
-              <span v-else>{{ row.title }}</span>
-            </td>
-            <td>{{ row.classification }}</td>
-            <td>{{ row.status }}</td>
-            <td>{{ row.trust }}</td>
-            <td>
-              <button
-                v-if="row.reportId && row.reportStatus === 'valid'"
-                class="btn-text btn"
-                type="button"
-                @click="openReport(row.reportId, row.faultId ?? '')"
-              >
-                {{ row.reportId }}
-              </button>
-              <span v-else-if="row.reportId" class="hint">
-                {{ reportStatusText(row.reportStatus) }}
-              </span>
-              <span v-else class="hint">—</span>
-            </td>
-            <td>{{ row.time || '—' }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <BaseModal :open="importDialogOpen" label="导入定界报告" size="form" :close-on-esc="!importing" :close-on-overlay="!importing" @close="closeImport">
+      <template #header>
+        <div class="modal-header">
+          <span>导入定界报告</span>
+          <button class="modal-close" type="button" aria-label="关闭" :disabled="importing" @click="closeImport">✕</button>
+        </div>
+      </template>
+      <section class="import-panel">
+      <p class="hint">导入报告 JSON 或 ZIP，生成定界文档与案例，不关联当前资产或任务。未检验的结论可在「待验证」中核对。</p>
+      <nav class="classification-tabs" aria-label="导入方式">
+        <button type="button" :disabled="importing" :class="{ active: importMode === 'upload' }" :aria-pressed="importMode === 'upload'" @click="importMode = 'upload'; importError = ''">文件上传</button>
+        <button type="button" :disabled="importing" :class="{ active: importMode === 'path' }" :aria-pressed="importMode === 'path'" @click="importMode = 'path'; importError = ''">服务器路径</button>
+      </nav>
+      <form class="import-form" @submit.prevent="submitImport">
+        <template v-if="importMode === 'upload'">
+          <label>报告文件<input type="file" accept=".json,.zip" :disabled="importing" @change="file = ($event.target as HTMLInputElement).files?.[0] ?? null" /></label>
+          <p v-if="file" class="hint">已选择：{{ file.name }}</p>
+        </template>
+        <template v-else>
+          <p class="hint">仅支持服务器文件系统的绝对路径，不是浏览器所在电脑的本地路径。Docker 部署请填写容器内挂载路径，仅允许读取已配置的只读导入目录。</p>
+          <p v-if="optionsError" class="error-banner" role="alert">{{ optionsError }} <button type="button" class="btn btn-default" @click="loadImportOptions">重试</button></p>
+          <p v-else-if="!importOptions" class="hint">正在读取导入配置…</p>
+          <p v-else-if="!importOptions.path_import_enabled" class="error-banner" role="alert">服务器路径导入未启用，请使用文件上传或联系管理员配置允许的只读导入目录。</p>
+          <p v-if="importOptions?.allowed_roots.length" class="hint">允许的只读导入目录：{{ importOptions.allowed_roots.join('、') }}</p>
+          <label>服务器绝对路径<input v-model="serverPath" class="input" type="text" autocomplete="off" placeholder="输入服务器上 JSON 或 ZIP 文件的绝对路径" :disabled="importing || !importOptions?.path_import_enabled" /></label>
+        </template>
+        <label>报告来源<input v-model="sourceName" class="input" placeholder="如合作伙伴或现场团队" :disabled="importing" /></label>
+        <label>操作人<input :value="operator" class="input" autocomplete="name" :disabled="importing" @input="setOperator(($event.target as HTMLInputElement).value)" /></label>
+        <label class="verification-declaration"><input v-model="declaredVerified" type="checkbox" :disabled="importing" />外部已验证声明：这些定界结论已由人工检验正确，按有效案例导入</label>
+        <p v-if="importError" class="error-banner" role="alert">{{ importError }}</p>
+        <button class="btn btn-primary" type="submit" :disabled="importing || (importMode === 'path' && !importOptions?.path_import_enabled)">{{ importing ? '正在导入…' : '开始导入' }}</button>
+      </form>
+      <div v-if="batch" class="import-result" role="status">
+        <h4>导入结果 · {{ batch.file_count }} 个文件</h4>
+        <p>成功 {{ batch.summary.imported }} · 重复 {{ batch.summary.duplicate }} · 失败 {{ batch.summary.failed }}</p>
+        <p>已验证案例 {{ batch.summary.cases.confirmed }} · 待验证 {{ batch.summary.cases.draft }} · 已存在 {{ batch.summary.cases.existing }} · 跳过 {{ batch.summary.cases.skipped }}</p>
+        <details class="import-items" :open="batch.status !== 'completed'">
+          <summary>查看逐项结果（{{ batch.items.length }} 个文件）</summary>
+        <details v-for="(item, index) in batch.items" :key="`${index}:${item.original_name}`" :open="Boolean(item.error) || item.status === 'failed' || item.cases?.some((entry) => Boolean(entry.missing_fields?.length))">
+          <summary>{{ item.original_name }} · {{ outcomeLabel(item.status) }}</summary>
+          <p v-if="item.error" class="error-banner">{{ item.error }}</p>
+          <ul><li v-for="(entry, entryIndex) in item.cases ?? []" :key="entryIndex">结论 {{ entryIndex + 1 }}：{{ outcomeLabel(entry.status) }}<template v-if="entry.reason"> · {{ entry.reason }}</template><template v-if="entry.missing_fields?.length"> · 缺少 {{ entry.missing_fields.join('、') }}</template></li></ul>
+        </details>
+        </details>
+        <button v-if="batch.declared_verified === false || batch.summary.cases.draft || batch.summary.cases.skipped" class="btn btn-text" type="button" :disabled="importing" @click="closeImport(); emit('show-pending')">查看待验证定界文档</button>
+      </div>
+      </section>
+      <template #footer>
+        <button class="btn btn-default" type="button" :disabled="importing" @click="closeImport">关闭</button>
+      </template>
+    </BaseModal>
 
-    <PageNav v-if="rows.length > PAGE_SIZE" v-model:page="page" :pages="totalPages" />
+    <div v-if="loading" class="empty">正在加载…</div>
+    <div v-else-if="error" class="error-banner" role="alert">{{ error }} <button class="btn btn-default" type="button" @click="load">重试</button></div>
+    <template v-else>
+      <section v-if="view === 'documents'" class="workspace-section">
+        <nav class="classification-tabs" aria-label="定界文档筛选">
+          <button type="button" :class="{ active: documentFilter === 'all' }" :aria-pressed="documentFilter === 'all'" @click="documentFilter = 'all'">全部文档 <span>{{ reports.length }}</span></button>
+          <button type="button" :class="{ active: documentFilter === 'pending' }" :aria-pressed="documentFilter === 'pending'" @click="documentFilter = 'pending'">待验证 <span>{{ filterDocuments(reports, 'pending').length }}</span></button>
+        </nav>
+        <nav class="classification-tabs" aria-label="文档一级分类">
+          <button v-for="option in [{ value: '', label: '全部' }, { value: UNCLASSIFIED, label: '未分类' }, ...firstOptions.map((label) => ({ value: label, label }))]" :key="option.value" type="button" :class="{ active: selection.first === option.value }" :aria-pressed="selection.first === option.value" @click="selectFirst(option.value)">{{ option.label }} <span>{{ count(option.value) }}</span></button>
+        </nav>
+        <nav v-if="selection.first && selection.first !== UNCLASSIFIED && secondOptions.length" class="classification-tabs secondary" aria-label="文档二级分类">
+          <button type="button" :class="{ active: !selection.second }" :aria-pressed="!selection.second" @click="selectSecond('')">全部 <span>{{ count(selection.first) }}</span></button>
+          <button v-for="label in secondOptions" :key="label" type="button" :class="{ active: selection.second === label }" :aria-pressed="selection.second === label" @click="selectSecond(label)">{{ label }} <span>{{ count(selection.first, label) }}</span></button>
+        </nav>
+        <p class="hint">共 {{ filteredReports.length }} 份定界文档</p>
+        <div v-if="!pagedReports.length" class="empty">{{ documentFilter === 'pending' ? '暂无待验证定界文档' : '暂无定界文档' }}</div>
+        <div v-else class="table-wrap"><table class="task-table">
+          <thead><tr><th>定界文档</th><th>来源</th><th>生成时间</th><th>结论数</th><th>已验证</th><th>操作</th></tr></thead>
+          <tbody><tr v-for="report in pagedReports" :key="`report:${report.report_id}`">
+            <td>{{ report.title || '未命名定界文档' }}</td>
+            <td>{{ report.kb_name || report.source_name || (report.imported ? '外部导入' : '诊断任务') }}</td>
+            <td>{{ formatReportTime(report.generated_at) }}</td>
+            <td>{{ report.fault_count ?? '—' }}</td>
+            <td>{{ documentProgress(report) }}</td>
+            <td><button class="btn btn-text" type="button" :disabled="report.report_available === false" @click="openReport(report.report_id)">{{ report.report_available === false ? '文档不可用' : '查看文档' }}</button></td>
+          </tr></tbody>
+        </table></div>
+        <PageNav v-if="reportPages > 1" v-model:page="reportPage" :pages="reportPages" />
+      </section>
+
+      <section v-if="view === 'library'" class="workspace-section">
+        <nav class="classification-tabs" aria-label="一级分类">
+          <button v-for="option in [{ value: '', label: '全部' }, { value: UNCLASSIFIED, label: '未分类' }, ...firstOptions.map((label) => ({ value: label, label }))]" :key="option.value" type="button" :class="{ active: selection.first === option.value }" :aria-pressed="selection.first === option.value" @click="selectFirst(option.value)">{{ option.label }} <span>{{ count(option.value) }}</span></button>
+        </nav>
+        <nav v-if="selection.first && selection.first !== UNCLASSIFIED && secondOptions.length" class="classification-tabs secondary" aria-label="二级分类">
+          <button type="button" :class="{ active: !selection.second }" :aria-pressed="!selection.second" @click="selectSecond('')">全部 <span>{{ count(selection.first) }}</span></button>
+          <button v-for="label in secondOptions" :key="label" type="button" :class="{ active: selection.second === label }" :aria-pressed="selection.second === label" @click="selectSecond(label)">{{ label }} <span>{{ count(selection.first, label) }}</span></button>
+        </nav>
+        <p class="hint">共 {{ filtered.length }} 条</p>
+        <div v-if="!pagedCases.length" class="empty">暂无文档案例。检验定界文档或导入已验证案例后，将在这里沉淀。</div>
+        <div v-else class="table-wrap"><table class="task-table">
+          <thead><tr><th>案例</th><th>状态</th><th>来源</th><th>更新时间</th></tr></thead>
+          <tbody><tr v-for="match in pagedCases" :key="materialKey('diagnosis', match.case.id)">
+            <td><button class="btn btn-text case-title" type="button" @click="openCase(match.case.id)">{{ match.case.title || '未命名案例' }}</button><p class="case-summary">{{ match.case.symptom_summary }}</p></td>
+            <td><span class="badge badge-success">已验证</span></td>
+            <td><span class="case-origin">{{ caseOrigin(match.case) }}</span><button v-if="match.case.report_id && match.source_report?.status === 'valid'" class="btn btn-text" type="button" @click="openReport(match.case.report_id, match.case.source_fault_id ?? '')">查看来源定界文档</button><span v-else-if="match.case.report_id" class="hint">{{ sourceReportLabel(match.source_report?.status) }}</span></td>
+            <td>{{ match.case.updated_at || '—' }}</td>
+          </tr></tbody>
+        </table></div>
+        <PageNav v-if="pages > 1" v-model:page="selection.page" :pages="pages" />
+      </section>
+
+      <section v-if="view === 'library'" class="workspace-section historical-material">
+        <h3>任务与文件案例 · {{ legacyCases.length }} 条</h3>
+        <div v-if="pagedLegacy.length" class="table-wrap"><table class="task-table">
+          <thead><tr><th>案例</th><th>来源</th><th>状态</th><th>附件</th></tr></thead>
+          <tbody><tr v-for="item in pagedLegacy" :key="materialKey('legacy', item.id)">
+            <td><details><summary>{{ item.root_cause_type || '任务案例' }}</summary><p>{{ item.description || '暂无描述' }}</p><p v-if="item.log_file_name || item.log_file_id">日志：{{ item.log_file_name || item.log_file_id }}</p><p v-if="item.task_names?.length || item.task_ids?.length">任务：{{ (item.task_names?.length ? item.task_names : item.task_ids)?.join('、') }}</p><pre v-if="item.features">{{ JSON.stringify(item.features, null, 2) }}</pre></details></td>
+            <td>{{ legacyCaseOrigin(item) }}</td><td>有效案例</td>
+            <td><a v-if="item.attachment_path" :href="caseAttachmentUrl(item.id)" target="_blank" rel="noopener noreferrer">查看附件</a><span v-else>—</span></td>
+          </tr></tbody>
+        </table></div>
+        <PageNav v-if="legacyPages > 1" v-model:page="legacyPage" :pages="legacyPages" />
+        <p v-if="!legacyCases.length" class="empty">暂无任务与文件案例</p>
+      </section>
+    </template>
   </div>
 </template>
 
 <style scoped>
-.case-overview {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+.case-workspace { display: grid; gap: 24px; }
+.historical-material pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 40rem; }
+.workspace-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+.workspace-header h2 { margin: 0 0 8px; font-size: 20px; }
+.workspace-header p, .case-summary { margin: 0; color: var(--text2); line-height: 1.6; }
+.workspace-actions { display: flex; align-items: center; gap: 12px; }
+.workspace-section { min-width: 0; }
+.workspace-section h3 { margin: 0 0 12px; font-size: 16px; }
+.classification-tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; max-width: 100%; gap: 8px; padding: 4px 2px 12px; border-bottom: 1px solid var(--border); scrollbar-width: thin; overscroll-behavior-x: contain; }
+.classification-tabs button { flex: 0 0 auto; white-space: nowrap; border: 0; background: transparent; padding: 9px 14px; border-radius: 6px; color: var(--text2); cursor: pointer; font: inherit; }
+.classification-tabs button.active { background: #eaf2ff; color: #1d4ed8; font-weight: 600; }
+.classification-tabs span { margin-left: 6px; font-size: 12px; opacity: .75; }
+.classification-tabs.secondary { margin-top: 12px; }
+.case-title { text-align: left; font-weight: 600; }
+.case-summary { max-width: 450px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.case-origin { display: block; margin-bottom: 4px; }
+.import-panel { padding: 24px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+.import-panel h3 { margin-top: 0; }
+.import-form { display: grid; gap: 16px; max-width: 680px; }
+.import-form label { display: grid; gap: 8px; }
+.import-form .verification-declaration { display: flex; align-items: flex-start; gap: 8px; }
+.import-form button { justify-self: start; }
+.import-result { margin-top: 24px; line-height: 1.8; }
+.import-result details { border-top: 1px solid var(--border); padding: 10px 0; }
+.historical-material { border-top: 1px solid var(--border); padding-top: 20px; }
+.workspace-section > .hint { margin: 12px 0; }
+summary { cursor: pointer; }
 </style>
