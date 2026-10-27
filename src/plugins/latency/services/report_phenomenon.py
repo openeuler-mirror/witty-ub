@@ -23,6 +23,7 @@ from latency.ENUM.phenomenon import (
 )
 
 TEXT_HARD_LIMIT = 1200
+HISTORICAL_REPORT_PREFIX = "report_hist_"
 SYMPTOM_LIMIT = 400
 KEY_FINDINGS_LIMIT = 3
 
@@ -490,6 +491,17 @@ def normalise_faults(payload: dict) -> list[dict]:
     return _normalise_faults(payload)
 
 
+def stable_fault_ids(payload: dict) -> list[str]:
+    """Public wrapper for the stable per-fault IDs, aligned with ``faults``.
+
+    Flat historical reports produce ``auto:`` keys, which cannot be bound to a
+    case; callers must skip those explicitly instead of guessing an index.
+    """
+    return _stable_fault_ids(
+        _normalise_faults(payload), compute_sidecar_hash(payload)
+    )
+
+
 def fault_conclusion(fault: dict) -> dict:
     return _as_dict(fault.get("conclusion"))
 
@@ -599,8 +611,8 @@ def extract_report(
 
     return ReportExtraction(
         report_id=report_id,
-        kb_id=_text(basic.get("kb_id")) or kb_dir,
-        kb_name=_text(basic.get("kb_name")),
+        kb_id=None if report_id.startswith(HISTORICAL_REPORT_PREFIX) else (_text(basic.get("kb_id")) or kb_dir),
+        kb_name=None if report_id.startswith(HISTORICAL_REPORT_PREFIX) else _text(basic.get("kb_name")),
         title=_safe_clean(scrubber, _text(report.get("title"))),
         generated_at=_text(report.get("generated_at")),
         operation=operation,
@@ -739,7 +751,11 @@ def extract_legacy_doc(case: dict) -> PhenomenonDoc | None:
         symptom=title,
         text=text,
         content_hash=sha256_hex(text),
-        verification=VerificationLevel.LEGACY_UNVERIFIED.value,
+        verification=(
+            VerificationLevel.TASK_OBSERVED.value
+            if case.get("log_file_id") or case.get("task_ids")
+            else VerificationLevel.LEGACY_UNVERIFIED.value
+        ),
         fault_type=fault_type,
         legacy_case_id=legacy_id,
     )
