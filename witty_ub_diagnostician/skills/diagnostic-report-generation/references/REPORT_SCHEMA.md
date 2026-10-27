@@ -4,6 +4,11 @@
 
 - §1 / §2 为**旧版报告正文结构**，仅供追溯；报告正文的权威契约现由
   `scripts/render_report.py --spec <板块>` 与 `references/REPORT_BLOCKS.md` 承载。
+
+写完数据 JSON 后，无论是否需要 HTML，都必须先运行
+`python3 scripts/render_report.py <data.json> --validate-only`。该命令使用正式渲染的同一
+校验契约，但不加载模板、不写 HTML/侧车；退出码 `0` 的 JSON 才可交付或进入导入流程。
+
 - §3 为**案例沉淀契约**，已对齐超节点诊断案例库
   （`latency/schemas/diag_case_library.py::CreateDiagCaseDraftRequest`）。
 

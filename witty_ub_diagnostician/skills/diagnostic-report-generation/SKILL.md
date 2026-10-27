@@ -1,9 +1,9 @@
 ---
 name: diagnostic-report-generation
 description: >
-  把已完成的诊断结论渲染成标准化 HTML 诊断报告（7 个带编号的顶层章节）。
-  报告由 scripts/render_report.py 调用 Jinja2 模板生成：Agent 只负责按契约准备
-  一个数据 JSON，不手写 HTML、不内联渲染模板。
+  把已完成的诊断结论生成通过统一契约校验的数据 JSON，并可渲染成标准化 HTML
+  诊断报告（7 个带编号的顶层章节）。报告由 scripts/render_report.py 校验并调用
+  Jinja2 模板生成：Agent 只负责按契约准备一个数据 JSON，不手写 HTML、不内联渲染模板。
   当诊断完成后需要输出结构化报告、沉淀案例或归档时使用本 Skill。
 license: MIT
 metadata:
@@ -31,7 +31,7 @@ allowed-tools: >
 运行环境须能访问 FastAPI 后端（默认 9772 端口）以取证，并提供 python3 + jinja2
 用于报告渲染（部署镜像已内置 python3-jinja2）。
 
-## 生成流程（3 步）
+## 生成流程（4 步）
 
 **步骤 1 收集数据**：数据来源速查表见 `references/REPORT_BLOCKS.md`
 （组件定位、统计分布、故障模式、知识库、代表 trace、历史案例）。
@@ -50,7 +50,20 @@ python3 render_report.py --spec statistics   # 单板块字段清单（可换任
 每次生成报告前必须读取 [references/log_label.json](references/log_label.json)，
 按下文「故障标签」规则为每条故障填写一级、二级标签。
 
-**步骤 3 渲染**：
+**步骤 3 校验 JSON（强制）**：写完 JSON 后必须先运行独立校验；即使用户明确要求
+不生成 HTML，也不能跳过：
+
+```bash
+cd witty_ub_diagnostician/.opencode/skills/diagnostic-report-generation/scripts
+python3 render_report.py /tmp/report_data.json --validate-only
+```
+
+该模式与正式渲染调用同一个校验函数，但**不加载 Jinja2/模板、不写 HTML 或侧车、
+不清理报告目录**。退出码 `0` 才表示 JSON 满足当前渲染契约；退出码 `2` 时按错误修正
+JSON 并重跑。用户只要 JSON 或明确说“不渲染 HTML”时，到此即可交付该 JSON。
+
+**步骤 4 渲染（需要 HTML 时）**：宽泛的“生成诊断报告”默认继续生成 HTML；只有用户
+明确只要 JSON / 不渲染时才跳过：
 
 ```bash
 cd witty_ub_diagnostician/.opencode/skills/diagnostic-report-generation/scripts
@@ -63,10 +76,10 @@ python3 render_report.py /tmp/report_data.json
 # 报告库中该知识库始终只保留最新一份，不会因多次渲染而累积重复条目。
 ```
 
-脚本使用与导入链路相同的报告契约校验（必需顶层键、字段枚举、嵌套的错误分布/
-时延特征、根因/传播/知识匹配字段、`share_bar` 百分比合计、GET/SET 混桶），成功后
-**只回显 ≤15 行摘要**（输出路径/侧车/章节/故障/统计/提示）。
-退出码：`0` 成功 / `2` 数据或渲染错误（按提示改 JSON 后重跑）/ `3` 模板缺失 /
+正式渲染会再次使用与步骤 3、导入链路相同的报告契约校验（必需顶层键、字段枚举、
+嵌套的错误分布/时延特征、根因/传播/知识匹配字段、`share_bar` 百分比合计、
+GET/SET 混桶），成功后**只回显 ≤15 行摘要**（输出路径/侧车/章节/故障/统计/提示）。
+渲染退出码：`0` 成功 / `2` 数据或渲染错误（按提示改 JSON 后重跑）/ `3` 模板缺失 /
 `4` 缺 jinja2 / `5` 写盘失败（目录不可写）。**校验失败时修正 JSON 后重跑，
 不要改用别的方式手写 HTML。**
 
@@ -281,5 +294,6 @@ API 证据锚点。既无代表 trace、又无上述真实请求来源时，案�
 | 用户请求 | 前置条件 |
 |---------|---------|
 | "把刚才的诊断写成报告" / "生成一份诊断报告" | 本会话已运行诊断 Skill；未诊断则先回诊断 Skill |
-| "为当前资产库生成诊断报告" | 自动完成当前资产库的诊断取证并执行完整生成流程；用户无需指定 JSON 字段或 HTML 模板 |
+| "为当前资产库生成诊断报告" | 自动完成当前资产库的诊断取证、JSON 校验和 HTML 渲染；用户无需指定 JSON 字段或模板 |
+| "生成报告 JSON，不渲染 HTML" | 写 JSON 后仍须执行 `--validate-only`；通过后交付 JSON，不生成 HTML/侧车 |
 | "把这个案例沉淀到经验库" | 先生成完整报告并取得用户确认，再按上文「案例沉淀」三步链路写入案例库 |
