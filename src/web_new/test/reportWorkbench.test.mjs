@@ -1,68 +1,60 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readFileSync } from 'node:fs'
+import { canVerifyFault, isFaultVerified, verificationInput, verifySelectedFaults } from '../src/utils/caseWorkflow.ts'
 
-const read = (relative) =>
-  readFileSync(new URL(relative, import.meta.url), 'utf8')
-
-const API_MODEL = read('../src/api/diagnosticReport.ts')
-const WORKBENCH = read('../src/components/report/ReportWorkbenchModal.vue')
-
-test('报告模型包含审核状态、当前版本哈希与逐故障案例', () => {
-  for (const field of [
-    'review_status',
-    'current_sidecar_hash',
-    'review_confirmed_by',
-    'review_confirmed_at',
-    'case_refs',
-    'fault_summaries',
-    'verified_case_count',
-  ]) {
-    assert.match(API_MODEL, new RegExp(`\\b${field}\\b`), `模型缺少字段：${field}`)
+test('AI 状态不是人工验证凭证，待确认故障同样可完成实操验证', () => {
+  for (const status of ['confirmed', 'suspected', 'unknown']) {
+    assert.equal(isFaultVerified({ fault_id: 'F01', status }), false)
+    assert.equal(canVerifyFault({ fault_id: 'F01', status }), true)
   }
 })
 
-test('确认报告提交页面所见哈希与操作人', () => {
-  assert.match(API_MODEL, /\/confirm`/)
-  assert.match(API_MODEL, /expected_sidecar_hash: expectedSidecarHash/)
-  assert.match(API_MODEL, /reviewed_by: reviewedBy/)
-  assert.match(WORKBENCH, /report\.value\.current_sidecar_hash/)
-})
-
-test('未确认报告不能建案，确认按钮受当前版本哈希约束', () => {
-  assert.match(
-    WORKBENCH,
-    /:disabled="report\.review_status !== 'confirmed' \|\| previewLoading"/,
-  )
-  assert.match(WORKBENCH, /:disabled="confirming \|\| !report\.current_sidecar_hash"/)
-  assert.match(WORKBENCH, /报告需要人工确认后才能从故障生成案例/)
-})
-
-test('确认与建案都必须先填写操作人', () => {
-  assert.equal(WORKBENCH.match(/requireOperator\(\)/g).length, 2)
-  assert.equal(WORKBENCH.match(/请先填写操作人/g).length, 2)
-})
-
-test('逐故障展示关联案例状态与来源版本', () => {
-  for (const text of [
-    '来源版本已变化',
-    '已确认未验证',
-    '已验证',
-    '暂无关联案例',
-  ]) {
-    assert.ok(WORKBENCH.includes(text), `缺少文案：${text}`)
+test('验证状态须来自同故障当前版本且闭环案例', () => {
+  const fault = { fault_id: 'F01' }
+  const ref = { source_fault_id: 'F01', is_current_version: true, status: 'confirmed', closed_loop: true }
+  assert.equal(isFaultVerified(fault, [ref]), true)
+  assert.equal(canVerifyFault(fault, [ref]), false)
+  for (const change of [{ is_current_version: false }, { status: 'archived' }, { status: 'draft' }, { closed_loop: false }, { source_fault_id: 'F02' }]) {
+    assert.equal(isFaultVerified(fault, [{ ...ref, ...change }]), false)
   }
-  assert.match(WORKBENCH, /item\.is_current_version/)
-  assert.match(WORKBENCH, /item\.closed_loop/)
+  assert.equal(canVerifyFault({ fault_id: null }), false)
+  assert.equal(canVerifyFault({ fault_id: 'F01', synthetic: true }), false)
+  assert.equal(canVerifyFault({ fault_id: 'F01', excluded: true }), false)
 })
 
-test('案例变更后工作台重新加载', () => {
-  assert.match(WORKBENCH, /watch\(caseVersion,/)
-  assert.match(WORKBENCH, /if \(open\.value\) void load\(\)/)
+test('没有操作人、定界结论检验结果或版本哈希不允许提交', () => {
+  assert.throws(() => verificationInput('', '结果', 'hash'), /操作人/)
+  assert.throws(() => verificationInput('a', ' ', 'hash'), /定界结论检验结果/)
+  assert.throws(() => verificationInput('a', '结果', null), /版本不可校验/)
+  assert.deepEqual(verificationInput(' 人员 ', ' 原始日志支持该定界结论 ', 'hash'), {
+    expected_sidecar_hash: 'hash', verified_by: '人员', observed_result: '原始日志支持该定界结论', method: '定界文档人工检验',
+  })
 })
 
-test('建案预览展示缺失项与分类快照', () => {
-  assert.match(WORKBENCH, /preview\.missing_fields\.map\(missingLabel\)/)
-  assert.match(WORKBENCH, /preview\.classification\.first_level_label/)
-  assert.match(WORKBENCH, /缺少可匹配信号/)
+test('多选验证顺序执行并单独报告失败，重复选择不重复提交', async () => {
+  const calls = []
+  let active = false
+  const progress = []
+  const result = await verifySelectedFaults(['F01', 'F02', 'F03', 'F01'], async (faultId) => {
+    assert.equal(active, false)
+    active = true
+    calls.push(faultId)
+    await Promise.resolve()
+    active = false
+    if (faultId === 'F02') throw new Error('版本冲突')
+    return { case: { id: `case-${faultId}` } }
+  }, (outcome) => progress.push(outcome))
+  assert.deepEqual(calls, ['F01', 'F02', 'F03'])
+  assert.deepEqual(result, [
+    { faultId: 'F01', caseId: 'case-F01' },
+    { faultId: 'F02', error: '版本冲突' },
+    { faultId: 'F03', caseId: 'case-F03' },
+  ])
+  assert.deepEqual(progress, result)
+})
+
+test('空案例响应不可显示为成功', async () => {
+  const [result] = await verifySelectedFaults(['F01'], async () => ({ case: null }))
+  assert.equal(result.caseId, undefined)
+  assert.match(result.error, /未返回已验证案例/)
 })
