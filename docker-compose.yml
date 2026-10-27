@@ -127,6 +127,7 @@ services:
       - pg_password
     environment:
       - WITTY_ROLE=backend
+      - WITTY_REPORT_IMPORT_ROOTS=${WITTY_REPORT_IMPORT_ROOTS:-}
       # Python path for latency plugin
       - PYTHONPATH=/var/witty-ub
       # Log level (optional)

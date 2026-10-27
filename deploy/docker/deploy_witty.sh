@@ -97,6 +97,7 @@ CONFIG_KEYS=(
     RAG_ACCESS_KEY_SECRET_FILE RAG_CORE_URL RAG_ACCESS_KEY_FILE
     RAG_PHENOMENON_KB_ID PHENOMENON_INDEX_ENABLED PHENOMENON_SEARCH_ENABLED
     RAG_MIN_SCORE RAG_TOP_K RAG_INDEX_INTERVAL WITTY_REQUIRE_TRUSTED_OPERATOR
+    WITTY_REPORT_IMPORT_ROOTS
 )
 ENV_OVERRIDES=""
 for _key in "${CONFIG_KEYS[@]}"; do
@@ -508,6 +509,10 @@ TZ_ENV_ARGS=(-e "TZ=${WITTY_TZ}")
 
 # 受控审核：仅在启用时注入后端容器，关闭时保持后端的请求体操作人默认行为
 REVIEW_ENV_ARGS=()
+REPORT_IMPORT_ENV_ARGS=()
+if [ "$ROLE" != "frontend" ] && [ -n "${WITTY_REPORT_IMPORT_ROOTS:-}" ]; then
+    REPORT_IMPORT_ENV_ARGS=(-e "WITTY_REPORT_IMPORT_ROOTS=${WITTY_REPORT_IMPORT_ROOTS}")
+fi
 if [ "$WITTY_REQUIRE_TRUSTED_OPERATOR" = "true" ] && [ "$ROLE" != "frontend" ]; then
     REVIEW_ENV_ARGS=(-e "WITTY_REQUIRE_TRUSTED_OPERATOR=true")
     log_info "Trusted operator mode: report/case review accepts only X-Witty-Operator"
@@ -858,6 +863,7 @@ backend)
         -e PG_USER="${PG_USER:-witty-ub}" \
         "${PHENOMENON_ENV_ARGS[@]}" \
         "${REVIEW_ENV_ARGS[@]}" \
+        "${REPORT_IMPORT_ENV_ARGS[@]}" \
         "${SSL_ENV_ARGS[@]}" \
         "${TZ_ENV_ARGS[@]}" \
         --health-cmd="/healthcheck.sh" \
@@ -913,6 +919,7 @@ frontend)
         -e PG_USER="${PG_USER:-witty-ub}" \
         "${PHENOMENON_ENV_ARGS[@]}" \
         "${REVIEW_ENV_ARGS[@]}" \
+        "${REPORT_IMPORT_ENV_ARGS[@]}" \
         "${SSL_ENV_ARGS[@]}" \
         "${TZ_ENV_ARGS[@]}" \
         --health-cmd="/healthcheck.sh" \
