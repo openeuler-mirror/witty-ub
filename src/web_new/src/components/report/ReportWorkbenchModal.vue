@@ -170,7 +170,7 @@ const openHtml = () => {
         <label>操作人<input :value="operator" class="input" autocomplete="name" :disabled="saving" @input="setOperator(($event.target as HTMLInputElement).value)" /></label>
         <label>定界结论检验结果<textarea v-model="observedResult" class="input" rows="4" :disabled="saving" placeholder="记录原始日志、证据与定界结论的核对结果；所选结论均适用时可批量提交。" /></label>
         <p v-if="!report.current_sidecar_hash" class="error-banner">文档版本暂不可校验，请重新加载后验证。</p>
-        <div class="submit-row"><span>已选择 {{ selected.length }} 条结论</span><button class="btn btn-primary" type="submit" :disabled="saving || !selected.length || !report.current_sidecar_hash">{{ saving ? '正在逐条检验…' : '检验通过并形成有效案例' }}</button></div>
+        <div class="submit-row"><span>已选择 {{ selected.length }} 条结论</span><button class="btn btn-primary verification-submit" type="submit" :disabled="saving || !selected.length || !report.current_sidecar_hash">{{ saving ? '正在逐条检验…' : '检验通过并形成有效案例' }}</button></div>
       </form>
       <p v-else-if="faults.length" class="workbench-note">当前可验证结论已处理，可继续阅读文档或查看关联案例。</p>
     </div>
@@ -200,5 +200,8 @@ summary { cursor: pointer; color: var(--text2); }
 .verification-form input { max-width: 320px; }
 .verification-form textarea { width: 100%; min-height: 110px; height: auto; box-sizing: border-box; font: inherit; resize: vertical; }
 .submit-row { display: flex; justify-content: space-between; gap: 20px; align-items: center; }
+.verification-submit { min-height: 40px; padding: 9px 18px; border-radius: 8px; font-weight: 600; justify-content: center; }
+.verification-submit:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.verification-submit:disabled { background: #e2e8f0; color: #64748b; opacity: 1; cursor: not-allowed; }
 .verification-success { color: #15803d; }
 </style>
