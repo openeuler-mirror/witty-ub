@@ -628,6 +628,12 @@ start_services() {
             _err "请检查 journalctl --user -u witty-ub-backend.service 或 $LOG_DIR/backend.log 定位原因（最常见：PostgreSQL 密码/端口配置错误）。"
             return 1
         fi
+
+        # --- 内置定界报告（后台导入，不阻塞部署） ---
+        if [ -f "$SCRIPT_DIR/import_builtin_reports.sh" ]; then
+            _info "检查内置定界报告..."
+            bash "$SCRIPT_DIR/import_builtin_reports.sh" || _warn "内置报告导入启动失败，可稍后重跑该脚本"
+        fi
     fi
 
     # --- experience-skill Web 服务 (知识库 Skill/Wiki 管理 API, 端口 8082) ---

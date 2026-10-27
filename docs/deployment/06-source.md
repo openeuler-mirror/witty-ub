@@ -101,6 +101,20 @@ deploy/host/run_backend.sh
 # 监听 0.0.0.0:9772, 需对前端节点可达
 ```
 
+### 导入内置定界报告（可选）
+
+仓库在 `data/builtin-reports/` 内置一份定界报告压缩包。后端健康后执行：
+
+```bash
+bash deploy/host/import_builtin_reports.sh          # 按需导入；压缩包未变化则跳过
+bash deploy/host/import_builtin_reports.sh --force  # 重新导入
+```
+
+生效副本与导入状态放在 `.deploy-run/builtin-reports/`（`reports.zip`、`import-state.json`），
+日志在 `.deploy-logs/builtin_report_import.log`。导入在后台执行，不阻塞部署；
+更换压缩包后重跑该脚本即会重新导入，并被新版本替换的旧报告会自动归档案例、移除文件。
+`deploy.sh` 启动后端后会自动调用该脚本；`WITTY_BUILTIN_REPORTS=0` 可关闭。
+
 ### 启动 experience-skill Web 服务（知识库管理 API）
 
 experience-skill Web 服务提供 Skill/Wiki 管理的增删改查 API，监听端口 8082。

@@ -27,6 +27,11 @@ export WITTY_RAG_MCP_URL="${WITTY_RAG_MCP_URL:-http://witty-rag-core:12312/sse}"
 export OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
 # 诊断报告落盘根目录（由 witty-ub-reports 卷持久化；agent 子进程继承此变量）
 export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-${WITTY_DIR}/reports}"
+# 内置定界报告：镜像内的只读种子 → 独立卷中的生效副本，按压缩包哈希判断是否重载
+export WITTY_BUILTIN_REPORTS="${WITTY_BUILTIN_REPORTS:-1}"
+export WITTY_BUILTIN_REPORT_ARCHIVE="${WITTY_BUILTIN_REPORT_ARCHIVE:-/usr/share/witty-ub/builtin-reports/reports.zip}"
+export WITTY_BUILTIN_REPORT_DIR="${WITTY_BUILTIN_REPORT_DIR:-${WITTY_DIR}/builtin-reports}"
+export WITTY_BUILTIN_REPORT_OPERATOR="${WITTY_BUILTIN_REPORT_OPERATOR:-builtin-reports}"
 
 # ── OpenCode/LLM 出网 HTTPS 证书校验（WITTY_SSL_VERIFY=false 时关闭） ──
 # 内网自签证书/代理拦截会导致 OpenCode 调 LLM 报证书错误；无法导入 CA 时可设为 false。
@@ -204,6 +209,37 @@ start_backend() {
     done
 }
 
+# ── 内置定界报告（all / backend 角色） ──────────────────────────────
+# 镜像内种子是只读的；独立卷中的 reports.zip 才是生效副本。每次启动比对哈希，
+# 新镜像换了压缩包就替换并重新导入；导入在后台执行，失败只记日志，不阻塞启动。
+sync_builtin_reports() {
+    [ "${WITTY_BUILTIN_REPORTS}" = "0" ] && return 0
+    local seed="${WITTY_BUILTIN_REPORT_ARCHIVE}"
+    if [ ! -f "$seed" ]; then
+        echo "[INFO] Built-in report archive not packaged: ${seed}"
+        return 0
+    fi
+    local dir="${WITTY_BUILTIN_REPORT_DIR}"
+    local active="${dir}/reports.zip"
+    local state="${dir}/import-state.json"
+    mkdir -p "$dir"
+    local seed_sum active_sum=""
+    seed_sum="$(sha256sum "$seed" | awk '{print $1}')"
+    [ -f "$active" ] && active_sum="$(sha256sum "$active" | awk '{print $1}')"
+    if [ "$seed_sum" != "$active_sum" ]; then
+        echo "[OK] Built-in report archive updated (${seed_sum:0:12})"
+        cp -f "$seed" "${active}.tmp" && mv -f "${active}.tmp" "$active"
+    fi
+    echo "Importing built-in reports in background (state: ${state})"
+    (
+        export PYTHONPATH="${WITTY_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+        exec "${WITTY_DIR}/latency/.venv/bin/python" \
+            -m latency.access.builtin_reports_cli \
+            --archive "$active" --state "$state" \
+            --operator "${WITTY_BUILTIN_REPORT_OPERATOR}"
+    ) >>/var/log/witty-ub/builtin_report_import.log 2>&1 &
+}
+
 wait_backend_ready() {
     # frontend 角色等待远端后端就绪（不失败, 后端可能稍后启动）
     echo "  Waiting for backend at ${WITTY_BACKEND_URL} ..."
@@ -260,6 +296,7 @@ all)
     start_nginx
     start_experience
     start_backend
+    sync_builtin_reports
     # OpenCode queries the latency HTTP API directly, so start it only
     # after the backend is healthy.
     start_opencode
@@ -276,6 +313,7 @@ all)
 backend)
     sync_backend_data
     start_backend
+    sync_builtin_reports
     echo "Backend-only container started successfully!"
     echo "========================================"
     echo "  - API:        http://0.0.0.0:9772"
