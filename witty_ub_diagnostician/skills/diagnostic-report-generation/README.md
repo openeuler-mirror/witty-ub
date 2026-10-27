@@ -10,6 +10,9 @@
 `01 日志基本信息 → 02 事件诊断摘要 → 03 故障清单与关系(仅多故障) →
 04 综合处置计划 → 05 统计分析 → 06 故障档案 → 07 诊断工作追踪`（单故障为 `01→05`）。
 各板块字段清单与撰写原则见 `references/REPORT_BLOCKS.md`。
+故障档案支持同级的 `faults[].error`（错误码构成与时间分布）和
+`faults[].latency`（时延阶段定位）；通断数据提取与口径见
+[ERROR_FEATURES.md](references/ERROR_FEATURES.md)，字段速查用 `--spec error`。
 
 ## 使用流程
 

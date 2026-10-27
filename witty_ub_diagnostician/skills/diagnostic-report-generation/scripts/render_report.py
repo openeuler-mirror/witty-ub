@@ -25,6 +25,9 @@ import sys
 import time
 from pathlib import Path
 
+from latency_features import validate_features
+from error_features import validate_error
+
 SKILL_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_TEMPLATE = SKILL_DIR / "templates" / "report.html"
 LABEL_REFERENCE = SKILL_DIR / "references" / "log_label.json"
@@ -191,6 +194,28 @@ def _check_stage_breakdown(path, bd, errors, warnings):
             )
 
 
+def _check_latency(path, latency, errors):
+    if latency is None:
+        return
+    if not isinstance(latency, dict):
+        errors.append(f"{path}: 必须是对象")
+        return
+    stages = latency.get("stages")
+    if stages is None:
+        return
+    if not isinstance(stages, list):
+        errors.append(f"{path}.stages: 必须是数组")
+        return
+    for i, stage in enumerate(stages):
+        p = f"{path}.stages[{i}]"
+        if not isinstance(stage, dict) or not stage.get("name"):
+            errors.append(f"{p}: 缺少 name")
+            continue
+        _check_enum(f"{p}.status", stage.get("status"), STAGE_STATUS_ENUM, errors)
+        if stage.get("features") is not None:
+            errors.extend(f"{p}.features: {error}" for error in validate_features(stage["features"]))
+
+
 def validate(data) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -221,6 +246,8 @@ def validate(data) -> tuple[list[str], list[str]]:
         else:
             _check_fault_labels("conclusion", data["conclusion"], errors, warnings)
             _check_evidence_traces("evidence_traces", data.get("evidence_traces"), errors, warnings)
+        _check_latency("latency", data.get("latency"), errors)
+        errors.extend(f"error: {message}" for message in validate_error(data.get("error")))
     elif not isinstance(faults, list) or not faults:
         errors.append("faults: 必须是至少含 1 个故障的数组")
     else:
@@ -252,27 +279,7 @@ def validate(data) -> tuple[list[str], list[str]]:
             if f.get("role") == "primary":
                 primary_cnt += 1
             _check_evidence_traces(f"{p}.evidence_traces", f.get("evidence_traces"), errors, warnings)
-            lat = f.get("latency")
-            if isinstance(lat, dict) and lat:
-                for j, st in enumerate(lat.get("stages") or []):
-                    if isinstance(st, dict):
-                        _check_enum(
-                            f"{p}.latency.stages[{j}].status",
-                            st.get("status"),
-                            STAGE_STATUS_ENUM,
-                            errors,
-                        )
-                if not (
-                    any(isinstance(m, dict) and m.get("label") and m.get("value")
-                        for m in lat.get("metrics") or [])
-                    or any(isinstance(s, dict) and s.get("name")
-                        for s in lat.get("stages") or [])
-                    or lat.get("conclusion")
-                ):
-                    errors.append(
-                        f"{p}.latency: 提供了对象但未命中契约字段"
-                        "（需 metrics[]{label,value} / stages[]{name,...} / conclusion 至少一项有效）"
-                    )
+            _check_latency(f"{p}.latency", f.get("latency"), errors)
             rc = f.get("root_cause")
             if isinstance(rc, dict) and rc:
                 if not (
@@ -305,6 +312,9 @@ def validate(data) -> tuple[list[str], list[str]]:
                             f"{p}.knowledge_matches[{j}]: 缺少可渲染内容"
                             "（需 match_logic / symptom / root_cause 至少一项）"
                         )
+            errors.extend(f"{p}.error: {message}" for message in validate_error(f.get("error")))
+            if f.get("category") in ("error", "mixed") and not f.get("simplified") and not f.get("error"):
+                warnings.append(f"{p}.error: 新报告建议填写错误码构成和时间分布；无证据时省略并说明")
         if primary_cnt != 1:
             warnings.append(f"faults[].role: primary 数量为 {primary_cnt}（多故障建议恰好 1 个）")
         if len(faults) > 1:
@@ -427,7 +437,7 @@ SPEC = {
     "top": """顶层变量（全部为 JSON 键）
 report{title,report_id,generated_at}
 basic_info{kb_id,kb_name,log_file,operation,time_range_start,time_range_end,total_trace_cnt,fault_trace_cnt,fault_ratio,parse_ok,diagnosis_ok}
-faults[]{id,title,role,status,severity,confidence,category,affected_scope,conclusion,latency,root_cause,propagation,evidence_traces,knowledge_matches,solution,source_code,simplified,upstream,need_independent_fix}
+faults[]{id,title,role,status,severity,confidence,category,affected_scope,conclusion,error,latency,root_cause,propagation,evidence_traces,knowledge_matches,solution,source_code,simplified,upstream,need_independent_fix}
 incident_summary{one_line_conclusion,fault_count,primary_fault_id,secondary_fault_count,independent_fault_count,overall_impact,confidence}
 fault_relations[]{from,to,type,confidence,evidence}
 action_plan[]{priority,fault_ids,action,depends_on,expected_effect,verify}
@@ -436,13 +446,34 @@ workflow{session_id,total_steps,api_calls,duration,steps[]}
 枚举：role=primary|secondary|independent; status=confirmed|suspected|excluded; severity=P1|P2|P3
      category=error|latency|mixed; stage.status=ok|warn|bottleneck; share_bar.cls=s-ok|s-warn|s-bottleneck
      fault_relations.type=causes|common_cause|independent|correlated; evidence_traces[].kind=latency|error
-单故障可用扁平 conclusion/root_cause/propagation/evidence_traces/knowledge_matches/solution/source_code，模板自动包成 F01
+单故障可用扁平 conclusion/error/latency/root_cause/propagation/evidence_traces/knowledge_matches/solution/source_code，模板自动包成 F01
 每条 conclusion 新增 first_level_label / second_level_label（string|null）；每次生成须读取 references/log_label.json，按证据选已有标签对；只确定一级则二级为 null，均无法匹配则均为 null
 示例与逐字段说明：references/REPORT_BLOCKS.md""",
     "basic_info": "kb_id,kb_name,log_file,operation,time_range_start,time_range_end,total_trace_cnt,fault_trace_cnt,fault_ratio,parse_ok,diagnosis_ok",
     "conclusion": """first_level_label,second_level_label,one_line_conclusion,fault_domain,fault_component,fault_function,fault_function_loc,affected_scope_pct,affected_scope_desc,confidence,key_findings[]
 first_level_label / second_level_label：一级/二级标签，新报告必填 string|null，取值及配对见 references/log_label.json；按诊断证据语义匹配，未知层级填 null，一级 null 时二级也须 null""",
-    "latency": "metrics[]{label,value,sub,tone},stages[]{name,p99,baseline,ratio,share,status,detail},conclusion",
+    "latency": """metrics[]{label,value,sub,tone},stages[]{name,p99,baseline,ratio,share,status,detail,features?},conclusion
+features：从已有 /stats/stages 响应提取的互斥归因桶快照，不等同于物理阶段；旧字段保留
+features{operation,bucket_key,metric_name,source{endpoint,request,response_path},sample_cnt,truncated,sample_note,
+ trace_cnt,normal_cnt,anomalous_cnt,bucket_share_pct,anomalous_ratio_pct,
+ distribution{p50_ms,p90_ms,max_ms,client_p50_ms,client_p90_ms},tail_ratio_p90_p50,note,action,
+ top_traces[]{trace_id,evidence_ms,client_ms,is_anomalous?,host?,pod_ips?,src_ip?,dst_ip?,failure_codes?},
+ trace_source?,trace_coverage?{requested_cnt,returned_cnt,missing_trace_ids},
+ baseline?{同桶快照,delta_p90_ms,p90_amplification},windows?[]{同桶快照}}
+来源/公式/缺失规则：references/LATENCY_FEATURES.md；提取：python3 scripts/latency_features.py snapshots.json features.json
+不得把 P90 当 P99、桶内异常标记比例当超时率、桶请求占比当耗时占比；无响应就省略可选块""",
+    "error": """metrics?[]{label,value,sub,tone},conclusion,breakdowns[]{
+ operation(GET|SET),scope{kb_id,operation,start_time,end_time,cluster_name?,host?,pod_ip?,src_ip?,dst_ip?},
+ code_filter?(string[]|null),unit(trace_code_occurrence),
+ source{endpoint,pages[]{request,response_path,total_windows,returned_windows}},
+ coverage{complete,returned_windows,total_windows},
+ code_distribution{total_count,items[]{code,count,share_pct},other_count},
+ timeline{interval_seconds,windows[]{start_time,end_time,complete,counts{错误码:整数|null},other_count}}}
+从 /log_failure_event_result/list_time_aggregated_failure_events 的真实分页响应离线提取：
+python3 scripts/error_features.py snapshots.json error.json [--top-n 5] [--max-windows 48]
+同一时间聚合口径：逐码命中次数，不是去重失败请求数/失败率；分页不全比例为 null，未取窗口为未知
+GET/SET 各一套；不关联时延阶段；旧报告可省略，扁平单故障支持顶层 error
+来源/公式/缺失规则与输入示例：references/ERROR_FEATURES.md""",
     "root_cause": "reasoning_chain[]{step_label,title,description,evidence,excluded,confirmed},confirmed_root_cause,supporting_knowledge",
     "evidence_traces": "可选，0~5 条；trace_id(必填,逐字来自工具响应),kind(必填,latency|error),why(必填,含桶key或过滤条件),evidence_ms,client_ms,status_code,failure_mode_id,pod,host,timestamp；latency 类取 /stats/stages 归因桶 top_traces[]；缺省/[]/null 均不渲染",
     "propagation": "chain[]{label,detail,type,transition,branches[{label,nodes[]}]},impact_scope[]",

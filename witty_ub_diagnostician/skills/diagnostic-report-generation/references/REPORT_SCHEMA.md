@@ -263,7 +263,7 @@
 | `operation` | `GET`/`SET` | ❌ | 板块 1 `operation`；GET 与 SET 不许混写一条案例 |
 | `fault_type` | string | ✅ | 报告 `fault_type`：`latency` / `connectivity` / `mixed` / `unknown` |
 | `confidence` | number | ❌ | 板块 2 `confidence` 转 0~1 数值（如 `"高 92%"` → `0.92`）；仅知识库解释支撑的不得给高值 |
-| `status_codes[]` | string[] | ❌ | 板块 6 `top_error_codes[].code`（**原始码**，不是 `name`），信号权重 3.0 |
+| `status_codes[]` | string[] | ❌ | 优先取对应故障 `error.breakdowns[]` 中同操作的 `code_distribution.items[]` 里 `count > 0` 的 `code`；旧报告用板块 6 `top_error_codes[].code`。均为**原始码**，不是名称；`other_count` 无具体码，不反推；不要把仅筛选但未观测到的码存为信号。信号权重 3.0 |
 | `failure_mode_ids[]` | string[] | ❌ | 板块 7 `knowledge_matches[].id`（故障模式 ID），信号权重 3.0 |
 | `latency_components[]` | string[] | ❌ | **必须取 `/stats/stages` 的桶 key**（`set_client` / `urma`）；**禁止**照抄板块 6 的阶段展示名（`URMA 网络`），否则 L2 信号全部打空（见 `CASE_FEATURE_CONTRACT.md` §三） |
 | `log_keywords[]` | string[] | ❌ | 现场日志**原文短语**（保留大小写与下划线），禁意译、禁套用历史案例的短语 |

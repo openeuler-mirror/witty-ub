@@ -906,6 +906,40 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
 .lat-detail { grid-column: 1 / -1; font-size: 11px; color: var(--gray-500); padding-top: 2px; line-height: 1.6; }
 .lat-conclusion { margin-top: 10px; padding: 10px 14px; background: var(--teal-faint); border-left: 3px solid var(--teal); border-radius: var(--radius-sm); font-size: 12.5px; color: var(--gray-700); line-height: 1.7; }
 .lat-conclusion strong { color: var(--gray-900); }
+.lat-features { grid-column: 1 / -1; min-width: 0; font-weight: 400; color: var(--gray-700); }
+.lat-features summary { cursor: pointer; padding: 6px 0; font-weight: 600; }
+.lat-feature-body { background: white; border: 1px solid var(--border); border-radius: 6px; padding: 10px; overflow-x: auto; }
+.lat-feature-table { border-collapse: collapse; width: 100%; font-size: 11px; margin: 6px 0; }
+.lat-feature-table th, .lat-feature-table td { text-align: left; border-bottom: 1px solid var(--divider); padding: 5px; vertical-align: top; }
+.lat-feature-table th { color: var(--gray-500); font-weight: 600; }
+.lat-feature-note { font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.lat-feature-source { font-size: 10px; color: var(--gray-500); overflow-wrap: anywhere; }
+.lat-feature-source code { white-space: pre-wrap; }
+@media print { .lat-features > .lat-feature-body { display: block !important; } }
+/* fault-level error-code distribution, independent of latency attribution */
+.error-profile { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+.error-scope, .error-note { font-size: 11px; color: var(--gray-500); line-height: 1.7; overflow-wrap: anywhere; }
+.error-incomplete { padding: 7px 10px; margin: 8px 0; background: var(--warning-faint); color: #92400e; border-radius: 6px; font-size: 11px; }
+.error-dist, .error-heat { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 11px; }
+.error-dist th, .error-dist td, .error-heat th, .error-heat td { padding: 6px; border: 1px solid var(--divider); text-align: right; }
+.error-dist th:first-child, .error-dist td:first-child, .error-heat th:first-child { text-align: left; }
+.error-dist th, .error-heat th { background: #f8fafc; color: var(--gray-600); }
+.error-bar { display: inline-block; height: 7px; border-radius: 3px; background: rgb(var(--error-rgb)); max-width: 100%; }
+.error-heat { table-layout: fixed; }
+.error-heat th { overflow-wrap: anywhere; }
+.error-heat th:first-child { width: 190px; }
+.error-heat td { background: rgba(var(--error-rgb), var(--error-alpha)); color: #172033; font-family: var(--font-mono); }
+.error-heat td.error-unknown { background: repeating-linear-gradient(135deg, #f1f5f9, #f1f5f9 4px, #e2e8f0 4px, #e2e8f0 8px); color: #64748b; }
+.error-source { margin-top: 8px; font-size: 10px; color: var(--gray-500); overflow-wrap: anywhere; }
+.error-source summary { cursor: pointer; }
+.error-source code { white-space: pre-wrap; }
+@media print {
+  .error-profile { padding: 6px; }
+  .error-heat { font-size: 9px; }
+  .error-heat th:first-child { width: 160px; }
+  .error-heat tr, .error-dist tr { break-inside: avoid; }
+  .error-heat td, .error-bar { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}
 .stage-name .fault-id-chip.sm { margin-left: 6px; vertical-align: middle; }
 /* knowledge card upgrades */
 .kb-fid { font-family:var(--font-mono); font-size:10.5px; background:#eef4ff; color:#1d4ed8; border-radius:5px; padding:2px 7px; font-weight:700; }
@@ -1016,7 +1050,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
 {%- if faults -%}
   {%- set fault_list = faults -%}
 {%- else -%}
-  {%- set fault_list = [{'id':'F01','title':'诊断故障','role':'primary','status':'confirmed','severity':'P2','confidence':conclusion.confidence,'affected_scope':conclusion.affected_scope_desc,'conclusion':conclusion,'root_cause':root_cause,'propagation':propagation,'evidence_traces':evidence_traces,'knowledge_matches':knowledge_matches,'solution':solution,'source_code':source_code}] -%}
+  {%- set fault_list = [{'id':'F01','title':'诊断故障','role':'primary','status':'confirmed','severity':'P2','confidence':conclusion.confidence,'affected_scope':conclusion.affected_scope_desc,'category':category,'conclusion':conclusion,'error':error,'latency':latency,'root_cause':root_cause,'propagation':propagation,'evidence_traces':evidence_traces,'knowledge_matches':knowledge_matches,'solution':solution,'source_code':source_code}] -%}
 {%- endif -%}
 {%- set is_multi = fault_list | length > 1 -%}
 {%- set f0 = fault_list[0] -%}
@@ -1025,7 +1059,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
 {%- if incident_summary -%}
   {%- set inc = incident_summary -%}
 {%- else -%}
-  {%- set inc = {'one_line_conclusion':conclusion.one_line_conclusion,'fault_count':1,'primary_fault_id':'F01','secondary_fault_count':0,'independent_fault_count':0,'overall_impact':conclusion.affected_scope_desc,'confidence':conclusion.confidence} -%}
+  {%- set inc = {'one_line_conclusion':f0.conclusion.one_line_conclusion,'fault_count':1,'primary_fault_id':f0.id,'secondary_fault_count':0,'independent_fault_count':0,'overall_impact':f0.conclusion.affected_scope_desc,'confidence':f0.conclusion.confidence} -%}
 {%- endif -%}
 {%- set rels = fault_relations if fault_relations else [] -%}
 {%- set acts = action_plan if action_plan else [] -%}
@@ -1107,6 +1141,61 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
 {% endmacro %}
 
 {# ---- Latency block: metric strip + per-stage attribution (P99 / baseline / ratio / share) ---- #}
+{% macro m_feature_value(value, unit='') -%}
+{% if value is defined and value is not none %}{{ value }}{{ unit }}{% else %}—{% endif %}
+{%- endmacro %}
+
+{% macro m_feature_source(source) %}
+<div class="lat-feature-source">来源：{{ source.endpoint }} · {{ source.response_path }} · 请求 <code>{{ source.request | tojson }}</code></div>
+{% endmacro %}
+
+{% macro m_feature_distribution(f, label) %}
+<tr><td>{{ label }}</td>{% for key in ['p50_ms','p90_ms','max_ms','client_p50_ms','client_p90_ms'] %}<td>{{ m_feature_value(f.distribution[key], 'ms') }}</td>{% endfor %}</tr>
+{% endmacro %}
+
+{% macro m_latency_features(f) %}
+<details class="lat-features" open>
+  <summary>阶段特征 · {{ f.operation }} / {{ f.bucket_key }}</summary>
+  <div class="lat-feature-body">
+    <div class="lat-feature-note"><strong>{{ f.metric_name }}</strong> · 互斥归因桶<br>
+      本桶 {{ f.trace_cnt }} 条（正常标记 {{ f.normal_cnt }} / 异常标记 {{ f.anomalous_cnt }}）；
+      占分类样本 {{ m_feature_value(f.bucket_share_pct, '%') }}；桶内异常标记比例 {{ m_feature_value(f.anomalous_ratio_pct, '%') }}；
+      P90/P50 {{ m_feature_value(f.tail_ratio_p90_p50, '×') }}。<br>
+      分类样本 {{ f.sample_cnt }} 条 · {% if f.truncated %}已截断{% else %}未截断{% endif %}；异常与慢正常请求混合选样，比例仅描述该样本。
+    </div>
+    <table class="lat-feature-table">
+      <thead><tr><th>窗口</th><th>证据 P50</th><th>证据 P90</th><th>证据最大值</th><th>Client P50</th><th>Client P90</th></tr></thead>
+      <tbody>{{ m_feature_distribution(f, '当前') }}{% if f.baseline %}{{ m_feature_distribution(f.baseline, '对照') }}{% endif %}</tbody>
+    </table>
+    {% if f.baseline %}
+    <div class="lat-feature-note">相对对照窗口：证据 P90 差值 {{ m_feature_value(f.baseline.delta_p90_ms, 'ms') }}；放大 {{ m_feature_value(f.baseline.p90_amplification, '×') }}。
+      对照桶 {{ f.baseline.trace_cnt }} / {{ f.baseline.sample_cnt }} 条 · {% if f.baseline.truncated %}已截断{% else %}未截断{% endif %}。仅比较同口径归因桶样本。</div>
+    {{ m_feature_source(f.baseline.source) }}
+    {% endif %}
+    {% if f.windows %}
+    <table class="lat-feature-table">
+      <thead><tr><th>时间窗</th><th>本桶/分类样本</th><th>证据 P90</th><th>桶内异常标记比例</th><th>截断</th></tr></thead>
+      <tbody>{% for w in f.windows %}<tr><td>{{ w.source.request.start_time }} → {{ w.source.request.end_time }}</td><td>{{ w.trace_cnt }} / {{ w.sample_cnt }}</td><td>{{ m_feature_value(w.distribution.p90_ms, 'ms') }}</td><td>{{ m_feature_value(w.anomalous_ratio_pct, '%') }}</td><td>{{ '是' if w.truncated else '否' }}</td></tr>{% endfor %}</tbody>
+    </table>
+    {% for w in f.windows %}{{ m_feature_source(w.source) }}{% endfor %}
+    {% endif %}
+    {% if f.top_traces %}
+    <div class="lat-feature-note"><strong>桶内证据耗时 Top trace</strong>（代表阶段耗时极端请求；不代表严重度或全量分布）</div>
+    <table class="lat-feature-table">
+      <thead><tr><th>Trace ID</th><th>证据/Client 耗时</th>{% if f.trace_source %}<th>Host / Pod IP</th><th>源 → 目的 IP</th><th>异常标记 / 错误码计数</th>{% endif %}</tr></thead>
+      <tbody>{% for t in f.top_traces %}<tr><td>{{ t.trace_id }}</td><td>{{ m_feature_value(t.evidence_ms, 'ms') }} / {{ m_feature_value(t.client_ms, 'ms') }}</td>
+        {% if f.trace_source %}<td>{{ t.host or '—' }} / {{ t.pod_ips | join(', ') if t.pod_ips else '—' }}</td><td>{{ t.src_ip or '—' }} → {{ t.dst_ip or '—' }}</td><td>{% if t.is_anomalous is defined and t.is_anomalous is not none %}{{ '异常' if t.is_anomalous else '正常' }}{% else %}—{% endif %} / {% if t.failure_codes is defined and t.failure_codes is not none %}{% for c in t.failure_codes %}{{ c.code }} × {{ c.cnt }}{% if not loop.last %}, {% endif %}{% else %}无{% endfor %}{% else %}—{% endif %}</td>{% endif %}
+      </tr>{% endfor %}</tbody>
+    </table>
+    {% endif %}
+    {% if f.trace_coverage %}<div class="lat-feature-note">Top trace 补查返回 {{ f.trace_coverage.returned_cnt }}/{{ f.trace_coverage.requested_cnt }} 条{% if f.trace_coverage.missing_trace_ids %}；未返回：{{ f.trace_coverage.missing_trace_ids | join(', ') }}{% endif %}。仅表示 Top trace 补查覆盖情况。</div>{% endif %}
+    {% if f.trace_source %}{{ m_feature_source(f.trace_source) }}{% endif %}
+    {% for text in [f.sample_note, f.note, f.action] %}{% if text %}<div class="lat-feature-note">{{ text }}</div>{% endif %}{% endfor %}
+    {{ m_feature_source(f.source) }}
+  </div>
+</details>
+{% endmacro %}
+
 {% macro m_latency(lat) %}
 {% if lat %}
   {% if lat.metrics %}
@@ -1124,7 +1213,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
     {% for st in lat.stages %}
     <div class="lat-row {{ st.status }}">
       <span class="lat-name">{{ st.name }}</span>
-      <span class="lat-num">{{ st.p99 }}</span>
+      <span class="lat-num">{{ st.p99 or '—' }}</span>
       <span class="lat-num">{% if st.baseline %}{{ st.baseline }}{% else %}<span class="stage-na">—</span>{% endif %}</span>
       <span class="lat-ratio">{% if st.ratio %}{{ st.ratio }}{% else %}<span class="stage-na">—</span>{% endif %}</span>
       <span class="lat-num">{% if st.share %}{{ st.share }}{% else %}<span class="stage-na">—</span>{% endif %}</span>
@@ -1133,6 +1222,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
         {% if st.status == 'bottleneck' %}瓶颈{% elif st.status == 'warn' %}异常{% else %}正常{% endif %}
       </span>
       {% if st.detail %}<span class="lat-detail">{{ st.detail }}</span>{% endif %}
+      {% if st.features %}{{ m_latency_features(st.features) }}{% endif %}
     </div>
     {% endfor %}
   </div>
@@ -1141,6 +1231,60 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
   <div class="lat-conclusion">{{ lat.conclusion }}</div>
   {% endif %}
 {% endif %}
+{% endmacro %}
+
+{% macro m_error_count(value, complete) -%}
+{%- if value is none -%}—{%- elif not complete -%}≥{{ value }}{%- else -%}{{ value }}{%- endif -%}
+{%- endmacro %}
+
+{% macro m_error(err) %}
+{% set palette = ['59,130,246', '239,68,68', '20,184,166', '168,85,247', '245,158,11', '14,165,233', '236,72,153', '132,204,22', '99,102,241', '249,115,22'] %}
+{% if err.metrics %}
+<div class="conclusion-cards lat-metrics">{% for m in err.metrics %}
+  <div class="conclusion-card{% if m.tone == 'danger' %} danger{% endif %}"><div class="card-label">{{ m.label }}</div><div class="card-value">{{ m.value }}</div>{% if m.sub %}<div class="card-sub">{{ m.sub }}</div>{% endif %}</div>
+{% endfor %}</div>
+{% endif %}
+{% for bd in err.breakdowns %}
+{% set dist = bd.code_distribution %}{% set windows = bd.timeline.windows %}
+{% set scale = namespace(max_count=1) %}
+{% for w in windows %}{% for value in w.counts.values() %}{% if value is not none and value > scale.max_count %}{% set scale.max_count = value %}{% endif %}{% endfor %}
+{% if w.other_count is not none and w.other_count > scale.max_count %}{% set scale.max_count = w.other_count %}{% endif %}{% endfor %}
+<div class="error-profile">
+  <strong>{{ bd.operation }} · 错误码命中次数 {{ m_error_count(dist.total_count, bd.coverage.complete) }}</strong>
+  <div class="error-scope">{{ bd.scope.start_time }} → {{ bd.scope.end_time }}（Asia/Shanghai，结束边界不包含）
+  {% for key in ['log_id', 'cluster_name', 'host', 'pod_ip', 'src_ip', 'dst_ip'] %}{% if bd.scope[key] %} · {{ key }}={{ bd.scope[key] }}{% endif %}{% endfor %}
+  {% if bd.code_filter %} · 本故障错误码筛选：{{ bd.code_filter | join(', ') }}{% endif %}</div>
+  <div class="error-note">逐码命中计数：同一 trace 可命中多个错误码，不等于去重失败请求数或业务失败率；仅包含已识别故障模式的记录。</div>
+  {% if not bd.coverage.complete %}<div class="error-incomplete">分页不完整：取得 {{ bd.coverage.returned_windows }} / {{ bd.coverage.total_windows }} 个有数据的原始桶。错误码按已取得计数排序；≥ 表示计数下界，— 表示未知；比例不展示。</div>{% endif %}
+  {% if dist['items'] %}
+  <table class="error-dist">
+    <thead><tr><th>错误码</th><th>命中次数</th><th>占全部命中次数</th><th>构成</th></tr></thead>
+    <tbody>{% for item in dist['items'] %}<tr style="--error-rgb:{{ palette[loop.index0] }}">
+      <td><code>{{ item.code }}</code></td><td>{{ m_error_count(item.count, bd.coverage.complete) }}</td>
+      <td>{% if item.share_pct is not none %}{{ '%.1f' | format(item.share_pct) }}%{% else %}—{% endif %}</td>
+      <td>{% if item.share_pct is not none %}<span class="error-bar" style="width:{{ item.share_pct }}%"></span>{% else %}—{% endif %}</td>
+    </tr>{% endfor %}
+    {% if dist.other_count %}<tr style="--error-rgb:100,116,139"><td>其他错误码</td><td>{{ m_error_count(dist.other_count, bd.coverage.complete) }}</td><td>{% if bd.coverage.complete and dist.total_count %}{{ '%.1f' | format(dist.other_count / dist.total_count * 100) }}%{% else %}—{% endif %}</td><td>{% if bd.coverage.complete and dist.total_count %}<span class="error-bar" style="width:{{ dist.other_count / dist.total_count * 100 }}%"></span>{% else %}—{% endif %}</td></tr>{% endif %}
+    </tbody>
+  </table>
+  {% else %}<div class="error-note">已取得数据中没有符合筛选条件的错误码命中；此结果不能单独证明系统健康。</div>{% endif %}
+  <div class="error-note"><strong>错误码随时间分布</strong> · 展示粒度 {{ bd.timeline.interval_seconds }} 秒；首尾窗口按查询边界截取。所有单元格按共同的最大计数着色，颜色越深计数越高；零为已知无命中，斜纹为未知。</div>
+  <table class="error-heat">
+    <thead><tr><th>时间窗（开始 → 结束）</th>{% for item in dist['items'] %}<th style="border-top:3px solid rgb({{ palette[loop.index0] }})">{{ item.code }}</th>{% endfor %}{% if dist.other_count %}<th>其他错误码</th>{% endif %}{% if not dist['items'] %}<th>命中次数</th>{% endif %}</tr></thead>
+    <tbody>{% for w in windows %}<tr><th>{{ w.start_time }} → {{ w.end_time }}</th>
+      {% for item in dist['items'] %}{% set value = w.counts[item.code] %}
+      <td{% if value is none %} class="error-unknown"{% endif %} style="--error-rgb:{{ palette[loop.index0] }};--error-alpha:{{ 0.06 + 0.64 * value / scale.max_count if value is not none else 0 }}" title="{{ item.code }} · {{ w.start_time }} → {{ w.end_time }}">{{ m_error_count(value, w.complete) }}</td>
+      {% endfor %}
+      {% if dist.other_count or not dist['items'] %}<td{% if w.other_count is none %} class="error-unknown"{% endif %} style="--error-rgb:100,116,139;--error-alpha:{{ 0.06 + 0.64 * w.other_count / scale.max_count if w.other_count is not none else 0 }}">{{ m_error_count(w.other_count, w.complete) }}</td>{% endif %}
+    </tr>{% endfor %}</tbody>
+  </table>
+  <details class="error-source"><summary>统计来源与分页范围</summary>
+    <div><code>{{ bd.source.endpoint }}</code> · 原始有数据桶 {{ bd.coverage.returned_windows }}/{{ bd.coverage.total_windows }} · {% if bd.coverage.complete %}分页完整{% else %}分页不完整{% endif %}</div>
+    {% for page in bd.source.pages %}<div><code>{{ page.request | tojson }}</code> → {{ page.response_path }}（本页 {{ page.returned_windows }} 桶）</div>{% endfor %}
+  </details>
+</div>
+{% endfor %}
+{% if err.conclusion %}<div class="lat-conclusion">{{ err.conclusion }}</div>{% endif %}
 {% endmacro %}
 
 {% macro m_solution(s) %}
@@ -1793,6 +1937,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
         <div class="fa-secondary-note" style="background:#f2f4f7;border-color:#e2e6ec;color:#5D6B7A;">本故障为候选假设，根因尚未确认，下列结论与证据仅供参考，不能直接认定。</div>
         {% endif %}
         {% if f.conclusion %}<h4 class="fa-sub">故障结论</h4>{{ m_conclusion(f.conclusion) }}{% endif %}
+        {% if f.error and not f.simplified %}<h4 class="fa-sub">通断故障分布</h4>{{ m_error(f.error) }}{% endif %}
         {% if f.latency %}<h4 class="fa-sub">时延阶段定位</h4>{{ m_latency(f.latency) }}{% endif %}
         {% if not f.simplified %}
           {% if f.root_cause %}<h4 class="fa-sub">根因推理链</h4>{{ m_root_cause(f.root_cause) }}{% endif %}
