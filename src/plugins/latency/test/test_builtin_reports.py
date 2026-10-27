@@ -46,8 +46,12 @@ def env(tmp_path, monkeypatch):
             summary={"imported": 1, "duplicate": 1, "failed": 0},
         )
 
+    async def all_present(_report_ids):
+        return []
+
     monkeypatch.setattr(module, "import_reports", fake_import)
     monkeypatch.setattr(module, "report_root", lambda: tmp_path)
+    monkeypatch.setattr(module, "_missing_report_rows", all_present)
     return SimpleNamespace(
         archive=archive, state_path=state_path, calls=calls, tmp_path=tmp_path
     )
@@ -170,3 +174,20 @@ async def test_busy_when_another_instance_holds_the_lock(env, monkeypatch):
     result = await sync_builtin_reports_locked(env.archive, env.state_path, "importer")
     assert result["status"] == STATUS_BUSY
     assert env.calls == []
+
+
+async def test_skip_is_rejected_when_the_database_lost_the_imported_reports(
+    env, monkeypatch
+):
+    """状态文件/报告卷可能比数据库活得久；空库必须重新导入而不是跳过。"""
+    await sync_builtin_reports(env.archive, env.state_path, "importer")
+    assert len(env.calls) == 1
+
+    async def lost(_report_ids):
+        return [NEW_ID]
+
+    monkeypatch.setattr(module, "_missing_report_rows", lost)
+    second = await sync_builtin_reports(env.archive, env.state_path, "importer")
+
+    assert second["status"] == STATUS_COMPLETED
+    assert len(env.calls) == 2

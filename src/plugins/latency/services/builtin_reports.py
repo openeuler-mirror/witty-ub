@@ -25,7 +25,7 @@ from sqlalchemy import select, text
 
 from latency.common.local_time import local_now
 from latency.database.engine import PGManager
-from latency.database.models import DiagCaseLibrary
+from latency.database.models import DiagCaseLibrary, DiagnosticReportIndex
 from latency.schemas.diag_case_library import ArchiveDiagCaseRequest
 from latency.services.diag_case_library import DiagCaseLibraryService
 from latency.services.diagnostic_report import report_root
@@ -46,7 +46,7 @@ DEFAULT_SOURCE_NAME = "内置定界报告"
 SUPERSEDE_REASON = "内置定界报告已由新版本替换"
 # Only content-addressed imported reports may be removed by supersede.
 REPORT_ID_RE = re.compile(r"^report_hist_[0-9a-f]{8,64}$")
-REPORT_SUFFIXES = (".html", ".json", ".source.json")
+REPORT_SUFFIXES = (".html", ".json", ".source.json", ".import.json")
 
 STATUS_COMPLETED = "completed"
 STATUS_PARTIAL = "partial"
@@ -100,6 +100,20 @@ async def _cases_bound_to(report_id: str) -> list[DiagCaseLibrary]:
             .order_by(DiagCaseLibrary.created_at)
         )
         return list(rows.scalars().all())
+
+
+async def _missing_report_rows(report_ids: list[str]) -> list[str]:
+    """Report ids the state file claims to have imported but the database lost."""
+    if not report_ids:
+        return []
+    async with PGManager.session() as session:
+        rows = await session.execute(
+            select(DiagnosticReportIndex.report_id).where(
+                DiagnosticReportIndex.report_id.in_(report_ids)
+            )
+        )
+        present = {str(value) for value in rows.scalars().all()}
+    return [report_id for report_id in report_ids if report_id not in present]
 
 
 def _remove_report_files(report_id: str) -> list[str]:
@@ -158,16 +172,29 @@ async def sync_builtin_reports(
         return {"status": "skipped", "reason": "archive_missing", "archive": str(archive)}
     digest = archive_sha256(archive)
     state = read_state(state_path)
-    if not force and state.get("archive_sha256") == digest and state.get("status") in {
-        STATUS_COMPLETED,
-        STATUS_PARTIAL,
-    }:
-        return {
-            "status": "skipped",
-            "reason": "already_imported",
-            "archive_sha256": digest,
-            "report_count": len(state.get("report_ids") or []),
-        }
+    recorded = [
+        str(rid) for rid in state.get("report_ids") or [] if REPORT_ID_RE.match(str(rid))
+    ]
+    if (
+        not force
+        and state.get("archive_sha256") == digest
+        and state.get("status") in {STATUS_COMPLETED, STATUS_PARTIAL}
+    ):
+        # 状态文件与报告卷可能比数据库活得久（重建数据库、换库、只删 pg 卷），
+        # 只比哈希会把空库当成"已导入"，所以先确认记录的每篇报告仍在库里。
+        missing = await _missing_report_rows(recorded)
+        if not missing:
+            return {
+                "status": "skipped",
+                "reason": "already_imported",
+                "archive_sha256": digest,
+                "report_count": len(recorded),
+            }
+        logger.warning(
+            "Built-in report state matches the archive but %d report(s) are missing "
+            "from the database; importing again",
+            len(missing),
+        )
 
     result = await import_reports(
         archive,
@@ -177,6 +204,9 @@ async def sync_builtin_reports(
             declared_verified=True,
             build_cases=True,
             index=True,
+            # 一线运维沉淀的真实报告，字段不全都属于可接受的采集差异：
+            # 放行后缺失项会写进案例的适用范围，不静默丢弃。
+            allow_incomplete=True,
         ),
     )
     active_ids = [

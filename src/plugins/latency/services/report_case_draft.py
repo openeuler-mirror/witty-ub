@@ -29,6 +29,11 @@ class CaseDraftPreview:
         return not self.missing_fields
 
 
+def _merge_scope_limits(existing: Any, note: str) -> str:
+    current = _text(existing)
+    return f"{current}；{note}" if current else note
+
+
 def _text(value: Any) -> str | None:
     if value is None:
         return None
@@ -450,6 +455,16 @@ def build_draft_from_fault(
         missing.append("label_invalid")
     if labels["status"] == "unavailable":
         missing.append("label_taxonomy_unavailable")
+
+    # 字段不全的案例要能一眼看出「摘要为派生、结论需回看原报告」，
+    # 否则与字段齐全的案例混在一起，读者无法分辨证据链是否完整。
+    if missing:
+        draft["scope_limits"] = _merge_scope_limits(
+            draft.get("scope_limits"),
+            "来源报告字段不完整（缺 "
+            + "、".join(missing)
+            + "）；摘要由报告其余内容派生，关键结论请回看来源定界文档。",
+        )
 
     return CaseDraftPreview(
         report_id=report_id,

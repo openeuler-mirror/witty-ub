@@ -16,6 +16,7 @@ from latency.schemas.diag_case_library import CreateDiagCaseDraftMsg
 from latency.services import report_import as import_module
 from latency.services.diag_case_library import DiagCaseLibraryService
 from latency.services.report_import import (
+    CASE_CONFIRMED,
     CASE_DRAFT,
     CASE_SKIPPED,
     STATUS_DUPLICATE,
@@ -29,6 +30,10 @@ from latency.services.report_import import (
     import_reports,
 )
 from latency.services.report_review import ReportReviewService
+
+
+async def _none(*_args, **_kwargs):
+    return None
 
 
 def _fault(fault_id: str = "F01", **overrides):
@@ -129,7 +134,7 @@ def report_env(tmp_path, monkeypatch, fake_batch):
     root.mkdir()
     monkeypatch.setattr(import_module, "report_root", lambda: root)
 
-    def render(payload, out_html):
+    def render(payload, out_html, **_kwargs):
         out_html.parent.mkdir(parents=True, exist_ok=True)
         out_html.write_text("<html>rendered</html>", encoding="utf-8")
 
@@ -369,7 +374,7 @@ async def test_render_failure_leaves_no_report_files(report_env, monkeypatch):
     source = root.parent / "one.json"
     source.write_text(json.dumps(_payload()), encoding="utf-8")
 
-    def fail_render(payload, out_html):
+    def fail_render(payload, out_html, **_kwargs):
         raise ImportRenderError("renderer_rejected", "missing statistics")
 
     monkeypatch.setattr(import_module, "_render_report_html", fail_render)
@@ -388,3 +393,82 @@ def test_collect_json_entries_reads_single_json(tmp_path):
     entries = collect_json_entries(source)
     assert entries[0].name == "one.json"
     assert entries[0].data == b'{"report": {}}'
+
+
+
+
+async def test_render_rejection_still_fails_by_default(report_env, monkeypatch):
+    """默认严格：渲染校验不通过就不落盘。"""
+    root, _upserts, _confirms, _batch = report_env
+    source = root.parent / "one.json"
+    source.write_text(json.dumps(_payload()), encoding="utf-8")
+
+    def reject(payload, out_html, *, allow_incomplete=False):
+        assert allow_incomplete is False
+        raise ImportRenderError(
+            "renderer_rejected", "faults[0].error: breakdowns 须为非空数组"
+        )
+
+    monkeypatch.setattr(import_module, "_render_report_html", reject)
+
+    result = await import_reports(
+        source, ImportOptions(operator="importer", index=False)
+    )
+    item = result.items[0]
+    assert item.status == STATUS_FAILED
+    assert item.error.startswith("renderer_rejected")
+
+
+async def test_allow_incomplete_renders_rejected_report_and_builds_case(
+    report_env, monkeypatch
+):
+    """放行后：校验失败的报告照样落盘，并建出案例；缺的字段要能被看到。"""
+    root, _upserts, _confirms, _batch = report_env
+    seen: list[bool] = []
+
+    def render(payload, out_html, *, allow_incomplete=False):
+        seen.append(allow_incomplete)
+        out_html.parent.mkdir(parents=True, exist_ok=True)
+        out_html.write_text("<html>rendered</html>", encoding="utf-8")
+
+    monkeypatch.setattr(import_module, "_render_report_html", render)
+    calls: list[tuple] = []
+
+    async def verify(report_id, fault_id, content_hash, operator, *args, **kwargs):
+        calls.append((report_id, fault_id))
+        return SimpleNamespace(case=SimpleNamespace(id="case-1", case_no="UB-CASE-000001"))
+
+    monkeypatch.setattr(
+        import_module.DiagCaseLibraryService, "verify_report_fault", verify
+    )
+    monkeypatch.setattr(
+        import_module.DiagCaseLibraryPGManager,"find_active_bound_case", _none
+    )
+
+    # 缺 evidence / remediation：这两项才是真正会进 missing_fields 的，
+    # 摘要字段有标题兜底不会缺。
+    fault = _fault()
+    fault.pop("evidence_traces", None)
+    fault.pop("solution", None)
+    source = root.parent / "one.json"
+    source.write_text(json.dumps(_payload([fault])), encoding="utf-8")
+
+    result = await import_reports(
+        source,
+        ImportOptions(
+            operator="importer",
+            declared_verified=True,
+            build_cases=True,
+            index=False,
+            allow_incomplete=True,
+        ),
+    )
+
+    item = result.items[0]
+    assert item.status == STATUS_IMPORTED
+    assert seen == [True], "放行时必须把开关传给渲染器"
+    assert len(calls) == 1
+    assert item.cases[0].status == CASE_CONFIRMED
+    degraded = result.degraded_summary()
+    assert degraded["case_count"] == 1
+    assert set(degraded["cases"][0]["missing_fields"]) >= {"evidence_json"}

@@ -115,6 +115,27 @@ bash deploy/host/import_builtin_reports.sh --force  # 重新导入
 更换压缩包后重跑该脚本即会重新导入，并被新版本替换的旧报告会自动归档案例、移除文件。
 `deploy.sh` 启动后端后会自动调用该脚本；`WITTY_BUILTIN_REPORTS=0` 可关闭。
 
+#### 字段不完整的报告
+
+导入默认**放行不完整数据**：一线采集的报告常有时间格式、`source`、`error.breakdowns`
+等字段缺失，这些差异不应阻止入库。放行后：
+
+- 渲染校验不通过的报告仍会生成 HTML，缺失的区块按模板默认空白呈现，涉及
+  `error.breakdowns` 的报告会少掉错误码分布表与分页完整性说明。
+- 缺建案字段（如 `evidence_json`、`remediation_json`）的结论仍建案，缺项写进案例的
+  「不适用场景」（`scope_limits`），提示摘要为派生值、关键结论需回看原报告。
+- 渲染期的校验问题落在报告旁注 `{report_id}.import.json`，导入结果的
+  `degraded.reports` / `degraded.cases` 也会逐条列出，便于事后核对哪些报告是降级导入的。
+
+需要恢复严格模式（校验不过即拒绝）时用 `--strict`：
+
+```bash
+python -m latency.access.report_import_cli reports.zip --operator <name> --declared-verified --strict
+```
+
+> 降级导入不等于数据正确：这些报告的结论可用于线索比对，但复现前应回看原始报告，
+> 不要把它当作证据完整的定界结论。
+
 ### 启用语义检索与现象索引（RAG）
 
 现象检索依赖 RAG（openGauss + RAG Core）。源码部署用 Podman/Docker 起这两个容器，

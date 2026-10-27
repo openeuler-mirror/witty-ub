@@ -658,6 +658,9 @@ def main(argv=None) -> int:
     parser.add_argument("--spec", nargs="?", const="all", default=None, metavar="SECTION",
                         help="打印紧凑字段清单（top|basic_info|statistics|... 或 all）后退出")
     parser.add_argument("--template", default=str(DEFAULT_TEMPLATE), help="模板路径")
+    parser.add_argument("--allow-incomplete", action="store_true",
+                        help="数据校验不通过时仍然渲染（用于字段缺失但来自一线的真实数据）；"
+                             "校验问题改为提示输出，缺的区块按模板默认空白处理")
     args = parser.parse_args(argv)
 
     if args.spec is not None:
@@ -667,11 +670,28 @@ def main(argv=None) -> int:
     if args.validate_only and args.out:
         print("✘ --validate-only 不接受输出 HTML 路径", file=sys.stderr)
         return 2
+    if args.validate_only and args.allow_incomplete:
+        print("✘ --validate-only 不接受 --allow-incomplete（校验口径必须严格）", file=sys.stderr)
+        return 2
 
     data_path = Path(args.data)
     try:
         data = load_report_json(data_path)
-        warnings = validate_report_json(data, data_path)
+        if args.allow_incomplete:
+            # 一线数据允许字段不全：契约问题降级为提示，缺失区块按模板默认呈现。
+            errors, warnings = validate(data)
+            if errors:
+                print(
+                    f"⚠ 数据不完整（{len(errors)} 处），按 --allow-incomplete 降级渲染：",
+                    file=sys.stderr,
+                )
+                for line in errors[:6]:
+                    print(f"  - {line}", file=sys.stderr)
+                if len(errors) > 6:
+                    print(f"  ... 另有 {len(errors) - 6} 处", file=sys.stderr)
+            warnings = warnings + [f"数据不完整: {line}" for line in errors]
+        else:
+            warnings = validate_report_json(data, data_path)
     except Fatal as exc:
         return print_fatal(exc)
 
