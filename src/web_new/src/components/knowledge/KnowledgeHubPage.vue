@@ -7,13 +7,10 @@ import PageNav from '../common/PageNav.vue'
 import { useExperience } from '../../composables/useExperience'
 import { formatTime } from '../../utils/format'
 import { renderAgentMarkdown } from '../../utils/agentMarkdown'
-import CaseLibrarySection from './CaseLibrarySection.vue'
-import DiagCaseSection from './DiagCaseSection.vue'
 import AllCasesSection from './AllCasesSection.vue'
 
-// 知识库两个板块：经验与案例库；案例库按来源区分诊断案例与文件案例
-const section = ref<'experience' | 'cases'>('experience')
-const caseSource = ref<'all' | 'diagnosis' | 'legacy'>('all')
+const section = ref<'experience' | 'cases' | 'documents'>('documents')
+const documentFilter = ref<'all' | 'pending'>('all')
 
 const openExperienceSection = (type: 'SKILL' | 'WIKI') => {
   section.value = 'experience'
@@ -89,44 +86,22 @@ const rankedPagedItems = computed(() => {
       </button>
       <button
         type="button"
+        :class="['page-nav-item', { active: section === 'documents' }]"
+        @click="section = 'documents'; documentFilter = 'all'"
+      >
+        定界文档
+      </button>
+      <button
+        type="button"
         :class="['page-nav-item', { active: section === 'cases' }]"
         @click="section = 'cases'"
       >
-        📚 案例库
+        已知案例
       </button>
     </nav>
 
-    <!-- ===== 案例库 ===== -->
-    <template v-if="section === 'cases'">
-      <div class="case-source-bar">
-        <button
-          type="button"
-          class="btn btn-sm"
-          :class="caseSource === 'all' ? 'btn-primary' : 'btn-default'"
-          @click="caseSource = 'all'"
-        >
-          全部来源
-        </button>
-        <button
-          type="button"
-          class="btn btn-sm"
-          :class="caseSource === 'diagnosis' ? 'btn-primary' : 'btn-default'"
-          @click="caseSource = 'diagnosis'"
-        >
-          诊断案例
-        </button>
-        <button
-          type="button"
-          class="btn btn-sm"
-          :class="caseSource === 'legacy' ? 'btn-primary' : 'btn-default'"
-          @click="caseSource = 'legacy'"
-        >
-          文件案例
-        </button>
-      </div>
-      <AllCasesSection v-if="caseSource === 'all'" />
-      <DiagCaseSection v-else-if="caseSource === 'diagnosis'" />
-      <CaseLibrarySection v-else />
+    <template v-if="section !== 'experience'">
+      <AllCasesSection :view="section === 'documents' ? 'documents' : 'library'" :initial-document-filter="documentFilter" @show-pending="section = 'documents'; documentFilter = 'pending'" />
     </template>
 
     <template v-else>

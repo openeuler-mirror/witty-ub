@@ -1,393 +1,184 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import BaseModal from '../common/BaseModal.vue'
-import VerificationForm from './VerificationForm.vue'
 import {
-  confirmDiagnosticReport,
-  createCaseFromReport,
-  diagnosticReportHtmlUrl,
-  fetchDiagnosticReport,
-  previewReportCase,
-  type CreateCaseFromReportResult,
-  type DiagnosticReportDetailResult,
-  type ReportCasePreview,
-  type ReportCaseRef,
-  type ReportFaultSummary,
+  diagnosticReportHtmlUrl, fetchDiagnosticReport, previewReportCase, verifyReportFault,
+  type DiagnosticReportDetailResult, type ReportCasePreview, type ReportFaultSummary,
 } from '../../api/diagnosticReport'
-import type { DiagCaseVerification } from '../../api/diagCaseLibrary'
 import { useDiagCaseDetail } from '../../composables/useDiagCaseDetail'
 import { useOperator } from '../../composables/useOperator'
 import { useReportWorkbench } from '../../composables/useReportWorkbench'
-import { useToast } from '../../composables/useToast'
+import { canVerifyFault, documentClassificationText, documentProgress, formatReportTime, isFaultVerified, verificationInput, verifySelectedFaults, type VerificationOutcome } from '../../utils/caseWorkflow'
 
 const { open, reportId, sourceFaultId, closeReport } = useReportWorkbench()
-const { openCase, caseVersion } = useDiagCaseDetail()
-const { operator, setOperator, requireOperator } = useOperator()
-const { toast } = useToast()
-
+const { openCase, caseVersion, bumpCaseVersion } = useDiagCaseDetail()
+const { operator, setOperator } = useOperator()
 const loading = ref(false)
 const error = ref('')
 const detail = ref<DiagnosticReportDetailResult | null>(null)
-const confirming = ref(false)
-const previewFaultId = ref('')
-const preview = ref<ReportCasePreview | null>(null)
-const previewLoading = ref(false)
-const creating = ref(false)
-const created = ref<CreateCaseFromReportResult | null>(null)
-const verifyingCaseId = ref('')
-const highlightFaultId = ref('')
-
+const observedResult = ref('')
+const saving = ref(false)
+const selected = ref<string[]>([])
+const outcomes = ref<Record<string, VerificationOutcome>>({})
+const previews = ref<Record<string, ReportCasePreview>>({})
+const previewErrors = ref<Record<string, string>>({})
+let loadVersion = 0
 const report = computed(() => detail.value?.report ?? null)
-const faults = computed<ReportFaultSummary[]>(() => report.value?.fault_summaries ?? [])
-const previewDraft = computed(
-  () => (preview.value?.draft ?? {}) as Record<string, unknown>,
-)
-const previewTitle = computed(() => String(previewDraft.value.title ?? '—'))
-const previewSymptom = computed(() => String(previewDraft.value.symptom_summary ?? '—'))
-const previewRootCause = computed(() =>
-  String(previewDraft.value.root_cause_summary ?? '—'),
-)
-const previewEvidenceCount = computed(() =>
-  Array.isArray(previewDraft.value.evidence_json)
-    ? previewDraft.value.evidence_json.length
-    : 0,
-)
-const previewRemediationCount = computed(() =>
-  Array.isArray(previewDraft.value.remediation_json)
-    ? previewDraft.value.remediation_json.length
-    : 0,
-)
-const verificationTarget = computed(() => {
-  if (!verifyingCaseId.value || !report.value) return null
-  return (
-    report.value.case_refs.find((item) => item.case_id === verifyingCaseId.value) ?? null
-  )
+const faults = computed(() => report.value?.fault_summaries ?? [])
+const isVerified = (fault: ReportFaultSummary) => isFaultVerified(fault, report.value?.case_refs)
+const selectable = (fault: ReportFaultSummary) => canVerifyFault(fault, report.value?.case_refs)
+const selectableFaults = computed(() => faults.value.filter(selectable))
+const allSelected = computed(() => selectableFaults.value.length > 0 &&
+  selectableFaults.value.every((fault) => selected.value.includes(fault.fault_id!)))
+const classification = (fault: ReportFaultSummary) => documentClassificationText({
+  classifications: [{
+    first_level_label: fault.classification?.first_level_label ?? null,
+    second_level_label: fault.classification?.second_level_label ?? null,
+    status: fault.classification?.status ?? 'unavailable',
+  }],
 })
-
-const REVIEW_META: Record<string, { label: string; cls: string }> = {
-  unconfirmed: { label: '未确认', cls: 'badge-pending' },
-  confirmed: { label: '已确认', cls: 'badge-success' },
-  stale: { label: '确认已过期', cls: 'badge-warning' },
-  unavailable: { label: '当前不可校验', cls: 'badge-failed' },
-}
-const REVIEW_DEFAULT = { label: '未确认', cls: 'badge-pending' }
-const reviewMeta = (status: string) => REVIEW_META[status] ?? REVIEW_DEFAULT
-
-const VERIFICATION_META: Record<string, string> = {
-  verified: '已验证',
-  confirmed_unverified: '已确认未验证',
-  report_only: '仅报告',
-  suspected: '待确认',
-  legacy_unverified: '旧案例未验证',
-}
-const verificationLabel = (value: string) => VERIFICATION_META[value] ?? value
-
-const classificationText = (fault: ReportFaultSummary) => {
-  if (!fault.classification.first_level_label && !fault.classification.second_level_label) {
-    return '未分类'
-  }
-  return [fault.classification.first_level_label, fault.classification.second_level_label]
-    .filter(Boolean)
-    .join(' / ')
-}
-
-const MISSING_LABELS: Record<string, string> = {
-  symptom_summary: '缺少现象摘要',
-  root_cause_summary: '缺少根因摘要',
-  evidence_json: '缺少证据锚点',
-  remediation_json: '缺少处置步骤',
-  matchable_signal: '缺少可匹配信号',
-  label_invalid: '故障分类不合法',
-  label_taxonomy_unavailable: '分类字典不可用',
-}
-const missingLabel = (value: string) => MISSING_LABELS[value] ?? value
-
-const refsFor = (faultId: string | null): ReportCaseRef[] =>
-  report.value?.case_refs.filter((item) => item.source_fault_id === faultId) ?? []
-
-const initialVerification = (refItem: ReportCaseRef): DiagCaseVerification => ({
-  method: refItem.verification_method,
-  observed_result: refItem.observed_result,
-  closed_loop: refItem.closed_loop,
-  verified_by: refItem.verified_by,
-  verified_at: refItem.verified_at,
-})
-
 const load = async () => {
   if (!reportId.value) return
+  const version = ++loadVersion
   loading.value = true
   error.value = ''
   try {
-    detail.value = await fetchDiagnosticReport(reportId.value)
-    highlightFaultId.value = sourceFaultId.value
+    const result = await fetchDiagnosticReport(reportId.value)
+    if (version === loadVersion) {
+      if (report.value?.current_sidecar_hash && report.value.current_sidecar_hash !== result.report.current_sidecar_hash) {
+        previews.value = {}
+        previewErrors.value = {}
+        selected.value = []
+        observedResult.value = ''
+        error.value = '定界文档已更新，请重新核对结论并填写检验结果。'
+      }
+      detail.value = result
+    }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '报告加载失败'
-    detail.value = null
+    if (version === loadVersion) {
+      error.value = err instanceof Error ? err.message : '定界文档加载失败'
+      detail.value = null
+    }
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
-
-watch(
-  () => [open.value, reportId.value],
-  () => {
-    if (!open.value) return
-    created.value = null
-    preview.value = null
-    verifyingCaseId.value = ''
-    void load()
-  },
-  { immediate: true },
-)
-
-// 案例确认、验证回填或详情关闭后，工作台里的关联案例状态同步刷新。
-watch(caseVersion, () => {
-  if (open.value) void load()
-})
-
-const confirmReport = async () => {
-  const reviewer = requireOperator()
-  if (!reviewer) {
-    error.value = '请先填写操作人'
-    return
+watch(() => [open.value, reportId.value], async () => {
+  if (!open.value) { loadVersion += 1; return }
+  selected.value = []
+  outcomes.value = {}
+  previews.value = {}
+  previewErrors.value = {}
+  observedResult.value = ''
+  detail.value = null
+  await load()
+  if (sourceFaultId.value && faults.value.some((fault) => fault.fault_id === sourceFaultId.value && selectable(fault))) {
+    selected.value = [sourceFaultId.value]
   }
-  if (!report.value?.current_sidecar_hash) return
-  confirming.value = true
+}, { immediate: true })
+watch(caseVersion, () => { if (open.value && !saving.value) void load() })
+const toggleAll = () => {
+  selected.value = allSelected.value ? [] : selectableFaults.value.map((fault) => fault.fault_id!)
+}
+const showPreview = async (fault: ReportFaultSummary, event: Event) => {
+  if (!(event.target as HTMLDetailsElement).open || !fault.fault_id || previews.value[fault.fault_id]) return
+  const id = fault.fault_id
+  const currentReport = reportId.value
+  try {
+    const result = await previewReportCase(currentReport, id)
+    if (currentReport === reportId.value) previews.value[id] = result
+  } catch (err) {
+    if (currentReport === reportId.value) previewErrors.value[id] = err instanceof Error ? err.message : '结论加载失败'
+  }
+}
+const submit = async () => {
   error.value = ''
   try {
-    await confirmDiagnosticReport(
-      reportId.value,
-      report.value.current_sidecar_hash,
-      reviewer,
-    )
-    toast('报告已确认', 'success')
+    const body = verificationInput(operator.value, observedResult.value, report.value?.current_sidecar_hash)
+    const ids = selected.value.filter((id) => selectableFaults.value.some((fault) => fault.fault_id === id))
+    if (!ids.length) throw new Error('请选择需要验证的结论')
+    setOperator(operator.value.trim())
+    saving.value = true
+    await verifySelectedFaults(ids, (id) => verifyReportFault(reportId.value, id, body), (outcome) => {
+      outcomes.value = { ...outcomes.value, [outcome.faultId]: outcome }
+      if (outcome.caseId) selected.value = selected.value.filter((id) => id !== outcome.faultId)
+    })
     await load()
+    bumpCaseVersion()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '报告确认失败'
+    error.value = err instanceof Error ? err.message : '验证失败'
   } finally {
-    confirming.value = false
+    saving.value = false
   }
 }
-
-const startPreview = async (fault: ReportFaultSummary) => {
-  if (!fault.fault_id) return
-  previewLoading.value = true
-  error.value = ''
-  created.value = null
-  try {
-    preview.value = await previewReportCase(reportId.value, fault.fault_id)
-    previewFaultId.value = fault.fault_id
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : '建案预览失败'
-  } finally {
-    previewLoading.value = false
-  }
-}
-
-const createDraft = async () => {
-  if (!preview.value) return
-  const reviewer = requireOperator()
-  if (!reviewer) {
-    error.value = '请先填写操作人'
-    return
-  }
-  creating.value = true
-  error.value = ''
-  try {
-    created.value = await createCaseFromReport(
-      preview.value.report_id,
-      preview.value.source_fault_id,
-      preview.value.expected_sidecar_hash,
-      reviewer,
-    )
-    preview.value = null
-    toast('案例草稿已生成', 'success')
-    await load()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : '案例草稿生成失败'
-  } finally {
-    creating.value = false
-  }
-}
-
-const toggleVerification = (caseId: string) => {
-  verifyingCaseId.value = verifyingCaseId.value === caseId ? '' : caseId
-}
-
+const close = () => { if (!saving.value) closeReport() }
+const showCase = (id: string) => { close(); openCase(id) }
 const openHtml = () => {
   if (report.value) window.open(diagnosticReportHtmlUrl(report.value.report_id), '_blank', 'noopener')
 }
 </script>
 
 <template>
-  <BaseModal :open="open" size="doc" title="报告工作台" @close="closeReport">
-    <div v-if="loading" class="empty">
-      <div class="icon">⏳</div>
-      <div>正在加载报告...</div>
-    </div>
-    <div v-else-if="error" class="error-banner" role="alert">
-      {{ error }}
-      <button class="btn btn-sm btn-default" type="button" @click="load">重试</button>
-    </div>
-    <div v-else-if="report" class="report-workbench">
-      <header class="report-workbench-header">
-        <div>
-          <div class="report-workbench-title">{{ report.title || report.file_name }}</div>
-          <div class="report-workbench-meta">
-            {{ report.kb_name || report.kb_id || '—' }} · {{ report.operation || '—' }} ·
-            {{ report.generated_at || '—' }}
-          </div>
-        </div>
-        <div class="report-workbench-actions">
-          <span class="badge" :class="reviewMeta(report.review_status).cls">
-            {{ reviewMeta(report.review_status).label }}
-          </span>
-          <button class="btn btn-sm btn-default" type="button" @click="openHtml">
-            打开原报告
-          </button>
-        </div>
+  <BaseModal :open="open" size="doc" title="验证定界结论" :close-on-esc="!saving" :close-on-overlay="!saving" @close="close">
+    <div v-if="loading && !report" class="empty">正在加载定界文档…</div>
+    <div v-if="error" class="error-banner" role="alert">{{ error }} <button v-if="!report" class="btn btn-default" @click="load">重试</button></div>
+    <div v-if="report" class="verification-workbench">
+      <header class="workbench-summary">
+        <div><h2>{{ report.title || '未命名定界文档' }}</h2><p>{{ report.kb_name || report.source_name || (report.imported ? '外部导入' : '诊断任务') }} · {{ formatReportTime(report.generated_at) }} · 已验证 {{ documentProgress(report) }}</p></div>
+        <button class="btn btn-default" type="button" @click="openHtml">阅读定界文档</button>
       </header>
-
-      <div class="form-row">
-        <div class="form-group" style="flex: 1">
-          <label class="form-label">操作人</label>
-          <input
-            class="input"
-            :value="operator"
-            placeholder="报告确认/建案/验证操作人"
-            @input="setOperator(($event.target as HTMLInputElement).value)"
-          />
-        </div>
-        <div class="form-group" style="align-self: flex-end">
-          <button
-            class="btn btn-primary"
-            type="button"
-            :disabled="confirming || !report.current_sidecar_hash"
-            @click="confirmReport"
-          >
-            {{ report.review_status === 'confirmed' ? '重新确认当前版本' : '确认整份报告' }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="report.review_status !== 'confirmed'" class="hint-block">
-        报告需要人工确认后才能从故障生成案例；侧车内容变化会使确认自动过期。
-      </div>
-      <div v-if="created" class="success-block">
-        已生成案例草稿 {{ created.case_no || created.case_id }}，请到「诊断案例」中审核确认。
-        <span v-if="created.missing_fields.length">
-          仍缺少：{{ created.missing_fields.map(missingLabel).join('、') }}
-        </span>
-      </div>
-
-      <section class="report-fault-list">
-        <article
-          v-for="(fault, index) in faults"
-          :key="index"
-          class="report-fault-card"
-          :class="{ 'is-highlighted': highlightFaultId && fault.fault_id === highlightFaultId }"
-        >
-          <header class="report-fault-header">
-            <div>
-              <span class="report-fault-id">{{ fault.fault_id || '合成键' }}</span>
-              <span class="report-fault-title">{{ fault.title || '未命名故障' }}</span>
-            </div>
-            <div class="report-fault-badges">
-              <span class="badge">{{ fault.status || 'suspected' }}</span>
-              <span class="badge">{{ fault.category || 'unknown' }}</span>
-              <span
-                class="badge"
-                :class="{
-                  'badge-success': fault.classification.status === 'pair',
-                  'badge-warning':
-                    fault.classification.status === 'first_only' ||
-                    fault.classification.status === 'empty',
-                  'badge-failed':
-                    fault.classification.status === 'invalid' ||
-                    fault.classification.status === 'unavailable',
-                }"
-              >
-                {{ classificationText(fault) }}
-              </span>
-            </div>
-          </header>
-          <div v-if="fault.classification.error" class="form-error">
-            分类异常：{{ fault.classification.error }}
-          </div>
-          <div v-if="!fault.indexable" class="hint-block">
-            {{ fault.excluded ? '该故障已被报告排除，不能建案' : '故障ID不稳定，需补齐稳定 ID 后重新渲染' }}
-          </div>
-
-          <div class="report-fault-cases">
-            <div v-if="refsFor(fault.fault_id).length === 0" class="hint">暂无关联案例</div>
-            <div
-              v-for="item in refsFor(fault.fault_id)"
-              :key="item.case_id"
-              class="report-case-ref"
-            >
-              <button class="btn-text btn" type="button" @click="openCase(item.case_id)">
-                {{ item.case_no || item.case_id }}
-              </button>
-              <span class="badge">{{ item.status }}</span>
-              <span class="badge" :class="{ 'badge-success': item.verification === 'verified' }">
-                {{ verificationLabel(item.verification) }}
-              </span>
-              <span v-if="!item.is_current_version" class="badge badge-warning">来源版本已变化</span>
-              <span v-if="item.closed_loop" class="case-ref-verification">
-                {{ item.verified_by || '—' }} · {{ item.verified_at || '—' }}
-              </span>
-              <button
-                v-if="item.status === 'confirmed' && item.is_current_version"
-                class="btn btn-sm btn-default"
-                type="button"
-                @click="toggleVerification(item.case_id)"
-              >
-                {{ verifyingCaseId === item.case_id ? '收起验证' : '回填验证' }}
-              </button>
-            </div>
-            <VerificationForm
-              v-if="verificationTarget && verificationTarget.source_fault_id === fault.fault_id"
-              :case-id="verificationTarget.case_id"
-              :revision="verificationTarget.revision"
-              :initial="initialVerification(verificationTarget)"
-              @saved="load"
-            />
-          </div>
-
-          <div class="report-fault-actions">
-            <button
-              v-if="fault.indexable && fault.fault_id"
-              class="btn btn-sm btn-primary"
-              type="button"
-              :disabled="report.review_status !== 'confirmed' || previewLoading"
-              @click="startPreview(fault)"
-            >
-              生成案例草稿
-            </button>
-          </div>
-        </article>
+      <section v-if="report.case_refs?.length" class="workbench-note" aria-label="关联案例">
+        <h3>关联案例</h3>
+        <ul><li v-for="item in report.case_refs" :key="`${item.case_id}:${item.revision}`"><button class="btn btn-text" type="button" :disabled="saving" @click="showCase(item.case_id)">{{ item.case_no || item.case_id }}</button> · {{ item.source_fault_id || '未绑定结论' }} · {{ !item.is_current_version ? '历史版本' : item.status === 'confirmed' && item.closed_loop ? '有效案例' : item.status === 'draft' ? '关联草稿' : '历史记录' }}</li></ul>
       </section>
-
-      <section v-if="preview" class="report-case-preview">
-        <h4>建案预览：{{ preview.source_fault_id }}</h4>
-        <div class="case-detail-grid">
-          <div><span>标题</span>{{ previewTitle }}</div>
-          <div><span>现象</span>{{ previewSymptom }}</div>
-          <div><span>根因</span>{{ previewRootCause }}</div>
-          <div><span>分类</span>{{ preview.classification.first_level_label || '未分类' }} / {{ preview.classification.second_level_label || '—' }}</div>
-          <div><span>证据</span>{{ previewEvidenceCount }} 条</div>
-          <div><span>处置</span>{{ previewRemediationCount }} 步</div>
+      <label v-if="selectableFaults.length" class="select-all"><input type="checkbox" :checked="allSelected" :disabled="saving" @change="toggleAll" />全选待验证结论</label>
+      <p v-if="!faults.length" class="empty">文档暂无可验证结论，请阅读原文核对材料。</p>
+      <article v-for="(fault, index) in faults" :key="fault.fault_id || `fault:${index}`" class="fault-card" :class="{ highlighted: fault.fault_id === sourceFaultId }">
+        <div class="fault-heading">
+          <label><input v-if="selectable(fault)" v-model="selected" type="checkbox" :value="fault.fault_id" :disabled="saving" /><strong>{{ fault.title || `结论 ${index + 1}` }}</strong></label>
+          <span class="badge" :class="{ 'badge-success': isVerified(fault) }">{{ isVerified(fault) || outcomes[fault.fault_id || '']?.caseId ? '已验证' : fault.synthetic || fault.excluded || !fault.fault_id ? '仅供参考' : '待验证' }}</span>
         </div>
-        <div v-if="preview.missing_fields.length" class="form-error">
-          确认前仍缺少：{{ preview.missing_fields.map(missingLabel).join('、') }}
-        </div>
-        <div class="report-fault-actions">
-          <button class="btn btn-default" type="button" @click="preview = null">取消</button>
-          <button class="btn btn-primary" type="button" :disabled="creating" @click="createDraft">
-            {{ creating ? '生成中...' : '生成案例草稿' }}
-          </button>
-        </div>
-      </section>
+        <p class="classification">{{ classification(fault) }}</p>
+        <details v-if="fault.fault_id && !fault.synthetic" @toggle="showPreview(fault, $event)">
+          <summary>查看结论与处置</summary>
+          <p v-if="previewErrors[fault.fault_id]" class="error-banner">{{ previewErrors[fault.fault_id] }}</p>
+          <template v-else-if="previews[fault.fault_id]">
+            <p>{{ previews[fault.fault_id]?.draft.symptom_summary || '暂无现象摘要' }}</p>
+            <p>{{ previews[fault.fault_id]?.draft.root_cause_summary || '暂无根因摘要' }}</p>
+            <ol><li v-for="(step, stepIndex) in (previews[fault.fault_id]?.draft.remediation_json as Array<Record<string, unknown>> ?? [])" :key="stepIndex">{{ step.action }}</li></ol>
+          </template>
+          <p v-else>正在加载…</p>
+        </details>
+        <p v-if="outcomes[fault.fault_id || '']?.error" class="error-banner" role="alert">验证未完成：{{ outcomes[fault.fault_id || '']?.error }}</p>
+        <p v-if="outcomes[fault.fault_id || '']?.caseId" class="verification-success" role="status">已形成有效案例 <button class="btn btn-text" :disabled="saving" @click="showCase(outcomes[fault.fault_id || '']!.caseId!)">查看案例</button></p>
+      </article>
+      <form v-if="selectableFaults.length" class="verification-form" @submit.prevent="submit">
+        <label>操作人<input :value="operator" class="input" autocomplete="name" :disabled="saving" @input="setOperator(($event.target as HTMLInputElement).value)" /></label>
+        <label>定界结论检验结果<textarea v-model="observedResult" class="input" rows="4" :disabled="saving" placeholder="记录原始日志、证据与定界结论的核对结果；所选结论均适用时可批量提交。" /></label>
+        <p v-if="!report.current_sidecar_hash" class="error-banner">文档版本暂不可校验，请重新加载后验证。</p>
+        <div class="submit-row"><span>已选择 {{ selected.length }} 条结论</span><button class="btn btn-primary" type="submit" :disabled="saving || !selected.length || !report.current_sidecar_hash">{{ saving ? '正在逐条检验…' : '检验通过并形成有效案例' }}</button></div>
+      </form>
+      <p v-else-if="faults.length" class="workbench-note">当前可验证结论已处理，可继续阅读文档或查看关联案例。</p>
     </div>
   </BaseModal>
 </template>
+
+<style scoped>
+.workbench-summary { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
+.workbench-summary h2 { margin: 0 0 8px; font-size: 20px; }
+.workbench-summary p, .classification, .workbench-note { color: var(--text2); line-height: 1.7; }
+.workbench-summary p { margin: 0; }
+.select-all, .fault-heading label { display: flex; gap: 10px; align-items: center; }
+.select-all { margin: 20px 0 14px; }
+.fault-card { border: 1px solid var(--border); border-radius: 8px; padding: 18px; margin-bottom: 14px; }
+.fault-card.highlighted { border-color: #93b4ee; }
+.fault-heading { display: flex; justify-content: space-between; gap: 18px; }
+.classification { margin: 8px 0; font-size: 12px; }
+summary { cursor: pointer; color: var(--text2); }
+.verification-form { display: grid; gap: 18px; border-top: 1px solid var(--border); margin-top: 24px; padding-top: 24px; }
+.verification-form label { display: grid; gap: 8px; font-weight: 500; }
+.verification-form input { max-width: 320px; }
+.verification-form textarea { width: 100%; min-height: 110px; height: auto; box-sizing: border-box; font: inherit; resize: vertical; }
+.submit-row { display: flex; justify-content: space-between; gap: 20px; align-items: center; }
+.verification-success { color: #15803d; }
+</style>
