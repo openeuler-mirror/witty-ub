@@ -6,8 +6,10 @@ import {
   type DiagCaseSearchResult, type LabelTaxonomy, type ReportItem,
 } from '../api/diagCase'
 import {
-  belongsToScope, caseOrigin, collectPages, documentProgress, filterDocuments, legacyCaseOrigin,
-  formatReportTime, submitReportImport, validDocumentClassifications,
+  belongsToScope, caseOrigin, collectPages, documentProgress, filterDocuments, legacyCaseFacts,
+  legacyCaseOrigin, legacyFaultCategoryLabel, formatReportTime, LEGACY_FAULT_FILTERS, matchesLegacyFault,
+  submitReportImport, validDocumentClassifications,
+  type LegacyFaultFilter,
   loadKnowledgeWorkspace, matchesClassification, matchesKeywords, materialKey, populatedLabels, selectPrimary,
   sourceReportLabel, UNCLASSIFIED, type DocumentFilter, type KnowledgeView, type ImportBatch, type ImportMode, type ImportOptions,
 } from '../utils/caseWorkflow'
@@ -17,6 +19,7 @@ type LegacyCase = {
   description?: string; attachment_path?: string; created_at?: string
   source_kind?: 'task' | 'historical'; effective?: boolean
   log_file_id?: string; log_file_name?: string; task_ids?: string[]; task_names?: string[]
+  fault_category?: string | null
   features?: Record<string, unknown>
 }
 const PAGE_SIZE = 50
@@ -95,8 +98,13 @@ const filteredReports = computed(() => filterDocuments(reports.value, documentFi
   ])))
 const reportPages = computed(() => Math.max(1, Math.ceil(filteredReports.value.length / PAGE_SIZE)))
 const pagedReports = computed(() => filteredReports.value.slice((reportPage.value - 1) * PAGE_SIZE, reportPage.value * PAGE_SIZE))
-const filteredLegacy = computed(() => legacyCases.value.filter((item) =>
+const legacyFaultFilter = ref<LegacyFaultFilter>('')
+const legacySearched = computed(() => legacyCases.value.filter((item) =>
   matchesKeywords(query.value, [item.id, item.root_cause_type, item.description, item.log_file_name])))
+const filteredLegacy = computed(() => legacySearched.value.filter((item) =>
+  matchesLegacyFault(item, legacyFaultFilter.value)))
+const legacyFaultCount = (filter: LegacyFaultFilter) =>
+  legacySearched.value.filter((item) => matchesLegacyFault(item, filter)).length
 const legacyPages = computed(() => Math.max(1, Math.ceil(filteredLegacy.value.length / PAGE_SIZE)))
 const pagedLegacy = computed(() => filteredLegacy.value.slice((legacyPage.value - 1) * PAGE_SIZE, legacyPage.value * PAGE_SIZE))
 const outcomeLabels: Record<string, string> = {
@@ -227,6 +235,7 @@ watch(() => props.view, (view) => {
   void load()
 })
 watch(query, () => { reportPage.value = 1; legacyPage.value = 1; selection.value = { ...selection.value, page: 1 } })
+watch(legacyFaultFilter, () => { legacyPage.value = 1 })
 watch(documentFilter, () => { reportPage.value = 1; selection.value = { ...selection.value, second: '', page: 1 } })
 watch(() => props.initialDocumentFilter, (value) => { documentFilter.value = value ?? 'all' })
 watch(() => props.refreshToken, () => void load())
@@ -365,16 +374,29 @@ watch(() => props.refreshToken, () => void load())
 
       <section v-if="view === 'library'" class="workspace-section historical-material">
         <h3>任务与文件案例 · {{ filteredLegacy.length }} 条</h3>
-        <table v-if="pagedLegacy.length" class="task-table">
-          <thead><tr><th>案例</th><th>来源</th><th>附件</th></tr></thead>
-          <tbody><tr v-for="item in pagedLegacy" :key="materialKey('legacy', item.id)">
-            <td><details><summary>{{ item.root_cause_type || '任务案例' }}</summary><p>{{ item.description || '暂无描述' }}</p><p v-if="item.log_file_name || item.log_file_id">日志：{{ item.log_file_name || item.log_file_id }}</p><p v-if="item.task_names?.length || item.task_ids?.length">任务：{{ (item.task_names?.length ? item.task_names : item.task_ids)?.join('、') }}</p><pre v-if="item.features">{{ JSON.stringify(item.features, null, 2) }}</pre></details></td>
-            <td>{{ legacyCaseOrigin(item) }}</td>
-            <td><a v-if="item.attachment_path" :href="`${apiBase}/case_library/attachment/${encodeURIComponent(item.id)}`" target="_blank" rel="noopener noreferrer">查看附件</a><span v-else>—</span></td>
-          </tr></tbody>
-        </table>
-        <div v-if="legacyPages > 1" class="workspace-pagination"><button class="ghost-btn" :disabled="legacyPage <= 1" @click="legacyPage--">上一页</button><span>{{ legacyPage }} / {{ legacyPages }}</span><button class="ghost-btn" :disabled="legacyPage >= legacyPages" @click="legacyPage++">下一页</button></div>
+        <nav class="classification-tabs" aria-label="历史案例故障类型">
+          <button v-for="option in LEGACY_FAULT_FILTERS" :key="option.value" type="button" :class="{ active: legacyFaultFilter === option.value }" :aria-pressed="legacyFaultFilter === option.value" @click="legacyFaultFilter = option.value">{{ option.label }} <span>{{ legacyFaultCount(option.value) }}</span></button>
+        </nav>
         <p v-if="!pagedLegacy.length" class="state-text">{{ query ? '没有匹配的任务与文件案例' : '暂无任务与文件案例' }}</p>
+        <ul v-else class="legacy-card-list">
+          <li v-for="item in pagedLegacy" :key="materialKey('legacy', item.id)" class="legacy-card">
+            <header class="legacy-card-head">
+              <span class="legacy-badge legacy-badge-cause">{{ item.root_cause_type || '未命名根因' }}</span>
+              <span v-if="item.case_category" class="legacy-badge">{{ item.case_category }}</span>
+              <span v-if="legacyFaultCategoryLabel(item)" class="legacy-badge legacy-badge-fault">{{ legacyFaultCategoryLabel(item) }}</span>
+              <span class="legacy-badge legacy-badge-origin">{{ legacyCaseOrigin(item) }}</span>
+              <time v-if="item.created_at" class="legacy-time">{{ formatReportTime(item.created_at) }}</time>
+              <a v-if="item.attachment_path" class="table-link-btn legacy-attachment" :href="`${apiBase}/case_library/attachment/${encodeURIComponent(item.id)}`" target="_blank" rel="noopener noreferrer">下载附件</a>
+            </header>
+            <dl class="legacy-facts">
+              <template v-for="fact in legacyCaseFacts(item)" :key="fact.label">
+                <dt>{{ fact.label }}</dt>
+                <dd>{{ fact.value }}</dd>
+              </template>
+            </dl>
+          </li>
+        </ul>
+        <div v-if="legacyPages > 1" class="workspace-pagination"><button class="ghost-btn" :disabled="legacyPage <= 1" @click="legacyPage--">上一页</button><span>{{ legacyPage }} / {{ legacyPages }}</span><button class="ghost-btn" :disabled="legacyPage >= legacyPages" @click="legacyPage++">下一页</button></div>
       </section>
     </template>
   </div>
@@ -382,7 +404,19 @@ watch(() => props.refreshToken, () => void load())
 
 <style scoped>
 .case-workspace { display: grid; gap: 24px; }
-.historical-material pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 40rem; }
+.historical-material { display: grid; gap: 12px; }
+.legacy-card-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.legacy-card { display: grid; gap: 12px; padding: 16px 18px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
+.legacy-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.legacy-badge { padding: 2px 9px; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 12px; line-height: 20px; white-space: nowrap; }
+.legacy-badge-cause { background: #eaf2ff; color: #1d4ed8; font-weight: 600; }
+.legacy-badge-fault { background: #fff4e5; color: #b45309; }
+.legacy-badge-origin { background: #f1f5f9; color: #64748b; }
+.legacy-time { margin-left: auto; color: #94a3b8; font-size: 12px; }
+.legacy-attachment { flex: 0 0 auto; font-size: 12px; }
+.legacy-facts { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 6px 12px; margin: 0; font-size: 13px; line-height: 1.6; }
+.legacy-facts dt { color: #64748b; }
+.legacy-facts dd { margin: 0; overflow-wrap: anywhere; }
 .workspace-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
 .workspace-header h2 { margin: 0 0 8px; font-size: 20px; }
 .workspace-header p, .case-summary { margin: 0; color: #64748b; line-height: 1.6; }

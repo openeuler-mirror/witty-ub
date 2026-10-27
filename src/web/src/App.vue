@@ -2797,7 +2797,7 @@ watch(selectedAssetId, (nextAssetId, previousAssetId) => {
 const activePage = ref<'asset' | 'abnormal' | 'knowledge' | 'reports' | 'diag-cases'>('asset')
 type MonitorSection = 'latency' | 'fault' | 'brpc' | 'brpc-fault' | 'similarity'
 type MonitorProduct = 'KVCache' | 'UBSocket'
-type KnowledgeSection = 'skill' | 'wiki' | 'case'
+type KnowledgeSection = 'skill' | 'wiki'
 const activeMonitorSection = ref<MonitorSection>('latency')
 const activeKnowledgeSection = ref<KnowledgeSection>('skill')
 
@@ -4489,42 +4489,7 @@ const caseDialog = reactive({
   typeMode: 'existing' as 'existing' | 'new',
 })
 
-const caseLibrary = ref<{
-  id: string
-  kb_id: string
-  root_cause_type: string
-  description: string
-  task_ids: string[]
-  task_names: string[]
-  attachment_path: string | null
-  log_file_id: string
-  log_file_name: string
-  fault_category: string
-  case_category?: string
-  features?: {
-    latency?: {
-      timeout_segments?: string[]
-      p99_p50_ratio?: number
-      pod_concentration?: string
-    }
-    connectivity?: {
-      failure_mode_dist?: Record<string, number>
-      spatial_pod?: { scope?: string }
-      spatial_host?: { scope?: string }
-    }
-    summary?: {
-      anomalous_event_count?: number
-      failure_event_count?: number
-      total_parse_result_count?: number
-    }
-  }
-  created_at: string
-}[]>([])
 
-const caseLibraryActiveTab = ref('')
-const caseLibraryLoading = ref(false)
-const caseLibraryError = ref('')
-const caseFilterText = ref('')
 const caseCategories = ref<{
   id: string
   name: string
@@ -4532,12 +4497,6 @@ const caseCategories = ref<{
   case_count: number
   types: { id: string; name: string; description: string; case_count: number }[]
 }[]>([])
-const caseSidebarExpanded = ref<Set<string>>(new Set())
-const caseEditingCategory = ref<{ id: string; name: string; description: string } | null>(null)
-const caseEditingType = ref<{ id: string; name: string; description: string } | null>(null)
-const editingCaseId = ref('')
-const editCaseCategory = ref('')
-const editCaseType = ref('')
 
 // 对话框中：根据已选大类联动出可用的故障类型列表
 const availableCaseTypes = computed(() => {
@@ -4546,39 +4505,9 @@ const availableCaseTypes = computed(() => {
   return cat?.types ?? []
 })
 
-const editCaseAvailableTypes = computed(() => {
-  if (!editCaseCategory.value) return []
-  const cat = caseCategories.value.find((c) => c.name === editCaseCategory.value)
-  return cat?.types ?? []
-})
 
-const startEditCase = (c: { id: string; case_category?: string; root_cause_type: string }) => {
-  editingCaseId.value = c.id
-  editCaseCategory.value = c.case_category || ''
-  editCaseType.value = c.root_cause_type || ''
-}
 
-const cancelEditCase = () => {
-  editingCaseId.value = ''
-}
 
-const saveEditCase = async (c: { id: string; case_category?: string; root_cause_type: string }) => {
-  try {
-    await request(`/case_library/${encodeURIComponent(c.id)}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        case_category: editCaseCategory.value || undefined,
-        root_cause_type: editCaseType.value || undefined,
-      }),
-    })
-    c.case_category = editCaseCategory.value
-    c.root_cause_type = editCaseType.value
-    editingCaseId.value = ''
-    await loadCaseLibrary()
-  } catch (e: any) {
-    alert(e?.message || '更新失败')
-  }
-}
 
 // 切换大类时清空已选故障类型，避免出现不匹配的脏数据
 watch(
@@ -14719,7 +14648,6 @@ const saveCaseDialog = async () => {
       throw new Error(`创建案例失败: ${response.statusText}`)
     }
     caseDialog.open = false
-    await loadCaseLibrary()
   } catch (error) {
     caseDialog.error = error instanceof Error ? error.message : '创建案例失败'
   } finally {
@@ -14727,35 +14655,6 @@ const saveCaseDialog = async () => {
   }
 }
 
-const loadCaseLibrary = async () => {
-  caseLibraryLoading.value = true
-  caseLibraryError.value = ''
-  try {
-    const [data, cats] = await Promise.all([
-      request<typeof caseLibrary.value[number][]>('/case_library/list'),
-      request<typeof caseCategories.value>('/case_library/categories'),
-    ])
-    caseLibrary.value = data
-    caseCategories.value = cats
-    // 验证当前选中项是否仍然有效
-    const validTabs = ['__all__']
-    for (const cat of cats) {
-      validTabs.push(`__cat__:${cat.id}`)
-      for (const t of cat.types) {
-        validTabs.push(t.name)
-      }
-    }
-    if (!validTabs.includes(caseLibraryActiveTab.value)) {
-      caseLibraryActiveTab.value = '__all__'
-    }
-  } catch (error) {
-    caseLibraryError.value = error instanceof Error ? error.message : '加载失败'
-    caseLibrary.value = []
-    caseCategories.value = []
-  } finally {
-    caseLibraryLoading.value = false
-  }
-}
 
 const loadCategories = async () => {
   try {
@@ -14798,162 +14697,22 @@ const updateTypeApi = async (typeId: string, name: string, description: string) 
   })
 }
 
-const deleteTypeApi = async (typeId: string, recursive: boolean = false) => {
-  const url = '/case_library/types/' + encodeURIComponent(typeId) + (recursive ? '?recursive=true' : '')
-  await request(url, { method: 'DELETE' })
-}
 
-const deleteCase = async (caseId: string) => {
-  try {
-    await request(`/case_library/${caseId}`, { method: 'DELETE' })
-    await loadCaseLibrary()
-  } catch {
-    /* ignore */
-  }
-}
 
-const deleteCaseType = async (rootCauseType: string) => {
-  try {
-    await request(`/case_library/type/${encodeURIComponent(rootCauseType)}`, { method: 'DELETE' })
-    await loadCaseLibrary()
-  } catch {
-    /* ignore */
-  }
-}
 
-const caseLibraryTypes = computed(() => {
-  const map = new Map<string, number>()
-  for (const c of caseLibrary.value) {
-    map.set(c.root_cause_type, (map.get(c.root_cause_type) || 0) + 1)
-  }
-  return [...map.entries()]
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count)
-})
 
-const filteredCaseCategories = computed(() => {
-  const keyword = caseFilterText.value.trim().toLowerCase()
-  if (!keyword) return caseCategories.value
-  return caseCategories.value
-    .map((cat) => {
-      const catMatch = cat.name.toLowerCase().includes(keyword)
-      const matchedTypes = cat.types.filter((t) => t.name.toLowerCase().includes(keyword))
-      if (catMatch || matchedTypes.length > 0) {
-        return { ...cat, types: catMatch ? cat.types : matchedTypes }
-      }
-      return null
-    })
-    .filter((c): c is typeof caseCategories.value[number] => c !== null)
-})
 
-const filteredCaseList = computed(() => {
-  const tab = caseLibraryActiveTab.value
-  if (tab === '__all__' || !tab) return caseLibrary.value
-  if (tab.startsWith('__cat__:')) {
-    const catId = tab.slice('__cat__:'.length)
-    const cat = caseCategories.value.find((c) => c.id === catId)
-    if (!cat) return []
-    const typeNames = new Set(cat.types.map((t) => t.name))
-    return caseLibrary.value.filter((c) => typeNames.has(c.root_cause_type))
-  }
-  return caseLibrary.value.filter((c) => c.root_cause_type === tab)
-})
 
-const toggleCategoryExpand = (categoryId: string) => {
-  const next = new Set(caseSidebarExpanded.value)
-  if (next.has(categoryId)) {
-    next.delete(categoryId)
-  } else {
-    next.add(categoryId)
-  }
-  caseSidebarExpanded.value = next
-}
 
-const selectCategory = (categoryId: string) => {
-  caseLibraryActiveTab.value = `__cat__:${categoryId}`
-}
 
-const selectType = (typeName: string) => {
-  caseLibraryActiveTab.value = typeName
-}
 
-const startEditCategory = (cat: { id: string; name: string; description: string }) => {
-  caseEditingCategory.value = { id: cat.id, name: cat.name, description: cat.description || '' }
-}
 
-const saveEditCategory = async () => {
-  if (!caseEditingCategory.value) return
-  const { id, name, description } = caseEditingCategory.value
-  if (!name.trim()) return
-  try {
-    await updateCategoryApi(id, name.trim(), description.trim())
-    caseEditingCategory.value = null
-    await loadCaseLibrary()
-  } catch {
-    /* ignore */
-  }
-}
 
-const cancelEditCategory = () => {
-  caseEditingCategory.value = null
-}
 
-const handleDeleteCategory = async (categoryId: string, catName?: string) => {
-  const cat = caseCategories.value.find((c) => c.id === categoryId)
-  const name = catName || cat?.name || '该分类'
-  const typeCount = cat?.types.length ?? 0
-  const caseCount = cat?.types.reduce((sum, t) => sum + (t.case_count || 0), 0) ?? 0
-  const msg = typeCount > 0 || caseCount > 0
-    ? `确定要删除故障大类「${name}」吗？\n该大类下有 ${typeCount} 个故障类型、共 ${caseCount} 个案例，将一并递归删除，此操作不可撤销。`
-    : `确定要删除故障大类「${name}」吗？此操作不可撤销。`
-  if (!window.confirm(msg)) return
-  try {
-    await deleteCategoryApi(categoryId, true)
-    caseEditingCategory.value = null
-    await loadCaseLibrary()
-  } catch (e) {
-    alert(e instanceof Error ? e.message : '删除失败')
-  }
-}
 
-const startEditType = (t: { id: string; name: string; description: string }) => {
-  caseEditingType.value = { id: t.id, name: t.name, description: t.description || '' }
-}
 
-const saveEditType = async () => {
-  if (!caseEditingType.value) return
-  const { id, name, description } = caseEditingType.value
-  if (!name.trim()) return
-  try {
-    await updateTypeApi(id, name.trim(), description.trim())
-    caseEditingType.value = null
-    await loadCaseLibrary()
-  } catch {
-    /* ignore */
-  }
-}
 
-const cancelEditType = () => {
-  caseEditingType.value = null
-}
 
-const handleDeleteType = async (typeId: string, typeName?: string) => {
-  const name = typeName || caseEditingType.value?.name || '该类型'
-  const cat = caseCategories.value.find((c) => c.types.some((t) => t.id === typeId))
-  const t = cat?.types.find((t) => t.id === typeId)
-  const caseCount = t?.case_count ?? 0
-  const msg = caseCount > 0
-    ? `确定要删除故障类型「${name}」吗？\n该类型下有 ${caseCount} 个案例，将一并递归删除，此操作不可撤销。`
-    : `确定要删除故障类型「${name}」吗？此操作不可撤销。`
-  if (!window.confirm(msg)) return
-  try {
-    await deleteTypeApi(typeId, true)
-    caseEditingType.value = null
-    await loadCaseLibrary()
-  } catch (e) {
-    alert(e instanceof Error ? e.message : '删除失败')
-  }
-}
 
 const scrollMonitorPageToTop = () => {
   assetDetailRef.value?.scrollTo({
@@ -14965,9 +14724,7 @@ const scrollMonitorPageToTop = () => {
 const openKnowledgePage = async (section: KnowledgeSection = 'skill') => {
   activeKnowledgeSection.value = section
   activePage.value = 'knowledge'
-  if (section === 'case') {
-    await loadCaseLibrary()
-  } else if (section === 'skill' || section === 'wiki') {
+  if (section === 'skill' || section === 'wiki') {
     await loadExperienceList(section)
   }
 }
@@ -15072,7 +14829,7 @@ const saveExperienceAdd = async () => {
       }),
     })
     experienceAddOpen.value = false
-    await loadExperienceList(activeKnowledgeSection.value as 'skill' | 'wiki')
+    await loadExperienceList(activeKnowledgeSection.value)
   } catch (e) {
     experienceAddError.value = e instanceof Error ? e.message : '创建失败'
   } finally {
@@ -15086,7 +14843,7 @@ const deleteExperience = async (item: ExperienceItem) => {
     await request<{ id: string; deleted: boolean }>(`${experienceApiBase}/experiences/${item.id}`, {
       method: 'DELETE',
     })
-    await loadExperienceList(activeKnowledgeSection.value as 'skill' | 'wiki')
+    await loadExperienceList(activeKnowledgeSection.value)
   } catch (e) {
     alert(e instanceof Error ? e.message : '删除失败')
   }
@@ -15968,7 +15725,7 @@ onBeforeUnmount(() => {
 
       <div v-else-if="activePage === 'knowledge'" class="knowledge-page">
         <header class="knowledge-page-header">
-          <h1>{{ activeKnowledgeSection === 'skill' ? 'Skill管理' : activeKnowledgeSection === 'wiki' ? 'Wiki管理' : '案例管理' }}</h1>
+          <h1>{{ activeKnowledgeSection === 'skill' ? 'Skill管理' : 'Wiki管理' }}</h1>
         </header>
         <div class="knowledge-page-content">
           <div v-if="activeKnowledgeSection === 'skill' || activeKnowledgeSection === 'wiki'" class="knowledge-section knowledge-experience-section">
@@ -16025,122 +15782,6 @@ onBeforeUnmount(() => {
               >
                 {{ p }}
               </button>
-            </div>
-          </div>
-          <div v-else class="knowledge-section knowledge-case-section">
-            <div v-if="caseLibraryLoading" class="case-library-empty">加载中...</div>
-            <div v-else-if="caseLibraryError" class="case-library-empty" role="alert">
-              <p>案例加载失败：{{ caseLibraryError }}</p>
-              <button type="button" class="ghost-btn" @click="loadCaseLibrary">重试</button>
-            </div>
-            <div v-else-if="caseLibrary.length > 0 || caseCategories.length > 0" class="case-layout">
-              <aside class="case-sidebar">
-                <div class="case-sidebar-search">
-                  <input v-model="caseFilterText" type="text" placeholder="搜索故障大类/类型..." autocomplete="off" />
-                </div>
-                <div class="case-sidebar-list">
-                  <div
-                    class="case-type-item"
-                    :class="{ active: caseLibraryActiveTab === '__all__' }"
-                    @click="caseLibraryActiveTab = '__all__'"
-                  >
-                    <span class="case-type-name">全部案例</span>
-                    <span class="case-type-count">{{ caseLibrary.length }}</span>
-                  </div>
-                  <div v-for="cat in filteredCaseCategories" :key="cat.id" class="case-cat-group">
-                    <div class="case-cat-header" @click="selectCategory(cat.id)">
-                      <span class="case-cat-toggle" @click.stop="toggleCategoryExpand(cat.id)">{{ caseSidebarExpanded.has(cat.id) ? '▼' : '▶' }}</span>
-                      <span class="case-cat-name" :class="{ active: caseLibraryActiveTab === `__cat__:${cat.id}` }" :title="cat.name">{{ cat.name }}</span>
-                      <span class="case-type-count">{{ cat.case_count }}</span>
-                      <button v-if="cat.id !== '__uncategorized__'" class="case-cat-manage-btn case-cat-edit-btn" type="button" title="编辑分类" @click.stop="startEditCategory(cat)">✎</button>
-                      <button v-if="cat.id !== '__uncategorized__'" class="case-cat-manage-btn case-cat-delete-btn" type="button" title="删除分类（递归删除所有子类型和案例）" @click.stop="handleDeleteCategory(cat.id, cat.name)">🗑</button>
-                    </div>
-                    <div v-if="cat.description && !(caseEditingCategory && caseEditingCategory.id === cat.id)" class="case-cat-desc">{{ cat.description }}</div>
-                    <div v-if="caseEditingCategory && caseEditingCategory.id === cat.id" class="case-edit-form" @click.stop>
-                      <input v-model="caseEditingCategory.name" type="text" placeholder="分类名称" />
-                      <input v-model="caseEditingCategory.description" type="text" placeholder="描述（选填）" />
-                      <div class="case-edit-actions">
-                        <button type="button" class="case-edit-save" @click="saveEditCategory">保存</button>
-                        <button type="button" class="case-edit-cancel" @click="cancelEditCategory">取消</button>
-                      </div>
-                    </div>
-                    <div v-if="caseSidebarExpanded.has(cat.id)" class="case-cat-types">
-                      <div
-                        v-for="t in cat.types"
-                        :key="t.name"
-                        class="case-type-item case-type-child"
-                        :class="{ active: caseLibraryActiveTab === t.name }"
-                        @click="selectType(t.name)"
-                      >
-                        <span class="case-type-name" :title="t.name">{{ t.name }}</span>
-                        <span class="case-type-count">{{ t.case_count }}</span>
-                        <button v-if="cat.id !== '__uncategorized__'" class="case-cat-manage-btn case-cat-edit-btn" type="button" title="编辑类型" @click.stop="startEditType(t)">✎</button>
-                        <button v-if="cat.id !== '__uncategorized__'" class="case-cat-manage-btn case-cat-delete-btn" type="button" title="删除类型（递归删除所有案例）" @click.stop="handleDeleteType(t.id, t.name)">🗑</button>
-                      </div>
-                      <div v-if="caseEditingType && cat.types.some((t) => t.id === caseEditingType?.id)" class="case-edit-form" @click.stop>
-                        <input v-model="caseEditingType.name" type="text" placeholder="类型名称" />
-                        <input v-model="caseEditingType.description" type="text" placeholder="描述（选填）" />
-                        <div class="case-edit-actions">
-                          <button type="button" class="case-edit-save" @click="saveEditType">保存</button>
-                          <button type="button" class="case-edit-cancel" @click="cancelEditType">取消</button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div v-if="filteredCaseCategories.length === 0" class="case-type-empty">无匹配结果</div>
-                </div>
-              </aside>
-              <main class="case-main">
-                <div class="case-main-header">
-                  <h2>{{ caseLibraryActiveTab === '__all__' ? '全部案例' : caseLibraryActiveTab.startsWith('__cat__:') ? (caseCategories.find((c) => c.id === caseLibraryActiveTab.slice(8))?.name || '分类案例') : caseLibraryActiveTab }}</h2>
-                  <span class="case-main-count">共 {{ filteredCaseList.length }} 条</span>
-                </div>
-                <div class="case-main-list">
-                  <div v-for="c in filteredCaseList" :key="c.id" class="case-card" :class="{ 'case-card-editing': editingCaseId === c.id }">
-                    <div class="case-card-header">
-                      <template v-if="editingCaseId === c.id">
-                        <input class="case-edit-input" v-model="editCaseCategory" list="edit-cat-list" placeholder="大类（选择或输入）" @change="editCaseType = ''" />
-                        <datalist id="edit-cat-list">
-                          <option v-for="cat in caseCategories" :key="cat.id" :value="cat.name"></option>
-                        </datalist>
-                        <input class="case-edit-input" v-model="editCaseType" list="edit-type-list" placeholder="小类（选择或输入）" />
-                        <datalist id="edit-type-list">
-                          <option v-for="t in editCaseAvailableTypes" :key="t.id" :value="t.name"></option>
-                        </datalist>
-                        <button class="case-edit-save-btn" type="button" @click="saveEditCase(c)">保存</button>
-                        <button class="case-edit-cancel-btn" type="button" @click="cancelEditCase">取消</button>
-                      </template>
-                      <template v-else>
-                        <span class="case-card-type-badge">{{ c.root_cause_type }}</span>
-                        <span v-if="c.case_category" class="case-card-cat-badge">{{ c.case_category }}</span>
-                        <span v-if="!c.case_category" class="case-card-cat-badge case-card-cat-uncat">未分类</span>
-                        <span v-if="c.fault_category" class="case-card-fault-badge">{{ c.fault_category }}</span>
-                        <span class="case-card-time">{{ c.created_at }}</span>
-                        <a
-                          v-if="c.attachment_path"
-                          :href="getAttachmentUrl(c.id)"
-                          class="case-attachment-btn"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >📎 下载附件</a>
-                        <button class="case-edit-btn" type="button" @click="startEditCase(c)" title="修改分类">✎ 编辑</button>
-                        <button class="case-delete-btn" type="button" @click="deleteCase(c.id)">删除</button>
-                      </template>
-                    </div>
-                    <div class="case-card-body">
-                      <div class="case-card-row" v-if="c.description"><span class="case-card-label">说明：</span><span>{{ c.description }}</span></div>
-                      <div class="case-card-row" v-if="c.features?.latency"><span class="case-card-label">时延特征：</span><span>超时分段: {{ c.features.latency.timeout_segments?.join(', ') || '无' }}；P99/P50: {{ c.features.latency.p99_p50_ratio?.toFixed(1) || '-' }}；Pod集中度: {{ c.features.latency.pod_concentration || '-' }}</span></div>
-                      <div class="case-card-row" v-if="c.features?.connectivity"><span class="case-card-label">通断特征：</span><span>故障模式: {{ Object.keys(c.features.connectivity.failure_mode_dist || {}).join(', ') || '无' }}；Pod范围: {{ c.features.connectivity.spatial_pod?.scope || '-' }}；节点范围: {{ c.features.connectivity.spatial_host?.scope || '-' }}</span></div>
-                      <div class="case-card-row" v-if="c.features?.summary"><span class="case-card-label">统计：</span><span>异常事件 {{ c.features.summary.anomalous_event_count }}，故障事件 {{ c.features.summary.failure_event_count }}，总记录 {{ c.features.summary.total_parse_result_count }}</span></div>
-                      <div class="case-card-row"><span class="case-card-label">关联任务：</span><span>{{ c.task_names?.join(', ') || '无' }}</span></div>
-                    </div>
-                  </div>
-                  <div v-if="filteredCaseList.length === 0" class="case-empty">暂无匹配案例</div>
-                </div>
-              </main>
-            </div>
-            <div v-else class="case-library-empty">
-              <p>暂无案例，请在资产库详情页中添加任务到案例库</p>
             </div>
           </div>
         </div>

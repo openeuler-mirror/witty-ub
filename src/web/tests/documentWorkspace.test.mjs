@@ -49,7 +49,7 @@ const createWorkspace = (api, request = async () => []) => {
       loading, importOpen, importMode, importing, importError, file, serverPath, optionsError, importOptions,
       sourceName, operator, declaredVerified, batch, toggleImport, loadImportOptions, submitImport, outcomeLabel,
       reportPages, reportPage, firstOptions, secondOptions, selection, count, selectFirst, selectSecond,
-      pagedCases, filtered, pages, filteredLegacy, pagedLegacy, legacyPages, legacyPage,
+      pagedCases, filtered, pages, filteredLegacy, pagedLegacy, legacyPages, legacyPage, legacyFaultFilter, legacyFaultCount,
       importDialogOpen, importPanel, closeImport, importKeydown,
     }`)(
     require, {}, () => props, () => () => {}, { getItem: () => '', setItem: () => {} },
@@ -184,14 +184,22 @@ test('已知案例两张表不显示恒定状态列，仍保留已验证筛选�
     { case: { id: 'c1', title: '有效案例标题', symptom_summary: '故障现象', status: 'confirmed', verification_json: { closed_loop: true } } },
     { case: { id: 'c2', title: '待验证案例标题', status: 'draft' } },
   ]
-  state.legacyCases.value = [{ id: 'l1', root_cause_type: '文件案例' }]
+  state.legacyCases.value = [{
+    id: 'l1', root_cause_type: '文件案例', fault_category: 'latency',
+    features: { latency: { timeout_segments: [['total_latency', 1.5]], p99_p50_ratio: 2 } },
+  }]
   const html = await state.render()
   const headers = [...html.matchAll(/<thead><tr>(.*?)<\/tr><\/thead>/g)]
     .map((match) => [...match[1].matchAll(/<th>(.*?)<\/th>/g)].map((item) => item[1]))
-  assert.deepEqual(headers, [['案例', '来源', '更新时间'], ['案例', '来源', '附件']])
+  // 历史案例不再是一张表，而是解析后的卡片；只剩文档案例一张表。
+  assert.deepEqual(headers, [['案例', '来源', '更新时间']])
   assert.match(html, /有效案例标题/)
   assert.match(html, /故障现象/)
   assert.match(html, /文件案例/)
+  // 历史案例必须是解析后的卡片，不能把 features 原样倒出来
+  assert.match(html, /legacy-card/)
+  assert.match(html, /超时分段 total_latency/)
+  assert.doesNotMatch(html, /JSON|<pre>/)
   assert.doesNotMatch(html, /待验证案例标题/)
   assert.doesNotMatch(html, /<th>状态<\/th>/)
 })
@@ -361,4 +369,68 @@ test('文档分类标签来自报告故障，计数按文档去重，筛选与�
   state.selectFirst('存储')
   assert.equal(state.reportPage.value, 1)
   assert.equal(state.selection.value.second, '')
+})
+
+test('历史案例按 features 解析成可读字段，不再倾倒原始 JSON', () => {
+  const item = {
+    id: 'l1',
+    root_cause_type: '远端写入TCP延迟',
+    case_category: '网络/TCP故障',
+    fault_category: 'latency',
+    description: '自动导入: dfx_write_remote_tcp_dalay',
+    log_file_name: 'lingqu_kvcache_dfx_write_remote_tcp_dalay_001',
+    task_names: ['yxh_new/lingqu_kvcache_dfx_write_remote_tcp_dalay_001'],
+    features: {
+      latency: {
+        timeout_segments: [['total_latency', 513.083], ['c2w_latency', 513.043]],
+        p99_p50_ratio: 1,
+        pod_concentration: 'few_pods',
+        affected_pods_count: 2,
+      },
+      connectivity: {
+        failure_mode_dist: { 'K_URMA_WORKER_UNAVAILABLE': 3 },
+        spatial_pod: { scope: 'single' },
+        spatial_host: { scope: 'multi' },
+      },
+      summary: { anomalous_event_count: 2, failure_event_count: 0, total_parse_result_count: 2 },
+    },
+  }
+  const facts = workflow.legacyCaseFacts(item)
+  const byLabel = Object.fromEntries(facts.map((fact) => [fact.label, fact.value]))
+  assert.equal(byLabel['说明'], '自动导入: dfx_write_remote_tcp_dalay')
+  // 超时分段只取名称，不把数值串进来
+  assert.equal(byLabel['时延特征'], '超时分段 total_latency → c2w_latency · P99/P50 1.00 · Pod 集中度 few_pods · 受影响 Pod 2')
+  assert.equal(byLabel['通断特征'], '故障模式 K_URMA_WORKER_UNAVAILABLE · Pod 范围 single · 节点范围 multi')
+  assert.equal(byLabel['统计'], '异常事件 2 · 故障事件 0 · 总记录 2')
+  assert.equal(byLabel['关联任务'], 'yxh_new/lingqu_kvcache_dfx_write_remote_tcp_dalay_001')
+  assert.equal(byLabel['日志'], 'lingqu_kvcache_dfx_write_remote_tcp_dalay_001')
+  assert.equal(workflow.legacyFaultCategoryLabel(item), '时延故障')
+})
+
+test('历史案例：批量导入的数据集没有任务，不能标成任务日志自动生成', () => {
+  // 后端给所有带 log_file_id 的记录都标 source_kind=task，这里必须只认 task_ids
+  assert.equal(
+    workflow.legacyCaseOrigin({ source_kind: 'task', log_file_id: 'log-1', task_ids: [] }),
+    '历史文件案例',
+  )
+  assert.equal(
+    workflow.legacyCaseOrigin({ source_kind: 'task', log_file_id: 'log-1', task_ids: ['t-1'] }),
+    '任务日志自动生成',
+  )
+  assert.deepEqual(workflow.legacyCaseFacts({ features: null }), [])
+})
+
+test('历史案例按时延/通断筛选，mixed 同时计入两侧', () => {
+  const latencyOnly = { id: 'a', root_cause_type: '时延', fault_category: 'latency' }
+  const connectivityOnly = { id: 'b', root_cause_type: '通断', fault_category: 'connectivity' }
+  const both = { id: 'c', root_cause_type: '混合', fault_category: 'mixed' }
+  const unlabeled = { id: 'd', root_cause_type: '未知', fault_category: 'unknown' }
+  const items = [latencyOnly, connectivityOnly, both, unlabeled]
+  const pick = (filter) => items.filter((item) => workflow.matchesLegacyFault(item, filter)).map((item) => item.id)
+
+  assert.deepEqual(pick(''), ['a', 'b', 'c', 'd'])
+  assert.deepEqual(pick('latency'), ['a', 'c'])
+  assert.deepEqual(pick('connectivity'), ['b', 'c'])
+  assert.deepEqual(pick('unknown'), ['d'])
+  assert.equal(workflow.LEGACY_FAULT_FILTERS.map((option) => option.label).join('/'), '全部/时延/通断/未标注')
 })
