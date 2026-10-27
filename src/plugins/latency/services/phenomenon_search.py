@@ -107,7 +107,7 @@ class _CardState:
         self.card = card
         self.case = case
         self.report_available = report_available
-        self.case_active = bool(case and case.status == "confirmed")
+        self.case_active = bool(case and case.status == "confirmed" and _case_closed_loop(case))
         self.report_pointer = bool(
             card.report_id
             and card.binding_status != BindingStatus.STALE.value
@@ -120,7 +120,11 @@ class _CardState:
                 else VerificationLevel.CONFIRMED_UNVERIFIED.value
             )
         elif card.kind == PhenomenonKind.LEGACY_CASE.value:
-            self.verification = VerificationLevel.LEGACY_UNVERIFIED.value
+            self.verification = (
+                VerificationLevel.TASK_OBSERVED.value
+                if card.verification == VerificationLevel.TASK_OBSERVED.value
+                else VerificationLevel.LEGACY_UNVERIFIED.value
+            )
         elif card.kind == PhenomenonKind.CASE.value:
             self.verification = card.verification
         else:
@@ -348,7 +352,9 @@ class PhenomenonSearchService:
                     continue
             if (
                 not req.include_unverified
-                and state.verification != VerificationLevel.VERIFIED.value
+                and state.verification not in {
+                    VerificationLevel.VERIFIED.value, VerificationLevel.TASK_OBSERVED.value,
+                }
             ):
                 continue
             match = state.match(score, score_raw, operation_scope)

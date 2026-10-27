@@ -75,6 +75,11 @@ async def create_case(
 @router.get("/list")
 async def list_cases():
     cases = CaseServiceManager.list_cases()
+    cases = [{
+        **case,
+        "source_kind": "task" if case.get("log_file_id") or case.get("task_ids") else "historical",
+        "effective": True,
+    } for case in cases]
     return JSONResponse(
         status_code=200,
         content={"code": 200, "message": "查询成功", "result": cases},

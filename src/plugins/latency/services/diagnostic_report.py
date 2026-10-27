@@ -48,6 +48,8 @@ logger = logging.getLogger(__name__)
 FALLBACK_REPORT_DIR = Path("/tmp/reports")
 REPORT_SUFFIX = ".html"
 REPORT_PREFIX = "report_"
+# 历史报告导入使用独立前缀，列表据此显示“历史导入”标识。
+HISTORICAL_REPORT_PREFIX = phenomenon_extractor.HISTORICAL_REPORT_PREFIX
 KB_SLUG_FALLBACK = "unknown"
 _UNSAFE_SLUG = re.compile(r"[^A-Za-z0-9_-]")
 
@@ -195,6 +197,16 @@ def _classification(fault: dict) -> ClassificationModel:
     )
 
 
+def document_validation_status(
+    *, readable: bool, eligible: int | None, validated_faults: set[str]
+) -> str:
+    if not readable or eligible is None:
+        return "unavailable"
+    if eligible > 0 and len(validated_faults) >= eligible:
+        return "validated"
+    return "partial" if validated_faults else "pending"
+
+
 def _fault_summaries(data: Optional[dict]) -> list[FaultSummaryModel]:
     if not data:
         return []
@@ -300,6 +312,7 @@ class DiagnosticReportService:
             file_name=html.name,
             file_size=file_size,
             has_sidecar=False,
+            imported=html.stem.startswith(HISTORICAL_REPORT_PREFIX),
         )
         if read_sidecar and data is None:
             data = DiagnosticReportService._read_sidecar(html.with_suffix(".json"))
@@ -313,8 +326,8 @@ class DiagnosticReportService:
 
         item.has_sidecar = True
         item.current_sidecar_hash = phenomenon_extractor.compute_sidecar_hash(data)
-        item.kb_id = basic.get("kb_id") or kb_dir
-        item.kb_name = _opt_str(basic.get("kb_name"))
+        item.kb_id = None if item.imported else (basic.get("kb_id") or kb_dir)
+        item.kb_name = None if item.imported else _opt_str(basic.get("kb_name"))
         item.title = _opt_str(report.get("title"))
         item.generated_at = _opt_str(report.get("generated_at"))
         item.operation = _opt_str(basic.get("operation") or report.get("operation"))
@@ -324,6 +337,11 @@ class DiagnosticReportService:
         indexable, confirmed = _fault_stats(data)
         item.indexable_fault_count = indexable
         item.confirmed_fault_count = confirmed
+        item.classifications = [
+            _classification(fault)
+            for fault in phenomenon_extractor.normalise_faults(data)
+            if str(fault.get("status") or "").lower() != "excluded"
+        ]
         return item
 
     @staticmethod
@@ -377,6 +395,9 @@ class DiagnosticReportService:
                 detail.report_available = bool(row.report_available)
                 detail.review_confirmed_by = row.confirmed_by
                 detail.review_confirmed_at = _format_dt(row.confirmed_at)
+                detail.review_confirmation_source = getattr(
+                    row, "confirmation_source", None
+                )
             elif detail.has_sidecar:
                 detail.index_status = "pending"
             if not detail.has_sidecar or not detail.current_sidecar_hash:
@@ -395,6 +416,7 @@ class DiagnosticReportService:
             refs: list[DiagnosticCaseRefModel] = []
             case_count = 0
             verified_count = 0
+            validated_faults: set[str] = set()
             for case in cases_by_report.get(detail.report_id, []):
                 current_hash, current_label_hash = snapshots.get(
                     case.source_fault_id or "", (None, None)
@@ -437,13 +459,33 @@ class DiagnosticReportService:
                     case_count += 1
                     if _case_verification(case) == VerificationLevel.VERIFIED.value:
                         verified_count += 1
+                        if case.source_fault_id:
+                            validated_faults.add(case.source_fault_id)
             detail.case_count = case_count
             detail.verified_case_count = verified_count
+            detail.validated_fault_count = len(validated_faults)
+            detail.validation_status = document_validation_status(
+                readable=bool(detail.has_sidecar and detail.current_sidecar_hash),
+                eligible=detail.indexable_fault_count, validated_faults=validated_faults,
+            )
             if with_case_refs:
                 detail.case_refs = refs  # type: ignore[attr-defined]
                 detail.fault_summaries = _fault_summaries(  # type: ignore[attr-defined]
                     payloads.get(detail.report_id)
                 )
+        imported_ids = [item.report_id for item in details if item.imported]
+        if imported_ids:
+            from sqlalchemy.exc import SQLAlchemyError
+            from latency.database.managers.report_import import ReportImportPGManager
+            try:
+                sources = await ReportImportPGManager.sources_for_reports(imported_ids)
+            except SQLAlchemyError:
+                logger.warning("failed to read report import provenance", exc_info=True)
+            else:
+                for item in details:
+                    source = sources.get(item.report_id, {})
+                    item.source_name = source.get("source_name")
+                    item.imported_by = source.get("imported_by")
         return details
 
     # ---------------------------------------------------------------- 定位

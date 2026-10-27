@@ -63,6 +63,10 @@ def _draft(**overrides) -> DiagCaseLibraryModel:
 
 def _confirmed(case_id: str, **overrides) -> DiagCaseLibraryModel:
     overrides.setdefault("status", DiagCaseStatus.CONFIRMED)
+    overrides.setdefault("verification_json", {
+        "method": "现场验证", "observed_result": "实操恢复", "closed_loop": True,
+        "verified_by": "tester",
+    })
     return _draft(id=case_id, **overrides)
 
 
@@ -221,10 +225,11 @@ def _install_state_store(monkeypatch, cases):
     async def get_case(case_id):
         return store.get(case_id)
 
-    async def confirm_case(case_id, confirmed_by, confidence=None):
+    async def confirm_case(case_id, confirmed_by, confidence=None, confirmation_source=None):
         case = store[case_id]
         case.status = DiagCaseStatus.CONFIRMED
         case.confirmed_by = confirmed_by
+        case.confirmation_source = confirmation_source
         if confidence is not None:
             case.confidence = confidence
         case.revision += 1
@@ -536,6 +541,8 @@ def test_updatable_columns_cover_content_but_no_metadata():
         "revision",
         "created_by",
         "confirmed_by",
+        # 确认来源由确认动作写入，不属于可编辑内容物。
+        "confirmation_source",
         "confirmed_at",
         "archived_by",
         "archived_at",
@@ -672,6 +679,7 @@ def test_search_defaults_to_confirmed_only():
     total_all, matches_all = _rank(
         [draft, confirmed, archived],
         SearchDiagCaseLibraryRequest(
+            scope="all",
             status_codes=["1004"],
             include_status=["draft", "confirmed", "archived"],
         ),

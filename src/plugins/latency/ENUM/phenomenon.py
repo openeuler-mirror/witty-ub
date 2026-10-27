@@ -48,6 +48,7 @@ class VerificationLevel(StrEnum):
     CONFIRMED_UNVERIFIED = "confirmed_unverified"
     REPORT_ONLY = "report_only"
     LEGACY_UNVERIFIED = "legacy_unverified"
+    TASK_OBSERVED = "task_observed"
     SUSPECTED = "suspected"
 
 

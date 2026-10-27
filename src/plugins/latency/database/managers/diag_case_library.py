@@ -237,6 +237,17 @@ class DiagCaseLibraryPGManager:
         req: SearchDiagCaseLibraryRequest,
     ) -> bool:
         """Structured header filters; ``kb_id`` empty means "no source filter"."""
+        verified = (
+            case.status == DiagCaseStatus.CONFIRMED
+            and case.verification_json is not None
+            and case.verification_json.closed_loop
+        )
+        if req.scope == "library" and not verified:
+            return False
+        if req.scope == "pending" and (
+            verified or case.status == DiagCaseStatus.ARCHIVED
+        ):
+            return False
         if case.status not in req.include_status:
             return False
         if req.kb_id and case.kb_id not in (None, "", req.kb_id):
@@ -320,6 +331,7 @@ class DiagCaseLibraryPGManager:
             revision=row.revision or 0,
             created_by=row.created_by,
             confirmed_by=row.confirmed_by,
+            confirmation_source=getattr(row, "confirmation_source", None) or None,
             archived_by=row.archived_by,
             confirmed_at=format_timestamp(row.confirmed_at),
             archived_at=format_timestamp(row.archived_at),
@@ -530,6 +542,7 @@ class DiagCaseLibraryPGManager:
         case_id: str,
         confirmed_by: str,
         confidence: float | None = None,
+        confirmation_source: str | None = None,
     ) -> bool:
         now = _now()
         async with PGManager.session() as session:
@@ -537,6 +550,7 @@ class DiagCaseLibraryPGManager:
                 text(
                     "UPDATE diag_case_library SET status = :status, "
                     "confirmed_by = :confirmed_by, confirmed_at = :now, "
+                    "confirmation_source = COALESCE(:confirmation_source, confirmation_source), "
                     "revision = revision + 1, updated_at = :now, "
                     "confidence = COALESCE(:confidence, confidence) "
                     "WHERE id = :case_id AND existed_status = TRUE"
@@ -544,6 +558,7 @@ class DiagCaseLibraryPGManager:
                 {
                     "status": DiagCaseStatus.CONFIRMED.value,
                     "confirmed_by": confirmed_by,
+                    "confirmation_source": confirmation_source,
                     "confidence": confidence,
                     "now": now,
                     "case_id": case_id,

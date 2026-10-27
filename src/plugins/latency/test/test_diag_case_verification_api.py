@@ -428,7 +428,7 @@ async def test_confirm_passes_the_gate_and_records_the_operator(monkeypatch):
     async def confirmed(report_id, expected_sidecar_hash=None):
         return snapshot
 
-    async def manager_confirm(case_id, confirmed_by, confidence=None):
+    async def manager_confirm(case_id, confirmed_by, confidence=None, confirmation_source=None):
         store[case_id].status = DiagCaseStatus.CONFIRMED
         store[case_id].confirmed_by = confirmed_by
         return True
@@ -455,7 +455,7 @@ async def test_trusted_mode_confirms_with_the_gateway_operator(monkeypatch):
     _install_case(monkeypatch, store)
     captured: dict = {}
 
-    async def manager_confirm(case_id, confirmed_by, confidence=None):
+    async def manager_confirm(case_id, confirmed_by, confidence=None, confirmation_source=None):
         captured["confirmed_by"] = confirmed_by
         store[case_id].status = DiagCaseStatus.CONFIRMED
         return True

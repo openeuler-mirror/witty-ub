@@ -33,7 +33,7 @@ class SearchPhenomenonRequest(StrictRequestModel):
     operation: OperationType | None = Field(default=None, description="操作类型过滤")
     fault_type: FaultType | None = Field(default=None, description="故障类型过滤")
     include_unverified: bool = Field(
-        default=True, description="false 时仅返回 verified 卡片"
+        default=True, description="false 时仅返回人工核验案例与真实任务日志案例"
     )
 
 

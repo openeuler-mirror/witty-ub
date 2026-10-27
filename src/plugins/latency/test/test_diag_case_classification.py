@@ -302,6 +302,7 @@ def test_scan_binding_requires_the_label_snapshot_to_match():
         source_fault_id="F01",
         source_fault_hash=doc.source_fault_hash,
         source_label_hash="b" * 64,
+        verification_json={"closed_loop": True},
     )
     valid = DiagCaseLibraryModel(
         id="case-valid",
@@ -309,12 +310,14 @@ def test_scan_binding_requires_the_label_snapshot_to_match():
         source_fault_id="F01",
         source_fault_hash=doc.source_fault_hash,
         source_label_hash=valid_hash,
+        verification_json={"closed_loop": True},
     )
     legacy = DiagCaseLibraryModel(
         id="case-legacy",
         status=DiagCaseStatus.CONFIRMED,
         source_fault_id="F01",
         source_fault_hash=doc.source_fault_hash,
+        verification_json={"closed_loop": True},
     )
 
     assert _select_bound_case(doc, [changed]) is None
@@ -330,6 +333,8 @@ def _case(**overrides) -> DiagCaseLibraryModel:
         "symptom_summary": "GET 等待",
         "root_cause_summary": "订阅等待",
         "status_codes": ["3"],
+        # 正式案例库只收录已闭环案例。
+        "verification_json": {"closed_loop": True},
     }
     values.update(overrides)
     return DiagCaseLibraryModel(**values)
@@ -380,7 +385,8 @@ def test_label_filter_still_respects_the_status_gate():
 
     assert not Manager._matches_search_filters(draft, request)
     assert Manager._matches_search_filters(
-        draft, SearchDiagCaseLibraryRequest(first_level_label=first,
+        draft, SearchDiagCaseLibraryRequest(scope="pending",
+                                            first_level_label=first,
                                             include_status=[DiagCaseStatus.DRAFT])
     )
 

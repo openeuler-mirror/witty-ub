@@ -33,6 +33,7 @@ from latency.schemas.diag_case_library import (
     SearchDiagCasesMsg,
     SourceReportModel,
     UpdateDiagCaseRequest,
+    VerificationModel,
 )
 
 RESOURCE_NAME = "诊断案例"
@@ -60,6 +61,8 @@ class DiagCaseLibraryService:
     def _confirm_gate_errors(
         case: DiagCaseLibraryModel,
         confirmed_by: str | None = None,
+        *,
+        require_matchable: bool = True,
     ) -> list[str]:
         """§4.2 确认闸门：返回所有未满足项（空列表表示可确认）。
 
@@ -79,13 +82,19 @@ class DiagCaseLibraryService:
             for signal in DiagCaseLibraryPGManager._signals_for_case(case)
             if signal.signal_type != DiagCaseLibraryPGManager.OPERATION_SIGNAL
         ]
-        if not matchable:
+        if require_matchable and not matchable:
             errors.append(
                 "缺少可匹配信号（status_codes / failure_mode_ids / latency_components / "
                 "log_keywords / hosts / pods / IP / cluster_name 至少一项非空）"
             )
         if not (confirmed_by or "").strip():
             errors.append("缺少 confirmed_by（确认人标识）")
+        verification = case.verification_json
+        if verification is not None and verification.closed_loop:
+            if not all((value or "").strip() for value in (
+                verification.method, verification.observed_result, verification.verified_by,
+            )):
+                errors.append("已验证记录必须包含真实方法、实测结果和验证人")
         return errors
 
     @staticmethod
@@ -446,6 +455,9 @@ class DiagCaseLibraryService:
         case_id: str,
         req: ConfirmDiagCaseRequest,
         operator_header: str | None = None,
+        *,
+        confirmation_source: str = "review",
+        field_verified: bool = False,
     ) -> GetDiagCaseMsg:
         case = await DiagCaseLibraryPGManager.get_case(case_id)
         if case is None:
@@ -513,7 +525,9 @@ class DiagCaseLibraryService:
                         detail="故障分类快照与建案时不一致，请归档后按新版本重新建案",
                     )
 
-        errors = DiagCaseLibraryService._confirm_gate_errors(case, operator)
+        errors = DiagCaseLibraryService._confirm_gate_errors(
+            case, operator, require_matchable=not field_verified
+        )
         if errors:
             detail = "; ".join(errors)
             if case.status != DiagCaseStatus.DRAFT:
@@ -524,10 +538,147 @@ class DiagCaseLibraryService:
             raise BadRequestBizException(message="确认闸门未通过", detail=detail)
 
         await DiagCaseLibraryPGManager.confirm_case(
-            case_id, operator, req.confidence
+            case_id, operator, req.confidence, confirmation_source
         )
         updated = await DiagCaseLibraryPGManager.get_case(case_id)
         return await DiagCaseLibraryService._case_message(updated)
+
+    @staticmethod
+    async def verify_report_fault(
+        report_id: str,
+        fault_id: str,
+        expected_sidecar_hash: str,
+        operator: str,
+        observed_result: str,
+        method: str = "定界文档人工检验",
+        *,
+        confirmation_source: str = "review",
+    ) -> GetDiagCaseMsg:
+        """Validate a document conclusion and publish its case, not a second remediation."""
+        from latency.services.report_case_draft import build_draft_from_fault
+
+        if not observed_result.strip() or not method.strip():
+            raise BadRequestBizException(message="请填写真实验证记录")
+        snapshot = ReportReviewService._unique_report(report_id)
+        if snapshot.sidecar_state != "ok" or snapshot.sidecar_hash is None:
+            raise UnprocessableBizException(message="报告数据不完整，不能验证入库")
+        if snapshot.sidecar_hash != expected_sidecar_hash:
+            raise ConflictBizException(message="报告版本已变化，请刷新后验证")
+        try:
+            preview = build_draft_from_fault(
+                report_id, snapshot.payload or {}, fault_id, expected_sidecar_hash
+            )
+        except ValueError as exc:
+            raise BadRequestBizException(message="故障不可用于入库", detail=str(exc)) from exc
+        if preview.labels.get("status") in {"invalid", "unavailable"}:
+            raise UnprocessableBizException(
+                message="故障分类不可用", detail=str(preview.labels.get("error"))
+            )
+        await ReportReviewService.confirm(
+            report_id, expected_sidecar_hash, operator,
+            confirmation_source=confirmation_source,
+        )
+        await ReportReviewService.require_confirmed(report_id, expected_sidecar_hash)
+        if confirmation_source == "import":
+            preview.draft["kb_id"] = None
+            preview.draft["kb_name"] = None
+        existing = await DiagCaseLibraryPGManager.find_active_bound_case(
+            report_id, fault_id, preview.source_fault_hash,
+            preview.labels.get("first_level_label"), preview.labels.get("second_level_label"),
+        )
+        if existing is not None and existing.status == DiagCaseStatus.DRAFT and (
+            existing.source_sidecar_hash != expected_sidecar_hash or existing.revision > 0
+        ):
+            await DiagCaseLibraryService.archive_case(
+                existing.id, ArchiveDiagCaseRequest(
+                    archived_by=operator,
+                    archive_reason="按当前报告实操验证重建；保留旧版本或已编辑草稿",
+                ),
+            )
+            existing = None
+        if existing is None:
+            # The operator's validation is a real provenance anchor, not invented log evidence.
+            if not preview.draft.get("evidence_json"):
+                preview.draft["evidence_json"] = [{
+                    "kind": "api",
+                    "ref": f"/diagnostic_report/{report_id}/faults/{fault_id}",
+                    "note": observed_result.strip(),
+                }]
+            created = await DiagCaseLibraryService.create_report_case(preview, operator)
+            if not created.case_id:
+                raise ConflictBizException(message="案例创建未返回标识，请重试")
+            existing = await DiagCaseLibraryPGManager.get_case(created.case_id)
+        if existing is None:
+            raise ConflictBizException(message="案例创建后不可用，请重试")
+        return await DiagCaseLibraryService._record_validation(
+            existing, operator, observed_result, method, confirmation_source
+        )
+
+    @staticmethod
+    async def verify_case(
+        case_id: str, expected_revision: int, operator: str,
+        observed_result: str, method: str = "定界文档人工检验",
+    ) -> GetDiagCaseMsg:
+        case = await DiagCaseLibraryPGManager.get_case(case_id)
+        if case is None:
+            raise NotFoundBizException(resource=RESOURCE_NAME)
+        if not observed_result.strip() or not method.strip():
+            raise BadRequestBizException(message="请填写真实验证记录")
+        if case.status == DiagCaseStatus.ARCHIVED:
+            raise ConflictBizException(message="案例已归档，不可验证入库")
+        if case.revision != expected_revision:
+            raise ConflictBizException(message="案例已变化，请刷新后验证")
+        if case.report_id:
+            if not case.source_sidecar_hash:
+                raise ConflictBizException(message="缺少来源版本，请从源报告重新验证入库")
+            await ReportReviewService.confirm(
+                case.report_id, case.source_sidecar_hash, operator
+            )
+        return await DiagCaseLibraryService._record_validation(
+            case, operator, observed_result, method, "review"
+        )
+
+    @staticmethod
+    async def _record_validation(
+        existing: DiagCaseLibraryModel, operator: str, observed_result: str,
+        method: str, confirmation_source: str,
+    ) -> GetDiagCaseMsg:
+        if not observed_result.strip() or not method.strip():
+            raise BadRequestBizException(message="请填写真实验证记录")
+        if existing.status == DiagCaseStatus.DRAFT:
+            if not existing.evidence_json:
+                result = await DiagCaseLibraryService.update_case(
+                    existing.id,
+                    UpdateDiagCaseRequest(
+                        expected_revision=existing.revision,
+                        evidence_json=[{
+                            "kind": "api", "ref": f"/diag_case_library/{existing.id}",
+                            "note": observed_result.strip(),
+                        }],
+                    ),
+                )
+                existing = result.case
+                if existing is None:
+                    raise ConflictBizException(message="案例已变化，请刷新")
+            await DiagCaseLibraryService.confirm_case(
+                existing.id, ConfirmDiagCaseRequest(confirmed_by=operator),
+                operator_header=operator,
+                confirmation_source=confirmation_source, field_verified=True,
+            )
+            existing = await DiagCaseLibraryPGManager.get_case(existing.id)
+        if existing is None:
+            raise ConflictBizException(message="案例状态已变化，请刷新")
+        return await DiagCaseLibraryService.update_case(
+            existing.id,
+            UpdateDiagCaseRequest(
+                expected_revision=existing.revision,
+                verification_json=VerificationModel(
+                    method=method.strip(), observed_result=observed_result.strip(),
+                    closed_loop=True, verified_by=operator,
+                ),
+            ),
+            operator_header=operator,
+        )
 
     @staticmethod
     async def archive_case(

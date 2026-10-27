@@ -101,12 +101,24 @@ def _current_label_hash(doc: extractor.PhenomenonDoc | None) -> str | None:
     )
 
 
+def _verified_case(case: Any) -> bool:
+    verification = getattr(case, "verification_json", None)
+    closed_loop = (
+        verification.get("closed_loop") is True
+        if isinstance(verification, dict)
+        else getattr(verification, "closed_loop", False) is True
+    )
+    return case.status == "confirmed" and closed_loop
+
+
 def _select_bound_case(
     doc: extractor.PhenomenonDoc, candidates: list[DiagCaseLibrary]
 ) -> DiagCaseLibrary | None:
     """Bind only when both the fault fingerprint and the label snapshot match."""
     label_hash = _current_label_hash(doc)
     for item in candidates:
+        if not _verified_case(item):
+            continue
         if item.source_fault_hash != doc.source_fault_hash:
             continue
         stored_label_hash = getattr(item, "source_label_hash", None)
@@ -530,12 +542,12 @@ class PhenomenonIndexService:
                     DiagCaseLibrary.status != "archived",
                 )
             )
-            return list(rows.scalars().all())
+            return [case for case in rows.scalars().all() if _verified_case(case)]
 
     @staticmethod
     async def sync_case(case_id: str, *, force: bool = False) -> dict[str, Any]:
         case = await PhenomenonIndexService._get_case(case_id)
-        if case is None or case.status in ("draft", "archived"):
+        if case is None or not _verified_case(case):
             await PhenomenonIndexService._remove_case_from_cards(case_id)
             return {"queued_count": 0, "status": case.status if case else "missing"}
 

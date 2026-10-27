@@ -138,6 +138,9 @@ class DiagCaseLibraryModel(BaseModel):
     revision: int = Field(default=0, description="案例修订号")
     created_by: Optional[str] = Field(default=None, description="创建人标识")
     confirmed_by: Optional[str] = Field(default=None, description="确认人标识")
+    confirmation_source: Optional[str] = Field(
+        default=None, description="确认来源：review（在线）/ import（历史导入）"
+    )
     archived_by: Optional[str] = Field(default=None, description="归档人标识")
     confirmed_at: Optional[str] = Field(default=None, description="确认时间")
     archived_at: Optional[str] = Field(default=None, description="归档时间")
@@ -457,6 +460,9 @@ class ArchiveDiagCaseRequest(StrictRequestModel):
 class SearchDiagCaseLibraryRequest(StrictRequestModel):
     """跨库检索请求；``kb_id`` 可空表示不过滤来源。"""
 
+    scope: Literal["library", "pending", "all"] = Field(
+        default="library", description="正式案例仅含已验证；待验证资料需显式查询 pending"
+    )
     operation: Optional[_LaxOperation] = Field(
         default=None, description="操作类型过滤：GET / SET / N/A"
     )

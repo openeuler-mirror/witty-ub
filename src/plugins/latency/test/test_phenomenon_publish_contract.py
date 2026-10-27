@@ -413,7 +413,7 @@ async def test_index_report_binds_the_matching_case_version(tmp_path, monkeypatc
         source_fault_id="F01",
         source_fault_hash="old-hash",
         case_no="C1",
-        verification_json={},
+        verification_json={"closed_loop": True},
     )
     new_case = SimpleNamespace(
         id="case-new",
@@ -421,7 +421,7 @@ async def test_index_report_binds_the_matching_case_version(tmp_path, monkeypatc
         source_fault_id="F01",
         source_fault_hash="new-hash",
         case_no="C2",
-        verification_json={},
+        verification_json={"closed_loop": True},
     )
     upserts = _AsyncValue(SimpleNamespace(queued=True))
     ensured = _AsyncValue(None)
@@ -653,7 +653,8 @@ async def test_all_scope_forwards_force_to_case_sync(monkeypatch):
 @pytest.mark.asyncio
 async def test_sync_case_force_rebuilds_independent_card(monkeypatch):
     case = SimpleNamespace(
-        id="c1", status="confirmed", report_id=None, source_fault_id=None
+        id="c1", status="confirmed", report_id=None, source_fault_id=None,
+        verification_json={"closed_loop": True},
     )
     monkeypatch.setattr(
         PhenomenonIndexService, "_get_case", staticmethod(_AsyncValue(case))
