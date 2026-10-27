@@ -1,4 +1,5 @@
 import { apiBase, request } from './client'
+import type { DocumentClassification, ImportBatch, ImportOptions, PathImportInput } from '../utils/caseWorkflow'
 
 export type ReportClassification = {
   first_level_label?: string | null
@@ -41,6 +42,7 @@ export type ReportCaseRef = {
 }
 
 export type ReportItem = {
+  classifications?: DocumentClassification[]
   report_id: string
   kb_id?: string | null
   kb_name?: string | null
@@ -52,6 +54,15 @@ export type ReportItem = {
   current_sidecar_hash?: string | null
   review_confirmed_by?: string | null
   review_confirmed_at?: string | null
+  review_confirmation_source?: string | null
+  imported?: boolean
+  source_name?: string | null
+  fault_count?: number | null
+  indexable_fault_count?: number | null
+  verified_case_count?: number
+  validation_status?: 'pending' | 'partial' | 'validated' | 'unavailable'
+  validated_fault_count?: number
+  report_available?: boolean
   case_refs?: ReportCaseRef[]
   fault_summaries?: ReportFaultSummary[]
 }
@@ -88,6 +99,7 @@ export type DiagCase = {
   revision: number
   created_by?: string | null
   confirmed_by?: string | null
+  confirmation_source?: string | null
   confirmed_at?: string | null
   title?: string | null
   report_id?: string | null
@@ -150,6 +162,31 @@ export type LabelTaxonomy = {
 export const fetchReportDetail = (reportId: string) =>
   request<ReportDetail>(`/diagnostic_report/${encodeURIComponent(reportId)}`)
 
+export const fetchReports = (pageNum: number, pageCnt: number) =>
+  request<{ total: number; items: ReportItem[] }>('/diagnostic_report/list', {
+    method: 'POST',
+    body: JSON.stringify({ page_num: pageNum, page_cnt: Math.min(pageCnt, 100) }),
+  })
+
+export const verifyReportFault = (
+  reportId: string,
+  faultId: string,
+  body: { expected_sidecar_hash: string; verified_by: string; observed_result: string; method?: string },
+) =>
+  request<DiagCaseDetail>(
+    `/diagnostic_report/${encodeURIComponent(reportId)}/faults/${encodeURIComponent(faultId)}/verify`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+
+export const importCases = (body: FormData) =>
+  request<ImportBatch>('/diagnostic_report/import', { method: 'POST', body })
+
+export const importReportPath = (body: PathImportInput) =>
+  request<ImportBatch>('/diagnostic_report/import/path', { method: 'POST', body: JSON.stringify(body) })
+
+export const fetchImportOptions = () =>
+  request<ImportOptions>('/diagnostic_report/import/options')
+
 export const confirmReport = (
   reportId: string,
   expectedSidecarHash: string,
@@ -195,6 +232,19 @@ export const searchDiagCases = (body: Record<string, unknown>) =>
 
 export const fetchDiagCase = (caseId: string) =>
   request<DiagCaseDetail>(`/diag_case_library/${encodeURIComponent(caseId)}`)
+
+export type CaseVerificationInput = {
+  expected_revision: number
+  verified_by: string
+  observed_result: string
+  method?: string
+}
+
+export const verifyDiagCase = (caseId: string, body: CaseVerificationInput) =>
+  request<DiagCaseDetail>(`/diag_case_library/${encodeURIComponent(caseId)}/verify`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
 
 export const confirmDiagCase = (caseId: string, confirmedBy: string) =>
   request<DiagCaseDetail>(`/diag_case_library/${encodeURIComponent(caseId)}/confirm`, {

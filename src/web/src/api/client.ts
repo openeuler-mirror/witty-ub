@@ -12,7 +12,7 @@ export const request = async <T>(path: string, init: RequestInit = {}): Promise<
   const response = await fetch(`${apiBase}${path}`, {
     ...init,
     headers: {
-      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+      ...(hasBody && !(init.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
       ...init.headers,
     },
   })
