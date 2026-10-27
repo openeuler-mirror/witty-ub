@@ -253,7 +253,7 @@ def validate(data) -> tuple[list[str], list[str]]:
                 primary_cnt += 1
             _check_evidence_traces(f"{p}.evidence_traces", f.get("evidence_traces"), errors, warnings)
             lat = f.get("latency")
-            if isinstance(lat, dict):
+            if isinstance(lat, dict) and lat:
                 for j, st in enumerate(lat.get("stages") or []):
                     if isinstance(st, dict):
                         _check_enum(
@@ -261,6 +261,49 @@ def validate(data) -> tuple[list[str], list[str]]:
                             st.get("status"),
                             STAGE_STATUS_ENUM,
                             errors,
+                        )
+                if not (
+                    any(isinstance(m, dict) and m.get("label") and m.get("value")
+                        for m in lat.get("metrics") or [])
+                    or any(isinstance(s, dict) and s.get("name")
+                        for s in lat.get("stages") or [])
+                    or lat.get("conclusion")
+                ):
+                    errors.append(
+                        f"{p}.latency: 提供了对象但未命中契约字段"
+                        "（需 metrics[]{label,value} / stages[]{name,...} / conclusion 至少一项有效）"
+                    )
+            rc = f.get("root_cause")
+            if isinstance(rc, dict) and rc:
+                if not (
+                    any(isinstance(s, dict) and s.get("step_label") and s.get("title")
+                        for s in rc.get("reasoning_chain") or [])
+                    or rc.get("confirmed_root_cause")
+                ):
+                    errors.append(
+                        f"{p}.root_cause: 提供了对象但未命中契约字段"
+                        "（需 reasoning_chain[]{step_label,title,...} / confirmed_root_cause 至少一项有效）"
+                    )
+            prop = f.get("propagation")
+            if isinstance(prop, dict) and prop:
+                if not any(isinstance(n, dict) and n.get("label")
+                           for n in prop.get("chain") or []):
+                    errors.append(
+                        f"{p}.propagation: 提供了对象但未命中契约字段"
+                        "（需 chain[]{label,detail,...}）"
+                    )
+            kms = f.get("knowledge_matches")
+            if isinstance(kms, list):
+                for j, km in enumerate(kms):
+                    if not isinstance(km, dict):
+                        errors.append(f"{p}.knowledge_matches[{j}]: 必须是对象")
+                        continue
+                    if not km.get("id"):
+                        errors.append(f"{p}.knowledge_matches[{j}].id: 缺少知识库匹配 ID")
+                    if not (km.get("match_logic") or km.get("symptom") or km.get("root_cause")):
+                        errors.append(
+                            f"{p}.knowledge_matches[{j}]: 缺少可渲染内容"
+                            "（需 match_logic / symptom / root_cause 至少一项）"
                         )
         if primary_cnt != 1:
             warnings.append(f"faults[].role: primary 数量为 {primary_cnt}（多故障建议恰好 1 个）")
@@ -503,6 +546,12 @@ def main(argv=None) -> int:
         print(f"  提示：修正 {data_path} 中上述字段后重跑；字段清单见 --spec top", file=sys.stderr)
         return 2
 
+    # 统一用实际渲染时间覆盖 report.generated_at：HTML 页头、侧车 JSON、
+    # 报告库列表三处显示一致，避免数据里整点占位值被误当作真实生成时间。
+    report_block = data.get("report")
+    if isinstance(report_block, dict):
+        report_block["generated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
     try:
         from jinja2 import Environment, FileSystemLoader, select_autoescape
     except ImportError:
@@ -564,6 +613,26 @@ def main(argv=None) -> int:
             print(f"  ⚠ {line}")
         if len(warnings) > len(shown):
             print(f"  ⚠ ... 另有 {len(warnings) - len(shown)} 条提示（不影响渲染）")
+
+    # 渲染成功且已落盘：清理同知识库目录下的旧报告，只保留刚生成的最新一份。
+    # 仅匹配 report_<slug>_* 前缀，不影响同目录下其它知识库的报告。
+    slug = kb_slug(args.kb_id or (data.get("basic_info") or {}).get("kb_id"))
+    try:
+        removed: list[str] = []
+        for old in out_path.parent.glob(f"report_{slug}_*.html"):
+            if old.resolve() == out_path.resolve():
+                continue
+            old_sidecar = old.with_suffix(".json")
+            old.unlink(missing_ok=True)
+            removed.append(old.name)
+            if not args.no_sidecar and old_sidecar.exists():
+                old_sidecar.unlink(missing_ok=True)
+        if removed:
+            removed.sort()
+            print(f"  清理旧报告 {len(removed)} 份（仅保留最新）：" + ", ".join(removed))
+    except OSError as exc:
+        print(f"  ⚠ 清理旧报告失败（不影响本次渲染）: {exc}", file=sys.stderr)
+
     return 0
 
 
