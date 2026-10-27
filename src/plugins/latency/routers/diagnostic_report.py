@@ -8,7 +8,10 @@ frontend instead of being copied out of the container by hand.
 """
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Header, Path
+from fastapi import APIRouter, Body, File, Form, Header, Path, UploadFile
+from pydantic import BaseModel, Field
+import tempfile
+from pathlib import Path as FilePath
 from starlette.responses import FileResponse
 
 from latency.common.id_validation import DiagnosticReportIdPath
@@ -38,9 +41,116 @@ from latency.services.diagnostic_report import DiagnosticReportService
 from latency.services.report_case_draft import build_draft_from_fault
 from latency.services.report_review import ReportReviewService, require_operator
 from latency.services.phenomenon_index import PhenomenonIndexService
+from latency.schemas.parse_config import StrictRequestModel
 
 
 router = APIRouter(prefix="/diagnostic_report", tags=["Diagnostic Report"])
+
+class VerifyReportFaultRequest(BaseModel):
+    expected_sidecar_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    verified_by: str | None = None
+    observed_result: str = Field(min_length=1, max_length=10000)
+    method: str = Field(default="定界文档人工检验", min_length=1, max_length=500)
+
+class ImportReportPathRequest(StrictRequestModel):
+    path: str = Field(min_length=1, max_length=4096)
+    operator: str = Field(min_length=1, max_length=64)
+    source_name: str = Field(min_length=1, max_length=1000)
+    declared_verified: bool
+
+
+@router.get("/import/options", operation_id="get_report_import_options")
+async def get_report_import_options():
+    from latency.services.report_import import ImportSourceError
+    from latency.services.report_import_path import allowed_import_roots
+    try:
+        roots = allowed_import_roots()
+    except ImportSourceError as exc:
+        raise BadRequestBizException(message="服务器导入目录配置不可用", detail=str(exc)) from exc
+    return {"code": 200, "message": "success", "result": {
+        "path_import_enabled": bool(roots), "allowed_roots": [str(root) for root in roots],
+    }}
+
+
+@router.post("/import/path", operation_id="import_diagnostic_reports_from_path")
+async def import_diagnostic_reports_from_path(
+    req: ImportReportPathRequest,
+    operator_header: Annotated[str | None, Header(alias="X-Witty-Operator")] = None,
+):
+    from dataclasses import asdict
+    from latency.services.report_import import ImportOptions, ImportSourceError, import_reports
+    from latency.services.report_import_path import snapshot_import_path
+    reviewer = require_operator(req.operator, operator_header)
+    if not req.source_name.strip():
+        raise BadRequestBizException(message="请填写报告来源")
+    try:
+        with snapshot_import_path(req.path) as source:
+            result = await import_reports(source, ImportOptions(
+                operator=reviewer, source_name=req.source_name.strip(),
+                declared_verified=req.declared_verified, build_cases=req.declared_verified,
+            ))
+    except ImportSourceError as exc:
+        raise BadRequestBizException(
+            message=f"服务器路径导入失败：{exc.detail or exc.code}", detail=str(exc),
+        ) from exc
+    return {"code": 200, "message": "导入处理完成，请查看逐项结果", "result": asdict(result)}
+
+
+@router.post("/import", operation_id="import_diagnostic_reports")
+async def import_diagnostic_reports(
+    file: UploadFile = File(...),
+    operator: str = Form(...),
+    source_name: str = Form(...),
+    declared_verified: bool = Form(...),
+    operator_header: Annotated[str | None, Header(alias="X-Witty-Operator")] = None,
+):
+    from dataclasses import asdict
+    from latency.services.report_import import (
+        MAX_BATCH_BYTES, ImportOptions, ImportSourceError, import_reports,
+    )
+
+    reviewer = require_operator(operator, operator_header)
+    if not source_name.strip():
+        raise BadRequestBizException(message="请填写报告来源")
+    suffix = FilePath(file.filename or "").suffix.lower()
+    if suffix not in {".json", ".zip"}:
+        raise BadRequestBizException(message="仅支持 JSON 或 ZIP 文件")
+    try:
+        with tempfile.TemporaryDirectory(prefix="witty-report-import-") as directory:
+            path = FilePath(directory) / FilePath(
+                (file.filename or "upload" + suffix).replace("\\", "/")
+            ).name
+            size = 0
+            with path.open("wb") as stream:
+                while chunk := await file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > MAX_BATCH_BYTES:
+                        raise BadRequestBizException(message="导入文件超过大小限制")
+                    stream.write(chunk)
+            result = await import_reports(path, ImportOptions(
+                operator=reviewer, source_name=source_name.strip(),
+                declared_verified=declared_verified, build_cases=declared_verified,
+            ))
+    except ImportSourceError as exc:
+        raise BadRequestBizException(message="导入文件不可用", detail=str(exc)) from exc
+    finally:
+        await file.close()
+    return {"code": 200, "message": "导入处理完成，请查看逐项结果", "result": asdict(result)}
+
+
+@router.post("/{report_id}/faults/{source_fault_id}/verify", operation_id="verify_report_fault")
+async def verify_report_fault(
+    report_id: DiagnosticReportIdPath,
+    source_fault_id: Annotated[str, Path(min_length=1, max_length=64)],
+    req: VerifyReportFaultRequest,
+    operator_header: Annotated[str | None, Header(alias="X-Witty-Operator")] = None,
+):
+    operator = require_operator(req.verified_by, operator_header)
+    result = await DiagCaseLibraryService.verify_report_fault(
+        report_id, source_fault_id, req.expected_sidecar_hash,
+        operator, req.observed_result, req.method,
+    )
+    return {"code": 200, "message": "验证通过，已入案例库", "result": result}
 
 
 @router.post(
