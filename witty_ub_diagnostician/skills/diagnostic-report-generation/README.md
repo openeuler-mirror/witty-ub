@@ -20,7 +20,7 @@
 2. 用 `scripts/render_report.py --spec <板块>` 查字段清单，据此写数据 JSON；读取
    [标签参考](references/log_label.json)，在每条故障的 `conclusion` 中填写
    `first_level_label` / `second_level_label`（无法匹配的层级填 `null`）
-3. `python3 scripts/render_report.py /tmp/report_data.json` 渲染 HTML（脚本做 schema-lite 校验）
+3. `python3 scripts/render_report.py /tmp/report_data.json` 用统一契约校验 JSON 并渲染 HTML
 4. 把报告路径与摘要交给用户；用户确认「报告 OK」后先确认整份报告
    （`POST /diagnostic_report/{report_id}/confirm`，带页面所见的 `expected_sidecar_hash`），
    再从目标故障生成案例草稿

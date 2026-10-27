@@ -274,24 +274,24 @@
 | `operation` | `GET`/`SET` | ❌ | 板块 1 `operation`；GET 与 SET 不许混写一条案例 |
 | `fault_type` | string | ✅ | 报告 `fault_type`：`latency` / `connectivity` / `mixed` / `unknown` |
 | `confidence` | number | ❌ | 板块 2 `confidence` 转 0~1 数值（如 `"高 92%"` → `0.92`）；仅知识库解释支撑的不得给高值 |
-| `status_codes[]` | string[] | ❌ | 优先取对应故障 `error.breakdowns[]` 中同操作的 `code_distribution.items[]` 里 `count > 0` 的 `code`；旧报告用板块 6 `top_error_codes[].code`。均为**原始码**，不是名称；`other_count` 无具体码，不反推；不要把仅筛选但未观测到的码存为信号。信号权重 3.0 |
+| `status_codes[]` | string[] | ❌ | 按顺序去重：对应故障 `error.breakdowns[].code_distribution.items[]` 中 `count > 0` 的 `code` → `evidence_traces[].status_code`；仅单故障旧报告才回落板块 6 `top_error_codes[].code`。均为**原始码**，不是名称；`other_count` 无具体码，不反推；不要把仅筛选但未观测到的码存为信号。信号权重 3.0 |
 | `failure_mode_ids[]` | string[] | ❌ | 板块 7 `knowledge_matches[].id`（故障模式 ID），信号权重 3.0 |
-| `latency_components[]` | string[] | ❌ | **必须取 `/stats/stages` 的桶 key**（`set_client` / `urma`）；**禁止**照抄板块 6 的阶段展示名（`URMA 网络`），否则 L2 信号全部打空（见 `CASE_FEATURE_CONTRACT.md` §三） |
+| `latency_components[]` | string[] | ❌ | 取对应故障 `latency.stages[].features.bucket_key`（由 `latency_features.py` 从 `/stats/stages` 提取，如 `set_client` / `urma`）；**禁止**照抄阶段展示名（`URMA 网络`），否则 L2 信号全部打空（见 `CASE_FEATURE_CONTRACT.md` §三） |
 | `log_keywords[]` | string[] | ❌ | 现场日志**原文短语**（保留大小写与下划线），禁意译、禁套用历史案例的短语 |
-| `hosts[]` | string[] | ❌ | 板块 6 `top_hosts[].host` |
-| `pods[]` | string[] | ❌ | 板块 6 `top_pods[].pod` |
-| `src_ips[]` / `dst_ips[]` | string[] | ❌ | 现场接口返回（`/stats/links`、`/log_parse_result/options`），逐字保留 |
-| `cluster_name` | string | ❌ | 现场接口返回的集群名 |
+| `hosts[]` | string[] | ❌ | 对应故障的 `evidence_traces[].host`、`latency...features.top_traces[].host`，以及 `top_hosts[]` 中 `fault` 等于当前故障的条目；仅单故障报告可用未标 `fault` 的事件级条目 |
+| `pods[]` | string[] | ❌ | 对应故障的 `evidence_traces[].pod`，以及 `top_pods[]` 中 `fault` 等于当前故障的条目；仅单故障报告可用未标 `fault` 的事件级条目 |
+| `src_ips[]` / `dst_ips[]` | string[] | ❌ | 对应故障 `error.breakdowns[].scope` 与 `latency...features.top_traces[]` 中的现场值，逐字保留 |
+| `cluster_name` | string | ❌ | 对应故障 `error.breakdowns[].scope.cluster_name`；多个不同集群时不猜选 |
 | `version_json` | object | ❌ | `{kernel, os, urma, umq, ubsocket}`；**有可靠来源才填** |
-| `stage_features_json` | object | ❌ | `/stats/stages` 原始响应整理为 `{operation, buckets[], sample_cnt, truncated}`，`buckets[].key` 用桶 key |
+| `stage_features_json` | object | ❌ | 对应故障的 `latency.stages[].features` 确定性转换为 `{operation, buckets[], sample_cnt, truncated}`；`buckets[].key` 用桶 key；混合 operation 时不合并快照 |
 | `fault_shape` | string | ❌ | 板块 6 `time_heatmap` 体现的时间形状 |
 | `time_window_json` | object | ❌ | 板块 1 `time_range_start` / `time_range_end`（或板块 6 的尖峰窗） |
 | `scope_limits` | string | ❌ | 报告须新写：本方案不适用的场景（防跨域误套用） |
 | `node_type` | string | ❌ | 超节点形态（现场有才填） |
 | `kb_id` / `kb_name` | string | ❌ | 板块 1 `kb_id` / `kb_name`；留空 = 全局案例（可跨库召回） |
-| `evidence_json[]` | array | ✅ 闸门要求 ≥1 | `{kind: api\|trace\|log\|sql, ref, params, excerpt, note}`。板块 4 的 `reasoning_chain[].evidence` 是自由文本，**需由 Agent 按实际调用补成结构化锚点**：`kind` 取证据通道，`ref` 取可复现引用（接口路径 / trace_id / `文件:行号`） |
+| `evidence_json[]` | array | ✅ 闸门要求 ≥1 | 优先把 `evidence_traces[]` 转为 `kind=trace`；无代表 trace 时，把 `latency...features.source` 或 `error.breakdowns[].source.pages[]` 中真实保存的 `endpoint + request` 转为 `kind=api`。`reasoning_chain[].evidence` 是自由文本，不能自动当作可复现锚点；没有结构化来源时保留缺失，禁止编造 |
 | `counter_evidence_json[]` | array | ❌ | 板块 4 `reasoning_chain[]` 中 `excluded=true` 的步骤（已排除项 + 排除依据） |
-| `remediation_json[]` | array | ✅ 闸门要求 ≥1 | 板块 3 `short_term` + `long_term` **拆成分步**：`{step, action, expected, risk}`，`expected` 可用 `verification[]` |
+| `remediation_json[]` | array | ✅ 闸门要求 ≥1 | 板块 3 `short_term` + `long_term`，再合并当前故障关联的事件级 `action_plan[]`，按顺序去重并拆成 `{step, action, expected, risk}`；`expected` 优先用 `verification[]` / `action_plan[].verify` / `expected_effect`，没有可靠值则省略 |
 | `relations_json[]` | array | ❌ | 本次报告关联的其他案例 `case_no`（无则留空，不要编） |
 | `source_log_ids[]` | string[] | ❌ | 现场取到的来源日志 ID（板块 1 只有文件名，ID 需另取自日志列表接口） |
 | `created_by` | string | ❌ | 报告生成者标识 |

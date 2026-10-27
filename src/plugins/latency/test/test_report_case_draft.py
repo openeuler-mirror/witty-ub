@@ -248,3 +248,115 @@ def test_confidence_accepts_text_percent_and_clamps():
         payload["faults"][0]["confidence"] = value
         preview = build_draft_from_fault(REPORT_ID, payload, "F01", SIDECAR_HASH)
         assert preview.draft["confidence"] == pytest.approx(expected)
+
+
+def test_draft_consumes_detailed_report_error_latency_and_action_contracts():
+    payload = _payload()
+    payload["basic_info"].update({
+        "time_range_start": "2026-10-21 09:00:00",
+        "time_range_end": "2026-10-21 10:00:00",
+    })
+    fault = payload["faults"][0]
+    fault["evidence_traces"] = []
+    fault["knowledge_matches"] = []
+    fault["error"] = {
+        "breakdowns": [
+            {
+                "operation": "GET",
+                "scope": {
+                    "cluster_name": "cluster-a",
+                    "src_ip": "10.0.0.1",
+                    "dst_ip": "10.0.0.2",
+                },
+                "source": {
+                    "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+                    "pages": [
+                        {"request": {"kb_id": "kb-1", "operation": "GET", "page_num": 1}}
+                    ],
+                },
+                "code_distribution": {
+                    "items": [{"code": "-1002", "count": 9}]
+                },
+            }
+        ]
+    }
+    fault["latency"] = {
+        "stages": [
+            {
+                "name": "URMA 网络",
+                "features": {
+                    "operation": "GET",
+                    "bucket_key": "urma",
+                    "metric_name": "urma_processing_us",
+                    "source": {
+                        "endpoint": "/stats/stages",
+                        "request": {"kb_id": "kb-1", "operation": "GET"},
+                    },
+                    "sample_cnt": 12,
+                    "truncated": False,
+                    "trace_cnt": 5,
+                    "normal_cnt": 2,
+                    "anomalous_cnt": 3,
+                    "distribution": {"p50_ms": 5, "p90_ms": 30, "max_ms": 80},
+                    "top_traces": [
+                        {
+                            "trace_id": "t-latency",
+                            "evidence_ms": 80,
+                            "host": "host-a",
+                            "src_ip": "10.0.0.3",
+                            "dst_ip": "10.0.0.4",
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+    fault["solution"] = {
+        "short_term": ["先隔离异常链路"],
+        "long_term": ["增加链路健康检查"],
+        "verification": ["错误码归零", "P90 恢复基线"],
+    }
+    payload["statistics"] = {
+        "top_hosts": [{"host": "host-stat", "fault": "F01"}],
+        "top_pods": [{"pod": "pod-stat", "fault": "F01"}],
+    }
+    payload["action_plan"] = [
+        {
+            "fault_ids": ["F01"],
+            "action": "复核链路告警",
+            "expected_effect": "告警与故障窗一致",
+        }
+    ]
+
+    preview = build_draft_from_fault(REPORT_ID, payload, "F01", SIDECAR_HASH)
+    draft = preview.draft
+
+    assert preview.ready is True
+    assert draft["status_codes"] == ["-1002"]
+    assert draft["latency_components"] == ["urma"]
+    assert draft["stage_features_json"]["buckets"][0]["key"] == "urma"
+    assert draft["cluster_name"] == "cluster-a"
+    assert draft["hosts"] == ["host-stat", "host-a"]
+    assert draft["pods"] == ["pod-stat"]
+    assert draft["src_ips"] == ["10.0.0.1", "10.0.0.3"]
+    assert draft["dst_ips"] == ["10.0.0.2", "10.0.0.4"]
+    assert draft["time_window_json"] == {
+        "start": "2026-10-21 09:00:00",
+        "end": "2026-10-21 10:00:00",
+    }
+    assert draft["evidence_json"][0]["ref"] == "/stats/stages"
+    assert draft["remediation_json"] == [
+        {"step": 1, "action": "先隔离异常链路", "expected": "错误码归零"},
+        {"step": 2, "action": "增加链路健康检查", "expected": "P90 恢复基线"},
+        {"step": 3, "action": "复核链路告警", "expected": "告警与故障窗一致"},
+    ]
+
+
+def test_root_cause_summary_requires_the_canonical_report_field():
+    payload = _payload()
+    del payload["faults"][0]["root_cause"]["confirmed_root_cause"]
+
+    preview = build_draft_from_fault(REPORT_ID, payload, "F01", SIDECAR_HASH)
+
+    assert preview.draft["root_cause_summary"] is None
+    assert "root_cause_summary" in preview.missing_fields

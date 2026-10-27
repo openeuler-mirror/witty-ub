@@ -129,6 +129,39 @@ def test_status_codes_and_failure_mode_ids_are_filtered():
     assert doc.failure_mode_ids == ["kvcache_access_003"]
 
 
+def test_status_codes_prefer_per_fault_error_distribution():
+    fault = _fault(
+        "F01",
+        error={
+            "breakdowns": [
+                {
+                    "code_distribution": {
+                        "items": [
+                            {"code": "-1002", "count": 7},
+                            {"code": "-1009", "count": 0},
+                        ]
+                    }
+                }
+            ]
+        },
+    )
+    extraction = extract_report(REPORT_ID, _sidecar([fault]))
+
+    assert extraction.faults[0].status_codes == ["-1002", "3"]
+
+
+def test_single_fault_legacy_report_uses_top_error_codes_as_fallback():
+    fault = _fault("F01", evidence_traces=[])
+    payload = _sidecar(
+        [fault],
+        statistics={"top_error_codes": [{"code": "-1005", "pct": "80"}]},
+    )
+
+    extraction = extract_report(REPORT_ID, payload)
+
+    assert extraction.faults[0].status_codes == ["-1005"]
+
+
 def test_identity_values_are_scrubbed_from_text():
     extraction = extract_report(REPORT_ID, _sidecar([_fault("F01")]))
     text = extraction.faults[0].text

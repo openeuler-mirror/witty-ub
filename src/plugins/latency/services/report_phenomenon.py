@@ -372,8 +372,36 @@ def _fault_category(fault: dict) -> str:
     }.get((category or "").lower(), "unknown")
 
 
-def _valid_status_codes(fault: dict) -> list[str]:
+def _valid_status_codes(
+    fault: dict, fallback_items: list[dict[str, Any]] | None = None
+) -> list[str]:
+    """Return observed non-zero status codes in report-contract priority order.
+
+    New reports keep per-fault distributions in ``fault.error.breakdowns``.
+    ``evidence_traces`` remains a useful secondary source, while report-level
+    ``statistics.top_error_codes`` is accepted only when the caller has
+    established that the report contains a single fault.
+    """
     codes: list[str] = []
+    error = _as_dict(fault.get("error"))
+    for breakdown in _as_list(error.get("breakdowns")):
+        if not isinstance(breakdown, dict):
+            continue
+        distribution = _as_dict(breakdown.get("code_distribution"))
+        for item in _as_list(distribution.get("items")):
+            if not isinstance(item, dict):
+                continue
+            code = _text(item.get("code"))
+            count = item.get("count")
+            if (
+                code is not None
+                and code != "0"
+                and isinstance(count, (int, float))
+                and not isinstance(count, bool)
+                and count > 0
+                and code not in codes
+            ):
+                codes.append(code)
     for trace in _as_list(fault.get("evidence_traces")):
         if not isinstance(trace, dict):
             continue
@@ -381,6 +409,12 @@ def _valid_status_codes(fault: dict) -> list[str]:
         if code is None or code == "0":
             continue
         if code not in codes:
+            codes.append(code)
+    for item in fallback_items or []:
+        if not isinstance(item, dict):
+            continue
+        code = _text(item.get("code"))
+        if code is not None and code != "0" and code not in codes:
             codes.append(code)
     return codes
 
@@ -413,7 +447,10 @@ def _valid_failure_mode_ids(fault: dict) -> list[str]:
 
 
 def _source_fault_hash_payload(
-    fault: dict, fault_id: str, operation: str | None
+    fault: dict,
+    fault_id: str,
+    operation: str | None,
+    status_codes: list[str] | None = None,
 ) -> dict:
     conclusion = _as_dict(fault.get("conclusion"))
     root_cause = _as_dict(fault.get("root_cause"))
@@ -430,15 +467,24 @@ def _source_fault_hash_payload(
         "conclusion.fault_domain": _text(conclusion.get("fault_domain")),
         "conclusion.fault_component": _text(conclusion.get("fault_component")),
         "root_cause.confirmed_root_cause": _text(root_cause.get("confirmed_root_cause")),
-        "evidence_traces.status_code": _valid_status_codes(fault),
+        # Keep the historical key name so reports whose effective signal did
+        # not change retain their existing binding hash.
+        "evidence_traces.status_code": status_codes or _valid_status_codes(fault),
         "evidence_traces.failure_mode_id": _valid_failure_mode_ids(fault),
     }
 
 
 def compute_source_fault_hash(
-    fault: dict, fault_id: str, operation: str | None
+    fault: dict,
+    fault_id: str,
+    operation: str | None,
+    status_codes: list[str] | None = None,
 ) -> str:
-    return sha256_hex(canonical_json(_source_fault_hash_payload(fault, fault_id, operation)))
+    return sha256_hex(
+        canonical_json(
+            _source_fault_hash_payload(fault, fault_id, operation, status_codes)
+        )
+    )
 
 
 def _stable_fault_ids(faults: list[dict], sidecar_hash: str) -> list[str]:
@@ -514,8 +560,10 @@ def fault_category(fault: dict) -> str:
     return _fault_category(fault)
 
 
-def valid_status_codes(fault: dict) -> list[str]:
-    return _valid_status_codes(fault)
+def valid_status_codes(
+    fault: dict, fallback_items: list[dict[str, Any]] | None = None
+) -> list[str]:
+    return _valid_status_codes(fault, fallback_items)
 
 
 def valid_failure_mode_ids(fault: dict) -> list[str]:
@@ -560,7 +608,12 @@ def extract_report(
             symptom = _fault_symptom(scrubber, conclusion) or title
             domain = scrubber.clean(_text(conclusion.get("fault_domain")))
             component = scrubber.clean(_text(conclusion.get("fault_component")))
-            status_codes = _valid_status_codes(fault)
+            legacy_codes = (
+                _as_list(_as_dict(payload.get("statistics")).get("top_error_codes"))
+                if len(raw_faults) == 1
+                else []
+            )
+            status_codes = _valid_status_codes(fault, legacy_codes)
             failure_mode_ids = _valid_failure_mode_ids(fault)
             status_part = f"状态码 {', '.join(status_codes)}" if status_codes else None
             text = _limit_text(
@@ -599,7 +652,7 @@ def extract_report(
                 report_id=report_id,
                 source_fault_id=fault_id,
                 source_fault_hash=compute_source_fault_hash(
-                    fault, fault_id, operation
+                    fault, fault_id, operation, status_codes
                 ),
                 first_level_label=_raw_text(conclusion.get("first_level_label")),
                 second_level_label=_raw_text(conclusion.get("second_level_label")),
@@ -611,8 +664,16 @@ def extract_report(
 
     return ReportExtraction(
         report_id=report_id,
-        kb_id=None if report_id.startswith(HISTORICAL_REPORT_PREFIX) else (_text(basic.get("kb_id")) or kb_dir),
-        kb_name=None if report_id.startswith(HISTORICAL_REPORT_PREFIX) else _text(basic.get("kb_name")),
+        kb_id=(
+            None
+            if report_id.startswith(HISTORICAL_REPORT_PREFIX)
+            else (_text(basic.get("kb_id")) or kb_dir)
+        ),
+        kb_name=(
+            None
+            if report_id.startswith(HISTORICAL_REPORT_PREFIX)
+            else _text(basic.get("kb_name"))
+        ),
         title=_safe_clean(scrubber, _text(report.get("title"))),
         generated_at=_text(report.get("generated_at")),
         operation=operation,
