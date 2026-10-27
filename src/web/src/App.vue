@@ -12071,6 +12071,7 @@ const brpcInterfaceMetadataById = ref<Map<string, BrpcInterfaceHit>>(new Map())
 const isBrpcAbnormalThreadDetailOpen = ref(false)
 const isBrpcAbnormalThreadDetailLoading = ref(false)
 const brpcAbnormalThreadDetailError = ref('')
+const brpcThreadFailureGraphRenderError = ref('')
 const activeBrpcAbnormalThread = ref<BrpcAbnormalThread | null>(null)
 const selectedBrpcAbnormalThreadDetail = ref<BrpcAbnormalThreadDetail | null>(null)
 const brpcAbnormalThreadHits = ref<BrpcDiagHitLog[]>([])
@@ -12235,6 +12236,7 @@ const resetAssetScopedMonitorData = () => {
   isBrpcAbnormalThreadDetailOpen.value = false
   isBrpcAbnormalThreadDetailLoading.value = false
   brpcAbnormalThreadDetailError.value = ''
+  brpcThreadFailureGraphRenderError.value = ''
   activeBrpcAbnormalThread.value = null
   selectedBrpcAbnormalThreadDetail.value = null
   brpcAbnormalThreadHits.value = []
@@ -12570,6 +12572,10 @@ const BRPC_THREAD_GRAPH_OUTER_GAP = 32
 const BRPC_THREAD_GRAPH_EDGE_CURVE_GAP = 36
 const BRPC_THREAD_GRAPH_EDGE_LANE_GAP = 24
 const BRPC_THREAD_GRAPH_COMPONENT_GAP = 80
+// 精细避障会对每条跨层边反复采样并扫描全部节点。大图保留所有节点和边，
+// 但使用默认曲率，避免布局阶段长时间阻塞主线程。
+const BRPC_THREAD_GRAPH_DETAILED_ROUTING_MAX_NODES = 120
+const BRPC_THREAD_GRAPH_DETAILED_ROUTING_MAX_COMPLEXITY = 12_000
 
 const wrapBrpcThreadGraphText = (value: string, font: string) => {
   const lines: string[] = []
@@ -12691,6 +12697,9 @@ const layoutBrpcThreadFailureGraphComponent = (
   curveYExtents: number[],
 ) => {
   const { nodes, edges, edgeIndices } = component
+  const useDetailedEdgeRouting =
+    nodes.length <= BRPC_THREAD_GRAPH_DETAILED_ROUTING_MAX_NODES &&
+    nodes.length * edges.length <= BRPC_THREAD_GRAPH_DETAILED_ROUTING_MAX_COMPLEXITY
   const levels = getBrpcThreadFailureGraphLevels({
     nodes,
     edges,
@@ -12786,6 +12795,7 @@ const layoutBrpcThreadFailureGraphComponent = (
   }
 
   edges.forEach((edge, componentEdgeIndex) => {
+    if (!useDetailedEdgeRouting) return
     const globalEdgeIndex = edgeIndices[componentEdgeIndex]
     if (globalEdgeIndex === undefined) return
     const sourceLevelIndex = levelIndexes.get(edge.source_node_id)
@@ -12833,21 +12843,11 @@ const layoutBrpcThreadFailureGraphComponent = (
 
   const minY = Math.min(...layouts.map((layout) => layout.y))
   const maxY = Math.max(...layouts.map((layout) => layout.y))
-  const dataWidth = Math.max(2, maxX - minX)
-  const dataHeight = Math.max(2, maxY - minY)
-  const horizontalOuterGap =
-    Math.max(...layouts.map((layout) => layout.width / 2)) + BRPC_THREAD_GRAPH_OUTER_GAP
-  const verticalOuterGap =
-    Math.max(...layouts.map((layout) => layout.height / 2)) + BRPC_THREAD_GRAPH_OUTER_GAP
 
   return {
     nodeLayouts,
     edgeCurveness,
     bounds: { minX, maxX, minY, maxY },
-    dataWidth,
-    dataHeight,
-    width: Math.ceil(dataWidth + horizontalOuterGap * 2),
-    height: Math.ceil(dataHeight + verticalOuterGap * 2),
   }
 }
 
@@ -12875,21 +12875,17 @@ const getBrpcThreadFailureGraphLayout = (graph: BrpcFailureGraph) => {
   const maxX = Math.max(...layouts.map((layout) => layout.x))
   const minY = Math.min(...layouts.map((layout) => layout.y), ...curveYExtents)
   const maxY = Math.max(...layouts.map((layout) => layout.y), ...curveYExtents)
-  const dataWidth = Math.max(2, maxX - minX)
-  const dataHeight = Math.max(2, maxY - minY)
-  const horizontalOuterGap =
+  const viewportPaddingX =
     Math.max(...layouts.map((layout) => layout.width / 2)) + BRPC_THREAD_GRAPH_OUTER_GAP
-  const verticalOuterGap =
+  const viewportPaddingY =
     Math.max(...layouts.map((layout) => layout.height / 2)) + BRPC_THREAD_GRAPH_OUTER_GAP
 
   return {
     nodeLayouts,
     edgeCurveness,
     bounds: { minX, maxX, minY, maxY },
-    dataWidth,
-    dataHeight,
-    width: Math.max(720, Math.ceil(dataWidth + horizontalOuterGap * 2)),
-    height: Math.max(320, Math.ceil(dataHeight + verticalOuterGap * 2)),
+    viewportPaddingX,
+    viewportPaddingY,
   }
 }
 
@@ -12898,13 +12894,7 @@ const brpcThreadFailureGraphLayout = computed(() => {
   return graph?.nodes.length ? getBrpcThreadFailureGraphLayout(graph) : null
 })
 
-const brpcThreadFailureGraphWidth = computed(() => brpcThreadFailureGraphLayout.value?.width ?? 720)
-
-const brpcThreadFailureGraphHeight = computed(
-  () => brpcThreadFailureGraphLayout.value?.height ?? 320,
-)
-
-const renderBrpcThreadFailureGraph = () => {
+const renderBrpcThreadFailureGraphUnsafe = () => {
   const graph = selectedBrpcAbnormalThreadDetail.value?.failure_graph
   const element = brpcThreadFailureGraphRef.value
   if (
@@ -12918,13 +12908,16 @@ const renderBrpcThreadFailureGraph = () => {
     return
   }
 
+  brpcThreadFailureGraphRenderError.value = ''
   if (brpcThreadFailureGraphInstance && brpcThreadFailureGraphInstance.getDom() !== element) {
     brpcThreadFailureGraphInstance.dispose()
     brpcThreadFailureGraphInstance = null
   }
   brpcThreadFailureGraphInstance ??= echarts.init(element)
 
-  const layout = getBrpcThreadFailureGraphLayout(graph)
+  // 复用 computed 缓存，避免大图布局重复计算。
+  const layout = brpcThreadFailureGraphLayout.value
+  if (!layout) return
   const chartNodes = graph.nodes
     .map((node) => {
       const nodeLayout = layout.nodeLayouts.get(node.node_id)
@@ -13004,6 +12997,7 @@ const renderBrpcThreadFailureGraph = () => {
   brpcThreadFailureGraphInstance.setOption(
     {
       animationDurationUpdate: 250,
+      animation: graph.nodes.length <= BRPC_THREAD_GRAPH_DETAILED_ROUTING_MAX_NODES,
       tooltip: {
         trigger: 'item',
         appendToBody: true,
@@ -13035,14 +13029,17 @@ const renderBrpcThreadFailureGraph = () => {
           layout: 'none',
           data: [...chartNodes, ...chartBoundaryNodes],
           links: chartLinks,
-          left: 'center',
-          top: 'middle',
-          width: layout.dataWidth,
-          height: layout.dataHeight,
-          preserveAspect: false,
+          // 按最大节点半宽/半高留白，确保位于边界的节点不会被 Canvas 裁切。
+          left: layout.viewportPaddingX,
+          right: layout.viewportPaddingX,
+          top: layout.viewportPaddingY,
+          bottom: layout.viewportPaddingY,
+          preserveAspect: true,
           roam: true,
           roamTrigger: 'global',
-          scaleLimit: { min: 0.55, max: 2 },
+          // 放大时主要拉开节点间距，节点本身仅轻微放大，便于检查密集大图。
+          nodeScaleRatio: 0.05,
+          scaleLimit: { min: 0.2, max: 50 },
           edgeSymbol: ['none', 'arrow'],
           edgeSymbolSize: [0, 9],
           lineStyle: { opacity: 1 },
@@ -13060,6 +13057,19 @@ const renderBrpcThreadFailureGraph = () => {
     selectBrpcThreadGraphNode(nodeId)
   })
   brpcThreadFailureGraphInstance.resize()
+}
+
+const renderBrpcThreadFailureGraph = () => {
+  try {
+    renderBrpcThreadFailureGraphUnsafe()
+  } catch (error) {
+    brpcThreadFailureGraphInstance?.dispose()
+    brpcThreadFailureGraphInstance = null
+    brpcThreadFailureGraphRenderError.value =
+      error instanceof Error && error.message
+        ? `故障模式视图渲染失败：${error.message}`
+        : '故障模式视图渲染失败，请缩小查询时间范围后重试'
+  }
 }
 
 const brpcEventWindows = computed<BrpcEventWindow[]>(() => {
@@ -14180,6 +14190,7 @@ const closeBrpcAbnormalThreadDetail = () => {
   selectedBrpcAbnormalThreadDetail.value = null
   brpcAbnormalThreadHits.value = []
   brpcAbnormalThreadDetailError.value = ''
+  brpcThreadFailureGraphRenderError.value = ''
   brpcAbnormalThreadHitsError.value = ''
   selectedBrpcThreadGraphNodeId.value = ''
   selectedBrpcThreadChildFailureModeId.value = ''
@@ -14228,6 +14239,7 @@ const openBrpcAbnormalThreadDetail = async (thread: BrpcAbnormalThread) => {
   isBrpcAbnormalThreadDetailOpen.value = true
   isBrpcAbnormalThreadDetailLoading.value = true
   brpcAbnormalThreadDetailError.value = ''
+  brpcThreadFailureGraphRenderError.value = ''
   activeBrpcAbnormalThread.value = thread
   selectedBrpcAbnormalThreadDetail.value = null
   selectedBrpcThreadGraphNodeId.value = ''
@@ -20725,6 +20737,12 @@ onBeforeUnmount(() => {
               {{ brpcAbnormalThreadDetailError }}
             </div>
             <div
+              v-else-if="brpcThreadFailureGraphRenderError"
+              class="brpc-thread-failure-graph-state error"
+            >
+              {{ brpcThreadFailureGraphRenderError }}
+            </div>
+            <div
               v-else-if="!selectedBrpcAbnormalThreadDetail?.failure_graph.nodes.length"
               class="brpc-thread-failure-graph-state"
             >
@@ -20734,10 +20752,6 @@ onBeforeUnmount(() => {
               <div
                 ref="brpcThreadFailureGraphRef"
                 class="brpc-thread-failure-graph"
-                :style="{
-                  width: `max(100%, ${brpcThreadFailureGraphWidth}px)`,
-                  height: `${brpcThreadFailureGraphHeight}px`,
-                }"
                 role="img"
                 aria-label="当前 Thread 命中的故障模式 DAG 子图"
               ></div>
