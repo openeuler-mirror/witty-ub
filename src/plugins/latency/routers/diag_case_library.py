@@ -7,7 +7,8 @@ and the ``operation`` field is filterable.
 """
 from typing import Annotated
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Header
+from pydantic import BaseModel, Field
 
 from latency.common.id_validation import ResourceIdPath
 from latency.schemas.diag_case_library import (
@@ -26,9 +27,29 @@ from latency.schemas.diag_case_library import (
 )
 from latency.services.diag_case_library import DiagCaseLibraryService
 from latency.services.resource_id import ResourceIdService
+from latency.services.report_review import require_operator
 
 
 router = APIRouter(prefix="/diag_case_library", tags=["Diag Case Library"])
+
+class VerifyCaseRequest(BaseModel):
+    expected_revision: int = Field(ge=0)
+    verified_by: str | None = None
+    observed_result: str = Field(min_length=1, max_length=10000)
+    method: str = Field(default="定界文档人工检验", min_length=1, max_length=500)
+
+
+@router.post("/{case_id}/verify", response_model=GetDiagCaseResponse)
+async def verify_case(
+    case_id: ResourceIdPath,
+    req: VerifyCaseRequest,
+    operator_header: Annotated[str | None, Header(alias="X-Witty-Operator")] = None,
+):
+    operator = require_operator(req.verified_by, operator_header)
+    result = await DiagCaseLibraryService.verify_case(
+        case_id, req.expected_revision, operator, req.observed_result, req.method
+    )
+    return GetDiagCaseResponse(result=result)
 
 
 async def _validate_kb_id(kb_id: str | None) -> None:
@@ -94,9 +115,10 @@ async def get_diag_case(case_id: ResourceIdPath) -> GetDiagCaseResponse:
 async def update_diag_case(
     case_id: ResourceIdPath,
     req: Annotated[UpdateDiagCaseRequest, Body()],
+    operator_header: Annotated[str | None, Header(alias="X-Witty-Operator")] = None,
 ) -> UpdateDiagCaseResponse:
     await _validate_kb_id(req.kb_id)
-    msg = await DiagCaseLibraryService.update_case(case_id, req)
+    msg = await DiagCaseLibraryService.update_case(case_id, req, operator_header)
     return UpdateDiagCaseResponse(result=msg)
 
 
@@ -118,8 +140,9 @@ async def update_diag_case(
 async def confirm_diag_case(
     case_id: ResourceIdPath,
     req: Annotated[ConfirmDiagCaseRequest, Body()],
+    operator_header: Annotated[str | None, Header(alias="X-Witty-Operator")] = None,
 ) -> ConfirmDiagCaseResponse:
-    msg = await DiagCaseLibraryService.confirm_case(case_id, req)
+    msg = await DiagCaseLibraryService.confirm_case(case_id, req, operator_header)
     return ConfirmDiagCaseResponse(result=msg)
 
 

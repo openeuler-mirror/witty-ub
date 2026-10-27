@@ -34,6 +34,23 @@ _MISSING_COLUMN_DDL: list[tuple[str, str, str]] = [
     ),
     ("brpc_profiling_result", "source_file", "VARCHAR"),
     ("failure_mode_knowledge", "error_code", "VARCHAR"),
+    ("diag_case_library", "report_id", "VARCHAR(200)"),
+    ("diag_case_library", "source_fault_id", "VARCHAR(64)"),
+    ("diag_case_library", "source_fault_hash", "CHAR(64)"),
+    ("diag_case_library", "source_sidecar_hash", "CHAR(64)"),
+    ("diag_case_library", "first_level_label", "VARCHAR(128)"),
+    ("diag_case_library", "second_level_label", "VARCHAR(128)"),
+    ("diag_case_library", "label_taxonomy_version", "CHAR(64)"),
+    ("diag_case_library", "source_label_hash", "CHAR(64)"),
+    ("diag_case_library", "verification_history_json", "JSONB DEFAULT '[]'"),
+    ("diag_case_library", "confirmation_source", "VARCHAR(16)"),
+    ("diagnostic_report_index", "confirmed_by", "VARCHAR(64)"),
+    ("diagnostic_report_index", "confirmed_at", "TIMESTAMP"),
+    ("diagnostic_report_index", "confirmed_sidecar_hash", "CHAR(64)"),
+    ("diagnostic_report_index", "confirmation_source", "VARCHAR(16)"),
+    ("phenomenon_index", "pending_content_hash", "CHAR(64)"),
+    ("phenomenon_index", "pending_source_fault_hash", "CHAR(64)"),
+    ("rag_doc_cleanup_task", "doc_id", "VARCHAR(512)"),
 ]
 
 
@@ -570,15 +587,135 @@ async def create_manual_indexes() -> None:
             await conn.execute(text(idx_sql))
 
 
+# ============================================================
+# 现象索引
+# ============================================================
+PHENOMENON_MIGRATION_LOCK_KEY = 742630201
+
+# 约束名与表结构均为代码常量，不来自请求输入。
+PHENOMENON_CHECK_CONSTRAINTS = (
+    (
+        "phenomenon_index",
+        "ck_phi_rag_pair",
+        "(rag_kb_id IS NULL) = (rag_doc_id IS NULL)",
+    ),
+    (
+        "phenomenon_index",
+        "ck_phi_pending_rag_pair",
+        "(pending_rag_kb_id IS NULL) = (pending_rag_doc_id IS NULL)",
+    ),
+    (
+        "diag_case_library",
+        "ck_dcl_report_binding",
+        "(report_id IS NULL) = (source_fault_id IS NULL) "
+        "AND (report_id IS NULL OR source_fault_hash IS NOT NULL)",
+    ),
+)
+
+PHENOMENON_INDEX_DDL = (
+    "CREATE INDEX IF NOT EXISTS ix_phi_report_fault "
+    "ON phenomenon_index (report_id, source_fault_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_phi_rag_doc "
+    "ON phenomenon_index (rag_kb_id, rag_doc_id) WHERE rag_doc_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_phi_pending_rag "
+    "ON phenomenon_index (pending_rag_kb_id, pending_rag_doc_id) "
+    "WHERE pending_rag_doc_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_phi_schedule "
+    "ON phenomenon_index (index_status, next_retry_at)",
+    "CREATE INDEX IF NOT EXISTS ix_phi_available "
+    "ON phenomenon_index (enabled, searchable)",
+    "CREATE INDEX IF NOT EXISTS ix_phi_case ON phenomenon_index (case_id)",
+    "CREATE INDEX IF NOT EXISTS ix_phi_legacy_case "
+    "ON phenomenon_index (legacy_case_id)",
+    "CREATE INDEX IF NOT EXISTS ix_dri_status_updated "
+    "ON diagnostic_report_index (index_status, updated_at)",
+    "CREATE INDEX IF NOT EXISTS ix_rag_cleanup_next "
+    "ON rag_doc_cleanup_task (next_retry_at)",
+    "CREATE INDEX IF NOT EXISTS ix_rag_cleanup_lease "
+    "ON rag_doc_cleanup_task (status, lease_expires_at)",
+    "CREATE INDEX IF NOT EXISTS ix_iev_outbox_next "
+    "ON index_event_outbox (status, next_retry_at)",
+    "CREATE INDEX IF NOT EXISTS ix_iev_outbox_lease "
+    "ON index_event_outbox (status, lease_expires_at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_dcl_bound_snapshot "
+    "ON diag_case_library (report_id, source_fault_id, source_fault_hash, "
+    "COALESCE(first_level_label, ''), COALESCE(second_level_label, '')) "
+    "WHERE report_id IS NOT NULL AND source_fault_id IS NOT NULL "
+    "AND status <> 'archived'",
+    "CREATE INDEX IF NOT EXISTS ix_dcl_labels "
+    "ON diag_case_library (first_level_label, second_level_label) "
+    "WHERE existed_status = TRUE",
+)
+
+# 旧唯一键不含分类快照；显式删除后由 ux_dcl_bound_snapshot 取代。
+PHENOMENON_INDEX_DROP = (
+    "DROP INDEX IF EXISTS ux_dcl_bound_version",
+)
+
+# 存量卡片升级：仅当已索引版本的文本哈希与期望版本一致时，才回填发布快照。
+PHENOMENON_PUBLISHED_BACKFILL = (
+    "UPDATE phenomenon_index SET "
+    "published_title = title, published_symptom = symptom, "
+    "published_text = text, "
+    "published_source_fault_hash = source_fault_hash "
+    "WHERE index_status = 'indexed' AND indexed_content_hash = content_hash "
+    "AND published_text IS NULL"
+)
+
+
+async def _create_check_constraint(conn, table: str, name: str, definition: str) -> None:
+    """PostgreSQL 不支持 ADD CONSTRAINT IF NOT EXISTS，先查 pg_constraint。"""
+    exists = await conn.scalar(
+        text(
+            "SELECT 1 FROM pg_constraint "
+            "WHERE conname = :name AND conrelid = to_regclass(:table)"
+        ),
+        {"name": name, "table": table},
+    )
+    if exists:
+        return
+    await conn.execute(text(
+        f"ALTER TABLE {table} ADD CONSTRAINT {name} CHECK ({definition})"
+    ))
+
+
+async def init_phenomenon_schema() -> None:
+    """创建现象索引相关的约束、部分唯一索引并回填存量发布快照。"""
+    async with PGManager.engine().begin() as conn:
+        for sql in PHENOMENON_INDEX_DROP:
+            await conn.execute(text(sql))
+        for sql in PHENOMENON_INDEX_DDL:
+            await conn.execute(text(sql))
+        for table, name, definition in PHENOMENON_CHECK_CONSTRAINTS:
+            await _create_check_constraint(conn, table, name, definition)
+        await conn.execute(text(PHENOMENON_PUBLISHED_BACKFILL))
+
+
 async def init_postgresql_database() -> None:
     """Initialize PostgreSQL: create tables, partitions, indexes.
 
     当前为 PostgreSQL-only 后端；这里只执行可重复运行的兼容性迁移，
     复杂的历史数据升级应使用外部迁移工具（如 Alembic）。
+    多实例并发启动时用固定键的会话级 advisory lock 串行化整段 DDL。
     """
-    async with PGManager.engine().begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    async with PGManager.engine().connect() as lock_conn:
+        await lock_conn.execute(
+            text("SELECT pg_advisory_lock(:key)"),
+            {"key": PHENOMENON_MIGRATION_LOCK_KEY},
+        )
+        try:
+            await lock_conn.run_sync(Base.metadata.create_all)
+            await lock_conn.commit()
+            await _run_postgresql_migrations()
+        finally:
+            await lock_conn.execute(
+                text("SELECT pg_advisory_unlock(:key)"),
+                {"key": PHENOMENON_MIGRATION_LOCK_KEY},
+            )
+            await lock_conn.commit()
 
+
+async def _run_postgresql_migrations() -> None:
     await _ensure_missing_columns()
     await _backfill_brpc_batch_hit_count()
     await _backfill_brpc_batch_time_range()
@@ -595,3 +732,4 @@ async def init_postgresql_database() -> None:
     await create_latency_bucket_partitions()
     await migrate_yuanrong_bucket_columns()
     await create_manual_indexes()
+    await init_phenomenon_schema()

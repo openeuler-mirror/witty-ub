@@ -6,12 +6,14 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import shutil
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -223,10 +225,10 @@ class TestConfigure:
 
 
 # ---------------------------------------------------------------------------
-# mk_dirs / startup_event（依赖全部 mock）
+# mk_dirs / lifespan（依赖全部 mock）
 # ---------------------------------------------------------------------------
 
-class TestStartupEvent:
+class TestLifespan:
     @staticmethod
     def _patch_dependencies(monkeypatch, tmp_path, calls):
         class _FakeConfig:
@@ -302,6 +304,10 @@ class TestStartupEvent:
             def start(self):
                 calls.append("scheduler_start")
 
+            def shutdown(self, wait):
+                assert wait is False
+                calls.append("scheduler_shutdown")
+
         scheduler = _FakeScheduler()
         monkeypatch.setattr(fastapi_server, "scheduler", scheduler)
 
@@ -314,25 +320,44 @@ class TestStartupEvent:
         (tmp_path / "exists").mkdir()
         return _FakePGManager, scheduler, _FakeTaskHandler
 
-    async def test_startup_initializes_backend_and_scheduler(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize(
+        ("index_enabled", "self_check_enabled"),
+        [(False, False), (False, True), (True, False), (True, True)],
+    )
+    async def test_lifespan_registers_workers_and_stops_scheduler(
+        self, tmp_path, monkeypatch, index_enabled, self_check_enabled
+    ):
         calls = []
         fake_pg, scheduler, fake_task = self._patch_dependencies(
             monkeypatch, tmp_path, calls
         )
 
-        await fastapi_server.startup_event()
+        monkeypatch.setattr(
+            fastapi_server.phenomenon_settings, "index_enabled", lambda: index_enabled
+        )
+        monkeypatch.setattr(
+            fastapi_server.phenomenon_settings,
+            "self_check_enabled",
+            lambda: self_check_enabled,
+        )
+        self_check = AsyncMock()
+        monkeypatch.setattr(
+            fastapi_server.PhenomenonIndexService, "run_self_check", self_check
+        )
+        async with fastapi_server.app.router.lifespan_context(fastapi_server.app):
+            await asyncio.sleep(0)
 
         assert fake_pg.initialized == [("postgresql://u:p@127.0.0.1:5432/db", 5, 7)]
         assert calls == [
             "init_timezone", "init_db", "knowledge", "backfill",
-            "task_queue", "scheduler_start",
+            "task_queue", "scheduler_start", "scheduler_shutdown",
         ]
         # mk_dirs：已存在目录跳过、缺失目录创建
         assert (tmp_path / "exists").is_dir()
         assert (tmp_path / "created").is_dir()
         # 调度任务注册：handle_tasks 每秒执行、单实例、合并积压；
         # master：收尸（reap_finished_processes）独立成第二个 interval job
-        assert len(scheduler.jobs) == 2
+        assert len(scheduler.jobs) == (9 if index_enabled else 2)
         fn, args, kwargs = scheduler.jobs[0]
         assert fn is fake_task.handle_tasks
         assert args == ("interval",)
@@ -341,6 +366,24 @@ class TestStartupEvent:
         assert fn is fake_task.reap_finished_processes
         assert args == ("interval",)
         assert kwargs == {"seconds": 1, "max_instances": 1, "coalesce": True}
+        expected_workers = [
+            fastapi_server.PhenomenonIndexService.scan_reports,
+            fastapi_server.PhenomenonIndexService.scan_legacy,
+            fastapi_server.PhenomenonIndexService.consume_events,
+            fastapi_server.PhenomenonIndexService.publish_due_cards,
+            fastapi_server.PhenomenonIndexService.resume_parsing_cards,
+            fastapi_server.PhenomenonIndexService.cleanup_documents,
+            fastapi_server.PhenomenonIndexService.reconcile,
+        ]
+        assert [job[0] for job in scheduler.jobs[2:]] == (
+            expected_workers if index_enabled else []
+        )
+        for _, args, kwargs in scheduler.jobs[2:]:
+            assert args == ("interval",)
+            assert kwargs["seconds"] > 0
+            assert kwargs["max_instances"] == 1
+            assert kwargs["coalesce"] is True
+        assert self_check.await_count == int(index_enabled and self_check_enabled)
 
 
 # ---------------------------------------------------------------------------

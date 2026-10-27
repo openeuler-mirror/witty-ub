@@ -11,7 +11,9 @@ from fastapi import APIRouter, UploadFile, File, Form, Query
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
+from latency.common.id_validation import ResourceIdPath
 from latency.services.case_service import CaseServiceManager, CASE_DIR
+from latency.services.phenomenon_index import PhenomenonIndexService
 
 router = APIRouter(prefix="/case_library", tags=["Case Library"])
 
@@ -63,6 +65,7 @@ async def create_case(
             content={"code": 400, "message": str(e), "result": None},
         )
 
+    await PhenomenonIndexService.notify_legacy_changed(case_record["id"])
     return JSONResponse(
         status_code=200,
         content={"code": 200, "message": "创建成功", "result": case_record},
@@ -72,6 +75,11 @@ async def create_case(
 @router.get("/list")
 async def list_cases():
     cases = CaseServiceManager.list_cases()
+    cases = [{
+        **case,
+        "source_kind": "task" if case.get("log_file_id") or case.get("task_ids") else "historical",
+        "effective": True,
+    } for case in cases]
     return JSONResponse(
         status_code=200,
         content={"code": 200, "message": "查询成功", "result": cases},
@@ -96,6 +104,7 @@ async def update_case(case_id: str, req: CaseUpdateRequest):
             status_code=404,
             content={"code": 404, "message": f"案例 {case_id} 不存在", "result": None},
         )
+    await PhenomenonIndexService.notify_legacy_changed(case_id)
     return JSONResponse(
         status_code=200,
         content={"code": 200, "message": "更新成功", "result": updated},
@@ -110,6 +119,7 @@ async def delete_case(case_id: str):
             status_code=404,
             content={"code": 404, "message": f"案例 {case_id} 不存在", "result": None},
         )
+    await PhenomenonIndexService.notify_legacy_changed(case_id)
     return JSONResponse(
         status_code=200,
         content={"code": 200, "message": "删除成功", "result": None},
@@ -345,4 +355,28 @@ async def delete_type(type_id: str, recursive: bool = Query(False)):
     return JSONResponse(
         status_code=200,
         content={"code": 200, "message": "删除成功", "result": None},
+    )
+
+
+@router.get("/{case_id}")
+async def get_case(case_id: ResourceIdPath):
+    """只读返回单条旧案例 JSON 原文。
+
+    必须最后注册，避免遮蔽 /list、/categories、/attachment 等静态路径。
+    """
+    try:
+        record = CaseServiceManager.get_case(case_id)
+    except FileNotFoundError:
+        return JSONResponse(
+            status_code=404,
+            content={"code": 404, "message": f"案例 {case_id} 不存在", "result": None},
+        )
+    except (ValueError, OSError):
+        return JSONResponse(
+            status_code=500,
+            content={"code": 500, "message": "案例数据损坏", "result": None},
+        )
+    return JSONResponse(
+        status_code=200,
+        content={"code": 200, "message": "查询成功", "result": record},
     )

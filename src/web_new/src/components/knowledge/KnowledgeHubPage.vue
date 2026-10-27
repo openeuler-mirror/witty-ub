@@ -7,10 +7,10 @@ import PageNav from '../common/PageNav.vue'
 import { useExperience } from '../../composables/useExperience'
 import { formatTime } from '../../utils/format'
 import { renderAgentMarkdown } from '../../utils/agentMarkdown'
-import CaseLibrarySection from './CaseLibrarySection.vue'
+import AllCasesSection from './AllCasesSection.vue'
 
-// 知识库两个板块：经验（Skill/Wiki）与案例库（全局故障案例）
-const section = ref<'experience' | 'cases'>('experience')
+const section = ref<'experience' | 'cases' | 'documents'>('documents')
+const documentFilter = ref<'all' | 'pending'>('all')
 
 const openExperienceSection = (type: 'SKILL' | 'WIKI') => {
   section.value = 'experience'
@@ -86,15 +86,23 @@ const rankedPagedItems = computed(() => {
       </button>
       <button
         type="button"
+        :class="['page-nav-item', { active: section === 'documents' }]"
+        @click="section = 'documents'; documentFilter = 'all'"
+      >
+        定界文档
+      </button>
+      <button
+        type="button"
         :class="['page-nav-item', { active: section === 'cases' }]"
         @click="section = 'cases'"
       >
-        📋 案例管理
+        已知案例
       </button>
     </nav>
 
-    <!-- ===== 案例管理（全局案例库） ===== -->
-    <CaseLibrarySection v-if="section === 'cases'" />
+    <template v-if="section !== 'experience'">
+      <AllCasesSection :view="section === 'documents' ? 'documents' : 'library'" :initial-document-filter="documentFilter" @show-pending="section = 'documents'; documentFilter = 'pending'" />
+    </template>
 
     <template v-else>
       <!-- 操作栏 -->
@@ -245,6 +253,12 @@ const rankedPagedItems = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.case-source-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .knowledge-card {

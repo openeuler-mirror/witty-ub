@@ -88,6 +88,7 @@ class VerificationModel(BaseModel):
     observed_result: Optional[str] = Field(default=None, description="实测观察到的结果")
     closed_loop: bool = Field(default=False, description="是否已闭环")
     verified_at: Optional[str] = Field(default=None, description="验证时间")
+    verified_by: Optional[str] = Field(default=None, description="验证操作人")
     notes: Optional[str] = Field(default=None, description="补充说明")
 
 
@@ -137,6 +138,9 @@ class DiagCaseLibraryModel(BaseModel):
     revision: int = Field(default=0, description="案例修订号")
     created_by: Optional[str] = Field(default=None, description="创建人标识")
     confirmed_by: Optional[str] = Field(default=None, description="确认人标识")
+    confirmation_source: Optional[str] = Field(
+        default=None, description="确认来源：review（在线）/ import（历史导入）"
+    )
     archived_by: Optional[str] = Field(default=None, description="归档人标识")
     confirmed_at: Optional[str] = Field(default=None, description="确认时间")
     archived_at: Optional[str] = Field(default=None, description="归档时间")
@@ -144,6 +148,24 @@ class DiagCaseLibraryModel(BaseModel):
     source: DiagCaseSource = Field(default=DiagCaseSource.INTERNAL, description="案例来源")
     source_url: Optional[str] = Field(default=None, description="community / online 来源链接")
     title: Optional[str] = Field(default=None, description="案例标题")
+    # 报告故障版本绑定
+    report_id: Optional[str] = Field(default=None, description="绑定的报告 API ID")
+    source_fault_id: Optional[str] = Field(default=None, description="绑定的报告故障 ID")
+    source_fault_hash: Optional[str] = Field(
+        default=None, description="建案时服务端计算的源故障版本哈希"
+    )
+    source_sidecar_hash: Optional[str] = Field(
+        default=None, description="建案时被确认的整份报告侧车哈希"
+    )
+    first_level_label: Optional[str] = Field(default=None, description="一级分类快照")
+    second_level_label: Optional[str] = Field(default=None, description="二级分类快照")
+    label_taxonomy_version: Optional[str] = Field(
+        default=None, description="建案时分类字典版本"
+    )
+    source_label_hash: Optional[str] = Field(
+        default=None, description="分类快照哈希，用于来源一致性校验"
+    )
+    # 归属
     log_type: Optional[str] = Field(default=None, description="日志类型 KVCache / UBSocket")
     kb_id: Optional[str] = Field(default=None, description="来源知识库ID，可空表示全局案例")
     kb_name: Optional[str] = Field(default=None, description="来源知识库名称")
@@ -180,6 +202,9 @@ class DiagCaseLibraryModel(BaseModel):
     verification_json: Optional[VerificationModel] = Field(
         default=None, description="验证闭环"
     )
+    verification_history_json: list[dict[str, Any]] = Field(
+        default_factory=list, description="验证回填审计历史"
+    )
     relations_json: list[RelationModel] = Field(default_factory=list, description="关联案例")
     search_text: Optional[str] = Field(default=None, description="embedding 正文，写入时生成")
     embedding_model: Optional[str] = Field(default=None, description="向量模型，本轮留空")
@@ -191,12 +216,37 @@ class DiagCaseLibraryModel(BaseModel):
     updated_at: str = Field(default_factory=_now, description="更新时间")
 
 
+class SourceReportModel(BaseModel):
+    """Navigation from a case back to its report fault."""
+
+    status: str = Field(
+        ...,
+        description="valid / stale / deleted / unavailable / independent",
+    )
+    report_id: Optional[str] = Field(default=None, description="源报告ID")
+    source_fault_id: Optional[str] = Field(default=None, description="源故障ID")
+    report_title: Optional[str] = Field(default=None, description="当前报告标题")
+    source_fault_title: Optional[str] = Field(default=None, description="故障标题")
+    review_status: Optional[str] = Field(default=None, description="报告审核状态")
+    classification_status: str = Field(
+        default="unclassified",
+        description="unclassified / valid / changed / unavailable",
+    )
+    current_first_level_label: Optional[str] = Field(default=None)
+    current_second_level_label: Optional[str] = Field(default=None)
+    get_report: Optional[str] = Field(default=None, description="打开报告工作台的链接")
+    get_fault: Optional[str] = Field(default=None, description="定位故障的链接")
+
+
 class DiagCaseLibraryMatchModel(BaseModel):
     case: DiagCaseLibraryModel = Field(..., description="命中的超节点诊断案例")
     match_score: float = Field(..., description="未归一化匹配分")
     score_norm: float = Field(..., description="按查询侧权重和归一化后的分数，0~1")
     matched_signals: list[DiagCaseLibrarySignalModel] = Field(
         default_factory=list, description="命中的结构化信号"
+    )
+    source_report: Optional[SourceReportModel] = Field(
+        default=None, description="来源报告导航；链接仅在来源有效时提供"
     )
 
 
@@ -264,6 +314,25 @@ class CreateDiagCaseDraftRequest(StrictRequestModel):
     )
     relations_json: list[RelationModel] = Field(default_factory=list, description="关联案例")
     source_log_ids: list[str] = Field(default_factory=list, description="来源日志ID")
+    report_id: Optional[str] = Field(
+        default=None, max_length=200, description="绑定报告 API ID，与 source_fault_id 成对"
+    )
+    source_fault_id: Optional[str] = Field(
+        default=None, max_length=64, description="绑定的报告故障 ID"
+    )
+    expected_sidecar_hash: Optional[str] = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+        description="报告派生建案时页面所见的侧车哈希",
+    )
+    first_level_label: Optional[str] = Field(
+        default=None, max_length=128, description="独立案例可选一级分类"
+    )
+    second_level_label: Optional[str] = Field(
+        default=None, max_length=128, description="独立案例可选二级分类"
+    )
 
     @model_validator(mode="after")
     def _require_source_url(self) -> "CreateDiagCaseDraftRequest":
@@ -271,6 +340,10 @@ class CreateDiagCaseDraftRequest(StrictRequestModel):
             self.source_url or ""
         ).strip():
             raise ValueError("source 为 community / online 时 source_url 必填")
+        if bool(self.report_id) != bool(self.source_fault_id):
+            raise ValueError("report_id 与 source_fault_id 必须同时提供或同时为空")
+        if self.report_id and not self.expected_sidecar_hash:
+            raise ValueError("报告派生建案必须提供 expected_sidecar_hash")
         return self
 
 
@@ -359,12 +432,19 @@ class UpdateDiagCaseRequest(StrictRequestModel):
         default=None, description="关联案例"
     )
     source_log_ids: Optional[list[str]] = Field(default=None, description="来源日志ID")
+    expected_revision: Optional[int] = Field(
+        default=None, ge=0, description="乐观锁：页面所见的案例 revision"
+    )
 
 
 class ConfirmDiagCaseRequest(StrictRequestModel):
     """确认请求；``draft → confirmed`` 需通过 §4.2 确认闸门。"""
 
-    confirmed_by: str = Field(..., min_length=1, description="确认人（或 agent）标识")
+    confirmed_by: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        description="确认人（或 agent）标识；受控审核部署由 X-Witty-Operator 注入",
+    )
     confidence: Optional[float] = Field(
         default=None, ge=0.0, le=1.0, description="确认后的结论验证强度，缺省沿用草稿值"
     )
@@ -380,6 +460,9 @@ class ArchiveDiagCaseRequest(StrictRequestModel):
 class SearchDiagCaseLibraryRequest(StrictRequestModel):
     """跨库检索请求；``kb_id`` 可空表示不过滤来源。"""
 
+    scope: Literal["library", "pending", "all"] = Field(
+        default="library", description="正式案例仅含已验证；待验证资料需显式查询 pending"
+    )
     operation: Optional[_LaxOperation] = Field(
         default=None, description="操作类型过滤：GET / SET / N/A"
     )
@@ -387,6 +470,15 @@ class SearchDiagCaseLibraryRequest(StrictRequestModel):
         default=None, description="日志类型过滤：KVCache / UBSocket"
     )
     fault_type: Optional[FaultType] = Field(default=None, description="故障类型过滤")
+    first_level_label: Optional[str] = Field(
+        default=None, max_length=128, description="一级分类过滤"
+    )
+    second_level_label: Optional[str] = Field(
+        default=None, max_length=128, description="二级分类过滤；必须与一级同时使用"
+    )
+    unclassified_only: bool = Field(
+        default=False, description="只返回两级分类均为空的案例"
+    )
     kb_id: Optional[str] = Field(
         default=None, description="知识库ID，为空表示跨库召回（仍附带全局案例）"
     )
@@ -428,6 +520,9 @@ class CreateDiagCaseDraftResponse(ResponseBase):
 
 class GetDiagCaseMsg(BaseModel):
     case: Optional[DiagCaseLibraryModel] = Field(default=None, description="超节点诊断案例")
+    source_report: Optional[SourceReportModel] = Field(
+        default=None, description="案例来源报告导航"
+    )
 
 
 class GetDiagCaseResponse(ResponseBase):

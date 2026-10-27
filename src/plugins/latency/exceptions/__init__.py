@@ -3,6 +3,10 @@ from latency.exceptions.biz_exceptions import (
     NotFoundBizException,
     ConflictBizException,
     BadRequestBizException,
+    UnprocessableBizException,
+    UpstreamContractBizException,
+    DependencyUnavailableBizException,
+    FeatureDisabledBizException,
 )
 
 __all__ = [
@@ -10,4 +14,8 @@ __all__ = [
     "NotFoundBizException",
     "ConflictBizException",
     "BadRequestBizException",
+    "UnprocessableBizException",
+    "UpstreamContractBizException",
+    "DependencyUnavailableBizException",
+    "FeatureDisabledBizException",
 ]

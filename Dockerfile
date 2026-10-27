@@ -33,6 +33,10 @@ FROM ${BASE_IMAGE_BACKEND} AS backend
 LABEL maintainer="witty-ub"
 LABEL description="Witty-UB backend image (FastAPI + C++ diagnosis tools)"
 
+COPY witty_ub_diagnostician/skills/diagnostic-report-generation/ /usr/share/witty-ub/report-generation/
+ENV WITTY_REPORT_RENDERER=/usr/share/witty-ub/report-generation/scripts/render_report.py \
+    WITTY_LABEL_TAXONOMY_FILE=/usr/share/witty-ub/report-generation/references/log_label.json
+
 COPY --from=builder-cpp /build/build/src/witty-ub-log /usr/bin/
 COPY --from=builder-cpp /build/build/src/witty-ub-topo /usr/bin/
 COPY --from=builder-cpp /build/build/src/witty-ub-diag-tool /usr/bin/

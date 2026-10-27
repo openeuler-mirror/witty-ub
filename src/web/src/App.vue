@@ -15,6 +15,9 @@ import {
 import type { PropType } from 'vue'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useTableSort, type SortField } from './composables/useTableSort'
+import ReportWorkbench from './components/ReportWorkbench.vue'
+import DiagCaseDetail from './components/DiagCaseDetail.vue'
+import CaseOverview from './components/CaseOverview.vue'
 import {
   ASSET_REPORT_DIALOG_PAGE_SIZE,
   assetReportButtonTitle,
@@ -23,6 +26,7 @@ import {
   resolveAssetReportButtonState,
 } from './utils/assetReport'
 import { displayServerTime, formatAssetTimeFilter } from './utils/serverTime'
+import { formatReportTime } from './utils/caseWorkflow'
 import {
   buildTaskLanes,
   buildTimelineTicks,
@@ -2790,7 +2794,7 @@ watch(selectedAssetId, (nextAssetId, previousAssetId) => {
   saveActiveAgentSession()
   agentSessionSearch.value = ''
 })
-const activePage = ref<'asset' | 'abnormal' | 'knowledge' | 'reports'>('asset')
+const activePage = ref<'asset' | 'abnormal' | 'knowledge' | 'reports' | 'diag-cases'>('asset')
 type MonitorSection = 'latency' | 'fault' | 'brpc' | 'brpc-fault' | 'similarity'
 type MonitorProduct = 'KVCache' | 'UBSocket'
 type KnowledgeSection = 'skill' | 'wiki' | 'case'
@@ -11491,80 +11495,185 @@ type DiagnosticReportModel = {
   file_name?: string | null
   file_size?: number | null
   has_sidecar?: boolean
+  index_status?: string | null
+  index_error?: string | null
+  status_counts?: Record<string, number> | null
+  indexable_fault_count?: number | null
+  confirmed_fault_count?: number | null
+  case_count?: number | null
+  verified_case_count?: number | null
+  report_available?: boolean
+  review_status?: string | null
+  current_sidecar_hash?: string | null
+  review_confirmed_by?: string | null
+  review_confirmed_at?: string | null
+  review_confirmation_source?: string | null
+  imported?: boolean
+  case_refs?: ReportCaseRefModel[]
+  fault_summaries?: ReportFaultSummaryModel[]
 }
 
-const diagnosticReportsPageSize = 10
-const diagnosticReports = ref<DiagnosticReportModel[]>([])
-const diagnosticReportsTotal = ref(0)
-const diagnosticReportsPage = ref(1)
-const diagnosticReportsPageInput = ref('')
-const isDiagnosticReportsLoading = ref(false)
-const diagnosticReportsError = ref('')
+type ReportClassificationModel = {
+  first_level_label?: string | null
+  second_level_label?: string | null
+  status?: string
+  error?: string | null
+  taxonomy_version?: string | null
+  snapshot_hash?: string | null
+}
 
-const diagnosticReportsPageCount = computed(() =>
-  Math.max(1, Math.ceil(diagnosticReportsTotal.value / diagnosticReportsPageSize)),
-)
-const diagnosticReportsPageWindow = computed(() =>
-  getPageWindow(diagnosticReportsPage.value, diagnosticReportsPageCount.value),
-)
+type ReportFaultSummaryModel = {
+  fault_id?: string | null
+  title?: string | null
+  status?: string | null
+  category?: string | null
+  confidence?: number | null
+  classification: ReportClassificationModel
+  indexable: boolean
+  synthetic: boolean
+  excluded: boolean
+}
+
+type ReportCaseRefModel = {
+  case_id: string
+  case_no?: string | null
+  source_fault_id?: string | null
+  source_fault_hash?: string | null
+  is_current_version: boolean
+  status: string
+  revision: number
+  verification: string
+  binding_status: string
+  first_level_label?: string | null
+  second_level_label?: string | null
+  verification_method?: string | null
+  observed_result?: string | null
+  closed_loop: boolean
+  verified_by?: string | null
+  verified_at?: string | null
+}
+
+type ReportDetailResponse = {
+  report: DiagnosticReportModel
+  data?: Record<string, unknown> | null
+}
+
+type ReportCasePreviewModel = {
+  report_id: string
+  source_fault_id: string
+  expected_sidecar_hash: string
+  source_fault_hash: string
+  classification: ReportClassificationModel
+  draft: Record<string, unknown>
+  missing_fields: string[]
+  ready: boolean
+}
+
+type DiagCaseModel = {
+  id: string
+  case_no?: string | null
+  status: string
+  revision: number
+  created_by?: string | null
+  confirmed_by?: string | null
+  confirmed_at?: string | null
+  title?: string | null
+  report_id?: string | null
+  source_fault_id?: string | null
+  first_level_label?: string | null
+  second_level_label?: string | null
+  label_taxonomy_version?: string | null
+  symptom_summary: string
+  root_cause_summary: string
+  root_cause_detail?: string | null
+  evidence_json: Array<Record<string, unknown>>
+  remediation_json: Array<Record<string, unknown>>
+  verification_json?: {
+    method?: string | null
+    observed_result?: string | null
+    closed_loop?: boolean
+    verified_at?: string | null
+    verified_by?: string | null
+    notes?: string | null
+  } | null
+  verification_history_json?: Array<Record<string, unknown>>
+  updated_at: string
+}
+
+type SourceReportModel = {
+  status: string
+  report_id?: string | null
+  source_fault_id?: string | null
+  report_title?: string | null
+  source_fault_title?: string | null
+  review_status?: string | null
+  classification_status?: string
+  get_report?: string | null
+}
+
+type DiagCaseDetailResponse = {
+  case: DiagCaseModel | null
+  source_report?: SourceReportModel | null
+}
+
 const diagnosticReportDisplayText = (value?: string | number | null) =>
   value === undefined || value === null || value === '' ? '—' : String(value)
 
-const loadDiagnosticReports = async (pageNum = diagnosticReportsPage.value) => {
-  isDiagnosticReportsLoading.value = true
-  diagnosticReportsError.value = ''
-  try {
-    const result = await request<{ total: number; items: DiagnosticReportModel[] }>(
-      '/diagnostic_report/list',
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          page_cnt: diagnosticReportsPageSize,
-          page_num: pageNum,
-        }),
-      },
-    )
-    const nextTotal = result.total ?? 0
-    const nextPageCount = Math.max(1, Math.ceil(nextTotal / diagnosticReportsPageSize))
-    if (pageNum > nextPageCount) {
-      isDiagnosticReportsLoading.value = false
-      await loadDiagnosticReports(nextPageCount)
-      return
-    }
-    diagnosticReports.value = result.items ?? []
-    diagnosticReportsTotal.value = nextTotal
-    diagnosticReportsPage.value = pageNum
-  } catch (error) {
-    diagnosticReports.value = []
-    diagnosticReportsTotal.value = 0
-    diagnosticReportsPage.value = 1
-    diagnosticReportsError.value = error instanceof Error ? error.message : '诊断报告加载失败'
-  } finally {
-    isDiagnosticReportsLoading.value = false
+const diagnosticReportIndexLabels: Record<string, string> = {
+  indexed: '已索引',
+  partial: '部分索引',
+  pending: '待索引',
+  failed: '索引失败',
+  not_applicable: '无需索引',
+}
+const diagnosticReportIndexLabel = (value?: string | null) =>
+  diagnosticReportIndexLabels[value || ''] ?? '未知'
+const diagnosticReportIndexBadgeClass = (value?: string | null) => {
+  switch (value) {
+    case 'indexed':
+      return 'status-successful'
+    case 'partial':
+      return 'status-running'
+    case 'pending':
+      return 'status-pending'
+    case 'failed':
+      return 'status-failed'
+    default:
+      return 'status-unknown'
+  }
+}
+
+const diagnosticReportReviewLabels: Record<string, string> = {
+  unconfirmed: '未确认',
+  confirmed: '已确认',
+  stale: '确认过期',
+  unavailable: '不可校验',
+}
+const diagnosticReportReviewLabel = (report: DiagnosticReportModel) => {
+  if (
+    report.review_status === 'confirmed' &&
+    report.review_confirmation_source === 'import'
+  ) {
+    return '导入时声明已验证'
+  }
+  return diagnosticReportReviewLabels[report.review_status || ''] ?? '未确认'
+}
+const diagnosticReportReviewBadgeClass = (value?: string | null) => {
+  switch (value) {
+    case 'confirmed':
+      return 'status-successful'
+    case 'stale':
+      return 'status-running'
+    case 'unavailable':
+      return 'status-failed'
+    default:
+      return 'status-pending'
   }
 }
 
 const openDiagnosticReportsPage = () => {
   activePage.value = 'reports'
-  if (diagnosticReports.value.length === 0 && !isDiagnosticReportsLoading.value) {
-    void loadDiagnosticReports(1)
-  }
-}
-
-const goDiagnosticReportsPage = (pageNum: number) => {
-  const nextPage = Math.min(Math.max(1, pageNum), diagnosticReportsPageCount.value)
-  if (nextPage === diagnosticReportsPage.value || isDiagnosticReportsLoading.value) return
-  void loadDiagnosticReports(nextPage)
-}
-
-const jumpDiagnosticReportsPage = () => {
-  const nextPage = normalizePageInput(
-    diagnosticReportsPageInput.value,
-    diagnosticReportsPageCount.value,
-  )
-  if (nextPage === null) return
-  diagnosticReportsPageInput.value = ''
-  goDiagnosticReportsPage(nextPage)
+  documentFilter.value = 'all'
 }
 
 // 报告为自包含 HTML，走 nginx 白名单直开新窗口（不用 Blob，地址可分享）
@@ -11575,6 +11684,47 @@ const openDiagnosticReport = (reportId: string) => {
     'noopener',
   )
 }
+
+// 报告工作台与诊断案例详情：列表/案例/报告之间共用同一套弹层状态
+const reportWorkbenchOpen = ref(false)
+const reportWorkbenchReportId = ref('')
+const reportWorkbenchFaultId = ref('')
+const workbenchRefreshToken = ref(0)
+const bumpWorkbench = () => {
+  workbenchRefreshToken.value += 1
+}
+const openReportWorkbench = (reportId: string, faultId = '') => {
+  assetReportDialogOpen.value = false
+  diagCaseDetailOpen.value = false
+  reportWorkbenchReportId.value = reportId
+  reportWorkbenchFaultId.value = faultId
+  reportWorkbenchOpen.value = true
+}
+const closeReportWorkbench = () => {
+  reportWorkbenchOpen.value = false
+}
+
+const diagCaseDetailOpen = ref(false)
+const diagCaseDetailId = ref('')
+const openDiagCaseDetail = (caseId: string) => {
+  reportWorkbenchOpen.value = false
+  diagCaseDetailId.value = caseId
+  diagCaseDetailOpen.value = true
+}
+const closeDiagCaseDetail = () => {
+  diagCaseDetailOpen.value = false
+  bumpWorkbench()
+}
+const openReportFromCase = (reportId: string, faultId: string) => {
+  closeDiagCaseDetail()
+  openReportWorkbench(reportId, faultId)
+}
+
+const openDiagCasesPage = () => {
+  activePage.value = 'diag-cases'
+}
+
+const documentFilter = ref<'all' | 'pending'>('all')
 
 // 资产库内报告入口（docs/design/asset-report-entry.md）：进详情页时用 page_cnt=1
 // 轻量探测该库报告总数决定按钮三态，≥2 份时才拉列表弹层。
@@ -11595,7 +11745,7 @@ const assetReportButtonDisabled = computed(() =>
 const assetReportButtonHint = computed(() => assetReportButtonTitle(assetReportButtonState.value))
 const assetReportListNotice = computed(() => buildAssetReportListNotice(assetReportTotal.value))
 const assetReportDialogTitle = computed(
-  () => `诊断报告 · ${selectedAsset.value?.name || selectedAssetId.value || ''}`,
+  () => `定界文档 · ${selectedAsset.value?.name || selectedAssetId.value || ''}`,
 )
 
 const resetAssetReportEntry = () => {
@@ -15422,7 +15572,7 @@ onBeforeUnmount(() => {
       </section>
 
       <section class="nav-section">
-        <div class="nav-title">诊断报告</div>
+        <div class="nav-title">诊断知识</div>
         <div class="nav-list">
           <div
             class="nav-asset-item"
@@ -15434,8 +15584,22 @@ onBeforeUnmount(() => {
             @keydown.space.prevent="openDiagnosticReportsPage"
           >
             <span class="asset-item-main">
-              <strong>报告库</strong>
-              <small>查看 Agent 生成的诊断报告</small>
+              <strong>定界文档</strong>
+              <small>阅读文档并检验定界结论</small>
+            </span>
+          </div>
+          <div
+            class="nav-asset-item"
+            :class="{ selected: activePage === 'diag-cases' }"
+            role="button"
+            tabindex="0"
+            @click="openDiagCasesPage"
+            @keydown.enter="openDiagCasesPage"
+            @keydown.space.prevent="openDiagCasesPage"
+          >
+            <span class="asset-item-main">
+              <strong>已知案例</strong>
+              <small>有效定界结论与任务日志案例</small>
             </span>
           </div>
         </div>
@@ -15536,14 +15700,6 @@ onBeforeUnmount(() => {
             @click="openKnowledgePage('wiki')"
           >
             📖 Wiki管理
-          </button>
-          <button
-            class="monitor-nav-item"
-            :class="{ active: activePage === 'knowledge' && activeKnowledgeSection === 'case' }"
-            type="button"
-            @click="openKnowledgePage('case')"
-          >
-            📋 案例管理
           </button>
         </div>
       </section>
@@ -19896,131 +20052,15 @@ onBeforeUnmount(() => {
         </section>
       </div>
 
-      <div v-else-if="activePage === 'reports'" class="reports-page">
-        <header class="detail-header">
-          <div class="detail-title-block">
-            <p class="eyebrow">诊断报告库</p>
-            <h1>诊断报告</h1>
-            <p class="detail-description">
-              Agent 生成的诊断报告统一落盘并在此查阅，点击「查看」在新窗口打开报告。
-            </p>
-          </div>
-          <div class="detail-actions">
-            <div class="detail-actions-bottom">
-              <button
-                class="ghost-btn"
-                type="button"
-                :disabled="isDiagnosticReportsLoading"
-                @click="loadDiagnosticReports(diagnosticReportsPage)"
-              >
-                刷新
-              </button>
-            </div>
-          </div>
-        </header>
-
-        <section class="log-files-section">
-          <div v-if="isDiagnosticReportsLoading" class="state-text">正在加载诊断报告...</div>
-          <div v-else-if="diagnosticReportsError" class="state-text">
-            {{ diagnosticReportsError }}
-          </div>
-          <div v-else-if="diagnosticReports.length === 0" class="state-text">暂无诊断报告</div>
-          <div v-else class="log-file-list">
-            <div v-for="report in diagnosticReports" :key="report.report_id" class="log-file-item">
-              <div class="log-file-info">
-                <div class="log-file-summary">
-                  <span class="log-file-path" :title="report.report_id">
-                    📄 {{ diagnosticReportDisplayText(report.title || report.file_name) }}
-                  </span>
-                  <span class="log-file-meta">
-                    <span class="log-file-time">
-                      知识库：{{ diagnosticReportDisplayText(report.kb_name || report.kb_id) }}
-                    </span>
-                    <span class="log-file-time">
-                      生成时间：{{ diagnosticReportDisplayText(report.generated_at) }}
-                    </span>
-                    <span class="log-file-time">
-                      故障数：{{
-                        report.has_sidecar === false
-                          ? '—'
-                          : diagnosticReportDisplayText(report.fault_count)
-                      }}
-                    </span>
-                    <span
-                      v-if="report.has_sidecar === false"
-                      class="status-badge anomaly-danger"
-                      title="侧车 JSON 缺失，标题与故障数等信息不可用"
-                      >无侧车数据</span
-                    >
-                    <button
-                      class="ghost-btn"
-                      type="button"
-                      @click="openDiagnosticReport(report.report_id)"
-                    >
-                      查看
-                    </button>
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <div v-if="diagnosticReportsTotal > 0" class="aggregate-pagination log-file-pagination">
-          <button
-            class="ghost-btn"
-            type="button"
-            :disabled="diagnosticReportsPage <= 1 || isDiagnosticReportsLoading"
-            @click="goDiagnosticReportsPage(diagnosticReportsPage - 1)"
-          >
-            上一页
-          </button>
-          <span class="pagination-pages" aria-label="诊断报告页码">
-            <button
-              v-for="pageNum in diagnosticReportsPageWindow"
-              :key="`diagnostic-report-page-${pageNum}`"
-              class="pagination-page-btn"
-              :class="{ active: pageNum === diagnosticReportsPage, ellipsis: pageNum < 0 }"
-              type="button"
-              :disabled="
-                pageNum < 0 || pageNum === diagnosticReportsPage || isDiagnosticReportsLoading
-              "
-              @click="pageNum > 0 && goDiagnosticReportsPage(pageNum)"
-            >
-              {{ pageNum < 0 ? '…' : pageNum }}
-            </button>
-          </span>
-          <button
-            class="ghost-btn"
-            type="button"
-            :disabled="
-              diagnosticReportsPage >= diagnosticReportsPageCount || isDiagnosticReportsLoading
-            "
-            @click="goDiagnosticReportsPage(diagnosticReportsPage + 1)"
-          >
-            下一页
-          </button>
-          <span class="pagination-jump">
-            <span>第 {{ diagnosticReportsPage }} / {{ diagnosticReportsPageCount }} 页</span>
-            <input
-              v-model="diagnosticReportsPageInput"
-              class="pagination-jump-input"
-              type="number"
-              min="1"
-              :max="diagnosticReportsPageCount"
-              aria-label="跳转诊断报告页码"
-              @keyup.enter="jumpDiagnosticReportsPage"
-            />
-            <button
-              class="pagination-jump-btn"
-              type="button"
-              :disabled="isDiagnosticReportsLoading"
-              @click="jumpDiagnosticReportsPage"
-            >
-              跳转
-            </button>
-          </span>
-        </div>
+      <div v-else-if="activePage === 'reports' || activePage === 'diag-cases'" class="diag-cases-page">
+        <CaseOverview
+          :view="activePage === 'reports' ? 'documents' : 'library'"
+          :initial-document-filter="documentFilter"
+          :refresh-token="workbenchRefreshToken"
+          @open-case="openDiagCaseDetail"
+          @open-report="openReportWorkbench"
+          @show-pending="activePage = 'reports'; documentFilter = 'pending'"
+        />
       </div>
 
       <div v-else-if="isDetailLoading" class="empty-detail">正在加载详情...</div>
@@ -20046,7 +20086,7 @@ onBeforeUnmount(() => {
                 :disabled="assetReportButtonDisabled"
                 @click="handleAssetReportClick"
               >
-                查看诊断报告
+                查看定界文档
               </button>
               <button
                 class="add-case-btn icon-btn detail-icon-btn"
@@ -20983,10 +21023,10 @@ onBeforeUnmount(() => {
           </button>
         </header>
         <div class="modal-body asset-report-body">
-          <div v-if="isAssetReportsLoading" class="state-text">正在加载诊断报告...</div>
+          <div v-if="isAssetReportsLoading" class="state-text">正在加载定界文档...</div>
           <div v-else-if="assetReportsError" class="state-text">{{ assetReportsError }}</div>
           <div v-else-if="assetReports.length === 0" class="state-text asset-report-empty">
-            暂无相关诊断报告，可通过 Agent 生成
+            暂无相关定界文档，可通过 Agent 生成
           </div>
           <div v-else class="log-file-list asset-report-list">
             <div v-for="report in assetReports" :key="report.report_id" class="log-file-item">
@@ -21002,7 +21042,7 @@ onBeforeUnmount(() => {
                   </span>
                   <span class="log-file-meta">
                     <span class="log-file-time">
-                      生成时间：{{ diagnosticReportDisplayText(report.generated_at) }}
+                      生成时间：{{ formatReportTime(report.generated_at) }}
                     </span>
                     <span class="log-file-time">
                       故障数：{{
@@ -21018,6 +21058,30 @@ onBeforeUnmount(() => {
                       时间范围：{{ diagnosticReportDisplayText(report.time_range_start) }} ~
                       {{ diagnosticReportDisplayText(report.time_range_end) }}
                     </span>
+                    <span class="log-file-time">
+                      案例：{{ diagnosticReportDisplayText(report.case_count ?? 0) }}
+                      <template v-if="report.verified_case_count">
+                        （已验证 {{ report.verified_case_count }}）
+                      </template>
+                    </span>
+                    <span
+                      class="status-badge"
+                      :class="diagnosticReportIndexBadgeClass(report.index_status)"
+                      :title="report.index_error || undefined"
+                      >{{ diagnosticReportIndexLabel(report.index_status) }}</span
+                    >
+                    <span
+                      class="status-badge"
+                      :class="diagnosticReportReviewBadgeClass(report.review_status)"
+                      :title="report.review_confirmed_by || undefined"
+                      >{{ diagnosticReportReviewLabel(report) }}</span
+                    >
+                    <span
+                      v-if="report.imported"
+                      class="status-badge status-pending"
+                      title="历史报告导入"
+                      >历史导入</span
+                    >
                     <span
                       v-if="report.has_sidecar === false"
                       class="status-badge anomaly-danger"
@@ -21027,9 +21091,16 @@ onBeforeUnmount(() => {
                     <button
                       class="ghost-btn"
                       type="button"
+                      @click="openReportWorkbench(report.report_id)"
+                    >
+                      查看文档
+                    </button>
+                    <button
+                      class="ghost-btn"
+                      type="button"
                       @click="openDiagnosticReport(report.report_id)"
                     >
-                      查看
+                      阅读原文
                     </button>
                   </span>
                 </div>
@@ -23925,5 +23996,21 @@ onBeforeUnmount(() => {
         aria-hidden="true"
       ></span>
     </button>
+    <ReportWorkbench
+      :open="reportWorkbenchOpen"
+      :report-id="reportWorkbenchReportId"
+      :fault-id="reportWorkbenchFaultId"
+      :refresh-token="workbenchRefreshToken"
+      @close="closeReportWorkbench"
+      @changed="bumpWorkbench"
+      @open-case="openDiagCaseDetail"
+    />
+    <DiagCaseDetail
+      :open="diagCaseDetailOpen"
+      :case-id="diagCaseDetailId"
+      @close="closeDiagCaseDetail"
+      @changed="bumpWorkbench"
+      @open-report="openReportFromCase"
+    />
   </div>
 </template>

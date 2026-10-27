@@ -10,6 +10,8 @@ import AssetsPage from './views/assets/AssetsPage.vue'
 import AssetWorkspace from './views/assets/AssetWorkspace.vue'
 import KnowledgeHubPage from './components/knowledge/KnowledgeHubPage.vue'
 import BrpcDiagnosisModal from './components/BrpcDiagnosisModal.vue'
+import ReportWorkbenchModal from './components/report/ReportWorkbenchModal.vue'
+import DiagCaseDetailModal from './components/knowledge/DiagCaseDetailModal.vue'
 
 const { toasts } = useToast()
 const { view, selectedAsset, assetTab, goAssetList } = useAssets()
@@ -42,7 +44,7 @@ const onNavClick = (key: AppView) => {
 
 // 顶栏资产库页签后内联的位置路径：资产库 › 资产名 › 当前子页
 const assetTabLabel = computed(
-  () => ({ overview: '分析', tasks: '任务', reports: '报告' })[assetTab.value],
+  () => ({ overview: '分析', tasks: '任务', reports: '定界文档' })[assetTab.value],
 )
 
 let pollTimer: number | null = null
@@ -137,6 +139,8 @@ onBeforeUnmount(() => {
   </main>
 
   <BrpcDiagnosisModal />
+  <ReportWorkbenchModal />
+  <DiagCaseDetailModal />
 
   <div class="toast">
     <div v-for="item in toasts" :key="item.id" :class="['toast-item', `toast-${item.type}`]">

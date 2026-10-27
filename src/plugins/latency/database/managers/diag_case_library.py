@@ -16,16 +16,18 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Iterable
 
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
 from latency.ENUM.case_library import DiagCaseStatus
+from latency.ENUM.phenomenon import IndexEventType
 from latency.common.local_time import local_now
 from latency.database.engine import PGManager
 from latency.database.managers.diagnosis_case import (
     _iter_values,
     _normalize_signal_value,
 )
+from latency.database.managers.phenomenon_index import PhenomenonIndexPGManager
 from latency.database.models import DiagCaseLibrary, DiagCaseLibrarySignal
 from latency.database.utils import format_timestamp
 from latency.schemas.diag_case_library import (
@@ -92,7 +94,10 @@ class DiagCaseLibraryPGManager:
     )
 
     # §4.5 处置闭环回填白名单：已确认案例只放行「事后证据」字段，内容物仍冻结。
-    VERIFICATION_COLUMNS: tuple[str, ...] = ("verification_json",)
+    VERIFICATION_COLUMNS: tuple[str, ...] = (
+        "verification_json",
+        "verification_history_json",
+    )
 
     @staticmethod
     def _format_case_no(seq_value: int) -> str:
@@ -232,6 +237,17 @@ class DiagCaseLibraryPGManager:
         req: SearchDiagCaseLibraryRequest,
     ) -> bool:
         """Structured header filters; ``kb_id`` empty means "no source filter"."""
+        verified = (
+            case.status == DiagCaseStatus.CONFIRMED
+            and case.verification_json is not None
+            and case.verification_json.closed_loop
+        )
+        if req.scope == "library" and not verified:
+            return False
+        if req.scope == "pending" and (
+            verified or case.status == DiagCaseStatus.ARCHIVED
+        ):
+            return False
         if case.status not in req.include_status:
             return False
         if req.kb_id and case.kb_id not in (None, "", req.kb_id):
@@ -239,6 +255,14 @@ class DiagCaseLibraryPGManager:
         if req.log_type and case.log_type != req.log_type:
             return False
         if req.fault_type and case.fault_type not in (req.fault_type, "mixed", "unknown"):
+            return False
+        if req.first_level_label and case.first_level_label != req.first_level_label:
+            return False
+        if req.second_level_label and case.second_level_label != req.second_level_label:
+            return False
+        if req.unclassified_only and (
+            case.first_level_label or case.second_level_label
+        ):
             return False
         if req.operation and case.operation != req.operation:
             return False
@@ -307,6 +331,7 @@ class DiagCaseLibraryPGManager:
             revision=row.revision or 0,
             created_by=row.created_by,
             confirmed_by=row.confirmed_by,
+            confirmation_source=getattr(row, "confirmation_source", None) or None,
             archived_by=row.archived_by,
             confirmed_at=format_timestamp(row.confirmed_at),
             archived_at=format_timestamp(row.archived_at),
@@ -314,6 +339,14 @@ class DiagCaseLibraryPGManager:
             source=row.source or "internal",
             source_url=row.source_url,
             title=row.title,
+            report_id=row.report_id or None,
+            source_fault_id=row.source_fault_id or None,
+            source_fault_hash=row.source_fault_hash or None,
+            source_sidecar_hash=row.source_sidecar_hash or None,
+            first_level_label=row.first_level_label or None,
+            second_level_label=row.second_level_label or None,
+            label_taxonomy_version=row.label_taxonomy_version or None,
+            source_label_hash=row.source_label_hash or None,
             log_type=row.log_type,
             kb_id=row.kb_id or None,
             kb_name=row.kb_name,
@@ -342,6 +375,7 @@ class DiagCaseLibraryPGManager:
             counter_evidence_json=row.counter_evidence_json or [],
             remediation_json=row.remediation_json or [],
             verification_json=row.verification_json or None,
+            verification_history_json=row.verification_history_json or [],
             relations_json=row.relations_json or [],
             search_text=row.search_text,
             embedding_model=row.embedding_model,
@@ -425,6 +459,8 @@ class DiagCaseLibraryPGManager:
         columns: tuple[str, ...],
         allowed_status: tuple[DiagCaseStatus, ...],
         rebuild_signals: bool,
+        event: dict[str, Any] | None = None,
+        expected_revision: int | None = None,
     ) -> bool:
         """按列白名单与状态白名单落库一次更新，``revision + 1``。"""
         data = case.model_dump(mode="json")
@@ -433,24 +469,34 @@ class DiagCaseLibraryPGManager:
         if rebuild_signals:
             values["search_text"] = DiagCaseLibraryPGManager._build_search_text(case)
 
+        conditions = [
+            DiagCaseLibrary.id == case_id,
+            DiagCaseLibrary.existed_status.is_(True),
+            DiagCaseLibrary.status.in_([status.value for status in allowed_status]),
+        ]
+        if expected_revision is not None:
+            conditions.append(DiagCaseLibrary.revision == expected_revision)
         async with PGManager.session() as session:
             result = await session.execute(
                 update(DiagCaseLibrary)
-                .where(
-                    DiagCaseLibrary.id == case_id,
-                    DiagCaseLibrary.existed_status.is_(True),
-                    DiagCaseLibrary.status.in_([status.value for status in allowed_status]),
-                )
+                .where(*conditions)
                 .values(revision=DiagCaseLibrary.revision + 1, **values)
             )
             if not (result.rowcount or 0):
                 return False
             if rebuild_signals:
                 await DiagCaseLibraryPGManager._replace_signals(session, case_id, case)
+            if event:
+                await PhenomenonIndexPGManager.enqueue_event(session, **event)
         return True
 
     @staticmethod
-    async def update_draft(case_id: str, case: DiagCaseLibraryModel) -> bool:
+    async def update_draft(
+        case_id: str,
+        case: DiagCaseLibraryModel,
+        *,
+        expected_revision: int | None = None,
+    ) -> bool:
         """§4.4 草稿内容物局部更新：重算 search_text 与信号行。
 
         只在 ``status = draft`` 时生效（并发下确认后的案例不会被改写）。
@@ -461,10 +507,16 @@ class DiagCaseLibraryPGManager:
             columns=DiagCaseLibraryPGManager.UPDATABLE_COLUMNS,
             allowed_status=(DiagCaseStatus.DRAFT,),
             rebuild_signals=True,
+            expected_revision=expected_revision,
         )
 
     @staticmethod
-    async def update_verification(case_id: str, case: DiagCaseLibraryModel) -> bool:
+    async def update_verification(
+        case_id: str,
+        case: DiagCaseLibraryModel,
+        *,
+        expected_revision: int | None = None,
+    ) -> bool:
         """§4.5 处置闭环回填：``draft`` / ``confirmed`` 均可，只写 verification_json。
 
         验证闭环不属于检索信号，故不重算 search_text 与信号行（内容是事后证据，
@@ -476,6 +528,13 @@ class DiagCaseLibraryPGManager:
             columns=DiagCaseLibraryPGManager.VERIFICATION_COLUMNS,
             allowed_status=(DiagCaseStatus.DRAFT, DiagCaseStatus.CONFIRMED),
             rebuild_signals=False,
+            expected_revision=expected_revision,
+            event={
+                "event_key": f"case_verification:{case_id}:{case.revision + 1}",
+                "event_type": IndexEventType.CASE_VERIFICATION.value,
+                "target_doc_id": None,
+                "payload": {"case_id": case_id},
+            },
         )
 
     @staticmethod
@@ -483,6 +542,7 @@ class DiagCaseLibraryPGManager:
         case_id: str,
         confirmed_by: str,
         confidence: float | None = None,
+        confirmation_source: str | None = None,
     ) -> bool:
         now = _now()
         async with PGManager.session() as session:
@@ -490,6 +550,7 @@ class DiagCaseLibraryPGManager:
                 text(
                     "UPDATE diag_case_library SET status = :status, "
                     "confirmed_by = :confirmed_by, confirmed_at = :now, "
+                    "confirmation_source = COALESCE(:confirmation_source, confirmation_source), "
                     "revision = revision + 1, updated_at = :now, "
                     "confidence = COALESCE(:confidence, confidence) "
                     "WHERE id = :case_id AND existed_status = TRUE"
@@ -497,11 +558,20 @@ class DiagCaseLibraryPGManager:
                 {
                     "status": DiagCaseStatus.CONFIRMED.value,
                     "confirmed_by": confirmed_by,
+                    "confirmation_source": confirmation_source,
                     "confidence": confidence,
                     "now": now,
                     "case_id": case_id,
                 },
             )
+            if (result.rowcount or 0) > 0:
+                await PhenomenonIndexPGManager.enqueue_event(
+                    session,
+                    event_key=f"case_confirmed:{case_id}",
+                    event_type=IndexEventType.CASE_CONFIRMED.value,
+                    target_doc_id=None,
+                    payload={"case_id": case_id},
+                )
         return (result.rowcount or 0) > 0
 
     @staticmethod
@@ -527,7 +597,57 @@ class DiagCaseLibraryPGManager:
                     "case_id": case_id,
                 },
             )
+            if (result.rowcount or 0) > 0:
+                await PhenomenonIndexPGManager.enqueue_event(
+                    session,
+                    event_key=f"case_archived:{case_id}",
+                    event_type=IndexEventType.CASE_ARCHIVED.value,
+                    target_doc_id=None,
+                    payload={"case_id": case_id},
+                )
         return (result.rowcount or 0) > 0
+
+    @staticmethod
+    async def find_active_bound_case(
+        report_id: str,
+        source_fault_id: str,
+        source_fault_hash: str,
+        first_level_label: str | None = None,
+        second_level_label: str | None = None,
+    ) -> DiagCaseLibraryModel | None:
+        async with PGManager.session() as session:
+            rows = await session.execute(
+                select(DiagCaseLibrary)
+                .where(
+                    DiagCaseLibrary.report_id == report_id,
+                    DiagCaseLibrary.source_fault_id == source_fault_id,
+                    DiagCaseLibrary.source_fault_hash == source_fault_hash,
+                    func.coalesce(DiagCaseLibrary.first_level_label, "")
+                    == (first_level_label or ""),
+                    func.coalesce(DiagCaseLibrary.second_level_label, "")
+                    == (second_level_label or ""),
+                    DiagCaseLibrary.status != DiagCaseStatus.ARCHIVED.value,
+                    DiagCaseLibrary.existed_status.is_(True),
+                )
+                .limit(1)
+            )
+            row = rows.scalars().first()
+        return (
+            DiagCaseLibraryPGManager._orm_to_case(row) if row is not None else None
+        )
+
+    @staticmethod
+    async def delete_case(case_id: str) -> None:
+        """Discard a draft whose source report version changed inside the request."""
+        async with PGManager.session() as session:
+            await session.execute(
+                delete(DiagCaseLibrarySignal).where(
+                    DiagCaseLibrarySignal.case_id == case_id
+                )
+            )
+            await session.execute(
+                delete(DiagCaseLibrary).where(DiagCaseLibrary.id == case_id)
+            )
 
     @staticmethod
     async def mark_hit(case_id: str) -> bool:

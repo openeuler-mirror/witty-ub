@@ -8,6 +8,26 @@
 
 ## 环境变量
 
+### 定界报告路径导入
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `WITTY_REPORT_IMPORT_ROOTS` | 空（关闭路径读取） | 后端允许读取的绝对导入目录，多个目录以系统路径分隔符分开；Linux 使用冒号。不能设置为文件系统根目录。 |
+
+定界文档页面的“服务器路径”只支持手动输入 JSON/ZIP 文件路径，不提供目录浏览。它不是浏览器电脑的路径：使用远程后端时输入服务器路径，Docker 部署输入只读挂载后的容器内路径。浏览器电脑上的文件继续使用“文件上传”。
+
+原生部署通过后端进程环境或其服务环境配置注入允许目录。Docker 脚本读取同名配置项并传给 backend/all 角色；另外通过 `WITTY_EXTRA_MOUNTS` 把选定宿主目录只读挂载到容器，允许目录必须使用挂载目标路径。配置允许目录不等于自动挂载，也不授予额外文件权限。未配置或配置错误时路径导入明确拒绝，上传方式仍可使用。
+
+部署示例使用调用者注入的路径，不将宿主路径误当容器路径：
+
+```bash
+# 三个变量由部署者指定；挂载源需为后端能够读取的专用报告目录。
+WITTY_EXTRA_MOUNTS="${REPORT_IMPORT_HOST_DIR}:${REPORT_IMPORT_CONTAINER_DIR}:ro"
+WITTY_REPORT_IMPORT_ROOTS="${REPORT_IMPORT_CONTAINER_DIR}"
+```
+
+不要把整个文件系统或无关的配置、密钥目录加入允许范围。允许范围内仍拒绝相对路径、父目录跳转、符号链接、设备和管道，读取时采用有大小上限的临时快照，检查内容后才进入报告导入流程。目录必须已存在；测试完成后撤销允许目录配置并重新启动后端即可关闭路径读取，不会删除已导入文档或案例。
+
 ### witty-ub 容器环境变量
 
 | 变量名 | 默认值 | 说明 |
@@ -56,6 +76,36 @@ export WITTY_CORS_ORIGINS="https://witty.example.com,http://192.168.1.10:5173"
 
 - `apiBase`（默认 `""`）：后端 API 基址；留空 = 同源（经 Nginx 反代），设为 `http://<后端>:9772` 则浏览器直连
 - `agentApiBase`（默认 `/agent-api`）：OpenCode Agent API 基址
+
+### 现象索引环境变量
+
+后端通过 RAG Core REST 维护现象专用知识库，与 Agent 的通用 RAG MCP 通道相互独立。容器部署由 `deploy/deploy.conf` 同名配置项注入；源码/RPM 部署在启动后端前导出同名变量。
+
+| 变量名 | 默认值 | 说明 |
+| -------- | -------- | ------ |
+| `RAG_CORE_URL` | 按部署推导 | RAG Core REST 基址；部署脚本按网络模式与 RAG 容器名推导，跨机部署显式配置 |
+| `RAG_ACCESS_KEY_FILE` | 复用 `RAG_ACCESS_KEY_SECRET_FILE` | RAG 访问密钥文件路径；容器部署以只读方式挂载，不新增第二份密钥 |
+| `RAG_PHENOMENON_KB_ID` | 空 | 现象专用知识库 ID；由 `phenomenon_cli --init-kb` 创建后回填，未填时索引不启动 |
+| `PHENOMENON_INDEX_ENABLED` | `false` | 索引扫描与发布 worker 开关 |
+| `PHENOMENON_SEARCH_ENABLED` | `false` | `/phenomenon/search` 开关；关闭时返回 `503` |
+| `RAG_MIN_SCORE` | `0.1` | 归一化召回分数阈值，按样本集校准 |
+| `RAG_TOP_K` | `5` | 默认召回条数 |
+| `RAG_INDEX_INTERVAL` | `120` | 报告目录扫描与索引重试周期，单位秒 |
+
+初始化与自检：
+
+```bash
+python -m latency.access.phenomenon_cli --init-kb   # 创建或校验专用知识库，输出 RAG_PHENOMENON_KB_ID
+python -m latency.access.phenomenon_cli --self-check # 上传→解析→检索→删除闭环自检
+```
+
+### 报告审核环境变量
+
+| 变量名 | 默认值 | 说明 |
+| -------- | -------- | ------ |
+| `WITTY_REQUIRE_TRUSTED_OPERATOR` | `false` | 设为 `true` 时，报告确认、报告建案、案例确认与验证回填（含撤回、清空）只接受认证网关注入的 `X-Witty-Operator`，忽略请求体中的操作人；缺少请求头返回 `400`。未接入认证网关时保持 `false` |
+
+容器部署在 `deploy/deploy.conf` 设置同名配置项后重新部署；源码/RPM 部署在启动后端前导出同名变量，systemd 托管时通过单元覆盖写入 `Environment=`。
 
 ### PostgreSQL 容器环境变量
 
