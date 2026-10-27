@@ -7613,15 +7613,9 @@ const getRoleChipStyle = (chip: { roles: string[] }) => {
   }
 }
 
-// 表格中 Pod 标签渲染：结合行级 pod_role 聚合，为每个 Pod 标记角色颜色；
-// 同一 pod 可能被行级识别为多个角色（如 entry 与 meta 并存），保留全部角色。
-const getPodRoleChips = (row: { podIp: string; podRole?: TracePodRoleModel }) => {
-  const podIps = row.podIp
-    .split(/<br\s*\/?\s*>/i)
-    .map((ip) => ip.trim())
-    .filter(Boolean)
+// 根据 pod_role 聚合构建 "pod -> 角色集合" 映射（角色按优先级稳定排序）
+const buildPodRolesByPod = (podRole?: TracePodRoleModel) => {
   const rolesByPod = new Map<string, string[]>()
-  const podRole = row.podRole
   if (podRole) {
     const assign = (role: string, pods: unknown) => {
       const list = typeof pods === 'string' ? [pods] : Array.isArray(pods) ? pods : []
@@ -7645,8 +7639,34 @@ const getPodRoleChips = (row: { podIp: string; podRole?: TracePodRoleModel }) =>
       roles.sort((a, b) => ROLE_CHIP_PRIORITY.indexOf(a) - ROLE_CHIP_PRIORITY.indexOf(b))
     }
   }
-  if (podIps.length === 0) return [{ ip: '-', roles: ['other'] }]
-  return podIps.map((ip) => ({ ip, roles: rolesByPod.get(ip) ?? ['other'] }))
+  return rolesByPod
+}
+
+const buildPodRoleChips = (podList: string[], podRole?: TracePodRoleModel) => {
+  const rolesByPod = buildPodRolesByPod(podRole)
+  if (podList.length === 0) return [{ ip: '-', roles: ['other'] }]
+  return podList.map((ip) => ({ ip, roles: rolesByPod.get(ip) ?? ['other'] }))
+}
+
+// 表格中 Pod 标签渲染：结合行级 pod_role 聚合，为每个 Pod 标记角色颜色；
+// 同一 pod 可能被行级识别为多个角色（如 entry 与 meta 并存），保留全部角色。
+const getPodRoleChips = (row: { podIp: string; podRole?: TracePodRoleModel }) => {
+  const podIps = row.podIp
+    .split(/<br\s*\/?\s*>/i)
+    .map((ip) => ip.trim())
+    .filter(Boolean)
+  return buildPodRoleChips(podIps, row.podRole)
+}
+
+// 通断故障 Trace 列表的 Pod 标签渲染：podNames 为数组形式，角色着色与上面一致。
+const getFaultTracePodRoleChips = (row: {
+  podNames: string[]
+  podRole?: TracePodRoleModel
+}) => {
+  const podNames = (row.podNames ?? [])
+    .map((pod) => String(pod ?? '').trim())
+    .filter(Boolean)
+  return buildPodRoleChips(podNames, row.podRole)
 }
 
 const getMultiLineCellTitle = (html: string) =>
@@ -16269,7 +16289,16 @@ onBeforeUnmount(() => {
                           @mouseleave="hoveredSlowTraceRowKey = ''"
                         >
                           <div class="aggregate-cell">
-                            <span class="metric-value">
+                            <span
+                              class="metric-value"
+                              :class="{
+                                abnormal: isAnomalyListLatencyMetricAbnormal(
+                                  row,
+                                  'total_latency',
+                                  row.totalLatency,
+                                ),
+                              }"
+                            >
                               {{ formatNullableMetricValue(row.totalLatency) }}
                             </span>
                           </div>
@@ -18493,13 +18522,18 @@ onBeforeUnmount(() => {
                           @mouseenter="hoveredFaultTraceRowKey = `${trace.id}:${trace.traceId}`"
                           @mouseleave="hoveredFaultTraceRowKey = ''"
                         >
-                          <div class="aggregate-cell fault-trace-pod-cell">
-                            <span
-                              v-for="podName in trace.podNames"
-                              :key="`${trace.id}-pod-${podName}`"
-                              class="fault-trace-pod-item"
-                            >
-                              {{ podName }}
+                          <div class="aggregate-cell fault-trace-pod-cell pod-role-tags-cell">
+                            <span class="role-pods">
+                              <span
+                                v-for="chip in getFaultTracePodRoleChips(trace)"
+                                :key="`${trace.id}-pod-${chip.ip}`"
+                                class="role-chip"
+                                :class="getRoleChipClass(chip)"
+                                :style="getRoleChipStyle(chip)"
+                                :data-roles="`角色：${chip.roles.map(getRoleChipLabel).join('、')}`"
+                              >
+                                {{ chip.ip }}
+                              </span>
                             </span>
                           </div>
                           <div class="aggregate-cell fault-trace-cluster-cell">

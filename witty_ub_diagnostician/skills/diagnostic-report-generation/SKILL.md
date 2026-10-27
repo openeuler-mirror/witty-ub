@@ -60,6 +60,8 @@ python3 render_report.py /tmp/report_data.json
 # WITTY_REPORT_DIR=/var/witty-ub/reports，由 witty-ub-reports 卷持久化），
 # 同目录写同名侧车 .json（原样报告数据，前端「诊断报告」列表靠它取标题/故障数）。
 # 不要传 out 参数把报告挪到 /tmp 或仓库目录；本地调试可用 --kb-id 指定目录名。
+# 渲染成功后会清理同知识库目录下的旧报告（report_<kb_id>_*.html 及侧车），
+# 报告库中该知识库始终只保留最新一份，不会因多次渲染而累积重复条目。
 ```
 
 脚本做 schema-lite 校验（必需顶层键、字段枚举、`share_bar` 百分比合计、
@@ -67,6 +69,19 @@ GET/SET 混桶），成功后**只回显 ≤15 行摘要**（输出路径/侧车
 退出码：`0` 成功 / `2` 数据或渲染错误（按提示改 JSON 后重跑）/ `3` 模板缺失 /
 `4` 缺 jinja2 / `5` 写盘失败（目录不可写）。**校验失败时修正 JSON 后重跑，
 不要改用别的方式手写 HTML。**
+
+**渲染后自检（强制）**：schema-lite 只查外层字段与枚举，不查
+`faults[].latency` / `root_cause` / `propagation` / `knowledge_matches`
+子区块字段是否命中契约。渲染成功后必须抽查输出 HTML，确认四大区块非空：
+
+```bash
+grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
+  "${报告输出路径}"
+# 四个计数都 >0 才算通过；任一为 0 说明数据 JSON 字段未命中契约，
+# 按 `python3 render_report.py --spec <板块名>` 修正字段后重新渲染
+```
+
+**不得以空白区块（时延阶段定位/根因推理链/故障传播链/知识库匹配）交付报告。**
 
 ## 报告契约（硬约束）
 
