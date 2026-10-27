@@ -454,6 +454,8 @@ class DiagCaseLibrary(Base):
     revision: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[Optional[str]] = mapped_column(String)
     confirmed_by: Mapped[Optional[str]] = mapped_column(String)
+    # 确认来源：review（在线逐条确认）/ import（历史导入声明已验证）
+    confirmation_source: Mapped[Optional[str]] = mapped_column(String(16))
     archived_by: Mapped[Optional[str]] = mapped_column(String)
     confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
@@ -557,11 +559,58 @@ class DiagnosticReportIndex(Base):
     confirmed_by: Mapped[Optional[str]] = mapped_column(String(64))
     confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
     confirmed_sidecar_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
+    # 确认来源：review（在线逐份审核）/ import（历史导入声明已验证）
+    confirmation_source: Mapped[Optional[str]] = mapped_column(String(16))
     index_status: Mapped[str] = mapped_column(String(16), default="pending")
     index_error: Mapped[Optional[str]] = mapped_column(Text)
     indexed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
     report_available: Mapped[bool] = mapped_column(Boolean, default=True)
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: local_now()
+    )
+
+
+class ReportImportBatch(Base):
+    """一次历史报告导入的批次审计；报告正文仍在报告卷与报告索引表。"""
+
+    __tablename__ = "report_import_batch"
+
+    batch_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    imported_by: Mapped[str] = mapped_column(String(64))
+    imported_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: local_now()
+    )
+    source_name: Mapped[str] = mapped_column(Text)
+    file_count: Mapped[int] = mapped_column(Integer, default=0)
+    # running / completed / partial / failed
+    status: Mapped[str] = mapped_column(String(16), default="running")
+    declared_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    build_cases: Mapped[bool] = mapped_column(Boolean, default=False)
+    summary_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: local_now()
+    )
+
+
+class ReportImportItem(Base):
+    """批次内单份文件的导入结果与逐故障建案结果。"""
+
+    __tablename__ = "report_import_item"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    batch_id: Mapped[str] = mapped_column(String(64), index=True)
+    original_name: Mapped[str] = mapped_column(Text)
+    report_id: Mapped[Optional[str]] = mapped_column(String(200))
+    content_hash: Mapped[Optional[str]] = mapped_column(CHAR(64))
+    report_meta_id: Mapped[Optional[str]] = mapped_column(String(128))
+    # imported / duplicate / failed
+    status: Mapped[str] = mapped_column(String(16))
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    fault_count: Mapped[int] = mapped_column(Integer, default=0)
+    eligible_case_count: Mapped[int] = mapped_column(Integer, default=0)
+    report_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    case_result_json: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), default=lambda: local_now()
     )
 

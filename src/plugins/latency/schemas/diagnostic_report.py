@@ -91,6 +91,15 @@ class DiagnosticReportItem(BaseModel):
 
     侧车缺失（``has_sidecar=false``）时仅目录元信息可用，其余字段为 null。
     """
+    source_name: Optional[str] = Field(default=None, description="历史资料来源")
+    classifications: list[ClassificationModel] = Field(
+        default_factory=list, description="所有非排除故障的分类；文档筛选按任一故障匹配、按文档去重"
+    )
+    validation_status: str = Field(
+        default="unavailable", description="定界文档结论检验：pending / partial / validated / unavailable"
+    )
+    validated_fault_count: int = Field(default=0, description="当前文档已通过人工检验的唯一故障数")
+    imported_by: Optional[str] = Field(default=None, description="导入经手人")
     report_id: str = Field(..., description="报告唯一标识（HTML 文件名去扩展名），用于详情与下发")
     kb_id: Optional[str] = Field(default=None, description="知识库ID（报告目录名；无侧车时为目录名兜底）")
     kb_name: Optional[str] = Field(default=None, description="知识库名称（侧车 basic_info）")
@@ -133,6 +142,12 @@ class DiagnosticReportItem(BaseModel):
     )
     review_confirmed_by: Optional[str] = Field(default=None, description="报告确认人")
     review_confirmed_at: Optional[str] = Field(default=None, description="报告确认时间")
+    review_confirmation_source: Optional[str] = Field(
+        default=None, description="确认来源：review（在线）/ import（历史导入）"
+    )
+    imported: bool = Field(
+        default=False, description="是否为历史报告导入（文件名 report_hist_*）"
+    )
 
 
 class ListDiagnosticReportsMsg(BaseModel):

@@ -170,11 +170,18 @@ class ReportReviewService:
             "current_sidecar_hash": current.sidecar_hash,
             "review_confirmed_by": row.confirmed_by if row is not None else None,
             "review_confirmed_at": row.confirmed_at if row is not None else None,
+            "review_confirmation_source": (
+                getattr(row, "confirmation_source", None) if row is not None else None
+            ),
         }
 
     @staticmethod
     async def confirm(
-        report_id: str, expected_sidecar_hash: str, operator: str
+        report_id: str,
+        expected_sidecar_hash: str,
+        operator: str,
+        *,
+        confirmation_source: str = "review",
     ) -> dict[str, Any]:
         current = ReportReviewService._unique_report(report_id)
         if current.sidecar_state != "ok" or current.sidecar_hash is None:
@@ -199,6 +206,7 @@ class ReportReviewService:
                 "confirmed_by": operator,
                 "confirmed_at": confirmed_at,
                 "confirmed_sidecar_hash": current.sidecar_hash,
+                "confirmation_source": confirmation_source,
                 "report_available": True,
             }
         )
