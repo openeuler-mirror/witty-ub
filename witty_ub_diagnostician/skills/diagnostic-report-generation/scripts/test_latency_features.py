@@ -221,7 +221,8 @@ class LatencyFeaturesTest(unittest.TestCase):
             with patch.dict("os.environ", {"WITTY_REPORT_DIR": temp}), redirect_stdout(io.StringIO()):
                 self.assertEqual(render_report.main([str(source)]), 0)
             outputs = list((Path(temp) / "test-kb").glob("*.html"))
-            self.assertEqual(len(outputs), 2)
+            # 每个知识库只保留最新报告；第二次渲染会清理上一份。
+            self.assertEqual(len(outputs), 1)
             self.assertTrue(all("阶段特征" in p.read_text(encoding="utf-8") for p in outputs))
             # 历史报告没有 features 时仍应渲染。
             del flat["latency"]["stages"][0]["features"]
