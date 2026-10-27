@@ -86,6 +86,12 @@ export const sourceReportLabel = (status?: string | null) =>
 
 export const materialKey = (source: 'diagnosis' | 'legacy', id: string) => `${source}:${id}`
 
+export const matchesKeywords = (query: string, values: Array<string | null | undefined>) => {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+  const text = values.filter(Boolean).join(' ').toLocaleLowerCase()
+  return terms.every((term) => text.includes(term))
+}
+
 export type VerifiableFault = { fault_id?: string | null; synthetic?: boolean; excluded?: boolean; status?: string | null }
 export type VerifiedFaultRef = { source_fault_id?: string | null; is_current_version: boolean; status: string; closed_loop: boolean }
 export const isFaultVerified = (fault: VerifiableFault, refs: VerifiedFaultRef[] = []) =>

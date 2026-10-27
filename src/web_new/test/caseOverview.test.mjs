@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { belongsToScope, collectPages, importForm, materialKey, reportNeedsVerification } from '../src/utils/caseWorkflow.ts'
+import { belongsToScope, collectPages, importForm, matchesKeywords, materialKey, reportNeedsVerification } from '../src/utils/caseWorkflow.ts'
 
 test('正式库只展示已确认且闭环案例，待验证包括草稿与未闭环确认案例', () => {
   const cases = [
@@ -15,6 +15,14 @@ test('正式库只展示已确认且闭环案例，待验证包括草稿与未�
 
 test('历史文件与诊断案例同号时身份不混用', () => {
   assert.notEqual(materialKey('legacy', 'same'), materialKey('diagnosis', 'same'))
+})
+
+test('关键词忽略大小写与空白，可同时匹配案例编号、标题和摘要', () => {
+  const fields = ['UB-CASE-000123', '网络链路故障', '连接超时']
+  assert.equal(matchesKeywords('ub-case-000123 网络', fields), true)
+  assert.equal(matchesKeywords('连接 超时', fields), true)
+  assert.equal(matchesKeywords('UB-CASE-999999', fields), false)
+  assert.equal(matchesKeywords('', []), true)
 })
 
 test('多故障报告在所有可验证结论完成后才退出待验证', () => {

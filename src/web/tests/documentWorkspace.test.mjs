@@ -45,11 +45,11 @@ const createWorkspace = (api, request = async () => []) => {
   }
   const state = new Function('require', 'exports', 'defineProps', 'defineEmits', 'localStorage', 'document', 'HTMLElement', 'window',
     `${js}\nreturn {
-      load, reports, matches, legacyCases, documentFilter, filteredReports, pagedReports, scopedMatches, error,
+      load, reports, matches, legacyCases, reportCases, query, documentFilter, filteredReports, pagedReports, scopedMatches, error,
       loading, importOpen, importMode, importing, importError, file, serverPath, optionsError, importOptions,
       sourceName, operator, declaredVerified, batch, toggleImport, loadImportOptions, submitImport, outcomeLabel,
       reportPages, reportPage, firstOptions, secondOptions, selection, count, selectFirst, selectSecond,
-      pagedCases, filtered, pages, pagedLegacy, legacyPages, legacyPage,
+      pagedCases, filtered, pages, filteredLegacy, pagedLegacy, legacyPages, legacyPage,
       importDialogOpen, importPanel, closeImport, importKeydown,
     }`)(
     require, {}, () => props, () => () => {}, { getItem: () => '', setItem: () => {} },
@@ -94,7 +94,10 @@ test('定界文档取完跨资产全部页，已验证文档仍可查阅，待�
       calls.push([page, size])
       return { total: documents.length, items: documents.slice((page - 1) * size, page * size) }
     },
-    searchDiagCases: async () => { throw new Error('文档页不加载独立待验证案例') },
+    searchDiagCases: async (query) => {
+      assert.equal(query.scope, 'all')
+      return { total: 0, matches: [] }
+    },
   }, async () => { throw new Error('任务案例不属于文档待验证') })
   await state.load()
   assert.equal(state.error.value, '')
@@ -132,6 +135,27 @@ test('已知案例使用正式库查询并同时加载任务案例，不要求�
   assert.equal(state.reports.value.length, 0)
 })
 
+test('文档与案例按编号或标题搜索，分页从第一页开始', async () => {
+  const state = createWorkspace({
+    fetchReports: async () => ({ total: 2, items: [
+      { report_id: 'r1', title: '网络故障' },
+      { report_id: 'r2', title: '存储故障' },
+    ] }),
+    searchDiagCases: async () => ({ total: 1, matches: [
+      { case: { id: 'case-1', case_no: 'UB-CASE-000123', title: '链路断开', report_id: 'r1', status: 'confirmed', verification_json: { closed_loop: true } } },
+    ] }),
+  })
+  await state.load()
+  state.query.value = 'ub-case-000123'
+  assert.deepEqual(state.filteredReports.value.map((item) => item.report_id), ['r1'])
+  state.query.value = '存储'
+  assert.deepEqual(state.filteredReports.value.map((item) => item.report_id), ['r2'])
+  state.props.view = 'library'
+  await state.load()
+  state.query.value = '链路 ub-case'
+  assert.deepEqual(state.filtered.value.map((item) => item.case.id), ['case-1'])
+})
+
 test('列表隐藏分类列，分类仍可通过标签筛选文档与案例', async () => {
   const state = createWorkspace({})
   const labels = { first_level_label: '网络故障', second_level_label: '链路中断' }
@@ -151,6 +175,25 @@ test('列表隐藏分类列，分类仍可通过标签筛选文档与案例', as
     assert.doesNotMatch(html, /<td>网络故障|<td>旧分类/)
     assert.match(html, view === 'documents' ? /文档标题/ : /案例标题/)
   }
+})
+
+test('已知案例两张表不显示恒定状态列，仍保留已验证筛选及其他字段', async () => {
+  const state = createWorkspace({})
+  state.props.view = 'library'
+  state.matches.value = [
+    { case: { id: 'c1', title: '有效案例标题', symptom_summary: '故障现象', status: 'confirmed', verification_json: { closed_loop: true } } },
+    { case: { id: 'c2', title: '待验证案例标题', status: 'draft' } },
+  ]
+  state.legacyCases.value = [{ id: 'l1', root_cause_type: '文件案例' }]
+  const html = await state.render()
+  const headers = [...html.matchAll(/<thead><tr>(.*?)<\/tr><\/thead>/g)]
+    .map((match) => [...match[1].matchAll(/<th>(.*?)<\/th>/g)].map((item) => item[1]))
+  assert.deepEqual(headers, [['案例', '来源', '更新时间'], ['案例', '来源', '附件']])
+  assert.match(html, /有效案例标题/)
+  assert.match(html, /故障现象/)
+  assert.match(html, /文件案例/)
+  assert.doesNotMatch(html, /待验证案例标题/)
+  assert.doesNotMatch(html, /<th>状态<\/th>/)
 })
 
 test('文档验证状态优先，已验证故障去重计数优先于兼容案例数', () => {
