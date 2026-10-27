@@ -344,6 +344,10 @@ class TestLifespan:
         monkeypatch.setattr(
             fastapi_server.PhenomenonIndexService, "run_self_check", self_check
         )
+        reconcile = AsyncMock(return_value={})
+        monkeypatch.setattr(
+            fastapi_server.PhenomenonIndexService, "reconcile", reconcile
+        )
         async with fastapi_server.app.router.lifespan_context(fastapi_server.app):
             await asyncio.sleep(0)
 
@@ -384,6 +388,8 @@ class TestLifespan:
             assert kwargs["max_instances"] == 1
             assert kwargs["coalesce"] is True
         assert self_check.await_count == int(index_enabled and self_check_enabled)
+        # 启动核对只在启用索引时跑一次，用于退役换库后残留的旧映射
+        assert reconcile.await_count == int(index_enabled)
 
 
 # ---------------------------------------------------------------------------

@@ -953,3 +953,80 @@ async def test_reconcile_ignores_deleted_remote_tombstones(monkeypatch):
 
     assert stats["orphans"] == 1
     assert observed == ["active-doc"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_retires_mappings_left_in_a_previous_kb(monkeypatch):
+    """换知识库后旧映射命中不到，必须以当前知识库为准退役并重新发布。"""
+    cleared: list[tuple[str, str, bool]] = []
+    searchable: list[tuple[str, bool]] = []
+
+    async def promote(_seconds=600):
+        return 0
+
+    async def no_cards(*_args, **_kwargs):
+        return []
+
+    async def pairs():
+        return [
+            ("report:r", "old-kb", "old-doc"),
+            ("report:kept", "kb", "kept-doc"),
+        ]
+
+    async def card_for(kb, rag_doc_id):
+        return SimpleNamespace(doc_id="report:r", enabled=True)
+
+    async def set_searchable(doc_id, flag):
+        searchable.append((doc_id, flag))
+
+    async def clear_mapping(doc_id, *, error, requeue):
+        cleared.append((doc_id, error, requeue))
+
+    async def observe(*_args, **_kwargs):
+        return None
+
+    def rag_targets():
+        return None, "kb"
+
+    async def remote_docs(_client, _kb_id):
+        return [{"id": "kept-doc", "name": "phenomenon_kept.txt", "status": "existed"}]
+
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "promote_observing", staticmethod(promote)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "cards_with_source_drift", staticmethod(no_cards)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "cards_with_invalid_mapping", staticmethod(no_cards)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "stuck_parsing_cards", staticmethod(no_cards)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "observe_orphan", staticmethod(observe)
+    )
+    monkeypatch.setattr(PhenomenonIndexPGManager, "list_mapped_pairs", staticmethod(pairs))
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "get_card_by_rag_doc", staticmethod(card_for)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "set_searchable", staticmethod(set_searchable)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "clear_mapping", staticmethod(clear_mapping)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexService, "_rag_targets", staticmethod(rag_targets)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexService, "_list_all_remote_docs", staticmethod(remote_docs)
+    )
+
+    stats = await PhenomenonIndexService.reconcile()
+
+    assert stats["stale_kb"] == 1
+    assert stats["missing"] == 0
+    assert stats["orphans"] == 0
+    assert cleared == [("report:r", "kb_changed", True)]
+    assert searchable == [("report:r", False)]

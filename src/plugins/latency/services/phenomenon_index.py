@@ -1186,7 +1186,14 @@ class PhenomenonIndexService:
     # ---------------------------------------------------------------- reconcile
     @staticmethod
     async def reconcile() -> dict[str, int]:
-        stats = {"drift": 0, "invalid": 0, "stuck": 0, "missing": 0, "orphans": 0}
+        stats = {
+            "drift": 0,
+            "invalid": 0,
+            "stuck": 0,
+            "missing": 0,
+            "orphans": 0,
+            "stale_kb": 0,
+        }
         await Mgr.promote_observing(600)
 
         for card in await Mgr.cards_with_source_drift():
@@ -1216,10 +1223,9 @@ class PhenomenonIndexService:
             logger.warning("reconcile skipped RAG document list: %s", exc)
             return stats
 
+        mapped_pairs = await Mgr.list_mapped_pairs()
         local_pairs = {
-            (kb, doc)
-            for _doc_id, kb, doc in await Mgr.list_mapped_pairs()
-            if kb == kb_id
+            (kb, doc) for _doc_id, kb, doc in mapped_pairs if kb == kb_id
         }
         # RAG 文档清单会保留已删除文档的墓碑记录；墓碑不算孤儿，也不能当作映射仍存在。
         active_remote = [
@@ -1236,7 +1242,21 @@ class PhenomenonIndexService:
                 await Mgr.observe_orphan(kb_id, str(rag_doc_id))
                 stats["orphans"] += 1
 
-        for _doc_id, kb, rag_doc_id in await Mgr.list_mapped_pairs():
+        # 换 KB（含知识库被删后重建）后旧映射指向别的知识库，检索永远命中不到；
+        # 以当前配置的知识库为准退役旧映射并重新发布。
+        for _doc_id, kb, rag_doc_id in mapped_pairs:
+            if kb == kb_id:
+                continue
+            card = await Mgr.get_card_by_rag_doc(kb, rag_doc_id)
+            if card is None:
+                continue
+            await Mgr.set_searchable(card.doc_id, False)
+            await Mgr.clear_mapping(
+                card.doc_id, error="kb_changed", requeue=bool(card.enabled)
+            )
+            stats["stale_kb"] += 1
+
+        for _doc_id, kb, rag_doc_id in mapped_pairs:
             if kb != kb_id:
                 continue
             if rag_doc_id not in remote_ids:
