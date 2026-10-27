@@ -92,6 +92,13 @@ export const matchesKeywords = (query: string, values: Array<string | null | und
   return terms.every((term) => text.includes(term))
 }
 
+export const caseRefsForFault = <T extends { source_fault_id?: string | null }>(refs: T[], faultId?: string | null) =>
+  refs.filter((item) => (item.source_fault_id ?? null) === (faultId ?? null))
+
+export const unmatchedCaseRefs = <T extends { source_fault_id?: string | null }>(
+  refs: T[], faults: Array<{ fault_id?: string | null }>,
+) => refs.filter((item) => !item.source_fault_id || !faults.some((fault) => fault.fault_id === item.source_fault_id))
+
 export type VerifiableFault = { fault_id?: string | null; synthetic?: boolean; excluded?: boolean; status?: string | null }
 export type VerifiedFaultRef = { source_fault_id?: string | null; is_current_version: boolean; status: string; closed_loop: boolean }
 export const isFaultVerified = (fault: VerifiableFault, refs: VerifiedFaultRef[] = []) =>

@@ -7,8 +7,8 @@ import { useReportWorkbench } from '../../composables/useReportWorkbench'
 import { useOperator } from '../../composables/useOperator'
 import { belongsToScope, canOpenSource, caseOrigin, sourceReportLabel } from '../../utils/caseWorkflow'
 
-const { open, caseId, closeCase, bumpCaseVersion } = useDiagCaseDetail()
-const { openReport } = useReportWorkbench()
+const { open, caseId, returnToReport, closeCase, bumpCaseVersion } = useDiagCaseDetail()
+const { openReport, resumeReport } = useReportWorkbench()
 const { operator, setOperator } = useOperator()
 const loading = ref(false)
 const error = ref('')
@@ -54,7 +54,12 @@ const openSource = () => {
   closeCase()
   openReport(reportId, faultId)
 }
-const close = () => { if (!saving.value) closeCase() }
+const close = () => {
+  if (saving.value) return
+  const shouldResume = returnToReport.value
+  closeCase()
+  if (shouldResume) resumeReport()
+}
 const submitVerification = async () => {
   if (!canVerify.value || !caseData.value || saving.value) return
   verificationError.value = ''
@@ -90,7 +95,7 @@ const submitVerification = async () => {
     <article v-else-if="caseData" class="case-reading">
       <p v-if="savedMessage" class="verification-success" role="status">{{ savedMessage }}</p>
       <header class="case-heading">
-        <div><h2>{{ caseData.title || '未命名案例' }}</h2><p>{{ classification }} · {{ caseOrigin(caseData) }}</p></div>
+        <div><h2>{{ caseData.title || '未命名案例' }}</h2><p>案例 ID：{{ caseData.case_no || caseData.id }}</p><p>{{ classification }} · {{ caseOrigin(caseData) }}</p></div>
         <span class="badge" :class="{ 'badge-success': verified }">{{ caseData.status === 'archived' ? '已归档' : verified ? '已验证' : '历史草稿' }}</span>
       </header>
       <section><h3>故障现象</h3><p>{{ caseData.symptom_summary || '暂无摘要' }}</p></section>
@@ -98,7 +103,7 @@ const submitVerification = async () => {
       <section><h3>证据</h3><ul v-if="caseData.evidence_json?.length"><li v-for="(item, index) in caseData.evidence_json" :key="index"><span>{{ item.note || item.description || item.kind }}</span><code v-if="item.ref">{{ item.ref }}</code></li></ul><p v-else>暂无证据材料</p></section>
       <section><h3>处置步骤</h3><ol v-if="caseData.remediation_json?.length"><li v-for="(item, index) in caseData.remediation_json" :key="index">{{ item.action || item.description }}</li></ol><p v-else>暂无处置步骤</p></section>
       <section v-if="verified"><h3>定界结论检验结果</h3><p>{{ caseData.verification_json?.observed_result || '导入时已声明定界结论经过人工检验' }}</p><p class="case-meta">{{ caseData.verification_json?.verified_by || caseData.confirmed_by || '—' }} · {{ caseData.verification_json?.verified_at || caseData.confirmed_at || '—' }}</p></section>
-      <section><h3>来源定界文档</h3><button v-if="canOpenSource(source)" class="btn btn-text" type="button" :disabled="saving" @click="openSource">{{ source?.report_title || '查看来源定界文档' }}</button><p v-else>{{ sourceReportLabel(source?.status) }}</p><p v-if="caseData.report_id && !verified">请在来源定界文档中检验结论，关联草稿不单独入库。</p></section>
+      <section><h3>来源定界文档</h3><button v-if="returnToReport" class="source-btn" type="button" :disabled="saving" @click="close">返回定界文档</button><button v-else-if="canOpenSource(source)" class="source-btn" type="button" :disabled="saving" @click="openSource">{{ source?.report_title || '查看来源定界文档' }} →</button><p v-else>{{ sourceReportLabel(source?.status) }}</p><p v-if="caseData.report_id && !verified">请在来源定界文档中检验结论，关联草稿不单独入库。</p></section>
       <form v-if="canVerify" class="case-verification-form" @submit.prevent="submitVerification">
         <h3>历史记录检验</h3>
         <label>操作人<input :value="operator" class="input" autocomplete="name" :disabled="saving" @input="setOperator(($event.target as HTMLInputElement).value)" /></label>
@@ -126,5 +131,9 @@ const submitVerification = async () => {
 .case-verification-form input { max-width: 320px; }
 .case-verification-form textarea { width: 100%; min-height: 110px; height: auto; font: inherit; resize: vertical; }
 .case-verification-form button { justify-self: start; }
+.source-btn { border: 1px solid var(--border); border-radius: 6px; background: #fff; color: #1d4ed8; padding: 8px 12px; font: inherit; text-align: left; cursor: pointer; }
+.source-btn:hover:not(:disabled) { border-color: #93c5fd; background: #eff6ff; }
+.source-btn:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.source-btn:disabled { opacity: .55; cursor: not-allowed; }
 .verification-success { color: #15803d; }
 </style>

@@ -11689,6 +11689,7 @@ const openDiagnosticReport = (reportId: string) => {
 const reportWorkbenchOpen = ref(false)
 const reportWorkbenchReportId = ref('')
 const reportWorkbenchFaultId = ref('')
+const reportWorkbenchResume = ref(false)
 const workbenchRefreshToken = ref(0)
 const bumpWorkbench = () => {
   workbenchRefreshToken.value += 1
@@ -11698,6 +11699,7 @@ const openReportWorkbench = (reportId: string, faultId = '') => {
   diagCaseDetailOpen.value = false
   reportWorkbenchReportId.value = reportId
   reportWorkbenchFaultId.value = faultId
+  reportWorkbenchResume.value = false
   reportWorkbenchOpen.value = true
 }
 const closeReportWorkbench = () => {
@@ -11706,17 +11708,24 @@ const closeReportWorkbench = () => {
 
 const diagCaseDetailOpen = ref(false)
 const diagCaseDetailId = ref('')
+const diagCaseReturnToReport = ref(false)
 const openDiagCaseDetail = (caseId: string) => {
+  diagCaseReturnToReport.value = reportWorkbenchOpen.value
   reportWorkbenchOpen.value = false
   diagCaseDetailId.value = caseId
   diagCaseDetailOpen.value = true
 }
 const closeDiagCaseDetail = () => {
   diagCaseDetailOpen.value = false
-  bumpWorkbench()
+  if (diagCaseReturnToReport.value) {
+    reportWorkbenchResume.value = true
+    reportWorkbenchOpen.value = true
+  }
+  diagCaseReturnToReport.value = false
 }
 const openReportFromCase = (reportId: string, faultId: string) => {
-  closeDiagCaseDetail()
+  diagCaseDetailOpen.value = false
+  diagCaseReturnToReport.value = false
   openReportWorkbench(reportId, faultId)
 }
 
@@ -24014,6 +24023,7 @@ onBeforeUnmount(() => {
       :open="reportWorkbenchOpen"
       :report-id="reportWorkbenchReportId"
       :fault-id="reportWorkbenchFaultId"
+      :resume="reportWorkbenchResume"
       :refresh-token="workbenchRefreshToken"
       @close="closeReportWorkbench"
       @changed="bumpWorkbench"
@@ -24022,6 +24032,7 @@ onBeforeUnmount(() => {
     <DiagCaseDetail
       :open="diagCaseDetailOpen"
       :case-id="diagCaseDetailId"
+      :return-to-report="diagCaseReturnToReport"
       @close="closeDiagCaseDetail"
       @changed="bumpWorkbench"
       @open-report="openReportFromCase"

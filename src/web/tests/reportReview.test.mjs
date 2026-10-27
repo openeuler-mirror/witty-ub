@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { canVerifyFault, isFaultVerified, verificationInput, verifySelectedFaults } from '../src/utils/caseWorkflow.ts'
+import { canVerifyFault, caseRefsForFault, isFaultVerified, unmatchedCaseRefs, verificationInput, verifySelectedFaults } from '../src/utils/caseWorkflow.ts'
 
 test('AI 声称 confirmed 不代表实操验证，suspected 也允许人工核验', () => {
   for (const status of ['confirmed', 'suspected', 'unknown']) {
@@ -57,4 +57,11 @@ test('后端未返回案例时不虚报验证成功', async () => {
   const [result] = await verifySelectedFaults(['F01'], async () => ({ case: null }))
   assert.equal(result.caseId, undefined)
   assert.match(result.error, /未返回已验证案例/)
+})
+
+test('关联案例按故障归入结论卡片，未绑定或结论缺失的案例不丢失', () => {
+  const refs = [{ source_fault_id: 'F01' }, { source_fault_id: 'F02' }, {}, { source_fault_id: null }]
+  assert.deepEqual(caseRefsForFault(refs, 'F01'), [refs[0]])
+  assert.deepEqual(caseRefsForFault(refs, null), refs.slice(2))
+  assert.deepEqual(unmatchedCaseRefs(refs, [{ fault_id: 'F01' }]), refs.slice(1))
 })
