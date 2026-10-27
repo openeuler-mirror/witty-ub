@@ -44,7 +44,7 @@ const onNavClick = (key: AppView) => {
 
 // 顶栏资产库页签后内联的位置路径：资产库 › 资产名 › 当前子页
 const assetTabLabel = computed(
-  () => ({ overview: '分析', tasks: '任务', reports: '报告' })[assetTab.value],
+  () => ({ overview: '分析', tasks: '任务', reports: '定界文档' })[assetTab.value],
 )
 
 let pollTimer: number | null = null

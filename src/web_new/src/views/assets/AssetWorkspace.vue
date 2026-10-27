@@ -128,7 +128,7 @@ const taskRowHintIsFailure = (file: LogFileModel) => Boolean(taskFailureReason(f
         :aria-controls="assetTab === 'reports' ? 'asset-reports-panel' : undefined"
         @click="assetTab = 'reports'"
       >
-        报告
+        定界文档
       </button>
     </nav>
 

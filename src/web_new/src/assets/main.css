@@ -1129,7 +1129,7 @@ html.is-modal-open {
   border: none;
 }
 
-/* BaseModal 尺寸：sm 480 / md 520 / lg 580 */
+/* BaseModal 尺寸：sm 480 / md 520 / lg 580 / form 800 */
 .modal--sm {
   width: 480px;
 }
@@ -1140,6 +1140,10 @@ html.is-modal-open {
 
 .modal--lg {
   width: 580px;
+}
+
+.modal--form {
+  width: min(800px, 94vw);
 }
 
 /* 详情类大弹窗 */

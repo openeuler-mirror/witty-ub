@@ -19,6 +19,8 @@ export type CaseType = {
 
 export type CaseRecord = {
   id: string
+  source_kind?: 'task' | 'historical'
+  effective?: boolean
   kb_id?: string
   case_category?: string
   root_cause_type: string

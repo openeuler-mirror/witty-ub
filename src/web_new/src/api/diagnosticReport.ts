@@ -1,6 +1,9 @@
 import { request, apiBase } from './http'
+import type { DiagCaseDetail } from './diagCaseLibrary'
+import type { DocumentClassification, ImportBatch, ImportOptions, PathImportInput } from '../utils/caseWorkflow'
 
 export type DiagnosticReportItem = {
+  classifications?: DocumentClassification[]
   report_id: string
   kb_id: string | null
   kb_name: string | null
@@ -20,11 +23,16 @@ export type DiagnosticReportItem = {
   confirmed_fault_count: number | null
   case_count: number
   verified_case_count: number
+  validation_status?: 'pending' | 'partial' | 'validated' | 'unavailable'
+  validated_fault_count?: number
   report_available: boolean
   review_status: string
   current_sidecar_hash: string | null
   review_confirmed_by: string | null
   review_confirmed_at: string | null
+  review_confirmation_source: string | null
+  imported: boolean
+  source_name?: string | null
 }
 
 export type ReportClassification = {
@@ -124,7 +132,7 @@ export const fetchDiagnosticReports = async (params: {
 }): Promise<DiagnosticReportList> => {
   const body: { kb_id?: string; page_num: number; page_cnt: number } = {
     page_num: params.pageNum ?? 1,
-    page_cnt: params.pageCnt ?? 20,
+    page_cnt: Math.min(params.pageCnt ?? 20, 100),
   }
   if (params.kbId) body.kb_id = params.kbId
   return request<DiagnosticReportList>('/diagnostic_report/list', {
@@ -137,6 +145,25 @@ export const fetchDiagnosticReport = (reportId: string) =>
   request<DiagnosticReportDetailResult>(
     `/diagnostic_report/${encodeURIComponent(reportId)}`,
   )
+
+export const verifyReportFault = (
+  reportId: string,
+  faultId: string,
+  body: { expected_sidecar_hash: string; verified_by: string; observed_result: string; method?: string },
+) =>
+  request<DiagCaseDetail>(
+    `/diagnostic_report/${encodeURIComponent(reportId)}/faults/${encodeURIComponent(faultId)}/verify`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+
+export const importCases = (body: FormData) =>
+  request<ImportBatch>('/diagnostic_report/import', { method: 'POST', body })
+
+export const importReportPath = (body: PathImportInput) =>
+  request<ImportBatch>('/diagnostic_report/import/path', { method: 'POST', body: JSON.stringify(body) })
+
+export const fetchImportOptions = () =>
+  request<ImportOptions>('/diagnostic_report/import/options')
 
 export const fetchDiagnosticReportFault = (reportId: string, faultId: string) =>
   request<DiagnosticReportFaultResult>(

@@ -4,8 +4,9 @@ import { useAssets } from '../../composables/useAssets'
 import { useReports } from '../../composables/useReports'
 import { useReportWorkbench } from '../../composables/useReportWorkbench'
 import { diagnosticReportHtmlUrl, type DiagnosticReportItem } from '../../api/diagnosticReport'
+import { formatReportTime } from '../../utils/caseWorkflow'
 
-// 资产工作区「报告」子页：只看当前资产库的报告，跨库查阅去对应资产库
+// 资产工作区仅展示当前资产的定界文档，跨资产文档由知识库统一展示。
 const { selectedAsset } = useAssets()
 const { openReport: openWorkbench } = useReportWorkbench()
 const {
@@ -67,7 +68,7 @@ watch(
 <template>
   <div class="operate-bar">
     <div class="operate-right">
-      <span style="font-size: 13px; color: var(--text2)">共 {{ assetReportsTotal }} 份报告</span>
+      <span style="font-size: 13px; color: var(--text2)">共 {{ assetReportsTotal }} 份定界文档</span>
       <button class="btn btn-default" type="button" :disabled="assetReportsLoading" @click="reload">
         刷新
       </button>
@@ -76,13 +77,13 @@ watch(
 
   <div v-if="assetReportsLoading && assetReports.length === 0" class="empty">
     <div class="icon">⏳</div>
-    <div>正在加载诊断报告...</div>
+    <div>正在加载定界文档...</div>
   </div>
   <div v-else-if="assetReportsError" class="error-banner">{{ assetReportsError }}</div>
   <div v-else-if="assetReports.length === 0" class="empty">
     <div class="icon">📄</div>
-    <div>暂无诊断报告</div>
-    <div class="hint">在「分析」页通过 AI 故障诊断助手生成报告后，会在此查阅</div>
+    <div>暂无定界文档</div>
+    <div class="hint">在「分析」页通过 AI 故障诊断助手生成定界文档后，可在此阅读与检验结论</div>
   </div>
   <div v-else class="table-wrap">
     <table class="task-table">
@@ -150,13 +151,13 @@ watch(
               / {{ report.verified_case_count }} 已验证
             </span>
           </td>
-          <td>{{ displayText(report.generated_at) }}</td>
+          <td>{{ formatReportTime(report.generated_at) }}</td>
           <td>
             <button class="btn btn-sm btn-primary" type="button" @click="openReport(report)">
-              工作台
+              查看文档
             </button>
             <button class="btn btn-sm btn-default" type="button" @click="openReportHtml(report)">
-              原文
+              阅读原文
             </button>
           </td>
         </tr>

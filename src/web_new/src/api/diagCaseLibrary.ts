@@ -26,6 +26,7 @@ export type DiagCase = {
   revision: number
   created_by: string | null
   confirmed_by: string | null
+  confirmation_source: string | null
   confirmed_at: string | null
   title: string | null
   report_id: string | null
@@ -88,6 +89,7 @@ export type DiagCaseSearchResult = {
 }
 
 export type DiagCaseSearchParams = {
+  scope?: 'library' | 'pending' | 'all'
   pageNum?: number
   pageCnt?: number
   firstLevelLabel?: string | null
@@ -98,7 +100,8 @@ export type DiagCaseSearchParams = {
 
 export const searchDiagCases = (params: DiagCaseSearchParams = {}) => {
   const body: Record<string, unknown> = {
-    include_status: params.includeStatus ?? ['draft', 'confirmed', 'archived'],
+    scope: params.scope ?? 'library',
+    include_status: params.includeStatus ?? (params.scope === 'pending' ? ['draft', 'confirmed'] : ['confirmed']),
     page_num: params.pageNum ?? 1,
     page_cnt: params.pageCnt ?? 50,
   }
@@ -113,6 +116,19 @@ export const searchDiagCases = (params: DiagCaseSearchParams = {}) => {
 
 export const fetchDiagCase = (caseId: string) =>
   request<DiagCaseDetail>(`/diag_case_library/${encodeURIComponent(caseId)}`)
+
+export type CaseVerificationInput = {
+  expected_revision: number
+  verified_by: string
+  observed_result: string
+  method?: string
+}
+
+export const verifyDiagCase = (caseId: string, body: CaseVerificationInput) =>
+  request<DiagCaseDetail>(`/diag_case_library/${encodeURIComponent(caseId)}/verify`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
 
 export const confirmDiagCase = (caseId: string, confirmedBy: string) =>
   request<DiagCaseDetail>(
