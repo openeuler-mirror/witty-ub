@@ -46,7 +46,12 @@ _TIMESTAMP_RE = re.compile(
 )
 _URL_RE = re.compile(r"https?://\S+")
 _ABS_PATH_RE = re.compile(r"(?<![\w./])/(?:[\w.\-]+/)*[\w.\-]+")
-_POD_HOST_PREFIX_RE = re.compile(r"(?i)\b(?:pod|host)/")
+# 只匹配真正的 K8s 资源引用（pod/<dns-label>），用于抓没被词表替换掉的身份。
+# 中文分类标签（Pod/容器生命周期）、自然语言并列（pod/host）都不是身份引用，
+# 早先的 \b(?:pod|host)/ 会把它们一起拦下，导致整条卡片被判 identity_residual。
+_POD_HOST_PREFIX_RE = re.compile(
+    r"(?i)\b(?:pod|host)/(?=[a-z0-9][a-z0-9-]*[a-z0-9])(?!(?:pod|host)\b)"
+)
 
 MARKERS = {
     "host": "[主机]",
