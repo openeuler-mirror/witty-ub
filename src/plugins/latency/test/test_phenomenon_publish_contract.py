@@ -950,10 +950,10 @@ async def test_reconcile_ignores_deleted_remote_tombstones(monkeypatch):
     )
 
     async def no_repair():
-        return 0
+        return {"repaired": 0, "signals_dropped": 0}
 
     monkeypatch.setattr(
-        PhenomenonIndexService, "_repair_case_operation", staticmethod(no_repair)
+        PhenomenonIndexService, "_repair_case_derived", staticmethod(no_repair)
     )
 
     stats = await PhenomenonIndexService.reconcile()
@@ -1031,10 +1031,10 @@ async def test_reconcile_retires_mappings_left_in_a_previous_kb(monkeypatch):
     )
 
     async def no_repair():
-        return 0
+        return {"repaired": 0, "signals_dropped": 0}
 
     monkeypatch.setattr(
-        PhenomenonIndexService, "_repair_case_operation", staticmethod(no_repair)
+        PhenomenonIndexService, "_repair_case_derived", staticmethod(no_repair)
     )
 
     stats = await PhenomenonIndexService.reconcile()
@@ -1047,40 +1047,64 @@ async def test_reconcile_retires_mappings_left_in_a_previous_kb(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_repair_case_operation_fills_mixed_from_the_source_report(monkeypatch):
-    """旧版把「报告同时覆盖 GET/SET」丢成 NULL，自愈须按源报告补回 MIXED。"""
+async def test_repair_case_derived_aligns_operation_and_fingerprint(monkeypatch):
+    """案例的 operation 与指纹都按源报告重算；已对齐的不重复写。"""
     from latency.database.managers.diag_case_library import DiagCaseLibraryPGManager
 
-    repaired: list[tuple[str, str]] = []
+    seen: list[tuple[str, str | None, str]] = []
 
-    async def missing():
-        return [
-            SimpleNamespace(id="case-1", report_id="report_a"),
-            SimpleNamespace(id="case-2", report_id="report_b"),
-            SimpleNamespace(id="case-3", report_id=None),
-        ]
-
-    async def set_operation(case_id, operation):
-        repaired.append((case_id, operation))
+    async def refresh(case_id, operation, source_fault_hash):
+        seen.append((case_id, operation, source_fault_hash))
         return SimpleNamespace(id=case_id)
 
-    payloads = {
-        "report_a": {"basic_info": {"operation": "GET"},
-                     "statistics": {"stage_breakdowns": [
-                         {"operation": "GET"}, {"operation": "SET"}]}},
-        "report_b": {"basic_info": {"operation": "SET"}},
+    async def drop_signals():
+        return 7
+
+    set_only = {
+        "report": {"title": "r"},
+        "basic_info": {"operation": "SET"},
+        "faults": [{"id": "F01", "title": "SET 超时", "status": "confirmed",
+                    "conclusion": {"one_line_conclusion": "SET 超时"}}],
+        "statistics": {"stage_breakdowns": [
+            {"operation": "GET", "stages": []},
+            {"operation": "SET", "stages": [{"name": "set_client"}]},
+        ]},
     }
+    expected = service.extractor.compute_source_fault_hash(
+        set_only["faults"][0], "F01", "SET"
+    )
+
+    async def bound():
+        return [
+            SimpleNamespace(
+                id="case-1", report_id="report_a", source_fault_id="F01",
+                operation="MIXED", source_fault_hash="stale-hash",
+            ),
+            # 已对齐：operation 与指纹都与重算结果一致，不应被写。
+            SimpleNamespace(
+                id="case-2", report_id="report_b", source_fault_id="F01",
+                operation="SET", source_fault_hash=expected,
+            ),
+        ]
+
+    async def same_case():
+        return None
 
     def load(report_id):
-        return payloads[report_id], None, None
+        return set_only, None, None
 
     monkeypatch.setattr(
-        DiagCaseLibraryPGManager, "cases_missing_operation", staticmethod(missing)
+        DiagCaseLibraryPGManager, "cases_with_report_binding", staticmethod(bound)
     )
     monkeypatch.setattr(
-        DiagCaseLibraryPGManager, "set_case_operation", staticmethod(set_operation)
+        DiagCaseLibraryPGManager, "refresh_case_derived", staticmethod(refresh)
+    )
+    monkeypatch.setattr(
+        DiagCaseLibraryPGManager, "drop_operation_signals", staticmethod(drop_signals)
     )
     monkeypatch.setattr(service, "_load_report_payload", load)
 
-    assert await PhenomenonIndexService._repair_case_operation() == 2
-    assert repaired == [("case-1", "MIXED"), ("case-2", "SET")]
+    stats = await PhenomenonIndexService._repair_case_derived()
+
+    assert stats == {"repaired": 1, "signals_dropped": 7}
+    assert seen == [("case-1", "SET", expected)]

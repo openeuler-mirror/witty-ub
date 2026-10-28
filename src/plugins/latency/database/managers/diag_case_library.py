@@ -145,14 +145,7 @@ class DiagCaseLibraryPGManager:
             add("latency_component", value, 1.5)
         for value in case.log_keywords:
             add("log_keyword", value, 1.0)
-        operation = _plain(case.operation)
-        if operation == DiagCaseOperation.MIXED:
-            # MIXED 对 GET / SET 查询都算命中；只登记 "mixed" 信号会让同一查询下
-            # 它比单一操作的案例少 1.5 分，排序会把「两种操作都覆盖」系统性压低。
-            for value in (DiagCaseOperation.GET, DiagCaseOperation.SET):
-                add(DiagCaseLibraryPGManager.OPERATION_SIGNAL, value, 1.5)
-        else:
-            add(DiagCaseLibraryPGManager.OPERATION_SIGNAL, operation, 1.5)
+        # operation 只做过滤器，不参与计分（见 _matches_search_filters）。
         return list(signals.values())
 
     @staticmethod
@@ -176,11 +169,7 @@ class DiagCaseLibraryPGManager:
         add("cluster", req.clusters, 1.5)
         add("latency_component", req.latency_components, 1.5)
         add("log_keyword", req.log_keywords, 1.0)
-        add(
-            DiagCaseLibraryPGManager.OPERATION_SIGNAL,
-            [req.operation] if req.operation else [],
-            1.5,
-        )
+        # operation 只做过滤器，不进归一化分母。
         return query_signals
 
     @staticmethod
@@ -439,13 +428,14 @@ class DiagCaseLibraryPGManager:
         return DiagCaseLibraryPGManager._orm_to_case(row)
 
     @staticmethod
-    async def cases_missing_operation() -> list[DiagCaseLibraryModel]:
-        """列出 ``operation`` 为空的案例（含其源报告指针）。"""
+    async def cases_with_report_binding() -> list[DiagCaseLibraryModel]:
+        """列出绑定了源报告的案例。"""
         async with PGManager.session() as session:
             result = await session.execute(
                 select(DiagCaseLibrary).where(
                     DiagCaseLibrary.existed_status.is_(True),
-                    DiagCaseLibrary.operation.is_(None),
+                    DiagCaseLibrary.report_id.is_not(None),
+                    DiagCaseLibrary.source_fault_id.is_not(None),
                 )
             )
             return [
@@ -454,28 +444,30 @@ class DiagCaseLibraryPGManager:
             ]
 
     @staticmethod
-    async def set_case_operation(
-        case_id: str, operation: str
+    async def refresh_case_derived(
+        case_id: str,
+        operation: str | None,
+        source_fault_hash: str,
     ) -> DiagCaseLibraryModel | None:
-        """补齐 ``operation`` 并同步重算 search_text 与信号行。
+        """按当前派生规则重算 ``operation`` 与 ``source_fault_hash``。
 
-        只用于修复派生缺失：不动内容物、不改 revision 以外的审计语义，
-        且仅对当前仍为空的行生效（并发下不会覆盖别人刚写入的取值）。
+        两列都是报告的纯函数，允许覆盖；内容列不动。
         """
         case = await DiagCaseLibraryPGManager.get_case(case_id)
         if case is None:
             return None
         case.operation = operation
+        case.source_fault_hash = source_fault_hash
         async with PGManager.session() as session:
             result = await session.execute(
                 update(DiagCaseLibrary)
                 .where(
                     DiagCaseLibrary.id == case_id,
                     DiagCaseLibrary.existed_status.is_(True),
-                    DiagCaseLibrary.operation.is_(None),
                 )
                 .values(
                     operation=operation,
+                    source_fault_hash=source_fault_hash,
                     search_text=DiagCaseLibraryPGManager._build_search_text(case),
                     updated_at=_now(),
                 )
@@ -484,6 +476,18 @@ class DiagCaseLibraryPGManager:
                 return None
             await DiagCaseLibraryPGManager._replace_signals(session, case_id, case)
         return case
+
+    @staticmethod
+    async def drop_operation_signals() -> int:
+        """删除 operation 类型的信号行。"""
+        async with PGManager.session() as session:
+            result = await session.execute(
+                delete(DiagCaseLibrarySignal).where(
+                    DiagCaseLibrarySignal.signal_type
+                    == DiagCaseLibraryPGManager.OPERATION_SIGNAL
+                )
+            )
+            return int(result.rowcount or 0)
 
     @staticmethod
     async def _replace_signals(

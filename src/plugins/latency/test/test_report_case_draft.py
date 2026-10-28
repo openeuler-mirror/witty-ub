@@ -138,8 +138,8 @@ def test_mixed_operation_report_keeps_mixed_instead_of_dropping_to_null():
     payload["basic_info"]["operation"] = "GET"
     payload["statistics"] = {
         "stage_breakdowns": [
-            {"operation": "GET", "stages": []},
-            {"operation": "SET", "stages": []},
+            {"operation": "GET", "stages": [{"name": "get_client"}]},
+            {"operation": "SET", "stages": [{"name": "set_client"}]},
         ]
     }
 

@@ -346,25 +346,37 @@ class IdentityScrubber:
         return False
 
 
+def _operation_from_label(value: str | None) -> str | None:
+    """Parse a report-level operation label; only the head before ``（`` counts."""
+    if not value:
+        return None
+    head = re.split(r"[（(]", str(value).upper(), maxsplit=1)[0]
+    ops = {op for op in ("GET", "SET") if op in head}
+    if len(ops) > 1:
+        return "MIXED"
+    return ops.pop() if ops else None
+
+
 def _fault_operation(payload: dict) -> str | None:
-    """Report-level operation; multiple stage operations collapse to MIXED."""
+    """Report-level operation; multiple sampled stage operations collapse to MIXED."""
     report = _as_dict(payload.get("report"))
     basic = _as_dict(payload.get("basic_info"))
-    base = _text(basic.get("operation") or report.get("operation"))
-    base = base.upper() if base else None
-    if base not in {"GET", "SET", "MIXED", "N/A"}:
-        base = None
+    label = _text(basic.get("operation") or report.get("operation"))
 
     statistics = _as_dict(payload.get("statistics"))
     stage_ops = {
         str(_plain(item.get("operation"))).upper()
         for item in _as_list(statistics.get("stage_breakdowns"))
-        if isinstance(item, dict) and item.get("operation")
+        if isinstance(item, dict)
+        and item.get("operation")
+        and _as_list(item.get("stages"))
     }
-    stage_ops = {op for op in stage_ops if op in {"GET", "SET"}}
+    stage_ops &= {"GET", "SET"}
     if len(stage_ops) > 1:
         return "MIXED"
-    return base
+    if stage_ops:
+        return stage_ops.pop()
+    return _operation_from_label(label)
 
 
 def _fault_category(fault: dict) -> str:

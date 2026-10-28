@@ -105,7 +105,8 @@ def test_case_signals_follow_weights_and_are_normalized():
     assert pairs[("cluster", "cluster-a")] == 1.5
     assert pairs[("latency_component", "set_client")] == 1.5
     assert pairs[("log_keyword", "connect timeout")] == 1.0
-    assert pairs[("operation", "set")] == 1.5
+    # operation 只做过滤器，不生成匹配信号
+    assert not [pair for pair in pairs if pair[0] == "operation"]
 
 
 def test_search_text_is_generated_and_excludes_identity_noise():
@@ -715,7 +716,35 @@ def test_mixed_operation_case_matches_both_get_and_set():
         )
         assert total == 1, f"MIXED 案例必须能被 operation={operation} 命中"
         assert matches[0].case.id == "mixed-case"
-        assert matches[0].match_score == 4.5
+        assert matches[0].match_score == 3.0
+
+
+def test_operation_filter_does_not_inflate_the_candidate_set():
+    """过滤器放行不等于命中：没有共同信号就不返回。"""
+    mixed = _confirmed("mixed-case", operation=DiagCaseOperation.MIXED, status_codes=["1004"])
+
+    total, matches = _rank(
+        [mixed],
+        SearchDiagCaseLibraryRequest(operation="GET", status_codes=["9999"]),
+    )
+
+    assert total == 0
+    assert matches == []
+
+
+def test_operation_only_query_lists_filtered_cases_without_scores():
+    mixed = _confirmed("mixed-case", operation=DiagCaseOperation.MIXED)
+    get_case = _confirmed("get-case", operation=DiagCaseOperation.GET)
+    set_case = _confirmed("set-case", operation=DiagCaseOperation.SET)
+
+    total, matches = _rank(
+        [mixed, get_case, set_case],
+        SearchDiagCaseLibraryRequest(operation="GET"),
+    )
+
+    assert total == 2
+    assert {match.case.id for match in matches} == {"mixed-case", "get-case"}
+    assert all(match.match_score == 0.0 for match in matches)
 
 
 def test_mixed_operation_case_ranks_level_with_single_operation_case():

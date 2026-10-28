@@ -1199,12 +1199,13 @@ class PhenomenonIndexService:
             "missing": 0,
             "orphans": 0,
             "stale_kb": 0,
-            "case_operation": 0,
+            "case_repaired": 0,
+            "signals_dropped": 0,
         }
         await Mgr.promote_observing(600)
-        stats["case_operation"] = (
-            await PhenomenonIndexService._repair_case_operation()
-        )
+        derived = await PhenomenonIndexService._repair_case_derived()
+        stats["case_repaired"] = derived["repaired"]
+        stats["signals_dropped"] = derived["signals_dropped"]
 
         for card in await Mgr.cards_with_source_drift():
             await Mgr.set_searchable(card.doc_id, False)
@@ -1279,27 +1280,49 @@ class PhenomenonIndexService:
         return stats
 
     @staticmethod
-    async def _repair_case_operation() -> int:
-        """按源报告补齐案例缺失的 operation。
+    async def _repair_case_derived() -> dict[str, int]:
+        """按源报告重算案例的派生列。
 
-        旧版建案把「报告同时覆盖 GET/SET」落成 NULL，导致这类案例在 GET 与 SET
-        两类检索里都只能当无标注命中。这里只填空值，已有取值一律不动。
+        ``source_fault_hash`` 不符会让案例与现象卡片解绑，卡片退化为 stale。
         """
-        repaired = 0
-        for case in (await CaseMgr.cases_missing_operation())[
+        stats = {"signals_dropped": 0, "repaired": 0}
+        stats["signals_dropped"] = await CaseMgr.drop_operation_signals()
+        for case in (await CaseMgr.cases_with_report_binding())[
             :MAX_CASE_REPAIR_PER_ROUND
         ]:
-            if not case.report_id:
-                continue
             payload, _kb_dir, error = _load_report_payload(case.report_id)
             if error or payload is None:
                 continue
             operation = extractor.fault_operation(payload)
             if operation not in {"GET", "SET", "MIXED", "N/A"}:
+                operation = None
+            faults = extractor.normalise_faults(payload)
+            fault = next(
+                (
+                    item
+                    for item in faults
+                    if extractor._text(item.get("id")) == case.source_fault_id
+                ),
+                None,
+            )
+            if fault is None:
                 continue
-            if await CaseMgr.set_case_operation(case.id, operation) is not None:
-                repaired += 1
-        return repaired
+            source_fault_hash = extractor.compute_source_fault_hash(
+                fault, case.source_fault_id, operation
+            )
+            if (
+                case.operation == operation
+                and case.source_fault_hash == source_fault_hash
+            ):
+                continue
+            if (
+                await CaseMgr.refresh_case_derived(
+                    case.id, operation, source_fault_hash
+                )
+                is not None
+            ):
+                stats["repaired"] += 1
+        return stats
 
     @staticmethod
     async def _list_all_remote_docs(

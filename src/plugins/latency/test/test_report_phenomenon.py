@@ -200,12 +200,31 @@ def test_operation_mixed_when_stage_operations_conflict():
     payload = _sidecar(
         [_fault("F01")],
         statistics={
-            "stage_breakdowns": [{"operation": "GET"}, {"operation": "SET"}],
+            "stage_breakdowns": [
+                {"operation": "GET", "stages": [{"name": "get_client"}]},
+                {"operation": "SET", "stages": [{"name": "set_client"}]},
+            ],
             "top_hosts": [],
         },
     )
     extraction = extract_report(REPORT_ID, payload)
     assert extraction.operation == "MIXED"
+
+
+def test_operation_ignores_stage_buckets_without_samples():
+    """报告常为「另一侧无样本」补一行空 stages，那行不算该操作被覆盖。"""
+    payload = _sidecar(
+        [_fault("F01")],
+        statistics={
+            "stage_breakdowns": [
+                {"operation": "GET", "stages": []},
+                {"operation": "SET", "stages": [{"name": "set_client"}]},
+            ],
+            "top_hosts": [],
+        },
+    )
+
+    assert extract_report(REPORT_ID, payload).operation == "SET"
 
 
 def test_source_fault_hash_tracks_only_applicability_fields():
