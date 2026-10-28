@@ -133,6 +133,22 @@ def test_full_fault_maps_to_a_ready_draft():
     assert draft["source"] == "internal"
 
 
+def test_mixed_operation_report_keeps_mixed_instead_of_dropping_to_null():
+    payload = _payload()
+    payload["basic_info"]["operation"] = "GET"
+    payload["statistics"] = {
+        "stage_breakdowns": [
+            {"operation": "GET", "stages": []},
+            {"operation": "SET", "stages": []},
+        ]
+    }
+
+    preview = build_draft_from_fault(REPORT_ID, payload, "F01", SIDECAR_HASH)
+
+    # 报告同时覆盖 GET/SET 时不能退化成 NULL：NULL 会让案例在两种操作检索下都查不到。
+    assert preview.draft["operation"] == "MIXED"
+
+
 def test_labels_are_copied_from_the_fault_with_a_snapshot_hash():
     first, second = _labels()
 

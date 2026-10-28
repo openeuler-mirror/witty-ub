@@ -949,6 +949,13 @@ async def test_reconcile_ignores_deleted_remote_tombstones(monkeypatch):
         PhenomenonIndexService, "_list_all_remote_docs", staticmethod(remote_docs)
     )
 
+    async def no_repair():
+        return 0
+
+    monkeypatch.setattr(
+        PhenomenonIndexService, "_repair_case_operation", staticmethod(no_repair)
+    )
+
     stats = await PhenomenonIndexService.reconcile()
 
     assert stats["orphans"] == 1
@@ -1023,6 +1030,13 @@ async def test_reconcile_retires_mappings_left_in_a_previous_kb(monkeypatch):
         PhenomenonIndexService, "_list_all_remote_docs", staticmethod(remote_docs)
     )
 
+    async def no_repair():
+        return 0
+
+    monkeypatch.setattr(
+        PhenomenonIndexService, "_repair_case_operation", staticmethod(no_repair)
+    )
+
     stats = await PhenomenonIndexService.reconcile()
 
     assert stats["stale_kb"] == 1
@@ -1030,3 +1044,43 @@ async def test_reconcile_retires_mappings_left_in_a_previous_kb(monkeypatch):
     assert stats["orphans"] == 0
     assert cleared == [("report:r", "kb_changed", True)]
     assert searchable == [("report:r", False)]
+
+
+@pytest.mark.asyncio
+async def test_repair_case_operation_fills_mixed_from_the_source_report(monkeypatch):
+    """旧版把「报告同时覆盖 GET/SET」丢成 NULL，自愈须按源报告补回 MIXED。"""
+    from latency.database.managers.diag_case_library import DiagCaseLibraryPGManager
+
+    repaired: list[tuple[str, str]] = []
+
+    async def missing():
+        return [
+            SimpleNamespace(id="case-1", report_id="report_a"),
+            SimpleNamespace(id="case-2", report_id="report_b"),
+            SimpleNamespace(id="case-3", report_id=None),
+        ]
+
+    async def set_operation(case_id, operation):
+        repaired.append((case_id, operation))
+        return SimpleNamespace(id=case_id)
+
+    payloads = {
+        "report_a": {"basic_info": {"operation": "GET"},
+                     "statistics": {"stage_breakdowns": [
+                         {"operation": "GET"}, {"operation": "SET"}]}},
+        "report_b": {"basic_info": {"operation": "SET"}},
+    }
+
+    def load(report_id):
+        return payloads[report_id], None, None
+
+    monkeypatch.setattr(
+        DiagCaseLibraryPGManager, "cases_missing_operation", staticmethod(missing)
+    )
+    monkeypatch.setattr(
+        DiagCaseLibraryPGManager, "set_case_operation", staticmethod(set_operation)
+    )
+    monkeypatch.setattr(service, "_load_report_payload", load)
+
+    assert await PhenomenonIndexService._repair_case_operation() == 2
+    assert repaired == [("case-1", "MIXED"), ("case-2", "SET")]

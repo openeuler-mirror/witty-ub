@@ -19,7 +19,7 @@ from typing import Any, Iterable
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
-from latency.ENUM.case_library import DiagCaseStatus
+from latency.ENUM.case_library import DiagCaseOperation, DiagCaseStatus
 from latency.ENUM.phenomenon import IndexEventType
 from latency.common.local_time import local_now
 from latency.database.engine import PGManager
@@ -145,7 +145,14 @@ class DiagCaseLibraryPGManager:
             add("latency_component", value, 1.5)
         for value in case.log_keywords:
             add("log_keyword", value, 1.0)
-        add(DiagCaseLibraryPGManager.OPERATION_SIGNAL, case.operation, 1.5)
+        operation = _plain(case.operation)
+        if operation == DiagCaseOperation.MIXED:
+            # MIXED 对 GET / SET 查询都算命中；只登记 "mixed" 信号会让同一查询下
+            # 它比单一操作的案例少 1.5 分，排序会把「两种操作都覆盖」系统性压低。
+            for value in (DiagCaseOperation.GET, DiagCaseOperation.SET):
+                add(DiagCaseLibraryPGManager.OPERATION_SIGNAL, value, 1.5)
+        else:
+            add(DiagCaseLibraryPGManager.OPERATION_SIGNAL, operation, 1.5)
         return list(signals.values())
 
     @staticmethod
@@ -193,7 +200,10 @@ class DiagCaseLibraryPGManager:
             if value and str(value).strip():
                 parts.append(str(value).strip())
         if case.operation:
-            parts.append(str(_plain(case.operation)))
+            # MIXED 是排序维度的标记，不是正文语义词，混进 embedding 文本只会稀释信号。
+            operation = _plain(case.operation)
+            if operation != DiagCaseOperation.MIXED:
+                parts.append(str(operation))
         if case.fault_shape and case.fault_shape.strip():
             parts.append(case.fault_shape.strip())
         for component in _iter_values(case.latency_components):
@@ -264,7 +274,13 @@ class DiagCaseLibraryPGManager:
             case.first_level_label or case.second_level_label
         ):
             return False
-        if req.operation and case.operation != req.operation:
+        if req.operation and case.operation not in (
+            req.operation,
+            DiagCaseOperation.MIXED,
+            None,
+        ):
+            # MIXED / 未标注操作的案例对 GET 与 SET 都成立：整份报告覆盖两种操作，
+            # 或无法归属到单一操作，硬过滤会把它们永久排除在两类检索之外。
             return False
         if req.min_confidence is not None and float(case.confidence or 0.0) < (
             req.min_confidence
@@ -421,6 +437,53 @@ class DiagCaseLibraryPGManager:
         if row is None or not row.existed_status:
             return None
         return DiagCaseLibraryPGManager._orm_to_case(row)
+
+    @staticmethod
+    async def cases_missing_operation() -> list[DiagCaseLibraryModel]:
+        """列出 ``operation`` 为空的案例（含其源报告指针）。"""
+        async with PGManager.session() as session:
+            result = await session.execute(
+                select(DiagCaseLibrary).where(
+                    DiagCaseLibrary.existed_status.is_(True),
+                    DiagCaseLibrary.operation.is_(None),
+                )
+            )
+            return [
+                DiagCaseLibraryPGManager._orm_to_case(row)
+                for row in result.scalars().all()
+            ]
+
+    @staticmethod
+    async def set_case_operation(
+        case_id: str, operation: str
+    ) -> DiagCaseLibraryModel | None:
+        """补齐 ``operation`` 并同步重算 search_text 与信号行。
+
+        只用于修复派生缺失：不动内容物、不改 revision 以外的审计语义，
+        且仅对当前仍为空的行生效（并发下不会覆盖别人刚写入的取值）。
+        """
+        case = await DiagCaseLibraryPGManager.get_case(case_id)
+        if case is None:
+            return None
+        case.operation = operation
+        async with PGManager.session() as session:
+            result = await session.execute(
+                update(DiagCaseLibrary)
+                .where(
+                    DiagCaseLibrary.id == case_id,
+                    DiagCaseLibrary.existed_status.is_(True),
+                    DiagCaseLibrary.operation.is_(None),
+                )
+                .values(
+                    operation=operation,
+                    search_text=DiagCaseLibraryPGManager._build_search_text(case),
+                    updated_at=_now(),
+                )
+            )
+            if not (result.rowcount or 0):
+                return None
+            await DiagCaseLibraryPGManager._replace_signals(session, case_id, case)
+        return case
 
     @staticmethod
     async def _replace_signals(

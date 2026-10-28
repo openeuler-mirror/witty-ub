@@ -705,6 +705,44 @@ def test_search_operation_filter_excludes_other_operation():
     assert matches[0].case.id == "get-case"
 
 
+def test_mixed_operation_case_matches_both_get_and_set():
+    mixed = _confirmed("mixed-case", operation=DiagCaseOperation.MIXED)
+
+    for operation in ("GET", "SET"):
+        total, matches = _rank(
+            [mixed],
+            SearchDiagCaseLibraryRequest(operation=operation, status_codes=["1004"]),
+        )
+        assert total == 1, f"MIXED 案例必须能被 operation={operation} 命中"
+        assert matches[0].case.id == "mixed-case"
+        assert matches[0].match_score == 4.5
+
+
+def test_mixed_operation_case_ranks_level_with_single_operation_case():
+    mixed = _confirmed("mixed-case", operation=DiagCaseOperation.MIXED)
+    set_case = _confirmed("set-case", operation=DiagCaseOperation.SET)
+
+    _total, matches = _rank(
+        [mixed, set_case],
+        SearchDiagCaseLibraryRequest(operation="SET", status_codes=["1004"]),
+    )
+
+    scores = {match.case.id: match.score_norm for match in matches}
+    assert scores["mixed-case"] == scores["set-case"]
+
+
+def test_unlabelled_operation_case_stays_reachable_by_operation_filter():
+    unknown = _confirmed("unknown-case", operation=None)
+
+    total, matches = _rank(
+        [unknown],
+        SearchDiagCaseLibraryRequest(operation="SET", status_codes=["1004"]),
+    )
+
+    assert total == 1
+    assert matches[0].case.id == "unknown-case"
+
+
 def test_search_without_kb_id_recalls_other_knowledge_base_cases():
     local = _confirmed("local-case", kb_id="kb-1")
     other = _confirmed("other-case", kb_id="kb-2")

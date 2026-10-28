@@ -20,6 +20,9 @@ from typing import Any
 from latency.common.local_time import local_now
 from latency.config import phenomenon as settings
 from latency.database.engine import PGManager
+from latency.database.managers.diag_case_library import (
+    DiagCaseLibraryPGManager as CaseMgr,
+)
 from latency.database.managers.phenomenon_index import PhenomenonIndexPGManager as Mgr
 from latency.database.models import (
     DiagCaseLibrary,
@@ -63,6 +66,9 @@ PARSE_DEADLINE_MINUTES = 30
 MAX_PUBLISH_RETRIES = 5
 MAX_EVENT_RETRIES = 10
 MAX_CLEANUP_RETRIES = 10
+# 每轮自愈最多补多少条案例操作类型：源报告已删除的案例会一直留在待修复集合里，
+# 限流避免每次 reconcile 都全量扫一遍报告卷。
+MAX_CASE_REPAIR_PER_ROUND = 200
 
 WORKER_ID = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
@@ -1193,8 +1199,12 @@ class PhenomenonIndexService:
             "missing": 0,
             "orphans": 0,
             "stale_kb": 0,
+            "case_operation": 0,
         }
         await Mgr.promote_observing(600)
+        stats["case_operation"] = (
+            await PhenomenonIndexService._repair_case_operation()
+        )
 
         for card in await Mgr.cards_with_source_drift():
             await Mgr.set_searchable(card.doc_id, False)
@@ -1267,6 +1277,29 @@ class PhenomenonIndexService:
                     )
                     stats["missing"] += 1
         return stats
+
+    @staticmethod
+    async def _repair_case_operation() -> int:
+        """按源报告补齐案例缺失的 operation。
+
+        旧版建案把「报告同时覆盖 GET/SET」落成 NULL，导致这类案例在 GET 与 SET
+        两类检索里都只能当无标注命中。这里只填空值，已有取值一律不动。
+        """
+        repaired = 0
+        for case in (await CaseMgr.cases_missing_operation())[
+            :MAX_CASE_REPAIR_PER_ROUND
+        ]:
+            if not case.report_id:
+                continue
+            payload, _kb_dir, error = _load_report_payload(case.report_id)
+            if error or payload is None:
+                continue
+            operation = extractor.fault_operation(payload)
+            if operation not in {"GET", "SET", "MIXED", "N/A"}:
+                continue
+            if await CaseMgr.set_case_operation(case.id, operation) is not None:
+                repaired += 1
+        return repaired
 
     @staticmethod
     async def _list_all_remote_docs(

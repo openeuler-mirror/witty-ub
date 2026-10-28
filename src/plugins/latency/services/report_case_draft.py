@@ -392,7 +392,13 @@ def build_draft_from_fault(
         "node_type": None,
         "version_json": None,
         "scope_limits": None,
-        "operation": operation if operation in {"GET", "SET"} else None,
+        # MIXED 表示整份报告同时覆盖 GET/SET，无法归属单一操作；检索时两种操作都能命中，
+        # 不能退化成 NULL（NULL 既查不到也无法解释「为什么两种操作都相关」）。
+        "operation": (
+            operation
+            if operation in {"GET", "SET", "N/A", "MIXED"}
+            else None
+        ),
         "fault_type": report_phenomenon.fault_category(fault),
         "status_codes": status_codes,
         "failure_mode_ids": failure_mode_ids,
