@@ -36,6 +36,15 @@ def _text(value: Any) -> str | None:
     return text or None
 
 
+def _unique_texts(values: list[Any]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        item = _text(value)
+        if item and item not in result:
+            result.append(item)
+    return result
+
+
 def _confidence(value: Any) -> float:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         number = float(value)
@@ -94,21 +103,176 @@ def _evidence(fault: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
         if len(items) >= 5:
-            break
+            return items
+
+    # !360 stores reproducible request provenance inside the deterministic
+    # error/latency feature blocks.  These are valid API evidence anchors even
+    # when no representative trace was returned.
+    latency = _as_dict(fault.get("latency"))
+    for stage in _as_list(latency.get("stages")):
+        if not isinstance(stage, dict):
+            continue
+        features = _as_dict(stage.get("features"))
+        source = _as_dict(features.get("source"))
+        endpoint = _text(source.get("endpoint"))
+        request = _as_dict(source.get("request"))
+        if endpoint and request:
+            items.append({
+                "kind": "api",
+                "ref": endpoint,
+                "params": request,
+                "excerpt": None,
+                "note": _text(stage.get("name")) or _text(features.get("bucket_key")),
+            })
+        if len(items) >= 5:
+            return items
+
+    error = _as_dict(fault.get("error"))
+    for breakdown in _as_list(error.get("breakdowns")):
+        if not isinstance(breakdown, dict):
+            continue
+        source = _as_dict(breakdown.get("source"))
+        endpoint = _text(source.get("endpoint"))
+        for page in _as_list(source.get("pages")):
+            request = _as_dict(page.get("request")) if isinstance(page, dict) else {}
+            if endpoint and request:
+                items.append({
+                    "kind": "api",
+                    "ref": endpoint,
+                    "params": request,
+                    "excerpt": None,
+                    "note": f"{_text(breakdown.get('operation')) or 'N/A'} 错误码时间聚合",
+                })
+            if len(items) >= 5:
+                return items
     return items
 
 
-def _remediation(fault: dict[str, Any]) -> list[dict[str, Any]]:
+def _remediation(
+    fault: dict[str, Any], payload: dict[str, Any], fault_id: str
+) -> list[dict[str, Any]]:
     solution = _as_dict(fault.get("solution"))
-    actions = [
-        str(item).strip()
-        for item in _as_list(solution.get("short_term"))
-        if str(item).strip()
+    verifications = _unique_texts(_as_list(solution.get("verification")))
+    items: list[dict[str, Any]] = []
+    for action in _unique_texts(
+        _as_list(solution.get("short_term")) + _as_list(solution.get("long_term"))
+    ):
+        item: dict[str, Any] = {"step": len(items) + 1, "action": action}
+        if len(items) < len(verifications):
+            item["expected"] = verifications[len(items)]
+        items.append(item)
+
+    for plan in _as_list(payload.get("action_plan")):
+        if not isinstance(plan, dict):
+            continue
+        fault_ids = _unique_texts(_as_list(plan.get("fault_ids")))
+        if fault_ids and fault_id not in fault_ids:
+            continue
+        action = _text(plan.get("action"))
+        if not action or any(item["action"] == action for item in items):
+            continue
+        item = {"step": len(items) + 1, "action": action}
+        expected = _text(plan.get("verify")) or _text(plan.get("expected_effect"))
+        if expected:
+            item["expected"] = expected
+        items.append(item)
+    return items
+
+
+def _latency_features(
+    fault: dict[str, Any],
+) -> tuple[list[str], dict[str, Any] | None, list[str], list[str], list[str]]:
+    """Map !360 per-stage features into the !361 case signal contract."""
+    features_list: list[dict[str, Any]] = []
+    for stage in _as_list(_as_dict(fault.get("latency")).get("stages")):
+        if isinstance(stage, dict) and isinstance(stage.get("features"), dict):
+            features_list.append(stage["features"])
+
+    components = _unique_texts([item.get("bucket_key") for item in features_list])
+    hosts: list[Any] = []
+    src_ips: list[Any] = []
+    dst_ips: list[Any] = []
+    for features in features_list:
+        for trace in _as_list(features.get("top_traces")):
+            if not isinstance(trace, dict):
+                continue
+            hosts.append(trace.get("host"))
+            src_ips.append(trace.get("src_ip"))
+            dst_ips.append(trace.get("dst_ip"))
+
+    operations = _unique_texts([item.get("operation") for item in features_list])
+    snapshot: dict[str, Any] | None = None
+    if features_list and len(operations) == 1:
+        buckets = []
+        for features in features_list:
+            distribution = _as_dict(features.get("distribution"))
+            buckets.append({
+                "key": features.get("bucket_key"),
+                "trace_cnt": features.get("trace_cnt", 0),
+                "success_cnt": features.get("normal_cnt", 0),
+                "fail_cnt": features.get("anomalous_cnt", 0),
+                "p50_ms": distribution.get("p50_ms"),
+                "p90_ms": distribution.get("p90_ms"),
+                "max_ms": distribution.get("max_ms"),
+                "metric_name": features.get("metric_name"),
+                "note": features.get("note"),
+            })
+        snapshot = {
+            "operation": operations[0],
+            "buckets": buckets,
+            "sample_cnt": max(
+                (item.get("sample_cnt", 0) for item in features_list), default=0
+            ),
+            "truncated": any(item.get("truncated") is True for item in features_list),
+        }
+    return (
+        components,
+        snapshot,
+        _unique_texts(hosts),
+        _unique_texts(src_ips),
+        _unique_texts(dst_ips),
+    )
+
+
+def _scoped_statistics(
+    payload: dict[str, Any], fault_id: str, single_fault: bool
+) -> tuple[list[str], list[str]]:
+    statistics = _as_dict(payload.get("statistics"))
+
+    def belongs(item: dict[str, Any]) -> bool:
+        owner = _text(item.get("fault"))
+        return owner == fault_id or (owner is None and single_fault)
+
+    hosts = [
+        item.get("host")
+        for item in _as_list(statistics.get("top_hosts"))
+        if isinstance(item, dict) and belongs(item)
     ]
-    return [
-        {"step": index, "action": action}
-        for index, action in enumerate(actions, start=1)
+    pods = [
+        item.get("pod")
+        for item in _as_list(statistics.get("top_pods"))
+        if isinstance(item, dict) and belongs(item)
     ]
+    return _unique_texts(hosts), _unique_texts(pods)
+
+
+def _error_scope(fault: dict[str, Any]) -> tuple[str | None, list[str], list[str]]:
+    clusters: list[Any] = []
+    src_ips: list[Any] = []
+    dst_ips: list[Any] = []
+    for breakdown in _as_list(_as_dict(fault.get("error")).get("breakdowns")):
+        if not isinstance(breakdown, dict):
+            continue
+        scope = _as_dict(breakdown.get("scope"))
+        clusters.append(scope.get("cluster_name"))
+        src_ips.append(scope.get("src_ip"))
+        dst_ips.append(scope.get("dst_ip"))
+    cluster_names = _unique_texts(clusters)
+    return (
+        cluster_names[0] if len(cluster_names) == 1 else None,
+        _unique_texts(src_ips),
+        _unique_texts(dst_ips),
+    )
 
 
 def _labels(fault: dict[str, Any]) -> dict[str, Any]:
@@ -177,13 +341,31 @@ def build_draft_from_fault(
     symptom = _symptom(conclusion, title)
     root_cause_summary = (
         _text(root_cause.get("confirmed_root_cause"))
-        or _text(conclusion.get("one_line_conclusion"))
-        or title
     )
     evidence = _evidence(fault)
-    remediation = _remediation(fault)
-    status_codes = report_phenomenon.valid_status_codes(fault)
+    remediation = _remediation(fault, payload, fault_id)
+    legacy_error_items = (
+        _as_list(_as_dict(payload.get("statistics")).get("top_error_codes"))
+        if len(faults) == 1
+        else []
+    )
+    status_codes = report_phenomenon.valid_status_codes(fault, legacy_error_items)
     failure_mode_ids = report_phenomenon.valid_failure_mode_ids(fault)
+    latency_components, stage_features, latency_hosts, latency_src, latency_dst = (
+        _latency_features(fault)
+    )
+    stats_hosts, stats_pods = _scoped_statistics(payload, fault_id, len(faults) == 1)
+    cluster_name, error_src, error_dst = _error_scope(fault)
+    trace_hosts = _unique_texts([
+        trace.get("host")
+        for trace in _as_list(fault.get("evidence_traces"))
+        if isinstance(trace, dict)
+    ])
+    trace_pods = _unique_texts([
+        trace.get("pod")
+        for trace in _as_list(fault.get("evidence_traces"))
+        if isinstance(trace, dict)
+    ])
     labels = _labels(fault)
 
     draft = {
@@ -197,11 +379,11 @@ def build_draft_from_fault(
         "created_by": None,
         "kb_id": _text(basic.get("kb_id")),
         "kb_name": _text(basic.get("kb_name")),
-        "cluster_name": None,
-        "hosts": [],
-        "pods": [],
-        "src_ips": [],
-        "dst_ips": [],
+        "cluster_name": cluster_name,
+        "hosts": _unique_texts(stats_hosts + trace_hosts + latency_hosts),
+        "pods": _unique_texts(stats_pods + trace_pods),
+        "src_ips": _unique_texts(error_src + latency_src),
+        "dst_ips": _unique_texts(error_dst + latency_dst),
         "node_type": None,
         "version_json": None,
         "scope_limits": None,
@@ -209,11 +391,19 @@ def build_draft_from_fault(
         "fault_type": report_phenomenon.fault_category(fault),
         "status_codes": status_codes,
         "failure_mode_ids": failure_mode_ids,
-        "latency_components": [],
+        "latency_components": latency_components,
         "log_keywords": [],
-        "stage_features_json": None,
+        "stage_features_json": stage_features,
         "fault_shape": None,
-        "time_window_json": None,
+        "time_window_json": (
+            {
+                "start": _text(basic.get("time_range_start")),
+                "end": _text(basic.get("time_range_end")),
+            }
+            if _text(basic.get("time_range_start"))
+            or _text(basic.get("time_range_end"))
+            else None
+        ),
         "confidence": _confidence(fault.get("confidence")),
         "evidence_json": evidence,
         "counter_evidence_json": [
@@ -244,7 +434,17 @@ def build_draft_from_fault(
         missing.append("evidence_json")
     if not remediation:
         missing.append("remediation_json")
-    if not (status_codes or failure_mode_ids):
+    if not any((
+        status_codes,
+        failure_mode_ids,
+        latency_components,
+        draft["log_keywords"],
+        draft["hosts"],
+        draft["pods"],
+        draft["src_ips"],
+        draft["dst_ips"],
+        draft["cluster_name"],
+    )):
         missing.append("matchable_signal")
     if labels["status"] == "invalid":
         missing.append("label_invalid")
@@ -256,7 +456,7 @@ def build_draft_from_fault(
         source_fault_id=fault_id,
         expected_sidecar_hash=expected_sidecar_hash,
         source_fault_hash=report_phenomenon.compute_source_fault_hash(
-            fault, fault_id, operation
+            fault, fault_id, operation, status_codes
         ),
         labels=labels,
         draft=draft,

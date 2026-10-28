@@ -1,14 +1,11 @@
 ---
 name: diagnostic-report-generation
 description: >
-  把已完成的诊断结论渲染成标准化 HTML 诊断报告（7 个带编号的顶层章节）。
-  报告由 scripts/render_report.py 调用 Jinja2 模板生成：Agent 只负责按契约准备
-  一个数据 JSON，不手写 HTML、不内联渲染模板。
+  把已完成的诊断结论生成通过统一契约校验的数据 JSON，并可渲染成标准化 HTML
+  诊断报告（7 个带编号的顶层章节）。报告由 scripts/render_report.py 校验并调用
+  Jinja2 模板生成：Agent 只负责按契约准备一个数据 JSON，不手写 HTML、不内联渲染模板。
   当诊断完成后需要输出结构化报告、沉淀案例或归档时使用本 Skill。
 license: MIT
-compatibility: >
-  Requires HTTP API access to FastAPI backend on port 9772 via bash curl for evidence retrieval.
-  渲染需要 python3 + jinja2（镜像已内置 python3-jinja2）。
 metadata:
   author: witty-ub-diagnostician
   version: "2.3"
@@ -31,8 +28,10 @@ allowed-tools: >
 
 本 Skill **不负责诊断**。使用前必须已从 `latency-analysis` / `failure-code-analysis` /
 `brpc-diagnosis` Skill 或直接 HTTP API 调用拿到诊断结论与证据。
+运行环境须能访问 FastAPI 后端（默认 9772 端口）以取证，并提供 python3 + jinja2
+用于报告渲染（部署镜像已内置 python3-jinja2）。
 
-## 生成流程（3 步）
+## 生成流程（4 步）
 
 **步骤 1 收集数据**：数据来源速查表见 `references/REPORT_BLOCKS.md`
 （组件定位、统计分布、故障模式、知识库、代表 trace、历史案例）。
@@ -51,7 +50,20 @@ python3 render_report.py --spec statistics   # 单板块字段清单（可换任
 每次生成报告前必须读取 [references/log_label.json](references/log_label.json)，
 按下文「故障标签」规则为每条故障填写一级、二级标签。
 
-**步骤 3 渲染**：
+**步骤 3 校验 JSON（强制）**：写完 JSON 后必须先运行独立校验；即使用户明确要求
+不生成 HTML，也不能跳过：
+
+```bash
+cd witty_ub_diagnostician/.opencode/skills/diagnostic-report-generation/scripts
+python3 render_report.py /tmp/report_data.json --validate-only
+```
+
+该模式与正式渲染调用同一个校验函数，但**不加载 Jinja2/模板、不写 HTML 或侧车、
+不清理报告目录**。退出码 `0` 才表示 JSON 满足当前渲染契约；退出码 `2` 时按错误修正
+JSON 并重跑。用户只要 JSON 或明确说“不渲染 HTML”时，到此即可交付该 JSON。
+
+**步骤 4 渲染（需要 HTML 时）**：宽泛的“生成诊断报告”默认继续生成 HTML；只有用户
+明确只要 JSON / 不渲染时才跳过：
 
 ```bash
 cd witty_ub_diagnostician/.opencode/skills/diagnostic-report-generation/scripts
@@ -64,24 +76,25 @@ python3 render_report.py /tmp/report_data.json
 # 报告库中该知识库始终只保留最新一份，不会因多次渲染而累积重复条目。
 ```
 
-脚本做 schema-lite 校验（必需顶层键、字段枚举、`share_bar` 百分比合计、
+正式渲染会再次使用与步骤 3、导入链路相同的报告契约校验（必需顶层键、字段枚举、
+嵌套的错误分布/时延特征、根因/传播/知识匹配字段、`share_bar` 百分比合计、
 GET/SET 混桶），成功后**只回显 ≤15 行摘要**（输出路径/侧车/章节/故障/统计/提示）。
-退出码：`0` 成功 / `2` 数据或渲染错误（按提示改 JSON 后重跑）/ `3` 模板缺失 /
+渲染退出码：`0` 成功 / `2` 数据或渲染错误（按提示改 JSON 后重跑）/ `3` 模板缺失 /
 `4` 缺 jinja2 / `5` 写盘失败（目录不可写）。**校验失败时修正 JSON 后重跑，
 不要改用别的方式手写 HTML。**
 
-**渲染后自检（强制）**：schema-lite 只查外层字段与枚举，不查
-`faults[].latency` / `root_cause` / `propagation` / `knowledge_matches`
-子区块字段是否命中契约。渲染成功后必须抽查输出 HTML，确认四大区块非空：
+**渲染后自检（强制）**：渲染成功后抽查输出 HTML，确认 JSON 中实际提供的适用区块
+已出现；没有现场证据而按纪律省略的区块不要求补造：
 
 ```bash
 grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
   "${报告输出路径}"
-# 四个计数都 >0 才算通过；任一为 0 说明数据 JSON 字段未命中契约，
-# 按 `python3 render_report.py --spec <板块名>` 修正字段后重新渲染
+# 对 JSON 中已提供的 latency/root_cause/propagation/knowledge_matches，
+# 对应计数应 >0；否则按 `python3 render_report.py --spec <板块名>` 修正后重新渲染
 ```
 
-**不得以空白区块（时延阶段定位/根因推理链/故障传播链/知识库匹配）交付报告。**
+**不得交付“JSON 有数据、HTML 却为空”的区块。没有可靠数据时按契约省略，不得为满足
+固定计数而编造时延阶段、传播链或知识匹配。**
 
 ## 报告契约（硬约束）
 
@@ -162,7 +175,8 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 `error` / `mixed` 类故障有时间聚合证据时，填 `faults[].error`：错误码构成、
 随时间的分布及结论；扁平单故障同样支持顶层 `error`。不关联时延阶段。
 从本次已保存的 `/log_failure_event_result/list_time_aggregated_failure_events`
-分页请求/响应，用 `scripts/error_features.py` 离线提取；字段查 `--spec error`，
+分页请求/响应，**必须用** `scripts/error_features.py` 离线提取；不得让模型手工拼装该块。
+字段查 `--spec error`，
 输入示例、来源和缺失纪律见 [references/ERROR_FEATURES.md](references/ERROR_FEATURES.md)。
 
 - 每条故障限定自己的时间/故障域/错误码范围，GET/SET 各一套；无可靠数据则省略并说明限制。
@@ -176,7 +190,8 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 长尾程度、基线比较、分窗走势及代表 trace 拓扑/错误码。保留现有 `p99` 等展示字段；
 新特征契约、逐字段来源/作用和提取方法见 [references/LATENCY_FEATURES.md](references/LATENCY_FEATURES.md)。
 
-- 优先用 `scripts/latency_features.py` 从本次已保存的请求/响应提取，按桶 key 取结果；
+- 必须用 `scripts/latency_features.py` 从本次已保存的请求/响应提取，按桶 key 取结果；
+  不得让模型手工计算或拼装 `features`；
   它不联网，不自动把桶匹配成物理阶段，也不替 Agent 决定 `status`。
 - `/stats/stages` 是互斥归因桶，只有证据耗时 P50/P90/max，**不能补出 P99**；
   请求计数占比不等于耗时占比，`fail_cnt` 是异常标记数，不等于请求失败数/超时数。
@@ -224,6 +239,11 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 5. **上限 5 条**：超过 5 条对读者无增量，只稀释报告密度。
 6. **不写数据保留期声明**：报告不加"锚点有效性以底层数据保留期为限"一类注记。
 7. **数组内不重复**：同一 trace 同时命中时延与通断时只列一条，另一侧信息并入 `why`。
+
+若报告之后要沉淀案例，0 条 trace 不等于没有证据：`error_features.py` /
+`latency_features.py` 输出中保留的 `source.endpoint + request` 会被服务端转换为可复现的
+API 证据锚点。既无代表 trace、又无上述真实请求来源时，案例预览会明确列出
+`evidence_json` 缺失，Agent 不得补造。
 
 ## 案例沉淀（报告确认后，三步链路）
 
@@ -274,4 +294,6 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 | 用户请求 | 前置条件 |
 |---------|---------|
 | "把刚才的诊断写成报告" / "生成一份诊断报告" | 本会话已运行诊断 Skill；未诊断则先回诊断 Skill |
+| "为当前资产库生成诊断报告" | 自动完成当前资产库的诊断取证、JSON 校验和 HTML 渲染；用户无需指定 JSON 字段或模板 |
+| "生成报告 JSON，不渲染 HTML" | 写 JSON 后仍须执行 `--validate-only`；通过后交付 JSON，不生成 HTML/侧车 |
 | "把这个案例沉淀到经验库" | 先生成完整报告并取得用户确认，再按上文「案例沉淀」三步链路写入案例库 |

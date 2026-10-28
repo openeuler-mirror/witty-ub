@@ -3,6 +3,7 @@
 
 用法：
     python3 scripts/render_report.py <data.json> [out.html] [--kb-id <id>] [--no-sidecar]
+    python3 scripts/render_report.py <data.json> --validate-only
     python3 scripts/render_report.py --spec [section]
 
 约定：
@@ -11,6 +12,7 @@
       同名侧车 .json（原样报告数据，供前端列表展示与复现渲染）。
       WITTY_REPORT_DIR 未设置时回落 /tmp/reports（本地调试用）。
     - 显式传 out.html 时按该路径输出，侧车写到同目录同名。
+    - ``--validate-only`` 只加载并校验 JSON，不加载模板、不写 HTML/侧车。
     - 成功时只回显 ≤15 行摘要；数据/校验失败 exit 2，模板缺失 exit 3，
       缺 jinja2 exit 4，写盘失败 exit 5。
 """
@@ -25,8 +27,8 @@ import sys
 import time
 from pathlib import Path
 
-from latency_features import validate_features
 from error_features import validate_error
+from latency_features import validate_features
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_TEMPLATE = SKILL_DIR / "templates" / "report.html"
@@ -529,6 +531,118 @@ def sidecar_payload(data: dict, out_path: Path) -> dict:
     return payload
 
 
+def load_report_json(data_path: Path) -> dict:
+    """Load one report JSON without invoking the template engine."""
+    if not data_path.is_file():
+        raise Fatal(
+            f"数据文件不存在: {data_path}",
+            f"先把报告变量写入该 JSON，再执行 {Path(__file__).name} <data.json>",
+        )
+    try:
+        return json.loads(data_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise Fatal(
+            f"JSON 解析失败 {data_path}:{exc.lineno}:{exc.colno} — {exc.msg}"
+        ) from exc
+    except OSError as exc:
+        raise Fatal(f"无法读取数据文件: {data_path}", str(exc)) from exc
+
+
+def validate_report_json(data: dict, data_path: Path) -> list[str]:
+    """Apply the canonical render contract and return non-blocking warnings."""
+    errors, warnings = validate(data)
+    if errors:
+        details = "\n".join(f"  - {line}" for line in errors[:6])
+        if len(errors) > 6:
+            details += f"\n  ... 另有 {len(errors) - 6} 处"
+        raise Fatal(
+            f"数据校验未通过（{len(errors)} 处）：\n{details}",
+            f"修正 {data_path} 中上述字段后重跑；字段清单见 --spec top",
+        )
+    return warnings
+
+
+def render_report_html(data: dict, template_path: Path, data_path: Path) -> str:
+    """Render validated data in memory; this function performs no writes."""
+    try:
+        from jinja2 import Environment, FileSystemLoader, select_autoescape
+    except ImportError as exc:
+        raise Fatal(
+            "缺少 jinja2 模块",
+            "dnf install -y python3-jinja2（镜像已内置；本地调试可用 pip3 install jinja2）",
+            code=4,
+        ) from exc
+
+    if not template_path.is_file():
+        raise Fatal(f"模板不存在: {template_path}", "--template 指向 report.html", code=3)
+
+    env = Environment(
+        loader=FileSystemLoader(str(template_path.parent)),
+        autoescape=select_autoescape(["html"]),
+        trim_blocks=False,
+        lstrip_blocks=False,
+    )
+    try:
+        return env.get_template(template_path.name).render(**data)
+    except Exception as exc:  # 模板语法/结构问题：给出模板侧定位
+        raise Fatal(
+            f"渲染失败: {type(exc).__name__}: {exc}",
+            f"模板 {template_path}；数据 {data_path}",
+        ) from exc
+
+
+def output_path(args, data: dict) -> Path:
+    if args.out:
+        return Path(args.out)
+    slug = kb_slug(args.kb_id or (data.get("basic_info") or {}).get("kb_id"))
+    base = f"report_{slug}_{time.strftime('%Y%m%d_%H%M%S')}"
+    result = report_root() / slug / f"{base}.html"
+    seq = 0
+    while result.exists() or (
+        not args.no_sidecar and result.with_suffix(".json").exists()
+    ):
+        seq += 1
+        result = result.with_name(f"{base}_{seq}.html")
+    return result
+
+
+def write_report_files(
+    data: dict, html: str, out_path: Path, no_sidecar: bool
+) -> Path | None:
+    """Persist an already-rendered report and its optional source sidecar."""
+    sidecar_path = None if no_sidecar else out_path.with_suffix(".json")
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(html, encoding="utf-8")
+        if sidecar_path is not None:
+            payload = json.dumps(
+                sidecar_payload(data, out_path), ensure_ascii=False, indent=2
+            )
+            sidecar_path.write_text(payload + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise Fatal(
+            f"写盘失败: {exc}",
+            f"确认 {out_path.parent} 可写（WITTY_REPORT_DIR={report_root()}），或显式传 out 路径",
+            code=5,
+        ) from exc
+    return sidecar_path
+
+
+def print_warnings(warnings: list[str]) -> None:
+    shown = warnings[:3]
+    for line in shown:
+        print(f"  ⚠ {line}")
+    if len(warnings) > len(shown):
+        print(f"  ⚠ ... 另有 {len(warnings) - len(shown)} 条提示（不影响校验）")
+
+
+def print_fatal(exc: Fatal) -> int:
+    print(f"✘ {exc.message}", file=sys.stderr)
+    if exc.hint:
+        print(f"  提示：{exc.hint}", file=sys.stderr)
+    return exc.code
+
+
 # --------------------------------------------------------------------------- #
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(add_help=True, description="渲染诊断报告 HTML")
@@ -539,6 +653,8 @@ def main(argv=None) -> int:
                         help="知识库 ID（默认取 basic_info.kb_id），决定默认输出目录与文件名")
     parser.add_argument("--no-sidecar", action="store_true",
                         help="不写同名侧车 JSON（前端列表将缺少标题/故障数）")
+    parser.add_argument("--validate-only", action="store_true",
+                        help="只校验 JSON 是否满足渲染契约，不加载模板或生成任何文件")
     parser.add_argument("--spec", nargs="?", const="all", default=None, metavar="SECTION",
                         help="打印紧凑字段清单（top|basic_info|statistics|... 或 all）后退出")
     parser.add_argument("--template", default=str(DEFAULT_TEMPLATE), help="模板路径")
@@ -548,34 +664,23 @@ def main(argv=None) -> int:
         return print_spec(args.spec)
     if not args.data:
         parser.error("需要提供数据 JSON 路径（或用 --spec 查字段清单）")
+    if args.validate_only and args.out:
+        print("✘ --validate-only 不接受输出 HTML 路径", file=sys.stderr)
+        return 2
 
     data_path = Path(args.data)
-    if not data_path.is_file():
-        print(f"✘ 数据文件不存在: {data_path}", file=sys.stderr)
-        print(f"  提示：先把报告变量写入该 JSON，再执行 {Path(__file__).name} <data.json>", file=sys.stderr)
-        return 2
     try:
-        data = json.loads(data_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        print(f"✘ JSON 解析失败 {data_path}:{exc.lineno}:{exc.colno} — {exc.msg}", file=sys.stderr)
-        return 2
-
-    try:
-        errors, warnings = validate(data)
+        data = load_report_json(data_path)
+        warnings = validate_report_json(data, data_path)
     except Fatal as exc:
-        print(f"✘ {exc.message}", file=sys.stderr)
-        if exc.hint:
-            print(f"  提示：{exc.hint}", file=sys.stderr)
-        return exc.code
+        return print_fatal(exc)
 
-    if errors:
-        print(f"✘ 数据校验未通过（{len(errors)} 处）：", file=sys.stderr)
-        for line in errors[:6]:
-            print(f"  - {line}", file=sys.stderr)
-        if len(errors) > 6:
-            print(f"  ... 另有 {len(errors) - 6} 处", file=sys.stderr)
-        print(f"  提示：修正 {data_path} 中上述字段后重跑；字段清单见 --spec top", file=sys.stderr)
-        return 2
+    if args.validate_only:
+        print(f"✔ JSON 校验通过（未生成 HTML）: {data_path}")
+        print("  故障 " + faults_line(data))
+        print("  统计 " + stats_line(data))
+        print_warnings(warnings)
+        return 0
 
     # 统一用实际渲染时间覆盖 report.generated_at：HTML 页头、侧车 JSON、
     # 报告库列表三处显示一致，避免数据里整点占位值被误当作真实生成时间。
@@ -583,54 +688,13 @@ def main(argv=None) -> int:
     if isinstance(report_block, dict):
         report_block["generated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
-    try:
-        from jinja2 import Environment, FileSystemLoader, select_autoescape
-    except ImportError:
-        print("✘ 缺少 jinja2 模块", file=sys.stderr)
-        print("  提示：dnf install -y python3-jinja2（镜像已内置；本地调试可用 pip3 install jinja2）", file=sys.stderr)
-        return 4
-
     template_path = Path(args.template)
-    if not template_path.is_file():
-        print(f"✘ 模板不存在: {template_path}", file=sys.stderr)
-        print("  提示：--template 指向 report.html", file=sys.stderr)
-        return 3
-
-    env = Environment(
-        loader=FileSystemLoader(str(template_path.parent)),
-        autoescape=select_autoescape(["html"]),
-        trim_blocks=False,
-        lstrip_blocks=False,
-    )
     try:
-        html = env.get_template(template_path.name).render(**data)
-    except Exception as exc:  # 模板语法/结构问题：给出模板侧定位
-        print(f"✘ 渲染失败: {type(exc).__name__}: {exc}", file=sys.stderr)
-        print(f"  提示：模板 {template_path}；数据 {data_path}", file=sys.stderr)
-        return 2
-
-    if args.out:
-        out_path = Path(args.out)
-    else:
-        slug = kb_slug(args.kb_id or (data.get("basic_info") or {}).get("kb_id"))
-        base = f"report_{slug}_{time.strftime('%Y%m%d_%H%M%S')}"
-        out_path = report_root() / slug / f"{base}.html"
-        seq = 0
-        while out_path.exists() or (not args.no_sidecar and out_path.with_suffix(".json").exists()):
-            seq += 1
-            out_path = out_path.with_name(f"{base}_{seq}.html")
-
-    sidecar_path = None if args.no_sidecar else out_path.with_suffix(".json")
-    try:
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(html, encoding="utf-8")
-        if sidecar_path is not None:
-            payload = json.dumps(sidecar_payload(data, out_path), ensure_ascii=False, indent=2)
-            sidecar_path.write_text(payload + "\n", encoding="utf-8")
-    except OSError as exc:
-        print(f"✘ 写盘失败: {exc}", file=sys.stderr)
-        print(f"  提示：确认 {out_path.parent} 可写（WITTY_REPORT_DIR={report_root()}），或显式传 out 路径", file=sys.stderr)
-        return 5
+        html = render_report_html(data, template_path, data_path)
+        out_path = output_path(args, data)
+        sidecar_path = write_report_files(data, html, out_path, args.no_sidecar)
+    except Fatal as exc:
+        return print_fatal(exc)
 
     print(f"✔ {out_path}  ({len(html.encode('utf-8')):,} bytes)")
     if sidecar_path is not None:
@@ -638,12 +702,7 @@ def main(argv=None) -> int:
     print("  章节 " + str(len(section_names(data))) + ": " + " · ".join(section_names(data)))
     print("  故障 " + faults_line(data))
     print("  统计 " + stats_line(data))
-    if warnings:
-        shown = warnings[:3]
-        for line in shown:
-            print(f"  ⚠ {line}")
-        if len(warnings) > len(shown):
-            print(f"  ⚠ ... 另有 {len(warnings) - len(shown)} 条提示（不影响渲染）")
+    print_warnings(warnings)
 
     # 渲染成功且已落盘：清理同知识库目录下的旧报告，只保留刚生成的最新一份。
     # 仅匹配 report_<slug>_* 前缀，不影响同目录下其它知识库的报告。
