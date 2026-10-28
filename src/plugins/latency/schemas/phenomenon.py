@@ -43,7 +43,7 @@ class PhenomenonMatchModel(BaseModel):
     score_raw: float = Field(..., description="上游原始分数")
     kind: str = Field(..., description="report / case / legacy_case")
     title: str = Field(..., description="已发布版本的卡片标题")
-    symptom: str = Field(..., description="已发布版本的现象摘要，≤400 字符")
+    symptom: str = Field(..., description="已发布版本的现象摘要，≤600 字符")
     report_id: str | None = Field(default=None, description="报告指针")
     source_fault_id: str | None = Field(default=None, description="报告故障指针")
     case_id: str | None = Field(default=None, description="新案例指针")

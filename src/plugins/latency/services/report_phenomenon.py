@@ -24,7 +24,7 @@ from latency.ENUM.phenomenon import (
 
 TEXT_HARD_LIMIT = 1200
 HISTORICAL_REPORT_PREFIX = "report_hist_"
-SYMPTOM_LIMIT = 400
+SYMPTOM_LIMIT = 600
 KEY_FINDINGS_LIMIT = 3
 
 STABLE_FAULT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")

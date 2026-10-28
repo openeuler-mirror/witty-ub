@@ -36,7 +36,7 @@ from latency.services.rag_client import (
 )
 from sqlalchemy import select
 
-SYMPTOM_MAX = 400
+SYMPTOM_MAX = 600
 MAX_CANDIDATE_LIMIT = 200
 # Absolute budget for one search, including every widening round and local
 # mapping.  Read-interval timeouts cannot bound a slow-drip upstream, and the
