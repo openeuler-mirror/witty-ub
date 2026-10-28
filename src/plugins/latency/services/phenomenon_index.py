@@ -782,6 +782,10 @@ class PhenomenonIndexService:
                 )
                 disabled += 1
         await Mgr.set_report_available(report_id, False, index_error=None)
+        # 报告已移除时索引不适用；保留旧的 failed 会让状态页把归档报告算成索引故障。
+        await Mgr.update_report_status(
+            report_id, ReportIndexStatus.NOT_APPLICABLE.value, index_error=None
+        )
         return {"switched": switched, "disabled": disabled}
 
     # ---------------------------------------------------------------- legacy
@@ -1199,10 +1203,14 @@ class PhenomenonIndexService:
             "missing": 0,
             "orphans": 0,
             "stale_kb": 0,
+            "superseded_reports": 0,
             "case_repaired": 0,
             "signals_dropped": 0,
         }
         await Mgr.promote_observing(600)
+        stats["superseded_reports"] = (
+            await Mgr.normalise_unavailable_report_status()
+        )
         derived = await PhenomenonIndexService._repair_case_derived()
         stats["case_repaired"] = derived["repaired"]
         stats["signals_dropped"] = derived["signals_dropped"]

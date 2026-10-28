@@ -949,6 +949,15 @@ async def test_reconcile_ignores_deleted_remote_tombstones(monkeypatch):
         PhenomenonIndexService, "_list_all_remote_docs", staticmethod(remote_docs)
     )
 
+    async def no_superseded():
+        return 0
+
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager,
+        "normalise_unavailable_report_status",
+        staticmethod(no_superseded),
+    )
+
     async def no_repair():
         return {"repaired": 0, "signals_dropped": 0}
 
@@ -1030,6 +1039,15 @@ async def test_reconcile_retires_mappings_left_in_a_previous_kb(monkeypatch):
         PhenomenonIndexService, "_list_all_remote_docs", staticmethod(remote_docs)
     )
 
+    async def no_superseded():
+        return 0
+
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager,
+        "normalise_unavailable_report_status",
+        staticmethod(no_superseded),
+    )
+
     async def no_repair():
         return {"repaired": 0, "signals_dropped": 0}
 
@@ -1108,3 +1126,40 @@ async def test_repair_case_derived_aligns_operation_and_fingerprint(monkeypatch)
 
     assert stats == {"repaired": 1, "signals_dropped": 7}
     assert seen == [("case-1", "SET", expected)]
+
+
+@pytest.mark.asyncio
+async def test_deleted_report_index_becomes_not_applicable(monkeypatch):
+    """报告文件移除后索引不适用，不能保留 failed 让状态页误报。"""
+    statuses: list[tuple[str, str | None]] = []
+
+    async def no_cards(_report_id):
+        return []
+
+    async def no_cases(_report_id):
+        return []
+
+    async def set_available(_report_id, available, *, index_error=None):
+        assert available is False
+
+    async def update_status(_report_id, status, *, index_error=None, **_kwargs):
+        statuses.append((status, index_error))
+        return None
+
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "get_cards_by_report", staticmethod(no_cards)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexService, "_bound_cases", staticmethod(no_cases)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "set_report_available", staticmethod(set_available)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "update_report_status", staticmethod(update_status)
+    )
+
+    result = await PhenomenonIndexService.handle_report_deleted("report_x")
+
+    assert result == {"switched": 0, "disabled": 0}
+    assert statuses == [("not_applicable", None)]

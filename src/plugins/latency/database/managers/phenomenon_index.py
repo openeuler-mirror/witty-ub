@@ -27,6 +27,7 @@ from latency.ENUM.phenomenon import (
     IndexEventStatus,
     PhenomenonIndexStatus,
     RagCleanupStatus,
+    ReportIndexStatus,
 )
 from latency.services.report_phenomenon import PhenomenonDoc, sha256_hex
 from sqlalchemy import and_, delete, func, or_, select, text, tuple_, update
@@ -195,11 +196,34 @@ class PhenomenonIndexPGManager:
         """Report index status distribution for the ops snapshot."""
         async with PGManager.session() as session:
             rows = await session.execute(
-                select(DiagnosticReportIndex.index_status, func.count()).group_by(
-                    DiagnosticReportIndex.index_status
-                )
+                select(DiagnosticReportIndex.index_status, func.count())
+                .where(DiagnosticReportIndex.report_available.is_(True))
+                .group_by(DiagnosticReportIndex.index_status)
             )
             return {str(status): int(count) for status, count in rows.all()}
+
+    @staticmethod
+    async def normalise_unavailable_report_status() -> int:
+        """Set superseded reports to ``not_applicable``.
+
+        Their files are gone, so an ``indexed`` / ``failed`` value left over from
+        before the supersede is stale and would surface as an index fault.
+        """
+        async with PGManager.session() as session:
+            result = await session.execute(
+                update(DiagnosticReportIndex)
+                .where(
+                    DiagnosticReportIndex.report_available.is_(False),
+                    DiagnosticReportIndex.index_status
+                    != ReportIndexStatus.NOT_APPLICABLE.value,
+                )
+                .values(
+                    index_status=ReportIndexStatus.NOT_APPLICABLE.value,
+                    index_error=None,
+                    updated_at=_now(),
+                )
+            )
+            return int(result.rowcount or 0)
 
     @staticmethod
     async def card_status_counts_all() -> dict[str, int]:
