@@ -5,7 +5,8 @@
 # 源码/RPM 部署：为宿主机后端准备 RAG（openGauss + RAG Core），并写出运行时环境文件。
 #
 # 容器编排复用 deploy/docker/deploy_rag.sh；本脚本只负责源码部署特有的三件事：
-#   1) 把密钥放到部署用户可读的项目内路径（默认 .deploy-run/rag-secrets），不依赖 /etc 写权限；
+#   1) 把 openGauss 口令、RAG 访问密钥、模型 API Key 与 embedding 端点放在部署用户可读的
+#      项目内路径（默认 .deploy-run/rag-secrets），不依赖 /etc 写权限；
 #   2) 生成 .deploy-run/rag.env，供 run_backend.sh 与 systemd unit 注入后端；
 #   3) 校验/创建现象检索专用知识库并写回 RAG_PHENOMENON_KB_ID。
 #
@@ -13,7 +14,7 @@
 #   bash deploy/host/deploy_rag.sh              # 部署并写出环境文件
 #   bash deploy/host/deploy_rag.sh --env-only   # 只重新生成环境文件，不动容器
 #
-# 配置来源: 环境变量 > deploy/deploy.conf > .deploy-run/rag.local.env（机器本地，不入库）
+# 配置来源: 环境变量 > .deploy-run/rag.local.env（机器本地，不入库）> deploy/deploy.conf
 #
 # 环境变量:
 #   WITTY_RAG_ENABLE=auto|1|0   是否部署 RAG（默认 auto：有容器运行时即部署）
@@ -21,6 +22,8 @@
 #   RAG_EMBEDDING_MODEL_NAME    端点上的模型名
 #   RAG_EMBEDDING_DIMENSION     向量维度上限
 #   RAG_EMBEDDING_API_KEY       API Key，可留空
+#   RAG_MODEL_API_KEY_SECRET_FILE / RAG_EMBEDDING_STATE_FILE
+#                              Key 与 embedding 端点的落盘位置（默认 .deploy-run/rag-secrets/）
 #   RAG_RERANK_ENABLED          是否启用 rerank（默认 0）
 #   RAG_MIN_SCORE / RAG_TOP_K   检索阈值与召回数（透传给后端）
 
@@ -37,17 +40,36 @@ RAG_LOCAL_ENV="$RUN_DIR/rag.local.env"
 RAG_SECRET_DIR="$RUN_DIR/rag-secrets"
 RAG_DB_SECRET_FILE="${RAG_DB_SECRET_FILE:-$RAG_SECRET_DIR/opengauss.passwd}"
 RAG_ACCESS_KEY_SECRET_FILE="${RAG_ACCESS_KEY_SECRET_FILE:-$RAG_SECRET_DIR/access-key}"
+RAG_MODEL_API_KEY_SECRET_FILE="${RAG_MODEL_API_KEY_SECRET_FILE:-$RAG_SECRET_DIR/model-api-key}"
+RAG_EMBEDDING_STATE_FILE="${RAG_EMBEDDING_STATE_FILE:-$RAG_SECRET_DIR/embedding.conf}"
 KB_FILE="$RUN_DIR/rag-phenomenon-kb"
 PYTHON="$PROJECT_DIR/src/plugins/latency/.venv/bin/python"
 ENV_ONLY=0
 [ "${1:-}" = "--env-only" ] && ENV_ONLY=1
 
-# 机器本地覆盖先加载并导出，让后续默认值判断与子脚本都看到本机取值。
+# 机器本地覆盖只补未设置的取值：命令行/环境变量显式给出的优先，避免被文件里的旧值顶掉。
 if [ -f "$RAG_LOCAL_ENV" ]; then
+    _local_filtered="$(mktemp)"
+    while IFS= read -r _line || [ -n "$_line" ]; do
+        case "$_line" in
+        '' | '#'*)
+            printf '%s\n' "$_line" >>"$_local_filtered"
+            continue
+            ;;
+        esac
+        _name="${_line%%=*}"
+        if printenv "$_name" >/dev/null 2>&1; then
+            printf '# 已由环境变量提供，忽略文件值: %s\n' "$_name" >>"$_local_filtered"
+        else
+            printf '%s\n' "$_line" >>"$_local_filtered"
+        fi
+    done <"$RAG_LOCAL_ENV"
     set -a
     # shellcheck disable=SC1090
-    . "$RAG_LOCAL_ENV"
+    . "$_local_filtered"
     set +a
+    rm -f "$_local_filtered"
+    unset _local_filtered _line _name
 fi
 
 CONTAINER_CLI=""
@@ -76,6 +98,7 @@ fi
 chmod 0600 "$RAG_DB_SECRET_FILE"
 
 export RAG_DB_SECRET_FILE RAG_ACCESS_KEY_SECRET_FILE
+export RAG_MODEL_API_KEY_SECRET_FILE RAG_EMBEDDING_STATE_FILE
 export WITTY_RAG_CORE_HOST_PORT="${WITTY_RAG_CORE_HOST_PORT:-9990}"
 # 源码部署不以 root 运行：配置与日志落在项目内，避免依赖 /opt 写权限。
 export RAG_RUNTIME_DIR="${RAG_RUNTIME_DIR:-$RUN_DIR/rag-runtime}"

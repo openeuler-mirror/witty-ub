@@ -110,8 +110,11 @@ manage.sh
         └── deploy_witty.sh --role frontend
 ```
 
-RAG Core 读取与 `deploy.conf` 同目录的 `deploy/rag-core.toml`。部署前请补齐
-模型配置，并准备 `/etc/witty-ub/rag-opengauss.passwd`（权限 `0600`）。
+RAG Core 的模型与数据库段由 `deploy_rag.sh` 在部署时按环境变量或 `deploy.conf` 渲染，
+`deploy/rag-core.toml` 只作模板。默认 embedding 为硅基流动 `BAAI/bge-m3`，可用
+`RAG_EMBEDDING_*` 覆盖；传入的 API Key 写入 `RAG_MODEL_API_KEY_SECRET_FILE`
+（默认 `/etc/witty-ub/rag-secrets/model-api-key`），端点与模型名写入同目录的 `embedding.conf`，
+均为 `0600` 并在下次部署时复用。同时准备 `/etc/witty-ub/rag-opengauss.passwd`（权限 `0600`）。
 
 ---
 

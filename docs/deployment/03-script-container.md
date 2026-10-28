@@ -144,6 +144,9 @@ RAG_EMBEDDING_DIMENSION="1024" \
 - 三项留空时使用部署默认值（硅基流动），详见 [RAG 与 MCP 部署](../rag-mcp-deployment.md)。
 - `RAG_EMBEDDING_API_KEY` 可留空；连不上不影响结构化检索，只在 `manage.sh status` 的
   `RAG health` 段反映为 `unreachable` / `auth-failed`。
+- 部署时传入的 Key 与端点、模型名会分别写入 `RAG_MODEL_API_KEY_SECRET_FILE`
+  （默认 `/etc/witty-ub/rag-secrets/model-api-key`）和同目录的 `embedding.conf`，均为 `0600`；
+  直接运行 `deploy_witty.sh --with-rag` 与 `manage.sh` 行为一致。无法写入时仅保留在本次生成的运行配置中。
 - `RAG_RERANK_ENABLED=0`（默认）不启用 rerank。
 - openGauss 口令在首次部署时自动生成并写入 `/etc/witty-ub/rag-opengauss.passwd`（`0600`）。
 

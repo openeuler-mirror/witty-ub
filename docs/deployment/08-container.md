@@ -387,6 +387,10 @@ docker run --rm -v witty-ub-data:/data -v $(pwd):/backup alpine tar czf /backup/
 | `LOG_LEVEL` | `info` | 日志级别 |
 | `WITTY_REPORT_DIR` | `/var/witty-ub/reports` | 诊断报告落盘根目录（`witty-ub-reports` 卷）；agent 写入，后端 `/diagnostic_report` 列表与下发读取 |
 
+## 语义检索（可选）
+
+手动 `docker run` 不包含 openGauss 与 RAG Core。需要语义检索时先运行 `bash deploy/docker/deploy_rag.sh`，embedding 与 API Key 配置见 [RAG 与 MCP 部署](../rag-mcp-deployment.md)。
+
 ## 现象索引初始化
 
 启用现象索引前，创建或校验专用知识库并跑闭环自检：

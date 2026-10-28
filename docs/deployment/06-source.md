@@ -147,8 +147,10 @@ bash deploy/host/deploy_rag.sh --env-only   # 只重算环境文件，不动容�
 ```
 
 - 容器名 `opengauss-rag` / `witty-rag-core`，RAG Core 暴露 `127.0.0.1:9990`。
-- 密钥与状态都在 `.deploy-run/`：`rag-secrets/`（openGauss 口令、访问密钥）、
-  `rag-phenomenon-kb`（现象检索知识库 id）、`rag.env`（后端环境）。
+- `.deploy-run/rag-secrets/` 存 openGauss 口令与 RAG 访问密钥，`rag-phenomenon-kb` 存现象检索知识库 id，
+  `rag.env` 存后端环境。
+- 模型 API Key 写入 `.deploy-run/rag-secrets/model-api-key`，embedding 端点与模型名写入同目录的
+  `embedding.conf`，两者均为 `0600`；重跑时未显式传入则复用已落盘取值。
 - 后端通过 `witty-ub-backend.service` 的 `EnvironmentFile` 或 `run_backend.sh` 读取 `rag.env`；
   文件不存在时后端照常启动，只是语义检索关闭。
 - `deploy.sh` 会在启动后端之前自动调用本脚本；`WITTY_RAG_ENABLE=0` 可跳过。
@@ -164,6 +166,9 @@ RAG_EMBEDDING_DIMENSION="1024"
 RAG_EMBEDDING_API_KEY=""
 RAG_RERANK_ENABLED="0"
 ```
+
+部署时传入的 `RAG_EMBEDDING_ENDPOINT` / `RAG_EMBEDDING_MODEL_NAME` / `RAG_EMBEDDING_DIMENSION`
+与 `RAG_EMBEDDING_API_KEY` 都会落盘并复用；优先级为环境变量 > `rag.local.env` > 已落盘 > 内置默认。
 
 以非 root 用户运行时，容器内的 UID 映射依赖 subordinate ID，需确保部署用户在
 `/etc/subuid` 与 `/etc/subgid` 中有范围（如 `100000:65536`），否则镜像内 `chown` 会失败，

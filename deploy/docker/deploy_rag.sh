@@ -93,6 +93,11 @@ RAG_DB_SECRET_FILE="${RAG_DB_SECRET_FILE:-/etc/witty-ub/rag-opengauss.passwd}"
 RAG_ACCESS_KEY_SECRET_FILE="${RAG_ACCESS_KEY_SECRET_FILE:-/etc/witty-ub/rag-secrets/access-key}"
 RAG_ACCESS_KEY_SECRET_DIR="$(dirname "$RAG_ACCESS_KEY_SECRET_FILE")"
 RAG_MODEL_API_KEY_SECRET_FILE="${RAG_MODEL_API_KEY_SECRET_FILE:-/etc/witty-ub/rag-secrets/model-api-key}"
+# embedding 取值按“显式 > 已落盘 > 内置默认”解析；这里先记下哪些是部署者给的。
+_EXPLICIT_EMBEDDING_ENDPOINT="${RAG_EMBEDDING_ENDPOINT:+1}"
+_EXPLICIT_EMBEDDING_MODEL_NAME="${RAG_EMBEDDING_MODEL_NAME:+1}"
+_EXPLICIT_EMBEDDING_MODEL_PROVIDER="${RAG_EMBEDDING_MODEL_PROVIDER:+1}"
+_EXPLICIT_EMBEDDING_DIMENSION="${RAG_EMBEDDING_DIMENSION:+1}"
 RAG_EMBEDDING_MODEL_NAME="${RAG_EMBEDDING_MODEL_NAME:-BAAI/bge-m3}"
 RAG_EMBEDDING_MODEL_PROVIDER="${RAG_EMBEDDING_MODEL_PROVIDER:-openai}"
 RAG_EMBEDDING_ENDPOINT="${RAG_EMBEDDING_ENDPOINT:-https://api.siliconflow.cn/v1/embeddings}"
@@ -103,6 +108,54 @@ RAG_RERANK_ENABLED="${RAG_RERANK_ENABLED:-0}"
 RAG_RERANK_MODEL_NAME="${RAG_RERANK_MODEL_NAME:-BAAI/bge-reranker-v2-m3}"
 RAG_RERANK_MODEL_PROVIDER="${RAG_RERANK_MODEL_PROVIDER:-guijiliudong}"
 RAG_RERANK_ENDPOINT="${RAG_RERANK_ENDPOINT:-https://api.siliconflow.cn/v1/rerank}"
+# embedding 端点与模型随 API Key 一起落盘：只留 Key 会让重跑退回默认公网端点，
+# 表现成检索静默返回空结果而不是报错。
+RAG_EMBEDDING_STATE_FILE="${RAG_EMBEDDING_STATE_FILE:-$(dirname "$RAG_MODEL_API_KEY_SECRET_FILE")/embedding.conf}"
+
+load_embedding_state() {
+    [ -f "$RAG_EMBEDDING_STATE_FILE" ] || return 0
+    local line key value
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in '' | '#'*) continue ;; esac
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "$key" in
+        endpoint) [ -n "$_EXPLICIT_EMBEDDING_ENDPOINT" ] || RAG_EMBEDDING_ENDPOINT="$value" ;;
+        model_name) [ -n "$_EXPLICIT_EMBEDDING_MODEL_NAME" ] || RAG_EMBEDDING_MODEL_NAME="$value" ;;
+        model_provider) [ -n "$_EXPLICIT_EMBEDDING_MODEL_PROVIDER" ] || RAG_EMBEDDING_MODEL_PROVIDER="$value" ;;
+        dimension) [ -n "$_EXPLICIT_EMBEDDING_DIMENSION" ] || RAG_EMBEDDING_DIMENSION="$value" ;;
+        esac
+    done <"$RAG_EMBEDDING_STATE_FILE"
+}
+
+persist_embedding_state() {
+    local dir tmp wanted
+    dir="$(dirname "$RAG_EMBEDDING_STATE_FILE")"
+    wanted="endpoint=${RAG_EMBEDDING_ENDPOINT}
+model_name=${RAG_EMBEDDING_MODEL_NAME}
+model_provider=${RAG_EMBEDDING_MODEL_PROVIDER}
+dimension=${RAG_EMBEDDING_DIMENSION}"
+    if [ -f "$RAG_EMBEDDING_STATE_FILE" ] &&
+        [ "$(cat "$RAG_EMBEDDING_STATE_FILE" 2>/dev/null)" = "$wanted" ]; then
+        return 0
+    fi
+    tmp="$(mktemp)"
+    printf '%s\n' "$wanted" >"$tmp"
+    chmod 0600 "$tmp"
+    if mkdir -p "$dir" 2>/dev/null && install -m 600 "$tmp" "$RAG_EMBEDDING_STATE_FILE" 2>/dev/null; then
+        log_ok "embedding 端点与模型已保存到 $RAG_EMBEDDING_STATE_FILE"
+    elif command -v sudo >/dev/null 2>&1 &&
+        sudo install -d -m 700 "$dir" &&
+        sudo install -m 600 "$tmp" "$RAG_EMBEDDING_STATE_FILE"; then
+        log_ok "embedding 端点与模型已保存到 $RAG_EMBEDDING_STATE_FILE"
+    else
+        log_warn "无法写入 $RAG_EMBEDDING_STATE_FILE，下次不带该配置重跑会退回默认端点"
+    fi
+    rm -f "$tmp"
+}
+
+load_embedding_state
+persist_embedding_state
 
 WITTY_RAG_CORE_CONTAINER="${WITTY_RAG_CORE_CONTAINER:-witty-rag-core}"
 if [ -z "${WITTY_RAG_CORE_IMAGE:-}" ]; then
@@ -140,12 +193,38 @@ fi
 chmod 0600 "$RAG_DB_SECRET_FILE" 2>/dev/null || true
 # API Key 可选：本地 OpenAI 兼容服务通常无鉴权，或使用任意短口令。
 RAG_EMBEDDING_API_KEY="${RAG_EMBEDDING_API_KEY:-}"
+# 部署时传入的 Key 落盘复用，避免下次不带环境变量重跑时被渲染成空 Key。
+if [ -n "$RAG_EMBEDDING_API_KEY" ]; then
+    _stored_key="$(tr -d '\r\n' <"$RAG_MODEL_API_KEY_SECRET_FILE" 2>/dev/null || true)"
+    if [ "$_stored_key" != "$RAG_EMBEDDING_API_KEY" ]; then
+        secret_dir="$(dirname "$RAG_MODEL_API_KEY_SECRET_FILE")"
+        secret_tmp="$(mktemp)"
+        chmod 0600 "$secret_tmp"
+        printf '%s' "$RAG_EMBEDDING_API_KEY" >"$secret_tmp"
+        if mkdir -p "$secret_dir" 2>/dev/null && install -m 600 "$secret_tmp" "$RAG_MODEL_API_KEY_SECRET_FILE" 2>/dev/null; then
+            log_ok "模型 API Key 已保存到 $RAG_MODEL_API_KEY_SECRET_FILE"
+        elif command -v sudo >/dev/null 2>&1 &&
+            sudo install -d -m 700 "$secret_dir" &&
+            sudo install -m 600 "$secret_tmp" "$RAG_MODEL_API_KEY_SECRET_FILE"; then
+            log_ok "模型 API Key 已保存到 $RAG_MODEL_API_KEY_SECRET_FILE"
+        else
+            log_warn "无法写入模型 API Key 文件，将仅在本次生成的运行配置中保留"
+        fi
+        rm -f "$secret_tmp"
+        unset secret_dir secret_tmp
+    fi
+    unset _stored_key
+fi
 if [ -z "$RAG_EMBEDDING_API_KEY" ] && [ -s "$RAG_MODEL_API_KEY_SECRET_FILE" ]; then
-    RAG_EMBEDDING_API_KEY="$(tr -d '\r\n' <"$RAG_MODEL_API_KEY_SECRET_FILE")"
+    if ! RAG_EMBEDDING_API_KEY="$(tr -d '\r\n' <"$RAG_MODEL_API_KEY_SECRET_FILE" 2>/dev/null)"; then
+        RAG_EMBEDDING_API_KEY=""
+        log_warn "无法读取模型 API Key 文件: $RAG_MODEL_API_KEY_SECRET_FILE"
+    fi
 fi
 if [ -z "$RAG_EMBEDDING_API_KEY" ]; then
     log_warn "未提供 embedding API Key，将按无鉴权服务连接 ${RAG_EMBEDDING_ENDPOINT}"
 fi
+chmod 0600 "$RAG_MODEL_API_KEY_SECRET_FILE" 2>/dev/null || true
 mkdir -p "$RAG_ACCESS_KEY_SECRET_DIR"
 chmod 0700 "$RAG_ACCESS_KEY_SECRET_DIR"
 
