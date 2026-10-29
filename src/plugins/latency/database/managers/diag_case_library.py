@@ -19,7 +19,7 @@ from typing import Any, Iterable
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
-from latency.ENUM.case_library import DiagCaseStatus
+from latency.ENUM.case_library import DiagCaseOperation, DiagCaseStatus
 from latency.ENUM.phenomenon import IndexEventType
 from latency.common.local_time import local_now
 from latency.database.engine import PGManager
@@ -145,7 +145,7 @@ class DiagCaseLibraryPGManager:
             add("latency_component", value, 1.5)
         for value in case.log_keywords:
             add("log_keyword", value, 1.0)
-        add(DiagCaseLibraryPGManager.OPERATION_SIGNAL, case.operation, 1.5)
+        # operation 只做过滤器，不参与计分（见 _matches_search_filters）。
         return list(signals.values())
 
     @staticmethod
@@ -169,11 +169,7 @@ class DiagCaseLibraryPGManager:
         add("cluster", req.clusters, 1.5)
         add("latency_component", req.latency_components, 1.5)
         add("log_keyword", req.log_keywords, 1.0)
-        add(
-            DiagCaseLibraryPGManager.OPERATION_SIGNAL,
-            [req.operation] if req.operation else [],
-            1.5,
-        )
+        # operation 只做过滤器，不进归一化分母。
         return query_signals
 
     @staticmethod
@@ -193,7 +189,10 @@ class DiagCaseLibraryPGManager:
             if value and str(value).strip():
                 parts.append(str(value).strip())
         if case.operation:
-            parts.append(str(_plain(case.operation)))
+            # MIXED 是排序维度的标记，不是正文语义词，混进 embedding 文本只会稀释信号。
+            operation = _plain(case.operation)
+            if operation != DiagCaseOperation.MIXED:
+                parts.append(str(operation))
         if case.fault_shape and case.fault_shape.strip():
             parts.append(case.fault_shape.strip())
         for component in _iter_values(case.latency_components):
@@ -264,7 +263,13 @@ class DiagCaseLibraryPGManager:
             case.first_level_label or case.second_level_label
         ):
             return False
-        if req.operation and case.operation != req.operation:
+        if req.operation and case.operation not in (
+            req.operation,
+            DiagCaseOperation.MIXED,
+            None,
+        ):
+            # MIXED / 未标注操作的案例对 GET 与 SET 都成立：整份报告覆盖两种操作，
+            # 或无法归属到单一操作，硬过滤会把它们永久排除在两类检索之外。
             return False
         if req.min_confidence is not None and float(case.confidence or 0.0) < (
             req.min_confidence
@@ -421,6 +426,68 @@ class DiagCaseLibraryPGManager:
         if row is None or not row.existed_status:
             return None
         return DiagCaseLibraryPGManager._orm_to_case(row)
+
+    @staticmethod
+    async def cases_with_report_binding() -> list[DiagCaseLibraryModel]:
+        """列出绑定了源报告的案例。"""
+        async with PGManager.session() as session:
+            result = await session.execute(
+                select(DiagCaseLibrary).where(
+                    DiagCaseLibrary.existed_status.is_(True),
+                    DiagCaseLibrary.report_id.is_not(None),
+                    DiagCaseLibrary.source_fault_id.is_not(None),
+                )
+            )
+            return [
+                DiagCaseLibraryPGManager._orm_to_case(row)
+                for row in result.scalars().all()
+            ]
+
+    @staticmethod
+    async def refresh_case_derived(
+        case_id: str,
+        operation: str | None,
+        source_fault_hash: str,
+    ) -> DiagCaseLibraryModel | None:
+        """按当前派生规则重算 ``operation`` 与 ``source_fault_hash``。
+
+        两列都是报告的纯函数，允许覆盖；内容列不动。
+        """
+        case = await DiagCaseLibraryPGManager.get_case(case_id)
+        if case is None:
+            return None
+        case.operation = operation
+        case.source_fault_hash = source_fault_hash
+        async with PGManager.session() as session:
+            result = await session.execute(
+                update(DiagCaseLibrary)
+                .where(
+                    DiagCaseLibrary.id == case_id,
+                    DiagCaseLibrary.existed_status.is_(True),
+                )
+                .values(
+                    operation=operation,
+                    source_fault_hash=source_fault_hash,
+                    search_text=DiagCaseLibraryPGManager._build_search_text(case),
+                    updated_at=_now(),
+                )
+            )
+            if not (result.rowcount or 0):
+                return None
+            await DiagCaseLibraryPGManager._replace_signals(session, case_id, case)
+        return case
+
+    @staticmethod
+    async def drop_operation_signals() -> int:
+        """删除 operation 类型的信号行。"""
+        async with PGManager.session() as session:
+            result = await session.execute(
+                delete(DiagCaseLibrarySignal).where(
+                    DiagCaseLibrarySignal.signal_type
+                    == DiagCaseLibraryPGManager.OPERATION_SIGNAL
+                )
+            )
+            return int(result.rowcount or 0)
 
     @staticmethod
     async def _replace_signals(

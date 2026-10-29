@@ -73,6 +73,8 @@ services:
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
       # 诊断报告（agent 生成，前端「诊断报告」列表读取）
       - witty-ub-reports:/var/witty-ub/reports
+      # 内置定界报告：镜像种子按哈希同步到此卷并导入，换镜像即替换内容
+      - witty-ub-builtin-reports:/var/witty-ub/builtin-reports
       # opencode
       - ~/.config/opencode:/root/.config/opencode
       # experience-skill persistent data (experience.db)
@@ -88,6 +90,8 @@ services:
       - PG_HOST=postgres
       - PG_PORT=5432
       - PG_DATABASE=witty-ub
+      # 内置定界报告自动导入（0=关闭，见 docs/deployment/08-container.md）
+      - WITTY_BUILTIN_REPORTS=${WITTY_BUILTIN_REPORTS:-1}
       - PG_USER=witty-ub
       # OpenCode 通过 MCP SSE 调用 Witty RAG。
       - WITTY_RAG_MCP_URL=${WITTY_RAG_MCP_URL:-http://witty-rag-core:12312/sse}
@@ -123,6 +127,8 @@ services:
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
       # 诊断报告：后端读卷提供 /diagnostic_report 列表与报告下发
       - witty-ub-reports:/var/witty-ub/reports
+      # 内置定界报告：镜像种子按哈希同步到此卷并导入，换镜像即替换内容
+      - witty-ub-builtin-reports:/var/witty-ub/builtin-reports
     secrets:
       - pg_password
     environment:
@@ -136,6 +142,8 @@ services:
       - PG_HOST=postgres
       - PG_PORT=5432
       - PG_DATABASE=witty-ub
+      # 内置定界报告自动导入（0=关闭，见 docs/deployment/08-container.md）
+      - WITTY_BUILTIN_REPORTS=${WITTY_BUILTIN_REPORTS:-1}
       - PG_USER=witty-ub
       # 时区：与全系统「本地墙钟」口径一致（日志墙钟为 +08）
       - TZ=Asia/Shanghai
@@ -199,6 +207,9 @@ volumes:
   witty-ub-reports:
     driver: local
     name: witty-ub-reports
+  witty-ub-builtin-reports:
+    driver: local
+    name: witty-ub-builtin-reports
 
 networks:
   witty-ub-network:

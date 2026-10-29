@@ -45,6 +45,7 @@ async def _run(args: argparse.Namespace) -> dict:
             build_cases=args.declared_verified and not args.no_cases,
             keep_draft=args.keep_draft,
             index=not args.no_index,
+            allow_incomplete=not args.strict,
         ),
     )
     return {
@@ -54,6 +55,7 @@ async def _run(args: argparse.Namespace) -> dict:
         "declared_verified": result.declared_verified,
         "file_count": result.file_count,
         "summary": result.summary,
+        "degraded": result.degraded_summary(),
         "items": [item.as_dict() for item in result.items],
     }
 
@@ -86,6 +88,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--no-index", action="store_true", help="不触发报告卡片索引"
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="字段不全即拒绝：校验失败不渲染、缺摘要不建案。默认放行不完整数据，"
+             "缺什么会写进案例的适用范围（scope_limits）",
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)

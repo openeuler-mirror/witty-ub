@@ -28,7 +28,10 @@ CONFIG_KEYS=(
     RAG_ACCESS_KEY_SECRET_FILE
     RAG_MODEL_API_KEY_SECRET_FILE RAG_MODEL_API_KEY
     RAG_EMBEDDING_MODEL_NAME RAG_EMBEDDING_MODEL_PROVIDER RAG_EMBEDDING_ENDPOINT
+    RAG_EMBEDDING_API_KEY RAG_EMBEDDING_DIMENSION RAG_RERANK_ENABLED
     RAG_RERANK_MODEL_NAME RAG_RERANK_MODEL_PROVIDER RAG_RERANK_ENDPOINT
+    WITTY_RAG_MCP_IMAGE WITTY_RAG_MCP_BUILD WITTY_RAG_MCP_URL WITTY_RAG_NETWORK
+    RAG_CORE_URL RAG_ACCESS_KEY_FILE RAG_PHENOMENON_KB_ID PHENOMENON_INDEX_ENABLED PHENOMENON_SEARCH_ENABLED
     OPENGAUSS_RAG_IMAGE WITTY_RAG_CORE_IMAGE
 )
 ENV_OVERRIDES=""
@@ -134,7 +137,11 @@ container_running() {
 }
 
 container_health() {
-    docker inspect --format='{{.State.Health.Status}}' "$1" 2>/dev/null || echo "unknown"
+    local status
+    status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$1" 2>/dev/null)"
+    # 没有 HEALTHCHECK 的镜像（openGauss / rag-core）以运行状态代替
+    [ -n "$status" ] || status="running"
+    printf '%s' "$status"
 }
 
 volume_exists() {
@@ -293,9 +300,8 @@ do_install_all() {
 configure_rag_inputs() {
     local default_config="${RAG_CONFIG_FILE:-${DEPLOY_DIR}/../rag-core.toml}"
     local default_secret="${RAG_DB_SECRET_FILE:-/etc/witty-ub/rag-opengauss.passwd}"
-    local rag_password="${RAG_DB_PASSWORD:-}" confirm_password="" password_classes=0
-    local model_api_key="${RAG_MODEL_API_KEY:-}" model_api_key_confirm=""
-    local secret_dir secret_tmp
+    local rag_password="${RAG_DB_PASSWORD:-}"
+    local secret_dir secret_tmp generated=""
 
     noninteractive_hint
     ask "  RAG config file [${default_config}]: " input_config
@@ -303,39 +309,20 @@ configure_rag_inputs() {
     RAG_DB_SECRET_FILE="$default_secret"
 
     if [ ! -f "$RAG_CONFIG_FILE" ]; then
-        log_error "RAG config file does not exist: ${RAG_CONFIG_FILE}"
+        log_error "RAG config file does not exist: $RAG_CONFIG_FILE"
         return 1
     fi
-    if [ ! -s "$RAG_DB_SECRET_FILE" ]; then
-        echo "  openGauss password file will be created at: ${RAG_DB_SECRET_FILE}"
-        if [ -t 0 ]; then
-            read -r -s -p "  Enter a new openGauss password: " rag_password
-            echo ""
-            read -r -s -p "  Confirm the openGauss password: " confirm_password
-            echo ""
-            if [ "$rag_password" != "$confirm_password" ]; then
-                log_error "The two passwords do not match"
-                return 1
-            fi
-        elif [ -z "$rag_password" ]; then
-            log_error "Password file is missing in non-interactive mode: ${RAG_DB_SECRET_FILE}"
-            log_error "Set RAG_DB_PASSWORD or create the password file first"
-            return 1
-        fi
 
+    # openGauss 口令：未提供时自动生成，部署者无需手工准备（满足 8 位 + 三类字符）。
+    if [ ! -s "$RAG_DB_SECRET_FILE" ] && [ -z "$rag_password" ]; then
+        rag_password="Og$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 12)9#$(head -c 16 /dev/urandom | base64 | tr -dc 'a-z' | head -c 4)"
+        generated="yes"
+    fi
+    if [ ! -s "$RAG_DB_SECRET_FILE" ]; then
         [ ${#rag_password} -ge 8 ] || {
             log_error "The openGauss password must contain at least 8 characters"
             return 1
         }
-        if [[ "$rag_password" =~ [a-z] ]]; then password_classes=$((password_classes + 1)); fi
-        if [[ "$rag_password" =~ [A-Z] ]]; then password_classes=$((password_classes + 1)); fi
-        if [[ "$rag_password" =~ [0-9] ]]; then password_classes=$((password_classes + 1)); fi
-        if [[ "$rag_password" =~ [^a-zA-Z0-9] ]]; then password_classes=$((password_classes + 1)); fi
-        [ "$password_classes" -ge 3 ] || {
-            log_error "Use at least three character classes: uppercase, lowercase, digit, special"
-            return 1
-        }
-
         secret_dir="$(dirname "$RAG_DB_SECRET_FILE")"
         secret_tmp="$(mktemp)"
         chmod 0600 "$secret_tmp"
@@ -348,39 +335,27 @@ configure_rag_inputs() {
             :
         else
             rm -f "$secret_tmp"
-            log_error "Cannot create password file: ${RAG_DB_SECRET_FILE}"
+            log_error "Cannot create password file: $RAG_DB_SECRET_FILE"
             return 1
         fi
         rm -f "$secret_tmp"
-        unset rag_password confirm_password RAG_DB_PASSWORD
-        log_ok "Created protected openGauss password file: ${RAG_DB_SECRET_FILE}"
+        unset rag_password RAG_DB_PASSWORD
+        if [ -n "$generated" ]; then
+            log_ok "已自动生成 openGauss 口令: $RAG_DB_SECRET_FILE"
+        else
+            log_ok "Created protected openGauss password file: $RAG_DB_SECRET_FILE"
+        fi
     fi
     chmod 0600 "$RAG_DB_SECRET_FILE" 2>/dev/null || true
+
+    # 模型 API Key 可选：本地 OpenAI 兼容服务可能无鉴权，或使用非标准短口令。
     RAG_MODEL_API_KEY_SECRET_FILE="${RAG_MODEL_API_KEY_SECRET_FILE:-/etc/witty-ub/rag-secrets/model-api-key}"
-    if [ ! -s "$RAG_MODEL_API_KEY_SECRET_FILE" ]; then
-        echo "  RAG model API key file will be created at: ${RAG_MODEL_API_KEY_SECRET_FILE}"
-        if [ -t 0 ]; then
-            read -r -s -p "  Enter the model API key: " model_api_key
-            echo ""
-            read -r -s -p "  Confirm the model API key: " model_api_key_confirm
-            echo ""
-            if [ "$model_api_key" != "$model_api_key_confirm" ]; then
-                log_error "The two model API keys do not match"
-                return 1
-            fi
-        elif [ -z "$model_api_key" ]; then
-            log_error "Model API key file is missing in non-interactive mode: ${RAG_MODEL_API_KEY_SECRET_FILE}"
-            log_error "Set RAG_MODEL_API_KEY or create the key file first"
-            return 1
-        fi
-        [ -n "$model_api_key" ] || {
-            log_error "The model API key cannot be empty"
-            return 1
-        }
+    if [ ! -s "$RAG_MODEL_API_KEY_SECRET_FILE" ] && [ -n "${RAG_MODEL_API_KEY:-}${RAG_EMBEDDING_API_KEY:-}" ]; then
+        local key_value="${RAG_EMBEDDING_API_KEY:-${RAG_MODEL_API_KEY}}"
         secret_dir="$(dirname "$RAG_MODEL_API_KEY_SECRET_FILE")"
         secret_tmp="$(mktemp)"
         chmod 0600 "$secret_tmp"
-        printf '%s' "$model_api_key" >"$secret_tmp"
+        printf '%s' "$key_value" >"$secret_tmp"
         if mkdir -p "$secret_dir" 2>/dev/null && install -m 600 "$secret_tmp" "$RAG_MODEL_API_KEY_SECRET_FILE" 2>/dev/null; then
             :
         elif command -v sudo >/dev/null 2>&1 &&
@@ -388,16 +363,26 @@ configure_rag_inputs() {
             sudo install -m 600 "$secret_tmp" "$RAG_MODEL_API_KEY_SECRET_FILE"; then
             :
         else
-            rm -f "$secret_tmp"
-            log_error "Cannot create model API key file: ${RAG_MODEL_API_KEY_SECRET_FILE}"
-            return 1
+            log_warn "无法写入模型 API Key 文件，将仅在本次部署中通过环境变量传递"
         fi
         rm -f "$secret_tmp"
-        unset model_api_key model_api_key_confirm RAG_MODEL_API_KEY
-        log_ok "Created protected model API key file: ${RAG_MODEL_API_KEY_SECRET_FILE}"
+        unset key_value RAG_MODEL_API_KEY
+        log_ok "模型 API Key 已保存到 $RAG_MODEL_API_KEY_SECRET_FILE"
+    elif [ ! -s "$RAG_MODEL_API_KEY_SECRET_FILE" ]; then
+        log_warn "未提供模型 API Key，将按无鉴权 embedding 端点连接"
     fi
     chmod 0600 "$RAG_MODEL_API_KEY_SECRET_FILE" 2>/dev/null || true
+
+    # 端点与模型：默认硅基流动，可用环境变量指向任意 OpenAI 兼容 /v1/embeddings。
+    RAG_EMBEDDING_MODEL_NAME="${RAG_EMBEDDING_MODEL_NAME:-BAAI/bge-m3}"
+    RAG_EMBEDDING_ENDPOINT="${RAG_EMBEDDING_ENDPOINT:-https://api.siliconflow.cn/v1/embeddings}"
+    RAG_EMBEDDING_DIMENSION="${RAG_EMBEDDING_DIMENSION:-1024}"
+    RAG_RERANK_ENABLED="${RAG_RERANK_ENABLED:-0}"
+    log_info "Embedding: ${RAG_EMBEDDING_MODEL_NAME} @ ${RAG_EMBEDDING_ENDPOINT} (${RAG_EMBEDDING_DIMENSION}d)"
+    log_info "Rerank:    $([ "$RAG_RERANK_ENABLED" = "1" ] && echo enabled || echo "disabled (default)")"
+
     export RAG_CONFIG_FILE RAG_DB_SECRET_FILE RAG_MODEL_API_KEY_SECRET_FILE
+    export RAG_EMBEDDING_MODEL_NAME RAG_EMBEDDING_ENDPOINT RAG_EMBEDDING_DIMENSION RAG_RERANK_ENABLED
 }
 
 do_install_rag() {
@@ -609,7 +594,7 @@ do_uninstall_all() {
     echo ""
     log_warn "About to delete:"
     echo "  - Containers: ${WITTY_CONTAINER}, ${WITTY_BACKEND_CONTAINER} (split), ${WITTY_FRONTEND_CONTAINER} (split), ${RAG_CORE_CONTAINER}, ${RAG_DB_CONTAINER}, ${PG_CONTAINER}"
-    echo "  - Volumes: witty-ub-data, witty-ub-case, witty-ub-logs, witty-ub-uploads, witty-ub-results, witty-ub-experience-data, ${RAG_DB_VOLUME}, ${PG_VOLUME}"
+    echo "  - Volumes: witty-ub-data, witty-ub-case, witty-ub-logs, witty-ub-uploads, witty-ub-results, witty-ub-reports, witty-ub-builtin-reports, witty-ub-experience-data, ${RAG_DB_VOLUME}, ${PG_VOLUME}"
     if [ "$scope" = "2" ]; then
         echo "  - Images: images used by the containers above"
     fi
@@ -640,7 +625,7 @@ do_uninstall_all() {
     done
 
     # 删除所有数据卷
-    for v in witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-experience-data "$RAG_DB_VOLUME" "$PG_VOLUME"; do
+    for v in witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports witty-ub-builtin-reports witty-ub-experience-data "$RAG_DB_VOLUME" "$PG_VOLUME"; do
         if volume_exists "$v"; then
             log_info "Removing volume: $v"
             docker volume rm "$v" &>/dev/null
@@ -846,6 +831,42 @@ do_restart() {
     done
 }
 
+# 从运行时配置读取 embedding 设置（容器内重写过数据库段，模型段仍然有效）。
+# 运行时配置是实际生效值（deploy.conf 只是期望值），优先读取它。
+_read_rag_embedding_settings() {
+    local cfg="/opt/witty-rag/config/config.toml"
+    [ -r "$cfg" ] || { RAG_RERANK_ENABLED="${RAG_RERANK_ENABLED:-0}"; return 0; }
+    RAG_EMBEDDING_ENDPOINT="$(awk '/^\[embedding_model]/{f=1;next} /^\[/{f=0} f&&/^\s*end_point/{gsub(/^[^=]*= *"?|"? *$/,"");print}' "$cfg")"
+    RAG_EMBEDDING_MODEL_NAME="$(awk '/^\[embedding_model]/{f=1;next} /^\[/{f=0} f&&/^\s*model_name/{gsub(/^[^=]*= *"?|"? *$/,"");print}' "$cfg")"
+    RAG_RERANK_ENABLED="$(awk '/^\[rerank_model]/{f=1;next} /^\[/{f=0} f&&/^\s*online_status/{gsub(/^[^=]*= *"?|"? *$/,"");print}' "$cfg" | sed 's/^online$/1/;s/^offline$/0/')"
+    RAG_RERANK_ENABLED="${RAG_RERANK_ENABLED:-0}"
+    export RAG_EMBEDDING_ENDPOINT RAG_EMBEDDING_MODEL_NAME RAG_RERANK_ENABLED
+}
+
+# 探测 embedding 端点：输出 "ok|fail  描述"。400/404 视为可达（仅模型名不符）。
+_probe_embedding_endpoint() {
+    [ -n "${RAG_EMBEDDING_ENDPOINT:-}" ] || { echo "unknown endpoint-not-configured"; return 0; }
+    local key code
+    key="${RAG_EMBEDDING_API_KEY:-}"
+    if [ -z "$key" ] && [ -s "${RAG_MODEL_API_KEY_SECRET_FILE:-/etc/witty-ub/rag-secrets/model-api-key}" ]; then
+        key="$(tr -d '\r\n' <"${RAG_MODEL_API_KEY_SECRET_FILE:-/etc/witty-ub/rag-secrets/model-api-key}")"
+    fi
+    code="$(docker run --rm --network "${WITTY_NETWORK:-witty-ub-network}" \
+        -e E="$RAG_EMBEDDING_ENDPOINT" -e K="${key:-none}" \
+        --entrypoint sh "$(docker inspect -f '{{.Config.Image}}' "$RAG_CORE_CONTAINER" 2>/dev/null)" -c '
+            c=$(curl -sS --max-time 8 -o /dev/null -w "%{http_code}" -X POST "$E" \
+                -H "Content-Type: application/json" -H "Authorization: Bearer $K" \
+                -d "{\"model\":\"probe\",\"input\":[\"probe\"]}" 2>/dev/null || echo 000)
+            echo "$c"' 2>/dev/null | tr -d '\r\n')"
+    case "$code" in
+    2*) echo "ok ${RAG_EMBEDDING_MODEL_NAME:-} @ ${RAG_EMBEDDING_ENDPOINT}" ;;
+    400|404|405|422) echo "ok ${RAG_EMBEDDING_MODEL_NAME:-} @ ${RAG_EMBEDDING_ENDPOINT} (reachable)" ;;
+    401|403) echo "auth-failed ${RAG_EMBEDDING_ENDPOINT} (check API key)" ;;
+    000|"") echo "unreachable ${RAG_EMBEDDING_ENDPOINT}" ;;
+    *) echo "fail($code) ${RAG_EMBEDDING_ENDPOINT}" ;;
+    esac
+}
+
 show_status() {
     check_docker || return 1
     sep
@@ -904,6 +925,27 @@ show_status() {
     echo "  API:      http://localhost:${actual_port}/health_check"
     echo "  Agent API: http://localhost:${actual_port}/agent-api/ (OpenCode via Nginx)"
     echo "  RAG Core: http://localhost:${WITTY_RAG_CORE_HOST_PORT:-9990}/health_check"
+
+    # RAG 健康明细：连接不上 embedding 时语义检索不可用，必须在 status 里可见。
+    echo ""
+    echo "RAG health:"
+    if ! container_exists "$RAG_CORE_CONTAINER"; then
+        echo "  RAG         not installed (run: manage.sh install-rag)"
+    else
+        local _rag_db _rag_rest _rag_mcp _emb_state _emb_desc
+        _rag_db="$(container_running "$RAG_DB_CONTAINER" && container_health "$RAG_DB_CONTAINER" || echo missing)"
+        _rag_db="$(printf '%s' "$_rag_db" | head -1)"
+        _rag_rest="$(docker exec "$RAG_CORE_CONTAINER" curl -fsS --max-time 3 http://127.0.0.1:9988/health_check >/dev/null 2>&1 && echo ok || echo fail)"
+        _rag_mcp="$(docker exec "$RAG_CORE_CONTAINER" sh -lc '[ "$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:12312/sse 2>/dev/null)" = 200 ]' 2>/dev/null && echo ok || echo fail)"
+        printf "  %-11s %s\n" "openGauss" "$_rag_db"
+        printf "  %-11s %s\n" "RAG REST" "$_rag_rest"
+        printf "  %-11s %s\n" "RAG MCP" "$_rag_mcp"
+        _read_rag_embedding_settings
+        read -r _emb_state _emb_desc <<<"$(_probe_embedding_endpoint)"
+        printf "  %-11s %s\n" "embedding" "${_emb_desc:-unknown} [${_emb_state}]"
+        [ "$_emb_state" = "ok" ] || echo "             → 语义检索不可用；检查 RAG_EMBEDDING_ENDPOINT / RAG_EMBEDDING_API_KEY"
+        printf "  %-11s %s\n" "rerank" "$([ "${RAG_RERANK_ENABLED:-0}" = "1" ] && echo "enabled: ${RAG_RERANK_MODEL_NAME:-}" || echo "disabled")"
+    fi
     if container_running "$WITTY_FRONTEND_CONTAINER"; then
         local fe_port
         fe_port=$(container_access_port "$WITTY_FRONTEND_CONTAINER" 8080)

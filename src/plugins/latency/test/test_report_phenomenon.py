@@ -16,6 +16,7 @@ from latency.schemas.diag_case_library import (
 from latency.services.report_phenomenon import (
     TEXT_HARD_LIMIT,
     IdentityScrubber,
+    PhenomenonContentError,
     compute_sidecar_hash,
     compute_source_fault_hash,
     extract_case_doc,
@@ -199,12 +200,31 @@ def test_operation_mixed_when_stage_operations_conflict():
     payload = _sidecar(
         [_fault("F01")],
         statistics={
-            "stage_breakdowns": [{"operation": "GET"}, {"operation": "SET"}],
+            "stage_breakdowns": [
+                {"operation": "GET", "stages": [{"name": "get_client"}]},
+                {"operation": "SET", "stages": [{"name": "set_client"}]},
+            ],
             "top_hosts": [],
         },
     )
     extraction = extract_report(REPORT_ID, payload)
     assert extraction.operation == "MIXED"
+
+
+def test_operation_ignores_stage_buckets_without_samples():
+    """报告常为「另一侧无样本」补一行空 stages，那行不算该操作被覆盖。"""
+    payload = _sidecar(
+        [_fault("F01")],
+        statistics={
+            "stage_breakdowns": [
+                {"operation": "GET", "stages": []},
+                {"operation": "SET", "stages": [{"name": "set_client"}]},
+            ],
+            "top_hosts": [],
+        },
+    )
+
+    assert extract_report(REPORT_ID, payload).operation == "SET"
 
 
 def test_source_fault_hash_tracks_only_applicability_fields():
@@ -335,3 +355,48 @@ def test_binding_request_requires_pair():
     )
     assert request.report_id == "r1"
     assert request.source_fault_id == "F01"
+
+
+def test_resource_path_prefix_does_not_flag_business_wording():
+    """pod/ 与 host/ 只在跟真实资源名时算身份残留。
+
+    中文分类标签（Pod/容器生命周期）、自然语言并列（pod/host）、以及脱敏后
+    紧跟中文的写法都不是身份引用，早先会被整条判成 identity_residual。
+    """
+    scrubber = IdentityScrubber({})
+    # 只看「不被当作身份残留」；其它脱敏规则（路径、时间）仍会替换，属预期行为。
+    for text in (
+        "Pod/容器生命周期",
+        "集中在 pod/端点 [POD]，时间窗为 21:32:28",
+        "未扩散到其他 pod/host；/stats/links",
+        "pod/host",
+    ):
+        cleaned = scrubber.clean(text)
+        assert "pod/" in cleaned.lower() or "Pod/" in cleaned, text
+
+
+def test_resource_path_prefix_still_flags_real_references():
+    """真正的 K8s 资源引用仍要被拦下，隐私约束没有放松。"""
+    scrubber = IdentityScrubber({})
+    for text in ("pod/nginx-abc-7d9f", "Host/api-server-0", "POD/worker-1"):
+        with pytest.raises(PhenomenonContentError) as excinfo:
+            scrubber.clean(text)
+        assert excinfo.value.code == "identity_residual", text
+
+
+def test_business_wording_in_domain_and_symptom_keeps_the_card():
+    """分类标签和正文里的 pod/ 不再让整条卡片消失（真实报告回归）。"""
+    label_fault = _fault(
+        "F01",
+        conclusion={
+            "one_line_conclusion": "61 条故障 trace 集中在 pod/端点，全部返回 2007",
+            "key_findings": ["SET 侧 Top 故障码仅 2007"],
+            "fault_domain": "Pod/容器生命周期",
+            "fault_component": "KVCache Master Worker",
+        },
+    )
+    extraction = extract_report(REPORT_ID, _sidecar([label_fault]))
+
+    assert extraction.fault_errors == []
+    assert [doc.source_fault_id for doc in extraction.faults] == ["F01"]
+    assert "pod/端点" in extraction.faults[0].text

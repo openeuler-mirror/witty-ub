@@ -40,12 +40,12 @@ const createWorkspace = (api, fetchCases = async () => []) => {
   }
   const state = new Function('require', 'exports', 'defineProps', 'defineEmits',
     `${js}\nreturn {
-      load, reports, matches, legacyCases, documentFilter, filteredReports, pagedReports, scopedMatches, error,
+      load, reports, matches, legacyCases, reportCases, query, documentFilter, filteredReports, pagedReports, scopedMatches, error,
       loading, importOpen, importMode, importing, importError, file, serverPath, optionsError, importOptions,
       sourceName, operator, declaredVerified, batch, toggleImport, loadImportOptions, submitImport, outcomeLabel,
       reportPages, reportPage, firstOptions, secondOptions, selection, count, selectFirst, selectSecond,
-      pagedCases, filtered, pages, pagedLegacy, legacyPages, legacyPage,
-      importDialogOpen, closeImport,
+      pagedCases, filtered, pages, filteredLegacy, pagedLegacy, legacyPages, legacyPage, legacyFaultFilter, legacyFaultCount,
+      importDialogOpen, closeImport, resetSearchPages,
     }`)(
     require, {}, () => props, () => () => {},
   )
@@ -61,6 +61,17 @@ const createWorkspace = (api, fetchCases = async () => []) => {
       }
       visit([renderedTree, renderedModalNodes])
       return inputs
+    },
+    renderedSearchForm: () => {
+      let found
+      const visit = (node) => {
+        if (Array.isArray(node)) { node.forEach(visit); return }
+        if (!vue.isVNode(node)) return
+        if (node.type === 'form' && node.props?.role === 'search') found = node
+        if (Array.isArray(node.children)) visit(node.children)
+      }
+      visit(renderedTree)
+      return found
     },
     render: () => {
       const app = vue.createSSRApp({
@@ -121,7 +132,10 @@ test('全局定界文档无需选择资产，取完全部页，已验证文档�
       const { pageNum, pageCnt } = query
       return { total: documents.length, items: documents.slice((pageNum - 1) * pageCnt, pageNum * pageCnt) }
     },
-    searchDiagCases: async () => { throw new Error('文档页不加载独立待验证案例') },
+    searchDiagCases: async (query) => {
+      assert.equal(query.scope, 'all')
+      return { total: 0, matches: [] }
+    },
   }, async () => { throw new Error('任务案例不属于文档待验证') })
   await state.load()
   assert.equal(state.error.value, '')
@@ -157,6 +171,113 @@ test('已知案例同时加载有效任务与文件案例，保留原分类，�
   assert.equal(workflow.legacyCaseOrigin(legacy[0]), '任务日志自动生成')
   assert.equal(workflow.legacyCaseOrigin(legacy[1]), '历史文件案例')
   assert.equal(state.reports.value.length, 0)
+})
+
+test('已知案例两张表不显示恒定状态列，仍保留已验证筛选及其他字段', async () => {
+  const state = createWorkspace({})
+  state.props.view = 'library'
+  state.matches.value = [
+    { case: { id: 'c1', title: '有效案例标题', symptom_summary: '故障现象', status: 'confirmed', verification_json: { closed_loop: true } } },
+    { case: { id: 'c2', title: '待验证案例标题', status: 'draft' } },
+  ]
+  state.legacyCases.value = [{
+    id: 'l1', root_cause_type: '文件案例', fault_category: 'latency',
+    features: { latency: { timeout_segments: [['total_latency', 1.5]], p99_p50_ratio: 2 } },
+  }]
+  const html = await state.render()
+  const headers = [...html.matchAll(/<thead><tr>(.*?)<\/tr><\/thead>/g)]
+    .map((match) => [...match[1].matchAll(/<th>(.*?)<\/th>/g)].map((item) => item[1]))
+  // 历史案例改为解析后的卡片，不再是第二张表
+  assert.deepEqual(headers, [['案例', '来源', '更新时间']])
+  assert.match(html, /有效案例标题/)
+  assert.match(html, /故障现象/)
+  assert.match(html, /文件案例/)
+  // 历史案例必须是解析后的卡片，不能把 features 原样倒出来
+  assert.match(html, /legacy-card/)
+  assert.match(html, /超时分段 total_latency/)
+  assert.doesNotMatch(html, /JSON|<pre>/)
+  assert.doesNotMatch(html, /待验证案例标题/)
+  assert.doesNotMatch(html, /<th>状态<\/th>/)
+})
+
+test('文档与案例按编号或标题搜索，历史案例也参与关键词过滤', async () => {
+  const state = createWorkspace({
+    fetchDiagnosticReports: async () => ({ total: 2, items: [
+      { report_id: 'r1', title: '网络故障' },
+      { report_id: 'r2', title: '存储故障' },
+    ] }),
+    searchDiagCases: async () => ({ total: 1, matches: [
+      { case: { id: 'case-1', case_no: 'UB-CASE-000123', title: '链路断开', report_id: 'r1', status: 'confirmed', verification_json: { closed_loop: true } } },
+    ] }),
+  }, async () => [{ id: 'old-1', root_cause_type: '网络故障', description: '历史记录' }])
+  await state.load()
+  state.query.value = 'ub-case-000123'
+  assert.deepEqual(state.filteredReports.value.map((item) => item.report_id), ['r1'])
+  state.query.value = '存储'
+  assert.deepEqual(state.filteredReports.value.map((item) => item.report_id), ['r2'])
+  state.props.view = 'library'
+  await state.load()
+  state.query.value = '链路 ub-case'
+  assert.deepEqual(state.filtered.value.map((item) => item.case.id), ['case-1'])
+  state.query.value = 'old-1'
+  assert.deepEqual(state.filteredLegacy.value.map((item) => item.id), ['old-1'])
+})
+
+test('搜索框和搜索按钮位于文档、案例操作区，且无需打开导入弹窗', async () => {
+  const state = createWorkspace({})
+  for (const view of ['documents', 'library']) {
+    state.props.view = view
+    state.importOpen.value = false
+    const html = await state.render()
+    assert.match(html, /type="search"/)
+    assert.match(html, view === 'documents' ? /搜索文档标题、案例 ID 或来源/ : /搜索案例 ID、标题或关键内容/)
+    assert.match(html, /role="search"/)
+    assert.match(html, /type="submit">搜索<\/button>/)
+    assert.ok(html.indexOf('role="search"') < html.indexOf('>刷新</button>'))
+    assert.doesNotMatch(html, /role="dialog"/)
+  }
+})
+
+test('搜索条件变化或提交搜索时重置各列表页码并保留关键词', async () => {
+  const state = createWorkspace({})
+  state.query.value = 'UB-CASE'
+  state.reportPage.value = 3
+  state.selection.value.page = 4
+  state.legacyPage.value = 5
+  const watcher = state.watchers.find((entry) => entry.source === state.query)
+  assert.ok(watcher)
+  watcher.callback('关键词')
+  assert.equal(state.reportPage.value, 1)
+  assert.equal(state.selection.value.page, 1)
+  assert.equal(state.legacyPage.value, 1)
+  await state.render()
+  state.reportPage.value = 3
+  state.selection.value.page = 4
+  state.legacyPage.value = 5
+  let prevented = false
+  state.renderedSearchForm().props.onSubmit({ preventDefault: () => { prevented = true } })
+  assert.equal(prevented, true)
+  assert.equal(state.reportPage.value, 1)
+  assert.equal(state.selection.value.page, 1)
+  assert.equal(state.legacyPage.value, 1)
+  assert.equal(state.query.value, 'UB-CASE')
+})
+
+test('案例来源保留来源名称与有效文档链接，来源不可用时展示状态', async () => {
+  const state = createWorkspace({})
+  state.props.view = 'library'
+  state.matches.value = [{
+    case: { id: 'c1', title: '案例', report_id: 'r1', status: 'confirmed', verification_json: { closed_loop: true } },
+    source_report: { status: 'valid' },
+  }]
+  let html = await state.render()
+  assert.match(html, /现场诊断/)
+  assert.match(html, /查看来源定界文档/)
+  assert.match(html, /case-source-link/)
+  state.matches.value[0].source_report.status = 'deleted'
+  html = await state.render()
+  assert.match(html, /来源定界文档已删除/)
+  assert.doesNotMatch(html, /case-source-link/)
 })
 
 test('文档待验证只含未完成检验的结论，使用故障去重计数并兼容旧计数', () => {
@@ -293,4 +414,62 @@ test('文档分类标签来自报告故障，计数按文档去重，筛选与�
   state.selectFirst('存储')
   assert.equal(state.reportPage.value, 1)
   assert.equal(state.selection.value.second, '')
+})
+
+test('历史案例按 features 解析成可读字段，不再倾倒原始 JSON', () => {
+  const item = {
+    id: 'l1',
+    root_cause_type: '远端写入TCP延迟',
+    case_category: '网络/TCP故障',
+    fault_category: 'latency',
+    description: '自动导入: dfx_write_remote_tcp_dalay',
+    log_file_name: 'lingqu_kvcache_dfx_write_remote_tcp_dalay_001',
+    task_names: ['yxh_new/lingqu_kvcache_dfx_write_remote_tcp_dalay_001'],
+    features: {
+      latency: {
+        timeout_segments: [['total_latency', 513.083], ['c2w_latency', 513.043]],
+        p99_p50_ratio: 1,
+        pod_concentration: 'few_pods',
+        affected_pods_count: 2,
+      },
+      connectivity: {
+        failure_mode_dist: { K_URMA_WORKER_UNAVAILABLE: 3 },
+        spatial_pod: { scope: 'single' },
+        spatial_host: { scope: 'multi' },
+      },
+      summary: { anomalous_event_count: 2, failure_event_count: 0, total_parse_result_count: 2 },
+    },
+  }
+  const byLabel = Object.fromEntries(workflow.legacyCaseFacts(item).map((fact) => [fact.label, fact.value]))
+  assert.equal(byLabel['时延特征'], '超时分段 total_latency → c2w_latency · P99/P50 1.00 · Pod 集中度 few_pods · 受影响 Pod 2')
+  assert.equal(byLabel['通断特征'], '故障模式 K_URMA_WORKER_UNAVAILABLE · Pod 范围 single · 节点范围 multi')
+  assert.equal(byLabel['统计'], '异常事件 2 · 故障事件 0 · 总记录 2')
+  assert.equal(workflow.legacyFaultCategoryLabel(item), '时延故障')
+})
+
+test('历史案例：批量导入的数据集没有任务，不能标成任务日志自动生成', () => {
+  assert.equal(
+    workflow.legacyCaseOrigin({ source_kind: 'task', log_file_id: 'log-1', task_ids: [] }),
+    '历史文件案例',
+  )
+  assert.equal(
+    workflow.legacyCaseOrigin({ source_kind: 'task', log_file_id: 'log-1', task_ids: ['t-1'] }),
+    '任务日志自动生成',
+  )
+  assert.deepEqual(workflow.legacyCaseFacts({ features: null }), [])
+})
+
+test('历史案例按时延/通断筛选，mixed 同时计入两侧', () => {
+  const latencyOnly = { id: 'a', root_cause_type: '时延', fault_category: 'latency' }
+  const connectivityOnly = { id: 'b', root_cause_type: '通断', fault_category: 'connectivity' }
+  const both = { id: 'c', root_cause_type: '混合', fault_category: 'mixed' }
+  const unlabeled = { id: 'd', root_cause_type: '未知', fault_category: 'unknown' }
+  const items = [latencyOnly, connectivityOnly, both, unlabeled]
+  const pick = (filter) => items.filter((item) => workflow.matchesLegacyFault(item, filter)).map((item) => item.id)
+
+  assert.deepEqual(pick(''), ['a', 'b', 'c', 'd'])
+  assert.deepEqual(pick('latency'), ['a', 'c'])
+  assert.deepEqual(pick('connectivity'), ['b', 'c'])
+  assert.deepEqual(pick('unknown'), ['d'])
+  assert.equal(workflow.LEGACY_FAULT_FILTERS.map((option) => option.label).join('/'), '全部/时延/通断/未标注')
 })

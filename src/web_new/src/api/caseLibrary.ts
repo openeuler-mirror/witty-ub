@@ -34,9 +34,10 @@ export type CaseRecord = {
   created_at?: string
   features?: {
     latency?: {
-      timeout_segments?: string[]
+      timeout_segments?: unknown[]
       p99_p50_ratio?: number
       pod_concentration?: string
+      affected_pods_count?: number
     }
     connectivity?: {
       failure_mode_dist?: Record<string, number>

@@ -56,6 +56,8 @@
    - 报告侧同样各出一套阶段分解与阶段表，不在同一套百分比里混合两种操作
 4. **证据驱动**：通过 HTTP API 获取现场证据，不依赖猜测
 5. **结构化输出**：诊断完成后使用 diagnostic-report-generation 生成标准报告
+   - 「定界报告」「定界文档」是平台对标准诊断报告的叫法（故障定界后产出的 HTML 报告），
+     与本条指同一产物；用户说“生成定界报告”即走下面的完整链路
    - 用户只说“为当前资产库生成诊断报告”等宽泛目标时，也按“完成诊断取证 → 生成契约 JSON
      → 运行报告校验/渲染”的完整链路执行；不要要求用户补充 JSON 字段或指定模板
 
@@ -172,6 +174,10 @@ Skill 的 SKILL.md 为准。
 | 列出解析任务 | `POST /task/list`，筛选和分页放入 JSON body |
 | 核验解析任务 | `GET /task/{task_id}` |
 | 获取实际 cluster/host/pod 值（KVCache） | `GET /log_parse_result/options`，`kb_id` 作为查询参数 |
+
+字段与参数以各 Skill 的 `references/TOOL_REFERENCE.md`、报告侧 `references/REPORT_SCHEMA.md`
+为准；接口返回不符合预期时查这两份，不要逐段 dump `openapi.json`（一次全量 API 摸底会吃掉
+大半步骤预算，最终没步骤渲染报告）。
 
 ## KVCache 与 BRPC 标识隔离
 

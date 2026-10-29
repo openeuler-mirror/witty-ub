@@ -949,7 +949,217 @@ async def test_reconcile_ignores_deleted_remote_tombstones(monkeypatch):
         PhenomenonIndexService, "_list_all_remote_docs", staticmethod(remote_docs)
     )
 
+    async def no_superseded():
+        return 0
+
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager,
+        "normalise_unavailable_report_status",
+        staticmethod(no_superseded),
+    )
+
+    async def no_repair():
+        return {"repaired": 0, "signals_dropped": 0}
+
+    monkeypatch.setattr(
+        PhenomenonIndexService, "_repair_case_derived", staticmethod(no_repair)
+    )
+
     stats = await PhenomenonIndexService.reconcile()
 
     assert stats["orphans"] == 1
     assert observed == ["active-doc"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_retires_mappings_left_in_a_previous_kb(monkeypatch):
+    """换知识库后旧映射命中不到，必须以当前知识库为准退役并重新发布。"""
+    cleared: list[tuple[str, str, bool]] = []
+    searchable: list[tuple[str, bool]] = []
+
+    async def promote(_seconds=600):
+        return 0
+
+    async def no_cards(*_args, **_kwargs):
+        return []
+
+    async def pairs():
+        return [
+            ("report:r", "old-kb", "old-doc"),
+            ("report:kept", "kb", "kept-doc"),
+        ]
+
+    async def card_for(kb, rag_doc_id):
+        return SimpleNamespace(doc_id="report:r", enabled=True)
+
+    async def set_searchable(doc_id, flag):
+        searchable.append((doc_id, flag))
+
+    async def clear_mapping(doc_id, *, error, requeue):
+        cleared.append((doc_id, error, requeue))
+
+    async def observe(*_args, **_kwargs):
+        return None
+
+    def rag_targets():
+        return None, "kb"
+
+    async def remote_docs(_client, _kb_id):
+        return [{"id": "kept-doc", "name": "phenomenon_kept.txt", "status": "existed"}]
+
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "promote_observing", staticmethod(promote)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "cards_with_source_drift", staticmethod(no_cards)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "cards_with_invalid_mapping", staticmethod(no_cards)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "stuck_parsing_cards", staticmethod(no_cards)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "observe_orphan", staticmethod(observe)
+    )
+    monkeypatch.setattr(PhenomenonIndexPGManager, "list_mapped_pairs", staticmethod(pairs))
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "get_card_by_rag_doc", staticmethod(card_for)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "set_searchable", staticmethod(set_searchable)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "clear_mapping", staticmethod(clear_mapping)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexService, "_rag_targets", staticmethod(rag_targets)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexService, "_list_all_remote_docs", staticmethod(remote_docs)
+    )
+
+    async def no_superseded():
+        return 0
+
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager,
+        "normalise_unavailable_report_status",
+        staticmethod(no_superseded),
+    )
+
+    async def no_repair():
+        return {"repaired": 0, "signals_dropped": 0}
+
+    monkeypatch.setattr(
+        PhenomenonIndexService, "_repair_case_derived", staticmethod(no_repair)
+    )
+
+    stats = await PhenomenonIndexService.reconcile()
+
+    assert stats["stale_kb"] == 1
+    assert stats["missing"] == 0
+    assert stats["orphans"] == 0
+    assert cleared == [("report:r", "kb_changed", True)]
+    assert searchable == [("report:r", False)]
+
+
+@pytest.mark.asyncio
+async def test_repair_case_derived_aligns_operation_and_fingerprint(monkeypatch):
+    """案例的 operation 与指纹都按源报告重算；已对齐的不重复写。"""
+    from latency.database.managers.diag_case_library import DiagCaseLibraryPGManager
+
+    seen: list[tuple[str, str | None, str]] = []
+
+    async def refresh(case_id, operation, source_fault_hash):
+        seen.append((case_id, operation, source_fault_hash))
+        return SimpleNamespace(id=case_id)
+
+    async def drop_signals():
+        return 7
+
+    set_only = {
+        "report": {"title": "r"},
+        "basic_info": {"operation": "SET"},
+        "faults": [{"id": "F01", "title": "SET 超时", "status": "confirmed",
+                    "conclusion": {"one_line_conclusion": "SET 超时"}}],
+        "statistics": {"stage_breakdowns": [
+            {"operation": "GET", "stages": []},
+            {"operation": "SET", "stages": [{"name": "set_client"}]},
+        ]},
+    }
+    expected = service.extractor.compute_source_fault_hash(
+        set_only["faults"][0], "F01", "SET"
+    )
+
+    async def bound():
+        return [
+            SimpleNamespace(
+                id="case-1", report_id="report_a", source_fault_id="F01",
+                operation="MIXED", source_fault_hash="stale-hash",
+            ),
+            # 已对齐：operation 与指纹都与重算结果一致，不应被写。
+            SimpleNamespace(
+                id="case-2", report_id="report_b", source_fault_id="F01",
+                operation="SET", source_fault_hash=expected,
+            ),
+        ]
+
+    async def same_case():
+        return None
+
+    def load(report_id):
+        return set_only, None, None
+
+    monkeypatch.setattr(
+        DiagCaseLibraryPGManager, "cases_with_report_binding", staticmethod(bound)
+    )
+    monkeypatch.setattr(
+        DiagCaseLibraryPGManager, "refresh_case_derived", staticmethod(refresh)
+    )
+    monkeypatch.setattr(
+        DiagCaseLibraryPGManager, "drop_operation_signals", staticmethod(drop_signals)
+    )
+    monkeypatch.setattr(service, "_load_report_payload", load)
+
+    stats = await PhenomenonIndexService._repair_case_derived()
+
+    assert stats == {"repaired": 1, "signals_dropped": 7}
+    assert seen == [("case-1", "SET", expected)]
+
+
+@pytest.mark.asyncio
+async def test_deleted_report_index_becomes_not_applicable(monkeypatch):
+    """报告文件移除后索引不适用，不能保留 failed 让状态页误报。"""
+    statuses: list[tuple[str, str | None]] = []
+
+    async def no_cards(_report_id):
+        return []
+
+    async def no_cases(_report_id):
+        return []
+
+    async def set_available(_report_id, available, *, index_error=None):
+        assert available is False
+
+    async def update_status(_report_id, status, *, index_error=None, **_kwargs):
+        statuses.append((status, index_error))
+        return None
+
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "get_cards_by_report", staticmethod(no_cards)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexService, "_bound_cases", staticmethod(no_cases)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "set_report_available", staticmethod(set_available)
+    )
+    monkeypatch.setattr(
+        PhenomenonIndexPGManager, "update_report_status", staticmethod(update_status)
+    )
+
+    result = await PhenomenonIndexService.handle_report_deleted("report_x")
+
+    assert result == {"switched": 0, "disabled": 0}
+    assert statuses == [("not_applicable", None)]

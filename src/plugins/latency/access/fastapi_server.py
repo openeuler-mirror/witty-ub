@@ -113,8 +113,7 @@ async def lifespan(app: fastapi.FastAPI):
 
     if phenomenon_settings.index_enabled():
         _register_phenomenon_jobs()
-        if phenomenon_settings.self_check_enabled():
-            asyncio.create_task(PhenomenonIndexService.run_self_check())
+        asyncio.create_task(_bootstrap_phenomenon_index())
 
     yield
     scheduler.shutdown(wait=False)
@@ -363,6 +362,19 @@ async def mk_dirs():
         if not os.path.exists(full_path):
             os.makedirs(full_path, exist_ok=True)
             logger.info(f"创建目录: {full_path}")
+
+
+async def _bootstrap_phenomenon_index() -> None:
+    """启动自检跑一次核对：换知识库后旧映射须在本次启动内退役并重发。"""
+    if phenomenon_settings.self_check_enabled():
+        await PhenomenonIndexService.run_self_check()
+    try:
+        stats = await PhenomenonIndexService.reconcile()
+    except Exception as exc:  # noqa: BLE001 - 启动期核对失败不应拖垮服务
+        logger.warning("启动期现象索引核对失败: %s", exc)
+        return
+    if any(stats.values()):
+        logger.info("启动期现象索引核对: %s", stats)
 
 
 def _register_phenomenon_jobs() -> None:

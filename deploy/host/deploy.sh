@@ -581,6 +581,23 @@ start_services() {
             _info "请先运行完整部署: bash deploy/host/deploy.sh"
             return 1
         fi
+        # --- RAG（openGauss + RAG Core）与现象索引环境 ---
+        # 必须先于后端启动：后端在 lifespan 里按环境决定是否启用索引与语义检索。
+        if [ -f "$SCRIPT_DIR/deploy_rag.sh" ]; then
+            _info "准备 RAG 与现象检索环境..."
+            if bash "$SCRIPT_DIR/deploy_rag.sh"; then
+                # systemd 模式由 unit 的 EnvironmentFile 注入；裸进程模式在此导出。
+                if [ "$USE_SYSTEMD" != "1" ] && [ -r "$PROJECT_DIR/.deploy-run/rag.env" ]; then
+                    set -a
+                    # shellcheck disable=SC1091
+                    . "$PROJECT_DIR/.deploy-run/rag.env"
+                    set +a
+                fi
+            else
+                _warn "RAG 准备失败，后端将以「语义检索不可用」运行"
+            fi
+        fi
+
         if [ "$USE_SYSTEMD" = "1" ]; then
             # 已在跑就 restart：systemctl start 对 active 的 unit 是 no-op，
             # 会把"新代码还没加载"当成"部署成功"（旧进程继续应答健康检查）。
@@ -627,6 +644,12 @@ start_services() {
             _err "后端启动失败(60 秒内健康检查未通过)。"
             _err "请检查 journalctl --user -u witty-ub-backend.service 或 $LOG_DIR/backend.log 定位原因（最常见：PostgreSQL 密码/端口配置错误）。"
             return 1
+        fi
+
+        # --- 内置定界报告（后台导入，不阻塞部署） ---
+        if [ -f "$SCRIPT_DIR/import_builtin_reports.sh" ]; then
+            _info "检查内置定界报告..."
+            bash "$SCRIPT_DIR/import_builtin_reports.sh" || _warn "内置报告导入启动失败，可稍后重跑该脚本"
         fi
     fi
 
@@ -906,9 +929,14 @@ clean_all() {
         _info "删除 /var/witty-ub..."
         local SUDO=""
         _is_root || SUDO="sudo"
+        # 报告卷与上传/结果目录同样是业务数据：漏删会把旧报告当成
+        # 「未确认报告」重新扫进索引，症状是报告数与卡片数翻倍。
         $SUDO rm -rf \
             /var/witty-ub/data \
             /var/witty-ub/case \
+            /var/witty-ub/reports \
+            /var/witty-ub/uploads \
+            /var/witty-ub/results \
             /var/witty-ub/config \
             /var/witty-ub/witty_ub_diagnostician \
             /var/witty-ub/cache \
@@ -916,7 +944,31 @@ clean_all() {
         _log "/var/witty-ub 数据已删除"
     fi
 
-    # 4. 范围2: 删构建/venv/日志
+    # 4. RAG：容器、数据卷与运行时环境（否则下次部署会复用旧向量库与旧 KB id）
+    if [ "${WITTY_RAG_KEEP:-0}" != "1" ]; then
+        local _cli=""
+        for _c in docker podman; do _has_cmd "$_c" && { _cli="$_c"; break; }; done
+        if [ -n "$_cli" ]; then
+            _info "清理 RAG 容器与数据卷..."
+            for _ctr in witty-rag-core opengauss-rag witty-ub-rag-gemma2 witty-ub-opengauss-gemma2; do
+                "$_cli" rm -f "$_ctr" >/dev/null 2>&1 || true
+            done
+            for _vol in opengauss-rag-data witty-ub-opengauss-gemma2-data; do
+                "$_cli" volume rm -f "$_vol" >/dev/null 2>&1 || true
+            done
+            _log "RAG 容器与数据卷已清理"
+            unset _ctr _vol
+        fi
+        rm -rf "$PROJECT_DIR/.deploy-run/rag.env" \
+            "$PROJECT_DIR/.deploy-run/rag-phenomenon-kb" \
+            "$PROJECT_DIR/.deploy-run/rag-secrets" 2>/dev/null || true
+        _log "RAG 运行时环境与密钥已清理"
+    else
+        _info "WITTY_RAG_KEEP=1，保留 RAG 容器与数据"
+    fi
+    unset _cli
+
+    # 5. 范围2: 删构建/venv/日志
     if [ "$scope" = "2" ]; then
         _info "删除构建产物/venv/日志..."
         rm -rf "$PROJECT_DIR/build" "$PROJECT_DIR/src/plugins/latency/.venv" "$LOG_DIR" 2>/dev/null || true

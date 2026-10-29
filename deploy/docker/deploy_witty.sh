@@ -95,6 +95,9 @@ CONFIG_KEYS=(
     WITTY_RAG_MCP_URL WITTY_RAG_NETWORK RAG_CONFIG_FILE RAG_DB_SECRET_FILE
     OPENGAUSS_RAG_IMAGE WITTY_RAG_CORE_IMAGE WITTY_RAG_CORE_HOST_PORT
     RAG_ACCESS_KEY_SECRET_FILE RAG_CORE_URL RAG_ACCESS_KEY_FILE
+    RAG_MODEL_API_KEY_SECRET_FILE RAG_EMBEDDING_MODEL_NAME RAG_EMBEDDING_MODEL_PROVIDER
+    RAG_EMBEDDING_ENDPOINT RAG_EMBEDDING_API_KEY RAG_EMBEDDING_DIMENSION
+    RAG_RERANK_ENABLED RAG_RERANK_MODEL_NAME RAG_RERANK_MODEL_PROVIDER RAG_RERANK_ENDPOINT
     RAG_PHENOMENON_KB_ID PHENOMENON_INDEX_ENABLED PHENOMENON_SEARCH_ENABLED
     RAG_MIN_SCORE RAG_TOP_K RAG_INDEX_INTERVAL WITTY_REQUIRE_TRUSTED_OPERATOR
     WITTY_REPORT_IMPORT_ROOTS
@@ -518,9 +521,45 @@ if [ "$WITTY_REQUIRE_TRUSTED_OPERATOR" = "true" ] && [ "$ROLE" != "frontend" ]; 
     log_info "Trusted operator mode: report/case review accepts only X-Witty-Operator"
 fi
 
+# 取一个可运行后端 CLI 的本地镜像（优先与本次部署相同的 tag）。
+resolve_kb_image() {
+    local img
+    for img in "${WITTY_IMAGE:-}" witty-ub:latest witty-ub:backend \
+        hub-harbor.oepkgs.net/neocopilot/witty-ub:latest; do
+        [ -n "$img" ] || continue
+        docker image inspect "$img" >/dev/null 2>&1 && { printf '%s' "$img"; return 0; }
+    done
+    return 1
+}
+
 # 现象索引（RAG REST）：只在启用索引/检索或显式指定 KB 时注入后端容器。
 # 访问密钥复用 RAG 的 0600 密钥文件，以只读方式挂载，不复制第二份。
+# 传入既有 KB 时只做校验；校验失败返回空串，由调用方决定是否新建。
+phenomenon_kb_init() {
+    local image="$1" kb_id="$2"
+    docker run --rm --network "$WITTY_NETWORK" \
+        -v "${RAG_ACCESS_KEY_SECRET_FILE:-/etc/witty-ub/rag-secrets/access-key}:/run/secrets/witty-rag/access-key:ro" \
+        -e PYTHONPATH=/var/witty-ub -e "RAG_CORE_URL=${RAG_CORE_URL}" \
+        -e RAG_ACCESS_KEY_FILE=/run/secrets/witty-rag/access-key \
+        -e "RAG_PHENOMENON_KB_ID=${kb_id}" \
+        --entrypoint /var/witty-ub/latency/.venv/bin/python "$image" \
+        -m latency.access.phenomenon_cli --init-kb --kb-name witty-ub-phenomenon 2>/dev/null
+}
+
 PHENOMENON_ENV_ARGS=()
+# RAG 已部署时默认启用现象索引：安装 RAG 的用户本来就要语义检索。
+_rag_present=0
+if [ -n "${RAG_CORE_URL:-}" ] ||
+    docker container inspect "${WITTY_RAG_CORE_CONTAINER:-witty-rag-core}" >/dev/null 2>&1; then
+    _rag_present=1
+fi
+# "auto"（留空）表示跟随 RAG 是否存在；显式 true/false 保留用户选择。
+case "${PHENOMENON_INDEX_ENABLED:-}" in
+"" | auto | AUTO) [ "$_rag_present" = "1" ] && [ "$ROLE" != "frontend" ] && PHENOMENON_INDEX_ENABLED=true ;;
+esac
+case "${PHENOMENON_SEARCH_ENABLED:-}" in
+"" | auto | AUTO) [ "${PHENOMENON_INDEX_ENABLED:-false}" = "true" ] && PHENOMENON_SEARCH_ENABLED=true ;;
+esac
 if [ "$ROLE" != "frontend" ] &&
     { [ -n "${RAG_PHENOMENON_KB_ID:-}" ] ||
         [ "${PHENOMENON_INDEX_ENABLED:-false}" = "true" ] ||
@@ -534,6 +573,47 @@ if [ "$ROLE" != "frontend" ] &&
             RAG_CORE_URL="http://${WITTY_RAG_CORE_CONTAINER:-witty-rag-core}:9988"
         fi
     fi
+    # 专用知识库：优先环境变量，其次 0600 状态文件。状态文件在宿主机上，
+    # 比 RAG 的向量库活得久（重装 RAG 会清空知识库），所以记录下来的 KB 也要
+    # 校验一次：查不到就落新 KB 并改写状态文件。
+    _kb_file="${RAG_PHENOMENON_KB_FILE:-/etc/witty-ub/rag-phenomenon-kb}"
+    if [ -z "${RAG_PHENOMENON_KB_ID:-}" ] && [ -s "$_kb_file" ]; then
+        RAG_PHENOMENON_KB_ID="$(tr -d '\r\n' <"$_kb_file")"
+    fi
+    _kb_image="$(resolve_kb_image 2>/dev/null || true)"
+    if [ -n "$_kb_image" ]; then
+        _kb_out="$(phenomenon_kb_init "$_kb_image" "${RAG_PHENOMENON_KB_ID:-}")" || _kb_out=""
+        if [ -z "$_kb_out" ] && [ -n "${RAG_PHENOMENON_KB_ID:-}" ]; then
+            log_warn "现象检索知识库 ${RAG_PHENOMENON_KB_ID} 已不存在，重新创建"
+            RAG_PHENOMENON_KB_ID=""
+            _kb_out="$(phenomenon_kb_init "$_kb_image" "")" || _kb_out=""
+        fi
+        RAG_PHENOMENON_KB_ID="$(printf '%s' "$_kb_out" | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("kb_id") or "")
+except Exception:
+    print("")' 2>/dev/null)"
+        _kb_created="$(printf '%s' "$_kb_out" | python3 -c 'import json,sys
+try:
+    print("1" if json.load(sys.stdin).get("created") else "0")
+except Exception:
+    print("0")' 2>/dev/null)"
+        if [ -n "$RAG_PHENOMENON_KB_ID" ]; then
+            if [ "$_kb_created" = "1" ] || [ ! -s "$_kb_file" ] ||
+                [ "$(tr -d '\r\n' <"$_kb_file" 2>/dev/null)" != "$RAG_PHENOMENON_KB_ID" ]; then
+                install -d -m 700 "$(dirname "$_kb_file")" 2>/dev/null || true
+                printf '%s' "$RAG_PHENOMENON_KB_ID" >"$_kb_file" 2>/dev/null &&
+                    chmod 0600 "$_kb_file" 2>/dev/null || true
+                log_ok "现象检索知识库: ${RAG_PHENOMENON_KB_ID}"
+            else
+                log_info "现象检索知识库已存在: ${RAG_PHENOMENON_KB_ID}"
+            fi
+        else
+            log_warn "无法自动创建现象知识库，语义检索将不可用；请检查 RAG 与访问密钥"
+        fi
+    fi
+    [ -n "${RAG_PHENOMENON_KB_ID:-}" ] || PHENOMENON_SEARCH_ENABLED=false
+    unset _kb_file _kb_image _kb_out _kb_created
     PHENOMENON_ENV_ARGS+=(
         -e "RAG_CORE_URL=${RAG_CORE_URL}"
         -e "RAG_PHENOMENON_KB_ID=${RAG_PHENOMENON_KB_ID:-}"
@@ -700,7 +780,7 @@ if [ "$ROLE" = "frontend" ]; then
     # 容器重建后日志丢失且残留孤儿卷（与文档"witty-ub-logs 通用"的描述保持一致）。
     ROLE_VOLUMES=(witty-ub-logs witty-ub-experience-data witty-ub-reports)
 else
-    ROLE_VOLUMES=(witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports)
+    ROLE_VOLUMES=(witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports witty-ub-builtin-reports)
     if [ "$ROLE" = "all" ]; then
         ROLE_VOLUMES+=(witty-ub-experience-data)
     fi
@@ -852,6 +932,7 @@ backend)
         -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
         -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
         -v witty-ub-reports:/var/witty-ub/reports \
+        -v witty-ub-builtin-reports:/var/witty-ub/builtin-reports \
         -v "${PG_SECRET_FILE}:/run/secrets/pg_password:ro" \
         "${EXTRA_MOUNT_ARGS[@]}" \
         -e WITTY_ROLE=backend \
@@ -884,6 +965,7 @@ frontend)
         -v "${OPENCODE_CONFIG_DIR}:/root/.config/opencode" \
         -v witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data \
         -v witty-ub-reports:/var/witty-ub/reports \
+        -v witty-ub-builtin-reports:/var/witty-ub/builtin-reports \
         "${EXTRA_MOUNT_ARGS[@]}" \
         -e WITTY_ROLE=frontend \
         -e WITTY_BACKEND_URL="${BACKEND_URL}" \
@@ -905,6 +987,7 @@ frontend)
         -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
         -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
         -v witty-ub-reports:/var/witty-ub/reports \
+        -v witty-ub-builtin-reports:/var/witty-ub/builtin-reports \
         -v "${PG_SECRET_FILE}:/run/secrets/pg_password:ro" \
         -v "${OPENCODE_CONFIG_DIR}:/root/.config/opencode" \
         -v witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data \

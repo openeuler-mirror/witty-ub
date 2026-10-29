@@ -255,6 +255,16 @@ PG_PASSWORD="<CHANGE_ME>"     # 仅占位符，实际口令在 deploy/pg.passwd
 PG_HOST=10.0.0.5 PG_PORT_RPM=5432 bash deploy/host/deploy.sh --start
 ```
 
+### 语义检索（RAG，可选）
+
+后端节点需要 Docker 20.10+ 或 Podman：`deploy.sh` 启动后端前调用 `deploy/host/deploy_rag.sh`
+部署 openGauss 与 RAG Core。embedding 默认 `BAAI/bge-m3`，可通过环境变量或
+`.deploy-run/rag.local.env` 覆盖，取值与 Key 规则见
+[源码部署 · 启用语义检索](06-source.md#启用语义检索与现象索引rag) 和
+[RAG 与 MCP 部署](../rag-mcp-deployment.md)。
+
+`WITTY_RAG_ENABLE=0` 跳过 RAG，后端以语义检索关闭运行。
+
 ### 进程托管方式
 
 `start_services` 按 `DEPLOY_PM` 环境变量选择托管方式（默认 `auto`）：

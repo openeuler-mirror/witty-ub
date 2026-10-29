@@ -12,9 +12,11 @@ import { useDiagCaseDetail } from '../../composables/useDiagCaseDetail'
 import { useReportWorkbench } from '../../composables/useReportWorkbench'
 import { useOperator } from '../../composables/useOperator'
 import {
-  belongsToScope, caseOrigin, collectPages, documentProgress, filterDocuments, legacyCaseOrigin,
-  formatReportTime, submitReportImport, validDocumentClassifications,
-  loadKnowledgeWorkspace, matchesClassification, materialKey, populatedLabels, selectPrimary,
+  belongsToScope, caseOrigin, collectPages, documentProgress, filterDocuments, legacyCaseFacts,
+  legacyCaseOrigin, legacyFaultCategoryLabel, formatReportTime, LEGACY_FAULT_FILTERS, matchesLegacyFault,
+  submitReportImport, validDocumentClassifications,
+  type LegacyFaultFilter,
+  loadKnowledgeWorkspace, matchesClassification, matchesKeywords, materialKey, populatedLabels, selectPrimary,
   sourceReportLabel, UNCLASSIFIED, type DocumentFilter, type KnowledgeView, type ImportBatch, type ImportMode, type ImportOptions,
 } from '../../utils/caseWorkflow'
 
@@ -31,6 +33,8 @@ const reports = ref<DiagnosticReportItem[]>([])
 const legacyCases = ref<CaseRecord[]>([])
 const taxonomy = ref<ReportLabelTaxonomy | null>(null)
 const selection = ref(selectPrimary(''))
+const query = ref('')
+const reportCases = ref<DiagCaseMatch[]>([])
 const reportPage = ref(1)
 const documentFilter = ref<DocumentFilter>(props.initialDocumentFilter ?? 'all')
 const legacyPage = ref(1)
@@ -67,40 +71,64 @@ const count = (first: string, second = '') =>
     ? filterDocuments(documentBase.value, 'all', first, second).length
     : scopedMatches.value.filter((item) => matchesClassification(item.case, first, second)).length
 const filtered = computed(() => scopedMatches.value.filter((item) =>
-  matchesClassification(item.case, selection.value.first, selection.value.second)))
+  matchesClassification(item.case, selection.value.first, selection.value.second) &&
+  matchesKeywords(query.value, [item.case.id, item.case.case_no, item.case.title, item.case.symptom_summary, item.case.root_cause_summary])))
 const pages = computed(() => Math.max(1, Math.ceil(filtered.value.length / PAGE_SIZE)))
 const pagedCases = computed(() => filtered.value.slice((selection.value.page - 1) * PAGE_SIZE, selection.value.page * PAGE_SIZE))
-const filteredReports = computed(() => filterDocuments(reports.value, documentFilter.value, selection.value.first, selection.value.second))
+const casesByReport = computed(() => {
+  const index = new Map<string, string[]>()
+  for (const { case: item } of reportCases.value) {
+    if (!item.report_id) continue
+    const values = index.get(item.report_id) ?? []
+    values.push(item.id, item.case_no ?? '', item.title ?? '', item.symptom_summary, item.root_cause_summary)
+    index.set(item.report_id, values)
+  }
+  return index
+})
+const filteredReports = computed(() => filterDocuments(reports.value, documentFilter.value, selection.value.first, selection.value.second)
+  .filter((report) => matchesKeywords(query.value, [
+    report.report_id, report.title, report.kb_name, report.source_name,
+    ...(casesByReport.value.get(report.report_id) ?? []),
+  ])))
 const reportPages = computed(() => Math.max(1, Math.ceil(filteredReports.value.length / PAGE_SIZE)))
 const pagedReports = computed(() => filteredReports.value.slice((reportPage.value - 1) * PAGE_SIZE, reportPage.value * PAGE_SIZE))
-const legacyPages = computed(() => Math.max(1, Math.ceil(legacyCases.value.length / PAGE_SIZE)))
-const pagedLegacy = computed(() => legacyCases.value.slice((legacyPage.value - 1) * PAGE_SIZE, legacyPage.value * PAGE_SIZE))
+const legacyFaultFilter = ref<LegacyFaultFilter>('')
+const legacySearched = computed(() => legacyCases.value.filter((item) =>
+  matchesKeywords(query.value, [item.id, item.root_cause_type, item.description, item.log_file_name])))
+const filteredLegacy = computed(() => legacySearched.value.filter((item) =>
+  matchesLegacyFault(item, legacyFaultFilter.value)))
+const legacyFaultCount = (filter: LegacyFaultFilter) =>
+  legacySearched.value.filter((item) => matchesLegacyFault(item, filter)).length
+const legacyPages = computed(() => Math.max(1, Math.ceil(filteredLegacy.value.length / PAGE_SIZE)))
+const pagedLegacy = computed(() => filteredLegacy.value.slice((legacyPage.value - 1) * PAGE_SIZE, legacyPage.value * PAGE_SIZE))
 const outcomeLabels: Record<string, string> = {
   imported: '已导入', duplicate: '重复，已保留原记录', failed: '导入失败',
   confirmed: '已验证', draft: '待验证', skipped: '已跳过', existing: '已存在',
 }
 const outcomeLabel = (status: string) => outcomeLabels[status] ?? status
 
+const loadCases = (scope: 'library' | 'all' = 'library') => collectPages(async (pageNum, pageCnt) => {
+  const result = await searchDiagCases({
+    scope, includeStatus: scope === 'all' ? ['draft', 'confirmed', 'archived'] : ['confirmed'],
+    pageNum, pageCnt,
+  })
+  return { total: result.total, items: result.matches ?? [] }
+})
 const load = async () => {
   const version = ++loadVersion
   const view = props.view
   loading.value = true
   error.value = ''
   try {
-    const result = await loadKnowledgeWorkspace(view, {
-      cases: () => collectPages(async (pageNum, pageCnt) => {
-        const result = await searchDiagCases({
-          scope: 'library', includeStatus: ['confirmed'],
-          pageNum, pageCnt,
-        })
-        return { total: result.total, items: result.matches ?? [] }
-      }),
+    const [result, linkedCases] = await Promise.all([loadKnowledgeWorkspace(view, {
+      cases: () => loadCases(),
       documents: (pageNum, pageCnt) => fetchDiagnosticReports({ pageNum, pageCnt }),
       legacy: fetchCases,
-    })
+    }), view === 'documents' ? loadCases('all') : Promise.resolve([])])
     if (version !== loadVersion) return
     matches.value = result.cases
     reports.value = result.documents
+    reportCases.value = linkedCases
     if (selection.value.first && selection.value.first !== UNCLASSIFIED && !firstOptions.value.includes(selection.value.first)) {
       selection.value = selectPrimary('')
     } else if (selection.value.second && !secondOptions.value.includes(selection.value.second)) {
@@ -157,8 +185,12 @@ watch(() => props.view, (view) => {
   selection.value = selectPrimary('')
   reportPage.value = 1
   legacyPage.value = 1
+  query.value = ''
   void load()
 })
+const resetSearchPages = () => { reportPage.value = 1; legacyPage.value = 1; selection.value = { ...selection.value, page: 1 } }
+watch(query, resetSearchPages)
+watch(legacyFaultFilter, () => { legacyPage.value = 1 })
 watch(documentFilter, () => { reportPage.value = 1; selection.value = { ...selection.value, second: '', page: 1 } })
 watch(() => props.initialDocumentFilter, (value) => { documentFilter.value = value ?? 'all' })
 watch(caseVersion, () => void load())
@@ -172,6 +204,10 @@ watch(caseVersion, () => void load())
         <p>{{ view === 'library' ? '查看已检验的定界结论，以及从真实任务日志自动生成的有效案例。' : '跨资产阅读定界文档，人工检验定界结论的正确性，形成有效案例。' }}</p>
       </div>
       <div class="workspace-actions">
+        <form class="workspace-search" role="search" @submit.prevent="resetSearchPages">
+          <input v-model="query" class="input" type="search" :aria-label="view === 'documents' ? '搜索定界文档' : '搜索已知案例'" :placeholder="view === 'documents' ? '搜索文档标题、案例 ID 或来源' : '搜索案例 ID、标题或关键内容'" />
+          <button class="btn btn-primary" type="submit">搜索</button>
+        </form>
         <button class="btn btn-default" type="button" :disabled="loading || importing" @click="load">刷新</button>
         <button v-if="view === 'documents'" class="btn btn-primary" type="button" aria-haspopup="dialog" :aria-expanded="importDialogOpen" :disabled="importing" @click="toggleImport">导入定界报告</button>
       </div>
@@ -195,7 +231,7 @@ watch(caseVersion, () => void load())
           <label>报告文件<input type="file" accept=".json,.zip" :disabled="importing" @change="file = ($event.target as HTMLInputElement).files?.[0] ?? null" /></label>
           <p v-if="file" class="hint">已选择：{{ file.name }}</p>
         </template>
-        <template v-else>
+            <template v-else>
           <p class="hint">仅支持服务器文件系统的绝对路径，不是浏览器所在电脑的本地路径。Docker 部署请填写容器内挂载路径，仅允许读取已配置的只读导入目录。</p>
           <p v-if="optionsError" class="error-banner" role="alert">{{ optionsError }} <button type="button" class="btn btn-default" @click="loadImportOptions">重试</button></p>
           <p v-else-if="!importOptions" class="hint">正在读取导入配置…</p>
@@ -245,7 +281,7 @@ watch(caseVersion, () => void load())
           <button v-for="label in secondOptions" :key="label" type="button" :class="{ active: selection.second === label }" :aria-pressed="selection.second === label" @click="selectSecond(label)">{{ label }} <span>{{ count(selection.first, label) }}</span></button>
         </nav>
         <p class="hint">共 {{ filteredReports.length }} 份定界文档</p>
-        <div v-if="!pagedReports.length" class="empty">{{ documentFilter === 'pending' ? '暂无待验证定界文档' : '暂无定界文档' }}</div>
+        <div v-if="!pagedReports.length" class="empty">{{ query ? '没有匹配的定界文档' : documentFilter === 'pending' ? '暂无待验证定界文档' : '暂无定界文档' }}</div>
         <div v-else class="table-wrap"><table class="task-table">
           <thead><tr><th>定界文档</th><th>来源</th><th>生成时间</th><th>结论数</th><th>已验证</th><th>操作</th></tr></thead>
           <tbody><tr v-for="report in pagedReports" :key="`report:${report.report_id}`">
@@ -269,13 +305,13 @@ watch(caseVersion, () => void load())
           <button v-for="label in secondOptions" :key="label" type="button" :class="{ active: selection.second === label }" :aria-pressed="selection.second === label" @click="selectSecond(label)">{{ label }} <span>{{ count(selection.first, label) }}</span></button>
         </nav>
         <p class="hint">共 {{ filtered.length }} 条</p>
-        <div v-if="!pagedCases.length" class="empty">暂无文档案例。检验定界文档或导入已验证案例后，将在这里沉淀。</div>
-        <div v-else class="table-wrap"><table class="task-table">
-          <thead><tr><th>案例</th><th>状态</th><th>来源</th><th>更新时间</th></tr></thead>
+        <div v-if="!pagedCases.length" class="empty">{{ query ? '没有匹配的文档案例' : '暂无文档案例。检验定界文档或导入已验证案例后，将在这里沉淀。' }}</div>
+        <div v-else class="table-wrap"><table class="task-table case-table">
+          <colgroup><col /><col class="case-meta-column" /><col class="case-meta-column" /></colgroup>
+          <thead><tr><th>案例</th><th>来源</th><th>更新时间</th></tr></thead>
           <tbody><tr v-for="match in pagedCases" :key="materialKey('diagnosis', match.case.id)">
-            <td><button class="btn btn-text case-title" type="button" @click="openCase(match.case.id)">{{ match.case.title || '未命名案例' }}</button><p class="case-summary">{{ match.case.symptom_summary }}</p></td>
-            <td><span class="badge badge-success">已验证</span></td>
-            <td><span class="case-origin">{{ caseOrigin(match.case) }}</span><button v-if="match.case.report_id && match.source_report?.status === 'valid'" class="btn btn-text" type="button" @click="openReport(match.case.report_id, match.case.source_fault_id ?? '')">查看来源定界文档</button><span v-else-if="match.case.report_id" class="hint">{{ sourceReportLabel(match.source_report?.status) }}</span></td>
+            <td><button class="btn btn-text case-title" type="button" @click="openCase(match.case.id)">{{ match.case.title || '未命名案例' }}</button><p class="case-summary" :title="match.case.symptom_summary">{{ match.case.case_no || match.case.id }} · {{ match.case.symptom_summary }}</p></td>
+            <td class="case-source"><span class="case-origin">{{ caseOrigin(match.case) }}</span><button v-if="match.case.report_id && match.source_report?.status === 'valid'" class="btn btn-text case-source-link" type="button" @click="openReport(match.case.report_id, match.case.source_fault_id ?? '')">查看来源定界文档</button><span v-else-if="match.case.report_id" class="hint case-source-status">{{ sourceReportLabel(match.source_report?.status) }}</span></td>
             <td>{{ match.case.updated_at || '—' }}</td>
           </tr></tbody>
         </table></div>
@@ -283,17 +319,30 @@ watch(caseVersion, () => void load())
       </section>
 
       <section v-if="view === 'library'" class="workspace-section historical-material">
-        <h3>任务与文件案例 · {{ legacyCases.length }} 条</h3>
-        <div v-if="pagedLegacy.length" class="table-wrap"><table class="task-table">
-          <thead><tr><th>案例</th><th>来源</th><th>状态</th><th>附件</th></tr></thead>
-          <tbody><tr v-for="item in pagedLegacy" :key="materialKey('legacy', item.id)">
-            <td><details><summary>{{ item.root_cause_type || '任务案例' }}</summary><p>{{ item.description || '暂无描述' }}</p><p v-if="item.log_file_name || item.log_file_id">日志：{{ item.log_file_name || item.log_file_id }}</p><p v-if="item.task_names?.length || item.task_ids?.length">任务：{{ (item.task_names?.length ? item.task_names : item.task_ids)?.join('、') }}</p><pre v-if="item.features">{{ JSON.stringify(item.features, null, 2) }}</pre></details></td>
-            <td>{{ legacyCaseOrigin(item) }}</td><td>有效案例</td>
-            <td><a v-if="item.attachment_path" :href="caseAttachmentUrl(item.id)" target="_blank" rel="noopener noreferrer">查看附件</a><span v-else>—</span></td>
-          </tr></tbody>
-        </table></div>
+        <h3>任务与文件案例 · {{ filteredLegacy.length }} 条</h3>
+        <nav class="classification-tabs" aria-label="历史案例故障类型">
+          <button v-for="option in LEGACY_FAULT_FILTERS" :key="option.value" type="button" :class="{ active: legacyFaultFilter === option.value }" :aria-pressed="legacyFaultFilter === option.value" @click="legacyFaultFilter = option.value">{{ option.label }} <span>{{ legacyFaultCount(option.value) }}</span></button>
+        </nav>
+        <p v-if="!pagedLegacy.length" class="empty">{{ query ? '没有匹配的任务与文件案例' : '暂无任务与文件案例' }}</p>
+        <ul v-else class="legacy-card-list">
+          <li v-for="item in pagedLegacy" :key="materialKey('legacy', item.id)" class="legacy-card">
+            <header class="legacy-card-head">
+              <span class="legacy-badge legacy-badge-cause">{{ item.root_cause_type || '未命名根因' }}</span>
+              <span v-if="item.case_category" class="legacy-badge">{{ item.case_category }}</span>
+              <span v-if="legacyFaultCategoryLabel(item)" class="legacy-badge legacy-badge-fault">{{ legacyFaultCategoryLabel(item) }}</span>
+              <span class="legacy-badge legacy-badge-origin">{{ legacyCaseOrigin(item) }}</span>
+              <time v-if="item.created_at" class="legacy-time">{{ formatReportTime(item.created_at) }}</time>
+              <a v-if="item.attachment_path" class="btn btn-text legacy-attachment" :href="caseAttachmentUrl(item.id)" target="_blank" rel="noopener noreferrer">下载附件</a>
+            </header>
+            <dl class="legacy-facts">
+              <template v-for="fact in legacyCaseFacts(item)" :key="fact.label">
+                <dt>{{ fact.label }}</dt>
+                <dd>{{ fact.value }}</dd>
+              </template>
+            </dl>
+          </li>
+        </ul>
         <PageNav v-if="legacyPages > 1" v-model:page="legacyPage" :pages="legacyPages" />
-        <p v-if="!legacyCases.length" class="empty">暂无任务与文件案例</p>
       </section>
     </template>
   </div>
@@ -301,21 +350,44 @@ watch(caseVersion, () => void load())
 
 <style scoped>
 .case-workspace { display: grid; gap: 24px; }
-.historical-material pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 40rem; }
+.historical-material { display: grid; gap: 12px; }
+.legacy-card-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.legacy-card { display: grid; gap: 12px; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.legacy-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.legacy-badge { padding: 2px 9px; border-radius: 999px; background: var(--bg); color: var(--text2); font-size: 12px; line-height: 20px; white-space: nowrap; }
+.legacy-badge-cause { background: #eaf2ff; color: #1d4ed8; font-weight: 600; }
+.legacy-badge-fault { background: #fff4e5; color: #b45309; }
+.legacy-badge-origin { background: var(--bg); color: var(--text3); }
+.legacy-time { margin-left: auto; color: var(--text3); font-size: 12px; }
+.legacy-attachment { flex: 0 0 auto; padding: 0; font-size: 12px; }
+.legacy-facts { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 6px 12px; margin: 0; font-size: 13px; line-height: 1.6; }
+.legacy-facts dt { color: var(--text2); }
+.legacy-facts dd { margin: 0; overflow-wrap: anywhere; }
 .workspace-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
 .workspace-header h2 { margin: 0 0 8px; font-size: 20px; }
 .workspace-header p, .case-summary { margin: 0; color: var(--text2); line-height: 1.6; }
-.workspace-actions { display: flex; align-items: center; gap: 12px; }
+.workspace-actions { display: flex; flex-shrink: 0; align-items: center; justify-content: flex-end; gap: 12px; }
+.workspace-actions > button { flex: 0 0 auto; white-space: nowrap; }
 .workspace-section { min-width: 0; }
+.workspace-search { display: flex; flex: 0 0 340px; min-width: 0; }
+.workspace-search input { min-width: 0; border-radius: var(--radius-sm) 0 0 var(--radius-sm); border-right: 0; }
+.workspace-search button { height: 36px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; flex: 0 0 auto; }
+.workspace-search:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--radius-sm); }
 .workspace-section h3 { margin: 0 0 12px; font-size: 16px; }
 .classification-tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; max-width: 100%; gap: 8px; padding: 4px 2px 12px; border-bottom: 1px solid var(--border); scrollbar-width: thin; overscroll-behavior-x: contain; }
 .classification-tabs button { flex: 0 0 auto; white-space: nowrap; border: 0; background: transparent; padding: 9px 14px; border-radius: 6px; color: var(--text2); cursor: pointer; font: inherit; }
 .classification-tabs button.active { background: #eaf2ff; color: #1d4ed8; font-weight: 600; }
 .classification-tabs span { margin-left: 6px; font-size: 12px; opacity: .75; }
 .classification-tabs.secondary { margin-top: 12px; }
-.case-title { text-align: left; font-weight: 600; }
-.case-summary { max-width: 450px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.case-origin { display: block; margin-bottom: 4px; }
+.case-title { display: block; max-width: 100%; padding: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.case-summary { max-width: 100%; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.case-table { min-width: 680px; table-layout: fixed; }
+.case-table .case-meta-column { width: 180px; }
+.case-table td { height: auto; padding: 14px 12px; vertical-align: top; }
+.case-origin { display: block; margin-bottom: 4px; line-height: 1.5; }
+.case-source { white-space: normal; }
+.case-source-link { display: block; padding: 0; line-height: 1.5; text-align: left; }
+.case-source-status { display: block; line-height: 1.5; }
 .import-panel { padding: 24px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
 .import-panel h3 { margin-top: 0; }
 .import-form { display: grid; gap: 16px; max-width: 680px; }
@@ -327,4 +399,9 @@ watch(caseVersion, () => void load())
 .historical-material { border-top: 1px solid var(--border); padding-top: 20px; }
 .workspace-section > .hint { margin: 12px 0; }
 summary { cursor: pointer; }
+@media (max-width: 1050px) {
+  .workspace-header { flex-wrap: wrap; }
+  .workspace-actions { width: 100%; flex-wrap: wrap; }
+  .workspace-search { flex: 1 1 200px; }
+}
 </style>

@@ -105,7 +105,8 @@ def test_case_signals_follow_weights_and_are_normalized():
     assert pairs[("cluster", "cluster-a")] == 1.5
     assert pairs[("latency_component", "set_client")] == 1.5
     assert pairs[("log_keyword", "connect timeout")] == 1.0
-    assert pairs[("operation", "set")] == 1.5
+    # operation 只做过滤器，不生成匹配信号
+    assert not [pair for pair in pairs if pair[0] == "operation"]
 
 
 def test_search_text_is_generated_and_excludes_identity_noise():
@@ -703,6 +704,72 @@ def test_search_operation_filter_excludes_other_operation():
 
     assert total == 1
     assert matches[0].case.id == "get-case"
+
+
+def test_mixed_operation_case_matches_both_get_and_set():
+    mixed = _confirmed("mixed-case", operation=DiagCaseOperation.MIXED)
+
+    for operation in ("GET", "SET"):
+        total, matches = _rank(
+            [mixed],
+            SearchDiagCaseLibraryRequest(operation=operation, status_codes=["1004"]),
+        )
+        assert total == 1, f"MIXED 案例必须能被 operation={operation} 命中"
+        assert matches[0].case.id == "mixed-case"
+        assert matches[0].match_score == 3.0
+
+
+def test_operation_filter_does_not_inflate_the_candidate_set():
+    """过滤器放行不等于命中：没有共同信号就不返回。"""
+    mixed = _confirmed("mixed-case", operation=DiagCaseOperation.MIXED, status_codes=["1004"])
+
+    total, matches = _rank(
+        [mixed],
+        SearchDiagCaseLibraryRequest(operation="GET", status_codes=["9999"]),
+    )
+
+    assert total == 0
+    assert matches == []
+
+
+def test_operation_only_query_lists_filtered_cases_without_scores():
+    mixed = _confirmed("mixed-case", operation=DiagCaseOperation.MIXED)
+    get_case = _confirmed("get-case", operation=DiagCaseOperation.GET)
+    set_case = _confirmed("set-case", operation=DiagCaseOperation.SET)
+
+    total, matches = _rank(
+        [mixed, get_case, set_case],
+        SearchDiagCaseLibraryRequest(operation="GET"),
+    )
+
+    assert total == 2
+    assert {match.case.id for match in matches} == {"mixed-case", "get-case"}
+    assert all(match.match_score == 0.0 for match in matches)
+
+
+def test_mixed_operation_case_ranks_level_with_single_operation_case():
+    mixed = _confirmed("mixed-case", operation=DiagCaseOperation.MIXED)
+    set_case = _confirmed("set-case", operation=DiagCaseOperation.SET)
+
+    _total, matches = _rank(
+        [mixed, set_case],
+        SearchDiagCaseLibraryRequest(operation="SET", status_codes=["1004"]),
+    )
+
+    scores = {match.case.id: match.score_norm for match in matches}
+    assert scores["mixed-case"] == scores["set-case"]
+
+
+def test_unlabelled_operation_case_stays_reachable_by_operation_filter():
+    unknown = _confirmed("unknown-case", operation=None)
+
+    total, matches = _rank(
+        [unknown],
+        SearchDiagCaseLibraryRequest(operation="SET", status_codes=["1004"]),
+    )
+
+    assert total == 1
+    assert matches[0].case.id == "unknown-case"
 
 
 def test_search_without_kb_id_recalls_other_knowledge_base_cases():

@@ -86,6 +86,19 @@ export const sourceReportLabel = (status?: string | null) =>
 
 export const materialKey = (source: 'diagnosis' | 'legacy', id: string) => `${source}:${id}`
 
+export const matchesKeywords = (query: string, values: Array<string | null | undefined>) => {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+  const text = values.filter(Boolean).join(' ').toLocaleLowerCase()
+  return terms.every((term) => text.includes(term))
+}
+
+export const caseRefsForFault = <T extends { source_fault_id?: string | null }>(refs: T[], faultId?: string | null) =>
+  refs.filter((item) => (item.source_fault_id ?? null) === (faultId ?? null))
+
+export const unmatchedCaseRefs = <T extends { source_fault_id?: string | null }>(
+  refs: T[], faults: Array<{ fault_id?: string | null }>,
+) => refs.filter((item) => !item.source_fault_id || !faults.some((fault) => fault.fault_id === item.source_fault_id))
+
 export type VerifiableFault = { fault_id?: string | null; synthetic?: boolean; excluded?: boolean; status?: string | null }
 export type VerifiedFaultRef = { source_fault_id?: string | null; is_current_version: boolean; status: string; closed_loop: boolean }
 export const isFaultVerified = (fault: VerifiableFault, refs: VerifiedFaultRef[] = []) =>
@@ -109,8 +122,114 @@ export const filterDocuments = <T extends DocumentValidation>(
 export const documentProgress = (report: DocumentValidation) =>
   `${report.validated_fault_count ?? report.verified_case_count ?? 0}/${report.indexable_fault_count ?? report.fault_count ?? '—'}`
 
-export const legacyCaseOrigin = (item: { source_kind?: string; log_file_id?: string; task_ids?: string[] }) =>
-  item.source_kind === 'task' || item.log_file_id || item.task_ids?.length ? '任务日志自动生成' : '历史文件案例'
+/** 历史案例的来源以是否真有任务为准：批量导入的数据集带 log_file_id 但没有 task_ids。 */
+export const legacyCaseOrigin = (item: { task_ids?: string[] }) =>
+  item.task_ids?.length ? '任务日志自动生成' : '历史文件案例'
+
+type LegacyFeatureSource = {
+  fault_category?: string | null
+  description?: string | null
+  log_file_name?: string | null
+  task_ids?: string[] | null
+  task_names?: string[] | null
+  features?: {
+    latency?: {
+      timeout_segments?: unknown[]
+      p99_p50_ratio?: number | null
+      pod_concentration?: string | null
+      affected_pods_count?: number | null
+    } | null
+    connectivity?: {
+      failure_mode_dist?: Record<string, unknown> | null
+      spatial_pod?: { scope?: string | null } | null
+      spatial_host?: { scope?: string | null } | null
+    } | null
+    summary?: {
+      anomalous_event_count?: number | null
+      failure_event_count?: number | null
+      total_parse_result_count?: number | null
+    } | null
+  } | null
+}
+
+const FAULT_CATEGORY_LABELS: Record<string, string> = {
+  latency: '时延故障', connectivity: '通断故障', mixed: '时延+通断', unknown: '类型未知',
+}
+
+export const legacyFaultCategoryLabel = (item: LegacyFeatureSource) =>
+  FAULT_CATEGORY_LABELS[String(item.fault_category ?? '')] ?? ''
+
+/** mixed 案例同时含时延与通断两侧证据，因此同时计入这两个筛选。 */
+export const LEGACY_FAULT_FILTERS = [
+  { value: '', label: '全部' },
+  { value: 'latency', label: '时延' },
+  { value: 'connectivity', label: '通断' },
+  { value: 'unknown', label: '未标注' },
+] as const
+export type LegacyFaultFilter = (typeof LEGACY_FAULT_FILTERS)[number]['value']
+
+export const matchesLegacyFault = (
+  item: { fault_category?: string | null }, filter: LegacyFaultFilter,
+) => {
+  if (!filter) return true
+  const category = String(item.fault_category ?? '') || 'unknown'
+  if (filter === 'unknown') return !['latency', 'connectivity', 'mixed'].includes(category)
+  return category === filter || category === 'mixed'
+}
+
+/** 超时分段既可能是字符串数组，也可能是 [名称, 数值] 对；只取名称，避免把数值串成一串。 */
+const segmentNames = (values: unknown[] | undefined) => (values ?? [])
+  .map((value) => (Array.isArray(value) ? value[0] : value))
+  .map((value) => String(value ?? '').trim())
+  .filter(Boolean)
+
+/** 把 features 里给人看的部分摊平成「标签：值」，供案例卡片逐行展示。 */
+export const legacyCaseFacts = (item: LegacyFeatureSource): { label: string, value: string }[] => {
+  const facts: { label: string, value: string }[] = []
+  const description = (item.description ?? '').trim()
+  if (description) facts.push({ label: '说明', value: description })
+
+  const latency = item.features?.latency
+  if (latency) {
+    const parts: string[] = []
+    const segments = segmentNames(latency.timeout_segments)
+    if (segments.length) parts.push(`超时分段 ${segments.join(' → ')}`)
+    if (typeof latency.p99_p50_ratio === 'number') parts.push(`P99/P50 ${latency.p99_p50_ratio.toFixed(2)}`)
+    if (latency.pod_concentration) parts.push(`Pod 集中度 ${latency.pod_concentration}`)
+    if (typeof latency.affected_pods_count === 'number') parts.push(`受影响 Pod ${latency.affected_pods_count}`)
+    if (parts.length) facts.push({ label: '时延特征', value: parts.join(' · ') })
+  }
+
+  const connectivity = item.features?.connectivity
+  if (connectivity) {
+    const parts: string[] = []
+    const modes = Object.keys(connectivity.failure_mode_dist ?? {}).filter(Boolean)
+    if (modes.length) parts.push(`故障模式 ${modes.join('、')}`)
+    if (connectivity.spatial_pod?.scope) parts.push(`Pod 范围 ${connectivity.spatial_pod.scope}`)
+    if (connectivity.spatial_host?.scope) parts.push(`节点范围 ${connectivity.spatial_host.scope}`)
+    if (parts.length) facts.push({ label: '通断特征', value: parts.join(' · ') })
+  }
+
+  const summary = item.features?.summary
+  if (summary) {
+    const parts = ([
+      ['异常事件', summary.anomalous_event_count],
+      ['故障事件', summary.failure_event_count],
+      ['总记录', summary.total_parse_result_count],
+    ] as const)
+      .filter(([, value]) => typeof value === 'number')
+      .map(([label, value]) => `${label} ${value}`)
+    if (parts.length) facts.push({ label: '统计', value: parts.join(' · ') })
+  }
+
+  const tasks = item.task_names?.length ? item.task_names : item.task_ids ?? []
+  if (tasks.length) facts.push({ label: '关联任务', value: tasks.join('、') })
+
+  const logName = (item.log_file_name ?? '').trim()
+  if (logName && logName !== description) facts.push({ label: '日志', value: logName })
+  return facts
+}
+
 
 export const canOpenSource = (source?: { status: string; report_id?: string | null } | null) =>
   source?.status === 'valid' && Boolean(source.report_id)

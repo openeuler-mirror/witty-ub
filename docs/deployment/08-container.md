@@ -322,11 +322,30 @@ docker run -d \
 | `~/.config/opencode` | `/root/.config/opencode` | frontend | LLM key 等配置 |
 | `witty-ub-experience-data` | `.../experience-skill/data` | frontend | Agent 经验库（experience.db） |
 | `witty-ub-reports` | `/var/witty-ub/reports` | backend / frontend | 诊断报告（HTML + 侧车 JSON），前端「诊断报告」列表读取 |
+| `witty-ub-builtin-reports` | `/var/witty-ub/builtin-reports` | backend | 内置定界报告的生效压缩包与导入状态（`reports.zip`、`import-state.json`） |
 | `witty-ub-logs` | `/var/log/witty-ub` | 通用 | 应用日志 |
 
 > 报告目录由 `WITTY_REPORT_DIR` 指定（容器内默认 `/var/witty-ub/reports`，与
 > `witty-ub-reports` 卷同路径）。跨机分离部署时前端与后端不共享该卷，前端只能看到
 > 本节点 agent 生成的报告。
+
+### 内置定界报告
+
+镜像内置一份定界报告压缩包（仓库 `data/builtin-reports/builtin-diagnostic-reports.zip`），
+后端与一体容器启动时按压缩包哈希判断是否重载：
+
+1. 镜像内 `/usr/share/witty-ub/builtin-reports/reports.zip` 是只读种子；
+2. 种子与卷内 `/var/witty-ub/builtin-reports/reports.zip` 哈希不同时替换生效副本；
+3. 后台导入生效副本，成功后把压缩包哈希写入 `import-state.json`；
+4. 哈希未变化则直接跳过，重启不会重复导入。
+
+导入在后台执行，不阻塞容器启动，日志见 `/var/log/witty-ub/builtin_report_import.log`。
+报告按内容寻址：修正后的报告是新 ID，上一版本记录在状态文件中的报告会被归档其案例
+并移除报告文件，避免同一份文档留下两个版本。
+
+替换内容只需更新仓库压缩包（文件名保持不变）并重新构建镜像；`WITTY_BUILTIN_REPORTS=0`
+可关闭自动导入，`WITTY_BUILTIN_REPORT_OPERATOR` 指定导入人（默认 `builtin-reports`）。
+导入按“导入时声明已验证”建案：满足确认闸门的结论形成有效案例，其余跳过并在日志中列出原因。
 
 ---
 
@@ -367,6 +386,10 @@ docker run --rm -v witty-ub-data:/data -v $(pwd):/backup alpine tar czf /backup/
 | `PG_PASSWORD` | （见密钥文件） | 一般无需设置：容器入口从 `/run/secrets/pg_password`（挂载自 `/etc/witty-ub/pg.passwd`，0440 root:root）读取并注入后端进程；仅在 PG 已另行配置口令且不使用密钥文件时才需要显式传入 |
 | `LOG_LEVEL` | `info` | 日志级别 |
 | `WITTY_REPORT_DIR` | `/var/witty-ub/reports` | 诊断报告落盘根目录（`witty-ub-reports` 卷）；agent 写入，后端 `/diagnostic_report` 列表与下发读取 |
+
+## 语义检索（可选）
+
+手动 `docker run` 不包含 openGauss 与 RAG Core。需要语义检索时先运行 `bash deploy/docker/deploy_rag.sh`，embedding 与 API Key 配置见 [RAG 与 MCP 部署](../rag-mcp-deployment.md)。
 
 ## 现象索引初始化
 

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   belongsToScope, caseOrigin, collectPages, importForm, matchesClassification, materialKey, populatedLabels,
-  reportNeedsVerification, selectPrimary, UNCLASSIFIED,
+  matchesKeywords, reportNeedsVerification, selectPrimary, UNCLASSIFIED,
 } from '../src/utils/caseWorkflow.ts'
 
 const item = (status, closed_loop) => ({ id: 'case-1', status, verification_json: { closed_loop } })
@@ -87,4 +87,12 @@ test('无文件、错误扩展名、空人员或来源都不发起导入', () =>
   assert.throws(() => importForm(new File(['x'], 'cases.html'), 'a', 'b', true), /JSON 或 ZIP/)
   assert.throws(() => importForm(file, ' ', 'b', true), /操作人/)
   assert.throws(() => importForm(file, 'a', ' ', true), /案例来源/)
+})
+
+test('关键词忽略大小写与空白，可同时匹配案例编号、标题和摘要', () => {
+  const fields = ['UB-CASE-000123', '网络链路故障', '连接超时']
+  assert.equal(matchesKeywords('ub-case-000123 网络', fields), true)
+  assert.equal(matchesKeywords('  连接 超时  ', fields), true)
+  assert.equal(matchesKeywords('UB-CASE-999999', fields), false)
+  assert.equal(matchesKeywords('', []), true)
 })

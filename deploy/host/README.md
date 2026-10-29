@@ -14,6 +14,7 @@
 |------|------|
 | `deploy.sh` | 一键部署入口（交互式菜单 / 完整部署 / 启动 / 停止 / 清理） |
 | `install_deps.sh` | 系统依赖 + Python venv 依赖 + experience-skill 依赖安装 |
+| `deploy_rag.sh` | 语义检索（openGauss + RAG Core）部署与 `.deploy-run/rag.env` 生成 |
 | `run_backend.sh` | 后端启动器（从 `deploy/pg.passwd` 读取 PG 口令后启动 FastAPI） |
 | `run_experience.sh` | experience-skill Web 服务启动器（知识库 Skill/Wiki 管理 API，端口 8082） |
 | `run_frontend_nginx.sh` | 前端 Nginx 模式启动器（静态托管 `dist/` + 反代；`start`/`stop`/`restart`/`reload`/`status`） |
@@ -117,6 +118,7 @@ deploy.sh
   ├── --start 仅启动服务
   │     └── start_services
   │           ├── experience-skill Web 服务 (8082)
+  │           ├── deploy_rag.sh              # openGauss + RAG Core（WITTY_RAG_ENABLE=0 跳过）
   │           ├── FastAPI 后端 (9772)
   │           └── 前端 (Vite 5173 / Nginx 8080) + OpenCode (4096)
   ├── --stop  停止服务

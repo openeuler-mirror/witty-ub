@@ -20,6 +20,9 @@ from typing import Any
 from latency.common.local_time import local_now
 from latency.config import phenomenon as settings
 from latency.database.engine import PGManager
+from latency.database.managers.diag_case_library import (
+    DiagCaseLibraryPGManager as CaseMgr,
+)
 from latency.database.managers.phenomenon_index import PhenomenonIndexPGManager as Mgr
 from latency.database.models import (
     DiagCaseLibrary,
@@ -63,6 +66,9 @@ PARSE_DEADLINE_MINUTES = 30
 MAX_PUBLISH_RETRIES = 5
 MAX_EVENT_RETRIES = 10
 MAX_CLEANUP_RETRIES = 10
+# 每轮自愈最多补多少条案例操作类型：源报告已删除的案例会一直留在待修复集合里，
+# 限流避免每次 reconcile 都全量扫一遍报告卷。
+MAX_CASE_REPAIR_PER_ROUND = 200
 
 WORKER_ID = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
@@ -776,6 +782,10 @@ class PhenomenonIndexService:
                 )
                 disabled += 1
         await Mgr.set_report_available(report_id, False, index_error=None)
+        # 报告已移除时索引不适用；保留旧的 failed 会让状态页把归档报告算成索引故障。
+        await Mgr.update_report_status(
+            report_id, ReportIndexStatus.NOT_APPLICABLE.value, index_error=None
+        )
         return {"switched": switched, "disabled": disabled}
 
     # ---------------------------------------------------------------- legacy
@@ -1186,8 +1196,24 @@ class PhenomenonIndexService:
     # ---------------------------------------------------------------- reconcile
     @staticmethod
     async def reconcile() -> dict[str, int]:
-        stats = {"drift": 0, "invalid": 0, "stuck": 0, "missing": 0, "orphans": 0}
+        stats = {
+            "drift": 0,
+            "invalid": 0,
+            "stuck": 0,
+            "missing": 0,
+            "orphans": 0,
+            "stale_kb": 0,
+            "superseded_reports": 0,
+            "case_repaired": 0,
+            "signals_dropped": 0,
+        }
         await Mgr.promote_observing(600)
+        stats["superseded_reports"] = (
+            await Mgr.normalise_unavailable_report_status()
+        )
+        derived = await PhenomenonIndexService._repair_case_derived()
+        stats["case_repaired"] = derived["repaired"]
+        stats["signals_dropped"] = derived["signals_dropped"]
 
         for card in await Mgr.cards_with_source_drift():
             await Mgr.set_searchable(card.doc_id, False)
@@ -1216,10 +1242,9 @@ class PhenomenonIndexService:
             logger.warning("reconcile skipped RAG document list: %s", exc)
             return stats
 
+        mapped_pairs = await Mgr.list_mapped_pairs()
         local_pairs = {
-            (kb, doc)
-            for _doc_id, kb, doc in await Mgr.list_mapped_pairs()
-            if kb == kb_id
+            (kb, doc) for _doc_id, kb, doc in mapped_pairs if kb == kb_id
         }
         # RAG 文档清单会保留已删除文档的墓碑记录；墓碑不算孤儿，也不能当作映射仍存在。
         active_remote = [
@@ -1236,7 +1261,21 @@ class PhenomenonIndexService:
                 await Mgr.observe_orphan(kb_id, str(rag_doc_id))
                 stats["orphans"] += 1
 
-        for _doc_id, kb, rag_doc_id in await Mgr.list_mapped_pairs():
+        # 换 KB（含知识库被删后重建）后旧映射指向别的知识库，检索永远命中不到；
+        # 以当前配置的知识库为准退役旧映射并重新发布。
+        for _doc_id, kb, rag_doc_id in mapped_pairs:
+            if kb == kb_id:
+                continue
+            card = await Mgr.get_card_by_rag_doc(kb, rag_doc_id)
+            if card is None:
+                continue
+            await Mgr.set_searchable(card.doc_id, False)
+            await Mgr.clear_mapping(
+                card.doc_id, error="kb_changed", requeue=bool(card.enabled)
+            )
+            stats["stale_kb"] += 1
+
+        for _doc_id, kb, rag_doc_id in mapped_pairs:
             if kb != kb_id:
                 continue
             if rag_doc_id not in remote_ids:
@@ -1246,6 +1285,51 @@ class PhenomenonIndexService:
                         card.doc_id, error="remote_document_missing", requeue=True
                     )
                     stats["missing"] += 1
+        return stats
+
+    @staticmethod
+    async def _repair_case_derived() -> dict[str, int]:
+        """按源报告重算案例的派生列。
+
+        ``source_fault_hash`` 不符会让案例与现象卡片解绑，卡片退化为 stale。
+        """
+        stats = {"signals_dropped": 0, "repaired": 0}
+        stats["signals_dropped"] = await CaseMgr.drop_operation_signals()
+        for case in (await CaseMgr.cases_with_report_binding())[
+            :MAX_CASE_REPAIR_PER_ROUND
+        ]:
+            payload, _kb_dir, error = _load_report_payload(case.report_id)
+            if error or payload is None:
+                continue
+            operation = extractor.fault_operation(payload)
+            if operation not in {"GET", "SET", "MIXED", "N/A"}:
+                operation = None
+            faults = extractor.normalise_faults(payload)
+            fault = next(
+                (
+                    item
+                    for item in faults
+                    if extractor._text(item.get("id")) == case.source_fault_id
+                ),
+                None,
+            )
+            if fault is None:
+                continue
+            source_fault_hash = extractor.compute_source_fault_hash(
+                fault, case.source_fault_id, operation
+            )
+            if (
+                case.operation == operation
+                and case.source_fault_hash == source_fault_hash
+            ):
+                continue
+            if (
+                await CaseMgr.refresh_case_derived(
+                    case.id, operation, source_fault_hash
+                )
+                is not None
+            ):
+                stats["repaired"] += 1
         return stats
 
     @staticmethod

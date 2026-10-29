@@ -4,9 +4,9 @@ import {
   fetchReportDetail, previewReportCase, reportHtmlUrl, verifyReportFault,
   type ReportCasePreview, type ReportDetail, type ReportFaultSummary,
 } from '../api/diagCase'
-import { canVerifyFault, documentClassificationText, documentProgress, formatReportTime, isFaultVerified, verificationInput, verifySelectedFaults, type VerificationOutcome } from '../utils/caseWorkflow'
+import { canVerifyFault, caseRefsForFault, documentClassificationText, documentProgress, formatReportTime, isFaultVerified, unmatchedCaseRefs, verificationInput, verifySelectedFaults, type VerificationOutcome } from '../utils/caseWorkflow'
 
-const props = defineProps<{ open: boolean; reportId: string; faultId?: string; refreshToken?: number }>()
+const props = defineProps<{ open: boolean; reportId: string; faultId?: string; refreshToken?: number; resume?: boolean }>()
 const emit = defineEmits<{ close: []; changed: []; 'open-case': [caseId: string] }>()
 const loading = ref(false)
 const error = ref('')
@@ -72,6 +72,12 @@ watch(() => [props.open, props.reportId], async () => {
     return
   }
   previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  if (props.resume && detail.value?.report.report_id === props.reportId) {
+    await nextTick()
+    panel.value?.focus({ preventScroll: true })
+    await load()
+    return
+  }
   operator.value = localStorage.getItem('witty-operator') ?? ''
   selected.value = []
   outcomes.value = {}
@@ -123,7 +129,7 @@ const submit = async () => {
   }
 }
 const close = () => { if (!saving.value) emit('close') }
-const openCase = (id: string) => { close(); emit('open-case', id) }
+const openCase = (id: string) => { if (!saving.value) emit('open-case', id) }
 const openHtml = () => {
   if (report.value) window.open(reportHtmlUrl(report.value.report_id), '_blank', 'noopener')
 }
@@ -142,10 +148,10 @@ const trapFocus = (event: KeyboardEvent) => {
 </script>
 
 <template>
-  <div v-if="open" class="modal" @click.self="close">
+  <div v-show="open" class="modal" @click.self="close">
     <section ref="panel" class="modal-content diag-workbench-content verification-workbench" role="dialog" aria-modal="true" aria-labelledby="verification-workbench-title" tabindex="-1" @keydown.esc.stop="close" @keydown="trapFocus">
       <header class="modal-header">
-        <span id="verification-workbench-title">验证定界结论</span>
+        <span id="verification-workbench-title">定界文档详情</span>
         <button class="close-modal" type="button" aria-label="关闭" :disabled="saving" @click="close">✕</button>
       </header>
       <div class="modal-body">
@@ -156,19 +162,21 @@ const trapFocus = (event: KeyboardEvent) => {
             <div><h2>{{ report.title || '未命名定界文档' }}</h2><p>{{ report.kb_name || report.source_name || (report.imported ? '外部导入' : '诊断任务') }} · {{ formatReportTime(report.generated_at) }} · 已验证 {{ documentProgress(report) }}</p></div>
             <button class="ghost-btn" type="button" @click="openHtml">阅读定界文档</button>
           </header>
-          <section v-if="report.case_refs?.length" class="workbench-note" aria-label="关联案例">
-            <h3>关联案例</h3>
-            <ul><li v-for="item in report.case_refs" :key="`${item.case_id}:${item.revision}`"><button class="table-link-btn" type="button" :disabled="saving" @click="openCase(item.case_id)">{{ item.case_no || item.case_id }}</button> · {{ item.source_fault_id || '未绑定结论' }} · {{ !item.is_current_version ? '历史版本' : item.status === 'confirmed' && item.closed_loop ? '有效案例' : item.status === 'draft' ? '关联草稿' : '历史记录' }}</li></ul>
-          </section>
           <label v-if="selectableFaults.length" class="select-all"><input type="checkbox" :checked="allSelected" :disabled="saving" @change="toggleAll" />全选待验证结论</label>
           <p v-if="!faults.length" class="state-text">文档暂无可验证结论，请阅读原文核对材料。</p>
           <article v-for="(fault, index) in faults" :key="fault.fault_id || `fault:${index}`" class="fault-card" :class="{ highlighted: fault.fault_id === faultId }">
             <div class="fault-heading">
               <label><input v-if="selectable(fault)" v-model="selected" type="checkbox" :value="fault.fault_id" :disabled="saving" /><strong>{{ fault.title || `结论 ${index + 1}` }}</strong></label>
-              <span class="status-badge">{{ isVerified(fault) || outcomes[fault.fault_id || '']?.caseId ? '已验证' : fault.synthetic || fault.excluded || !fault.fault_id ? '仅供参考' : '待验证' }}</span>
+              <span class="status-badge" :class="isVerified(fault) || outcomes[fault.fault_id || '']?.caseId ? 'status-successful' : fault.synthetic || fault.excluded || !fault.fault_id ? 'status-unknown' : 'status-pending'">{{ isVerified(fault) || outcomes[fault.fault_id || '']?.caseId ? '已验证' : fault.synthetic || fault.excluded || !fault.fault_id ? '仅供参考' : '待验证' }}</span>
             </div>
             <p class="classification">{{ classification(fault) }}</p>
-            <details v-if="fault.fault_id && !fault.synthetic" @toggle="showPreview(fault, $event)">
+            <div v-if="caseRefsForFault(report.case_refs ?? [], fault.fault_id).length" class="linked-cases">
+              <span>关联案例</span>
+              <button v-for="item in caseRefsForFault(report.case_refs ?? [], fault.fault_id)" :key="`${item.case_id}:${item.revision}`" class="case-link" type="button" :disabled="saving" @click="openCase(item.case_id)">
+                {{ item.case_no || item.case_id }} <small>{{ !item.is_current_version ? '历史版本' : item.status === 'confirmed' && item.closed_loop ? '已验证' : item.status === 'draft' ? '草稿' : '历史记录' }}</small>
+              </button>
+            </div>
+            <details v-if="fault.fault_id && !fault.synthetic && !isVerified(fault)" @toggle="showPreview(fault, $event)">
               <summary>查看结论与处置</summary>
               <p v-if="previewErrors[fault.fault_id]" class="dialog-error">{{ previewErrors[fault.fault_id] }}</p>
               <template v-else-if="previews[fault.fault_id]">
@@ -179,13 +187,17 @@ const trapFocus = (event: KeyboardEvent) => {
               <p v-else>正在加载…</p>
             </details>
             <p v-if="outcomes[fault.fault_id || '']?.error" class="dialog-error" role="alert">验证未完成：{{ outcomes[fault.fault_id || '']?.error }}</p>
-            <p v-if="outcomes[fault.fault_id || '']?.caseId" class="verification-success" role="status">已形成有效案例 <button class="table-link-btn" :disabled="saving" @click="openCase(outcomes[fault.fault_id || '']!.caseId!)">查看案例</button></p>
+            <p v-if="outcomes[fault.fault_id || '']?.caseId && !caseRefsForFault(report.case_refs ?? [], fault.fault_id).some((item) => item.case_id === outcomes[fault.fault_id || '']?.caseId)" class="verification-success" role="status">已形成有效案例 <button class="case-link" :disabled="saving" @click="openCase(outcomes[fault.fault_id || '']!.caseId!)">查看案例</button></p>
           </article>
+          <section v-if="unmatchedCaseRefs(report.case_refs ?? [], faults).length" class="linked-cases">
+            <span>未绑定结论的关联案例</span>
+            <button v-for="item in unmatchedCaseRefs(report.case_refs ?? [], faults)" :key="`${item.case_id}:${item.revision}`" class="case-link" type="button" :disabled="saving" @click="openCase(item.case_id)">{{ item.case_no || item.case_id }}</button>
+          </section>
           <form v-if="selectableFaults.length" class="verification-form" @submit.prevent="submit">
             <label>操作人<input v-model="operator" class="diag-input" autocomplete="name" :disabled="saving" @change="saveOperator" /></label>
             <label>定界结论检验结果<textarea v-model="observedResult" rows="4" :disabled="saving" placeholder="记录原始日志、证据与定界结论的核对结果；所选结论均适用时可批量提交。" /></label>
             <p v-if="!report.current_sidecar_hash" class="dialog-error">文档版本暂不可校验，请重新加载后验证。</p>
-            <div class="submit-row"><span>已选择 {{ selected.length }} 条结论</span><button class="primary-btn" type="submit" :disabled="saving || !selected.length || !report.current_sidecar_hash">{{ saving ? '正在逐条检验…' : '检验通过并形成有效案例' }}</button></div>
+            <div class="submit-row"><span>已选择 {{ selected.length }} 条结论</span><button class="verification-submit" type="submit" :disabled="saving || !selected.length || !report.current_sidecar_hash">{{ saving ? '正在逐条检验…' : '检验通过并形成有效案例' }}</button></div>
           </form>
           <p v-else-if="faults.length" class="workbench-note">当前可验证结论已处理，可继续阅读文档或查看关联案例。</p>
         </template>
@@ -206,11 +218,21 @@ const trapFocus = (event: KeyboardEvent) => {
 .fault-card.highlighted { border-color: #93b4ee; }
 .fault-heading { display: flex; justify-content: space-between; gap: 18px; }
 .classification { margin: 8px 0; font-size: 12px; }
+.linked-cases { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: #64748b; font-size: 13px; }
+.case-link { border: 1px solid #bfdbfe; border-radius: 6px; background: #eff6ff; color: #1d4ed8; padding: 6px 10px; font: inherit; cursor: pointer; }
+.case-link:hover:not(:disabled) { background: #dbeafe; }
+.case-link:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.case-link:disabled { opacity: .55; cursor: not-allowed; }
+.case-link small { color: #64748b; margin-left: 4px; }
 summary { cursor: pointer; color: #475569; }
 .verification-form { display: grid; gap: 18px; border-top: 1px solid #e2e8f0; margin-top: 24px; padding-top: 24px; }
 .verification-form label { display: grid; gap: 8px; font-weight: 500; }
 .verification-form input { max-width: 320px; }
 .verification-form textarea { width: 100%; padding: 12px; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit; resize: vertical; }
 .submit-row { display: flex; justify-content: space-between; gap: 20px; align-items: center; }
+.verification-submit { min-height: 40px; padding: 9px 18px; border: 0; border-radius: 8px; background: var(--primary); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+.verification-submit:hover:not(:disabled) { background: var(--primary-dark); }
+.verification-submit:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.verification-submit:disabled { background: #e2e8f0; color: #64748b; cursor: not-allowed; }
 .verification-success { color: #15803d; }
 </style>

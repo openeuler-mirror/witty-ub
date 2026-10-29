@@ -77,6 +77,23 @@ export WITTY_CORS_ORIGINS="https://witty.example.com,http://192.168.1.10:5173"
 - `apiBase`（默认 `""`）：后端 API 基址；留空 = 同源（经 Nginx 反代），设为 `http://<后端>:9772` 则浏览器直连
 - `agentApiBase`（默认 `/agent-api`）：OpenCode Agent API 基址
 
+### RAG embedding 环境变量
+
+RAG Core 通过 OpenAI 兼容的 `/v1/embeddings` 服务生成向量。容器部署由 `deploy/deploy.conf` 注入，源码/宿主机脚本部署读取环境变量或 `.deploy-run/rag.local.env`。
+
+| 变量名 | 默认值 | 说明 |
+| -------- | -------- | ------ |
+| `RAG_EMBEDDING_ENDPOINT` | `https://api.siliconflow.cn/v1/embeddings` | 完整的 `/v1/embeddings` 地址 |
+| `RAG_EMBEDDING_MODEL_NAME` | `BAAI/bge-m3` | 端点上的模型名 |
+| `RAG_EMBEDDING_MODEL_PROVIDER` | `openai` | 模型提供商标识 |
+| `RAG_EMBEDDING_DIMENSION` | `1024` | 向量维度上限，须不小于模型实际维度；改变维度必须重建索引 |
+| `RAG_EMBEDDING_API_KEY` | 空 | 端点鉴权 Key；留空按无鉴权服务连接 |
+| `RAG_MODEL_API_KEY_SECRET_FILE` | `/etc/witty-ub/rag-secrets/model-api-key` | Key 持久化文件，权限 `0600`；源码部署默认落在 `.deploy-run/rag-secrets/` |
+| `RAG_EMBEDDING_STATE_FILE` | Key 同目录的 `embedding.conf` | 端点、模型名、供应商与维度的落盘文件（`0600`），重跑时复用 |
+| `RAG_RERANK_ENABLED` | `0` | 是否启用 rerank；开启时还需配置 `RAG_RERANK_MODEL_NAME` 与 `RAG_RERANK_ENDPOINT` |
+
+部署时传入的 `RAG_EMBEDDING_*` 与 `RAG_EMBEDDING_API_KEY` 都会落盘，后续部署无需再次传入。取值优先级为：显式传入 > 已落盘 > 内置默认。只换 Key 而端点仍为内置默认值时，会退回公网服务，需一并传端点。更换 embedding 模型或维度后必须重建索引。
+
 ### 现象索引环境变量
 
 后端通过 RAG Core REST 维护现象专用知识库，与 Agent 的通用 RAG MCP 通道相互独立。容器部署由 `deploy/deploy.conf` 同名配置项注入；源码/RPM 部署在启动后端前导出同名变量。
@@ -86,8 +103,8 @@ export WITTY_CORS_ORIGINS="https://witty.example.com,http://192.168.1.10:5173"
 | `RAG_CORE_URL` | 按部署推导 | RAG Core REST 基址；部署脚本按网络模式与 RAG 容器名推导，跨机部署显式配置 |
 | `RAG_ACCESS_KEY_FILE` | 复用 `RAG_ACCESS_KEY_SECRET_FILE` | RAG 访问密钥文件路径；容器部署以只读方式挂载，不新增第二份密钥 |
 | `RAG_PHENOMENON_KB_ID` | 空 | 现象专用知识库 ID；由 `phenomenon_cli --init-kb` 创建后回填，未填时索引不启动 |
-| `PHENOMENON_INDEX_ENABLED` | `false` | 索引扫描与发布 worker 开关 |
-| `PHENOMENON_SEARCH_ENABLED` | `false` | `/phenomenon/search` 开关；关闭时返回 `503` |
+| `PHENOMENON_INDEX_ENABLED` | 留空 = `auto` | 索引扫描与发布 worker 开关；检测到 RAG 即启用，`false` 关闭 |
+| `PHENOMENON_SEARCH_ENABLED` | 留空 = `auto` | `/phenomenon/search` 开关；默认跟随索引开关，关闭时返回 `503` |
 | `RAG_MIN_SCORE` | `0.1` | 归一化召回分数阈值，按样本集校准 |
 | `RAG_TOP_K` | `5` | 默认召回条数 |
 | `RAG_INDEX_INTERVAL` | `120` | 报告目录扫描与索引重试周期，单位秒 |

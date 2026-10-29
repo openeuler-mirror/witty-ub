@@ -76,9 +76,11 @@ POST /phenomenon/search
    并回到现场证据核对。案例自带 `counter_evidence_json` 的，优先借用其排除项。
 4. **不许只给笼统匹配分**：每条候选必须给 L1/L2/L3 逐级"命中/不命中"判定，并给出
    applicability。分数只是排序依据，不是采用依据。
-5. **GET / SET 分开检索**：library 通道 `operation` 是服务端过滤字段（提交即隔离，
-   且计入归一化分母）；legacy 通道没有该字段，隔离只能靠"分两次查询、各自只提交本
+5. **GET / SET 分开检索**：library 通道 `operation` 是纯过滤器（提交即隔离，不计入
+   归一化分母）；legacy 通道没有该字段，隔离只能靠"分两次查询、各自只提交本
    operation 的信号"。任何通道都禁止把两种操作的信号合并成一次查询。
+   `operation=MIXED` 或未标注操作的案例对两种操作都成立，会同时出现在 GET 与 SET 的
+   结果里；`MIXED` 只说明整份报告覆盖该操作，判定故障归属仍须回取报告。
 6. **特征只能来自现场观测**：不得为了凑匹配填入未观测到的 IP / Pod / 错误码；
    `log_keywords` 必须是本次现场日志的原文短语，不能套用历史案例里的短语。
 7. **命中即回写**：凡被采纳（含部分采纳）为参考的案例，回写对应通道的
@@ -117,7 +119,7 @@ python3 match_cases.py /tmp/case_match/features.json --source legacy   # 仅在 
 
 - **`--source library`（默认，正解通道）**：打 `POST /diag_case_library/search`，只召回
   `status=confirmed` 的已确认案例。`kb_id` 可省略（留空 = 跨知识库召回，`kb_id` 只作来源标注），
-  `operation` 由服务端过滤且计入归一化分母。
+  `operation` 由服务端精确过滤，不参与计分。
 - **`--source legacy`（降级通道）**：打 `POST /diagnosis_case/search`，`kb_id` 必填且服务端校验
   存在性，**不能传空串做跨库检索**；检索范围 = 本次知识库 + 全局案例。该通道案例未经人工确认，
   输出必须标注其来源属性。

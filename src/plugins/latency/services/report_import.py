@@ -58,6 +58,9 @@ STATUS_IMPORTED = "imported"
 STATUS_DUPLICATE = "duplicate"
 STATUS_FAILED = "failed"
 
+# 导入质量旁注（渲染期校验问题）；独立文件，不参与 sidecar_hash。
+QUALITY_SUFFIX = ".import.json"
+
 CASE_CONFIRMED = "confirmed"
 CASE_DRAFT = "draft"
 CASE_SKIPPED = "skipped"
@@ -97,6 +100,9 @@ class ImportOptions:
     build_cases: bool = False
     keep_draft: bool = False
     index: bool = True
+    # 一线采集的真实数据可能缺字段：显式允许后，校验失败降级渲染、
+    # 缺必填摘要的结论仍然建案，缺什么由 data_quality 记录，不静默丢弃。
+    allow_incomplete: bool = False
 
 
 @dataclass(slots=True)
@@ -131,6 +137,8 @@ class ImportItemResult:
     eligible_case_count: int = 0
     report_confirmed: bool = False
     cases: list[CaseOutcome] = field(default_factory=list)
+    # 放行不完整数据时渲染器报出的校验问题，随结果返回并写入侧车。
+    render_warnings: list[str] = field(default_factory=list)
 
     def case_counts(self) -> dict[str, int]:
         counts = {
@@ -154,6 +162,7 @@ class ImportItemResult:
             "fault_count": self.fault_count,
             "eligible_case_count": self.eligible_case_count,
             "report_confirmed": self.report_confirmed,
+            "render_warnings": list(self.render_warnings),
             "case_counts": self.case_counts(),
             "cases": [outcome.as_dict() for outcome in self.cases],
         }
@@ -168,6 +177,29 @@ class ImportBatchResult:
     file_count: int
     summary: dict[str, Any]
     items: list[ImportItemResult]
+
+    def degraded_summary(self) -> dict[str, Any]:
+        """放行不完整数据产生的降级，供调用方明确暴露而不是静默放过。
+
+        分两层：报告层（渲染期校验问题）与案例层（缺建案字段）。
+        """
+        reports = [
+            {"report_id": item.report_id, "warnings": list(item.render_warnings)}
+            for item in self.items
+            if item.render_warnings
+        ]
+        cases = [
+            {"report_id": item.report_id, **outcome.as_dict()}
+            for item in self.items
+            for outcome in item.cases
+            if outcome.missing_fields
+        ]
+        return {
+            "report_count": len(reports),
+            "reports": reports,
+            "case_count": len(cases),
+            "cases": cases,
+        }
 
 
 def _text(value: Any) -> str | None:
@@ -342,7 +374,9 @@ def _renderer_path() -> Path:
     )
 
 
-def _render_report_html(payload: dict[str, Any], out_html: Path) -> None:
+def _render_report_html(
+    payload: dict[str, Any], out_html: Path, *, allow_incomplete: bool = False
+) -> list[str]:
     renderer = _renderer_path()
     python = _render_python()
     with tempfile.TemporaryDirectory(prefix="witty-report-import-") as tmp:
@@ -358,6 +392,7 @@ def _render_report_html(payload: dict[str, Any], out_html: Path) -> None:
                     str(data_path),
                     str(out_html),
                     "--no-sidecar",
+                    *(["--allow-incomplete"] if allow_incomplete else []),
                 ],
                 capture_output=True,
                 text=True,
@@ -376,6 +411,14 @@ def _render_report_html(payload: dict[str, Any], out_html: Path) -> None:
             "renderer_rejected",
             " | ".join(lines[-3:]) or f"exit {proc.returncode}",
         )
+    # 放行模式下渲染器把校验问题降级为 ⚠ 提示；收集起来随报告一起落盘，
+    # 保证「数据不完整」这件事有据可查，而不是只在构建日志里一闪而过。
+    warnings = [
+        line[1:].strip()
+        for line in (proc.stderr or "").splitlines()
+        if line.startswith("⚠") or line.strip().startswith("- ")
+    ]
+    return [item for item in warnings if item]
 
 
 def _read_sidecar_hash(path: Path) -> str | None:
@@ -458,9 +501,14 @@ async def _build_cases(
                 )
             )
             continue
-        if "symptom_summary" in preview.missing_fields or (
-            "root_cause_summary" in preview.missing_fields
-        ):
+        # 缺必填摘要默认跳过；显式允许不完整数据时仍建案，摘要由 fallback 派生，
+        # 缺哪几个字段写进 data_quality，避免与字段齐全的案例混为一谈。
+        degraded_fields = [
+            name
+            for name in ("symptom_summary", "root_cause_summary")
+            if name in preview.missing_fields
+        ]
+        if degraded_fields and not options.allow_incomplete:
             outcomes.append(
                 CaseOutcome(
                     fault_id=fault_id,
@@ -497,6 +545,7 @@ async def _build_cases(
                 outcomes.append(CaseOutcome(
                     fault_id=fault_id, status=CASE_CONFIRMED,
                     case_id=verified.case.id, case_no=verified.case.case_no,
+                    missing_fields=list(preview.missing_fields),
                 ))
             except BaseBizException as exc:
                 outcomes.append(CaseOutcome(
@@ -646,8 +695,24 @@ async def _import_one(
     else:
         temp_html = root / f".{report_id}.{uuid.uuid4().hex[:8]}.html.tmp"
         try:
-            await asyncio.to_thread(_render_report_html, original_payload, temp_html)
+            warnings = await asyncio.to_thread(
+                _render_report_html,
+                original_payload,
+                temp_html,
+                allow_incomplete=options.allow_incomplete,
+            )
+            if warnings:
+                result.render_warnings = list(warnings)
             _write_atomic(root / f"{report_id}.source.json", entry.data)
+            # 导入质量单独落盘：侧车内容参与 sidecar_hash，混进去会让已确认的
+            # 同一份报告在下次导入时被判成「版本已变化」。
+            if warnings:
+                _write_atomic(
+                    root / f"{report_id}{QUALITY_SUFFIX}",
+                    json.dumps(
+                        {"render_warnings": list(warnings)}, ensure_ascii=False
+                    ).encode("utf-8"),
+                )
             _write_atomic(sidecar_path, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
             os.replace(temp_html, html_path)
         except ImportRenderError as exc:
@@ -748,6 +813,7 @@ async def import_reports(
         build_cases=options.build_cases,
         keep_draft=options.keep_draft,
         index=options.index,
+        allow_incomplete=options.allow_incomplete,
     )
 
     entries = collect_json_entries(source)

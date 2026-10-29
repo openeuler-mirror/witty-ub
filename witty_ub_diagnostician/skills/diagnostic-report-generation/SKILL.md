@@ -5,11 +5,12 @@ description: >
   诊断报告（7 个带编号的顶层章节）。报告由 scripts/render_report.py 校验并调用
   Jinja2 模板生成：Agent 只负责按契约准备一个数据 JSON，不手写 HTML、不内联渲染模板。
   当诊断完成后需要输出结构化报告、沉淀案例或归档时使用本 Skill。
+  平台里「定界报告」「定界文档」指的就是本 Skill 产出的诊断报告。
 license: MIT
 metadata:
   author: witty-ub-diagnostician
   version: "2.3"
-  keywords: [诊断报告, report, HTML报告, 推理链, 故障传播, 源码分析, 统计分析, 知识库匹配, 工作追踪, brpc, ubsocket, umq, urma]
+  keywords: [诊断报告, 定界报告, 定界文档, report, HTML报告, 推理链, 故障传播, 源码分析, 统计分析, 知识库匹配, 工作追踪, brpc, ubsocket, umq, urma]
 allowed-tools: >
   Bash(curl:*) Bash(cd:*) Bash(python3:*)
   experience-skill
@@ -72,8 +73,9 @@ python3 render_report.py /tmp/report_data.json
 # WITTY_REPORT_DIR=/var/witty-ub/reports，由 witty-ub-reports 卷持久化），
 # 同目录写同名侧车 .json（原样报告数据，前端「诊断报告」列表靠它取标题/故障数）。
 # 不要传 out 参数把报告挪到 /tmp 或仓库目录；本地调试可用 --kb-id 指定目录名。
-# 渲染成功后会清理同知识库目录下的旧报告（report_<kb_id>_*.html 及侧车），
-# 报告库中该知识库始终只保留最新一份，不会因多次渲染而累积重复条目。
+# 渲染成功后会清理同知识库目录下的未确认旧报告（report_<kb_id>_*.html 及侧车），
+# 该知识库通常只保留最新一份；已确认的报告、已绑定确认案例的报告不清理（其原文
+# 是案例回指的证据），取不到确认状态时也不清理。
 ```
 
 正式渲染会再次使用与步骤 3、导入链路相同的报告契约校验（必需顶层键、字段枚举、
@@ -295,5 +297,6 @@ API 证据锚点。既无代表 trace、又无上述真实请求来源时，案�
 |---------|---------|
 | "把刚才的诊断写成报告" / "生成一份诊断报告" | 本会话已运行诊断 Skill；未诊断则先回诊断 Skill |
 | "为当前资产库生成诊断报告" | 自动完成当前资产库的诊断取证、JSON 校验和 HTML 渲染；用户无需指定 JSON 字段或模板 |
+| "生成定界报告" / "出一份定界报告" | 同上一行：定界报告即本 Skill 产出的诊断报告，一句话即走完整链路，不反问字段或模板 |
 | "生成报告 JSON，不渲染 HTML" | 写 JSON 后仍须执行 `--validate-only`；通过后交付 JSON，不生成 HTML/侧车 |
 | "把这个案例沉淀到经验库" | 先生成完整报告并取得用户确认，再按上文「案例沉淀」三步链路写入案例库 |

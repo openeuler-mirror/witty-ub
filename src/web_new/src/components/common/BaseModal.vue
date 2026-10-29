@@ -17,6 +17,7 @@ const props = withDefaults(
     size?: 'sm' | 'md' | 'lg' | 'form' | 'xl' | 'doc' | 'drawer'
     closeOnEsc?: boolean
     closeOnOverlay?: boolean
+    keepMounted?: boolean
   }>(),
   { size: 'md', closeOnEsc: true, closeOnOverlay: true },
 )
@@ -98,7 +99,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <div
-      v-if="open"
+      v-if="open || keepMounted"
+      v-show="open"
       class="modal-overlay"
       :class="{ 'modal-overlay--drawer': size === 'drawer' }"
       @click.self="closeOnOverlay && close()"

@@ -12,6 +12,13 @@ from latency_features import build_features, main as features_main, validate_fea
 import render_report
 
 
+class _UnconfirmedStates(dict):
+    """任何 report_id 都按「未确认、无绑定案例」回答，让清理逻辑走删除分支。"""
+
+    def get(self, key, default=None):
+        return {"review_status": "unconfirmed", "case_count": 0}
+
+
 def snapshot(operation="GET", count=4, p50=10.0, p90=30.0,
              start="2026-10-26 12:00:00", end="2026-10-26 12:10:00"):
     key = "urma" if operation == "GET" else "set_client"
@@ -218,17 +225,21 @@ class LatencyFeaturesTest(unittest.TestCase):
             flat = {k: v for k, v in data.items() if k != "faults"}
             flat.update(conclusion={}, latency=data["faults"][0]["latency"])
             source.write_text(json.dumps(flat), encoding="utf-8")
-            with patch.dict("os.environ", {"WITTY_REPORT_DIR": temp}), redirect_stdout(io.StringIO()):
+            with patch.dict("os.environ", {"WITTY_REPORT_DIR": temp}), \
+                    patch.object(render_report, "report_states", lambda _slug: _UnconfirmedStates()), \
+                    redirect_stdout(io.StringIO()):
                 self.assertEqual(render_report.main([str(source)]), 0)
             outputs = list((Path(temp) / "test-kb").glob("*.html"))
-            # 每个知识库只保留最新报告；第二次渲染会清理上一份。
+            # 每个知识库只保留最新报告；未确认的上一份会被清理。
             self.assertEqual(len(outputs), 1)
             self.assertTrue(all("阶段特征" in p.read_text(encoding="utf-8") for p in outputs))
             # 历史报告没有 features 时仍应渲染。
             del flat["latency"]["stages"][0]["features"]
             flat["latency"]["stages"][0]["p99"] = "20ms"
             source.write_text(json.dumps(flat), encoding="utf-8")
-            with patch.dict("os.environ", {"WITTY_REPORT_DIR": temp}), redirect_stdout(io.StringIO()):
+            with patch.dict("os.environ", {"WITTY_REPORT_DIR": temp}), \
+                    patch.object(render_report, "report_states", lambda _slug: _UnconfirmedStates()), \
+                    redirect_stdout(io.StringIO()):
                 self.assertEqual(render_report.main([str(source)]), 0)
 
 

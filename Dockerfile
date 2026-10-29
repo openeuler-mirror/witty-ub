@@ -34,8 +34,12 @@ LABEL maintainer="witty-ub"
 LABEL description="Witty-UB backend image (FastAPI + C++ diagnosis tools)"
 
 COPY witty_ub_diagnostician/skills/diagnostic-report-generation/ /usr/share/witty-ub/report-generation/
+# Built-in report archive: shipping a new image with different content is what
+# replaces and reloads the packaged reports.
+COPY data/builtin-reports/builtin-diagnostic-reports.zip /usr/share/witty-ub/builtin-reports/reports.zip
 ENV WITTY_REPORT_RENDERER=/usr/share/witty-ub/report-generation/scripts/render_report.py \
-    WITTY_LABEL_TAXONOMY_FILE=/usr/share/witty-ub/report-generation/references/log_label.json
+    WITTY_LABEL_TAXONOMY_FILE=/usr/share/witty-ub/report-generation/references/log_label.json \
+    WITTY_BUILTIN_REPORT_ARCHIVE=/usr/share/witty-ub/builtin-reports/reports.zip
 
 COPY --from=builder-cpp /build/build/src/witty-ub-log /usr/bin/
 COPY --from=builder-cpp /build/build/src/witty-ub-topo /usr/bin/
@@ -90,7 +94,7 @@ ENV WITTY_ROLE=backend
 
 EXPOSE 9772
 
-VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub"]
+VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/witty-ub/builtin-reports", "/var/log/witty-ub"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["/healthcheck.sh"]
@@ -152,6 +156,14 @@ FROM ${BASE_IMAGE} AS all
 
 LABEL maintainer="witty-ub"
 LABEL description="Witty-UB: Fault localization tool for superpods with Lingqu(UB) architecture"
+
+# Built-in report import renders through the report-generation Skill, and the
+# archive ships in the image so a new image replaces the packaged reports.
+COPY witty_ub_diagnostician/skills/diagnostic-report-generation/ /usr/share/witty-ub/report-generation/
+COPY data/builtin-reports/builtin-diagnostic-reports.zip /usr/share/witty-ub/builtin-reports/reports.zip
+ENV WITTY_REPORT_RENDERER=/usr/share/witty-ub/report-generation/scripts/render_report.py \
+    WITTY_LABEL_TAXONOMY_FILE=/usr/share/witty-ub/report-generation/references/log_label.json \
+    WITTY_BUILTIN_REPORT_ARCHIVE=/usr/share/witty-ub/builtin-reports/reports.zip
 
 # Copy C++ binaries from builder
 COPY --from=builder-cpp /build/build/src/witty-ub-log /usr/bin/
@@ -237,7 +249,7 @@ RUN chmod +x /entrypoint.sh /healthcheck.sh
 EXPOSE 8080 9772 4096
 
 # Volumes for persistent data
-VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub"]
+VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/witty-ub/builtin-reports", "/var/log/witty-ub"]
 
 # Health check (role-aware: frontend probes the remote backend)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
