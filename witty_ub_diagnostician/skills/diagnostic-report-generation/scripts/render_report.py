@@ -25,7 +25,10 @@ import os
 import re
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
+from typing import NamedTuple
 
 from error_features import validate_error
 from latency_features import validate_features
@@ -44,6 +47,11 @@ STAGE_STATUS_ENUM = ("ok", "warn", "bottleneck")
 SHARE_CLS_ENUM = ("s-ok", "s-warn", "s-bottleneck")
 TRACE_KIND_ENUM = ("latency", "error")
 EVIDENCE_TRACES_MAX = 5
+
+# 清理旧报告时保留的状态：已确认报告是案例与证据锚点回指的原文。
+CLEANUP_PROTECTED_STATUS = "confirmed"
+CLEANUP_PAGE_SIZE = 100
+CLEANUP_TIMEOUT = 5.0
 
 REQUIRED_TOP = ("report", "basic_info", "statistics", "workflow")
 
@@ -628,6 +636,112 @@ def write_report_files(
     return sidecar_path
 
 
+class CleanupOutcome(NamedTuple):
+    removed: list[str]
+    kept: dict[str, str]
+    error: str | None
+
+
+class CleanupStateUnavailable(RuntimeError):
+    """旧报告的确认状态取不到；据此拒绝删除。"""
+
+
+def report_states(kb_id: str) -> dict[str, dict]:
+    """该资产库下每份报告的列表项（含 review_status / case_count）。
+
+    确认与绑案状态只存在于后端库里，报告目录里只有 HTML 与侧车，所以清理前
+    必须回查一次列表接口。
+    """
+    base = (os.environ.get("WITTY_API_BASE") or "").strip().rstrip("/")
+    if not base:
+        raise CleanupStateUnavailable("WITTY_API_BASE 未设置")
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    states: dict[str, dict] = {}
+    page = 1
+    while True:
+        payload = json.dumps(
+            {"kb_id": kb_id, "page_cnt": CLEANUP_PAGE_SIZE, "page_num": page}
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"{base}/diagnostic_report/list",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+        with opener.open(request, timeout=CLEANUP_TIMEOUT) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        result = body.get("result") if isinstance(body, dict) else None
+        result = result if isinstance(result, dict) else {}
+        items = [
+            item
+            for item in result.get("items") or []
+            if isinstance(item, dict) and item.get("report_id")
+        ]
+        for item in items:
+            states[str(item["report_id"])] = item
+        if len(items) < CLEANUP_PAGE_SIZE or len(states) >= int(result.get("total") or 0):
+            return states
+        page += 1
+
+
+def keep_reason(item: dict | None) -> str | None:
+    """旧报告必须保留的原因；返回 None 表示可以清理。"""
+    if item is None:
+        return "确认状态未知"
+    status = str(item.get("review_status") or "")
+    if status == CLEANUP_PROTECTED_STATUS:
+        return "已确认"
+    if int(item.get("case_count") or 0) > 0:
+        return "已绑定确认案例"
+    return None
+
+
+def cleanup_old_reports(
+    out_path: Path, slug: str, *, remove_sidecar: bool = True
+) -> CleanupOutcome:
+    """删除同知识库目录下的旧报告与侧车。
+
+    已确认报告是案例与证据锚点回指的原文，已绑定确认案例的报告同理，两者一律
+    保留；状态取不到时（接口不可用、报告不在列表里）同样保留 —— 清理只是可选
+    动作，删掉的原文不可恢复。
+    """
+    olds = [
+        path
+        for path in sorted(out_path.parent.glob(f"report_{slug}_*.html"))
+        if path.resolve() != out_path.resolve()
+    ]
+    if not olds:
+        return CleanupOutcome([], {}, None)
+
+    try:
+        states = report_states(slug)
+    except (CleanupStateUnavailable, OSError, ValueError) as exc:
+        return CleanupOutcome(
+            [], {path.stem: "确认状态未知" for path in olds}, str(exc) or type(exc).__name__
+        )
+
+    removed: list[str] = []
+    kept: dict[str, str] = {}
+    error = None
+    for old in olds:
+        reason = keep_reason(states.get(old.stem))
+        if reason is not None:
+            kept[old.stem] = reason
+            continue
+        try:
+            old.unlink(missing_ok=True)
+            if remove_sidecar:
+                old.with_suffix(".json").unlink(missing_ok=True)
+        except OSError as exc:
+            kept[old.stem] = f"删除失败: {exc}"
+            error = error or str(exc)
+            continue
+        removed.append(old.name)
+    return CleanupOutcome(removed, kept, error)
+
+
 def print_warnings(warnings: list[str]) -> None:
     shown = warnings[:3]
     for line in shown:
@@ -724,24 +838,22 @@ def main(argv=None) -> int:
     print("  统计 " + stats_line(data))
     print_warnings(warnings)
 
-    # 渲染成功且已落盘：清理同知识库目录下的旧报告，只保留刚生成的最新一份。
-    # 仅匹配 report_<slug>_* 前缀，不影响同目录下其它知识库的报告。
+    # 渲染成功且已落盘：清理同知识库目录下的旧报告。仅匹配 report_<slug>_*
+    # 前缀，不影响同目录下其它知识库的报告；已确认与已绑案的旧报告保留。
     slug = kb_slug(args.kb_id or (data.get("basic_info") or {}).get("kb_id"))
-    try:
-        removed: list[str] = []
-        for old in out_path.parent.glob(f"report_{slug}_*.html"):
-            if old.resolve() == out_path.resolve():
-                continue
-            old_sidecar = old.with_suffix(".json")
-            old.unlink(missing_ok=True)
-            removed.append(old.name)
-            if not args.no_sidecar and old_sidecar.exists():
-                old_sidecar.unlink(missing_ok=True)
-        if removed:
-            removed.sort()
-            print(f"  清理旧报告 {len(removed)} 份（仅保留最新）：" + ", ".join(removed))
-    except OSError as exc:
-        print(f"  ⚠ 清理旧报告失败（不影响本次渲染）: {exc}", file=sys.stderr)
+    outcome = cleanup_old_reports(out_path, slug, remove_sidecar=not args.no_sidecar)
+    if outcome.removed:
+        print(
+            f"  清理旧报告 {len(outcome.removed)} 份（仅保留最新）："
+            + ", ".join(sorted(outcome.removed))
+        )
+    if outcome.kept:
+        detail = "、".join(
+            f"{rid}（{reason}）" for rid, reason in sorted(outcome.kept.items())
+        )
+        print(f"  保留旧报告 {len(outcome.kept)} 份：{detail}")
+    if outcome.error:
+        print(f"  ⚠ 未清理旧报告：{outcome.error}", file=sys.stderr)
 
     return 0
 

@@ -100,5 +100,86 @@ class RenderReportCliTest(unittest.TestCase):
             self.assertFalse((root / "out.html").exists())
 
 
+class CleanupTest(unittest.TestCase):
+    """旧报告清理：已确认与已绑案的报告必须留存。"""
+
+    OLD = "report_kb1_20261001_090000"
+
+    def _workspace(self, root: Path):
+        reports = root / "reports"
+        kb = reports / "kb1"
+        kb.mkdir(parents=True)
+        (kb / f"{self.OLD}.html").write_text("<html>old</html>", encoding="utf-8")
+        (kb / f"{self.OLD}.json").write_text("{}", encoding="utf-8")
+        data = report_data()
+        data["basic_info"]["kb_id"] = "kb1"
+        source = root / "input.json"
+        source.write_text(json.dumps(data), encoding="utf-8")
+        return reports, kb, source
+
+    def _render(self, reports: Path, source: Path, states) -> tuple[int, str, str]:
+        stdout = io.StringIO()
+        with patch.dict("os.environ", {"WITTY_REPORT_DIR": str(reports)}), \
+                patch.object(render_report, "report_states", states), \
+                redirect_stdout(stdout), \
+                patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            code = render_report.main([str(source)])
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_unconfirmed_old_report_is_removed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            reports, kb, source = self._workspace(Path(temp))
+            states = {self.OLD: {"review_status": "unconfirmed", "case_count": 0}}
+
+            code, stdout, _ = self._render(reports, source, lambda slug: states)
+
+            self.assertEqual(code, 0)
+            self.assertIn("清理旧报告 1 份", stdout)
+            self.assertFalse((kb / f"{self.OLD}.html").exists())
+            self.assertFalse((kb / f"{self.OLD}.json").exists())
+            self.assertEqual(len(list(kb.glob("*.html"))), 1)
+
+    def test_confirmed_old_report_is_kept(self):
+        with tempfile.TemporaryDirectory() as temp:
+            reports, kb, source = self._workspace(Path(temp))
+            states = {self.OLD: {"review_status": "confirmed", "case_count": 0}}
+
+            code, stdout, _ = self._render(reports, source, lambda slug: states)
+
+            self.assertEqual(code, 0)
+            self.assertIn("保留旧报告 1 份", stdout)
+            self.assertIn("已确认", stdout)
+            self.assertTrue((kb / f"{self.OLD}.html").exists())
+            self.assertTrue((kb / f"{self.OLD}.json").exists())
+            self.assertEqual(len(list(kb.glob("*.html"))), 2)
+
+    def test_old_report_with_bound_case_is_kept(self):
+        with tempfile.TemporaryDirectory() as temp:
+            reports, kb, source = self._workspace(Path(temp))
+            states = {self.OLD: {"review_status": "unconfirmed", "case_count": 1}}
+
+            code, stdout, _ = self._render(reports, source, lambda slug: states)
+
+            self.assertEqual(code, 0)
+            self.assertIn("已绑定确认案例", stdout)
+            self.assertTrue((kb / f"{self.OLD}.html").exists())
+            self.assertTrue((kb / f"{self.OLD}.json").exists())
+
+    def test_cleanup_is_skipped_when_state_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            reports, kb, source = self._workspace(Path(temp))
+
+            def unavailable(_slug):
+                raise render_report.CleanupStateUnavailable("WITTY_API_BASE 未设置")
+
+            code, stdout, stderr = self._render(reports, source, unavailable)
+
+            self.assertEqual(code, 0)
+            self.assertIn("保留旧报告 1 份", stdout)
+            self.assertIn("未清理旧报告", stderr)
+            self.assertTrue((kb / f"{self.OLD}.html").exists())
+            self.assertTrue((kb / f"{self.OLD}.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
