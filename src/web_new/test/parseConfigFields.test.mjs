@@ -83,7 +83,7 @@ test('隐藏字段非法时整组回落到默认，可见字段与文件名 Patt
   assert.equal(sanitized.zone_anomaly_density_threshold, defaults.zone_anomaly_density_threshold)
 })
 
-test('withSanitizedHiddenParams 只整理 analyzer 参数，Pattern 原样带过', () => {
+test('withSanitizedHiddenParams 只整理 analyzer 参数，Pattern 与客户端模式原样带过', () => {
   const defaults = analyzerParams()
   const form = {
     logFilenamePattern: {
@@ -94,11 +94,14 @@ test('withSanitizedHiddenParams 只整理 analyzer 参数，Pattern 原样带过
       resource_log_file: ['*resource*.log'],
     },
     logAnalyzerParams: analyzerParams({ c2w_p99_threshold_ms: -1 }),
+    enableLocalCache: true,
   }
   const sanitized = withSanitizedHiddenParams(form, {
     logFilenamePattern: form.logFilenamePattern,
     logAnalyzerParams: defaults,
+    enableLocalCache: false,
   })
   assert.deepEqual(sanitized.logFilenamePattern, form.logFilenamePattern)
   assert.equal(sanitized.logAnalyzerParams.c2w_p99_threshold_ms, defaults.c2w_p99_threshold_ms)
+  assert.equal(sanitized.enableLocalCache, true)
 })

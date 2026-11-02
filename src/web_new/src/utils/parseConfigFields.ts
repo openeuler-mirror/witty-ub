@@ -31,6 +31,7 @@ export type AnalyzerParams = Record<DiagnosisThresholdKey, number> & {
 export type DiagnosisConfigForm = {
   logFilenamePattern: Record<DiagnosisPatternKey, string[]>
   logAnalyzerParams: AnalyzerParams
+  enableLocalCache: boolean
 }
 
 export const PATTERN_TYPES: { key: DiagnosisPatternKey; label: string }[] = [
@@ -122,4 +123,5 @@ export const withSanitizedHiddenParams = (
 ): DiagnosisConfigForm => ({
   logFilenamePattern: form.logFilenamePattern,
   logAnalyzerParams: sanitizeHiddenParams(form.logAnalyzerParams, defaults.logAnalyzerParams),
+  enableLocalCache: form.enableLocalCache,
 })

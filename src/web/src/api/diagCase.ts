@@ -59,6 +59,7 @@ export type ReportItem = {
   source_name?: string | null
   fault_count?: number | null
   indexable_fault_count?: number | null
+  case_count?: number
   verified_case_count?: number
   validation_status?: 'pending' | 'partial' | 'validated' | 'unavailable'
   validated_fault_count?: number
@@ -223,6 +224,21 @@ export const createReportCase = (
   )
 
 export const fetchLabelTaxonomy = () => request<LabelTaxonomy>('/diagnostic_report/labels')
+
+export type DeleteDiagnosticReportResult = {
+  report_id: string
+  deleted_cases: number
+  deleted_cards: number
+}
+
+export const deleteDiagnosticReport = (reportId: string, operator: string) =>
+  request<DeleteDiagnosticReportResult>(
+    `/diagnostic_report/${encodeURIComponent(reportId)}/delete`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ operator }),
+    },
+  )
 
 export const searchDiagCases = (body: Record<string, unknown>) =>
   request<DiagCaseSearchResult>('/diag_case_library/search', {

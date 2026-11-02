@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiBase, request } from '../api/client'
 import {
+  deleteDiagnosticReport,
   fetchImportOptions, fetchLabelTaxonomy, fetchReports, importCases, importReportPath, searchDiagCases,
   type DiagCaseSearchResult, type LabelTaxonomy, type ReportItem,
 } from '../api/diagCase'
@@ -148,6 +149,21 @@ const load = async () => {
     if (version === loadVersion) error.value = err instanceof Error ? err.message : '案例加载失败'
   } finally {
     if (version === loadVersion) loading.value = false
+  }
+}
+const deleteReport = async (report: ReportItem) => {
+  const title = report.title || '未命名定界文档'
+  const cases = report.case_count ?? 0
+  const message = cases > 0
+    ? `确认删除定界文档「${title}」？将同时硬删除关联的 ${cases} 个案例，不可恢复。`
+    : `确认删除定界文档「${title}」？不可恢复。`
+  if (!window.confirm(message)) return
+  try {
+    const result = await deleteDiagnosticReport(report.report_id, operator.value.trim())
+    window.alert(`已删除定界文档，连带硬删除 ${result.deleted_cases} 个案例。`)
+    await load()
+  } catch (err) {
+    window.alert(err instanceof Error ? err.message : '删除失败')
   }
 }
 const selectFirst = (first: string) => { selection.value = selectPrimary(first); reportPage.value = 1 }
@@ -336,7 +352,7 @@ watch(() => props.refreshToken, () => void load())
             <td>{{ formatReportTime(report.generated_at) }}</td>
             <td>{{ report.fault_count ?? '—' }}</td>
             <td>{{ documentProgress(report) }}</td>
-            <td><button class="table-link-btn" type="button" :disabled="report.report_available === false" @click="emit('open-report', report.report_id, '')">{{ report.report_available === false ? '文档不可用' : '查看文档' }}</button></td>
+            <td><button class="table-link-btn" type="button" :disabled="report.report_available === false" @click="emit('open-report', report.report_id, '')">{{ report.report_available === false ? '文档不可用' : '查看文档' }}</button><button class="table-link-btn report-delete-btn" type="button" @click="deleteReport(report)">删除</button></td>
           </tr></tbody>
         </table>
         <div v-if="reportPages > 1" class="workspace-pagination">
@@ -457,6 +473,8 @@ summary { cursor: pointer; }
 .task-table th, .task-table td { padding: 14px 12px; vertical-align: top; }
 .task-table td { border-top: 1px solid #edf1f7; font-size: 13px; line-height: 1.6; max-width: 290px; overflow-wrap: anywhere; }
 .task-table .table-link-btn { color: #2563eb; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
+.task-table .table-link-btn.report-delete-btn { color: #ef4444; margin-left: 12px; }
+.task-table .table-link-btn.report-delete-btn:hover { text-decoration: underline; }
 .task-table .case-title { font-weight: 600; }
 .case-table-wrap { overflow-x: auto; }
 .case-table { min-width: 680px; table-layout: fixed; }

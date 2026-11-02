@@ -189,6 +189,21 @@ export const confirmDiagnosticReport = (
 export const fetchReportLabelTaxonomy = () =>
   request<ReportLabelTaxonomy>('/diagnostic_report/labels')
 
+export type DeleteDiagnosticReportResult = {
+  report_id: string
+  deleted_cases: number
+  deleted_cards: number
+}
+
+export const deleteDiagnosticReport = (reportId: string, operator: string) =>
+  request<DeleteDiagnosticReportResult>(
+    `/diagnostic_report/${encodeURIComponent(reportId)}/delete`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ operator }),
+    },
+  )
+
 export const previewReportCase = (reportId: string, faultId: string) =>
   request<ReportCasePreview>(
     `/diagnostic_report/${encodeURIComponent(reportId)}/faults/${encodeURIComponent(faultId)}/case_preview`,

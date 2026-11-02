@@ -167,6 +167,11 @@ class KVCacheDiagnosisConfig(BaseModel):
 
     log_filename_pattern: KVCacheLogFilenamePatternConfig
     log_analyzer_params: DSLogAnalyzerConfig
+    enable_local_cache: bool = Field(
+        default=False,
+        description="客户端是否启用本地缓存（绑定 Worker 模式）。false=路由模式：客户端直连 "
+                    "meta/data worker，解析时不再产生 entry worker 角色",
+    )
 
 
 class UBSocketDiagnosisConfig(BaseModel):
@@ -192,6 +197,11 @@ class DiagnosisRuntimeConfig(BaseModel):
 
     log_filename_pattern: LogFilenamePatternConfig
     log_analyzer_params: DSLogAnalyzerConfig
+    enable_local_cache: bool = Field(
+        default=False,
+        description="客户端是否启用本地缓存（绑定 Worker 模式）。false=路由模式：客户端直连 "
+                    "meta/data worker，解析时不再产生 entry worker 角色",
+    )
 
     @model_validator(mode="after")
     def validate_runtime_config(self):

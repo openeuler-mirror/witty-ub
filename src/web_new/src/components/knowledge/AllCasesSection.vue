@@ -5,6 +5,7 @@ import BaseModal from '../common/BaseModal.vue'
 import { caseAttachmentUrl, fetchCases, type CaseRecord } from '../../api/caseLibrary'
 import { searchDiagCases, type DiagCaseMatch } from '../../api/diagCaseLibrary'
 import {
+  deleteDiagnosticReport,
   fetchDiagnosticReports, fetchImportOptions, fetchReportLabelTaxonomy, importCases, importReportPath,
   type DiagnosticReportItem, type ReportLabelTaxonomy,
 } from '../../api/diagnosticReport'
@@ -151,6 +152,21 @@ const loadImportOptions = async () => {
   try { importOptions.value = await fetchImportOptions() }
   catch { importOptions.value = null; optionsError.value = '无法读取服务器路径导入配置，文件上传仍可使用' }
 }
+const deleteReport = async (report: DiagnosticReportItem) => {
+  const title = report.title || '未命名定界文档'
+  const cases = report.case_count || 0
+  const message = cases > 0
+    ? `确认删除定界文档「${title}」？将同时硬删除关联的 ${cases} 个案例，不可恢复。`
+    : `确认删除定界文档「${title}」？不可恢复。`
+  if (!window.confirm(message)) return
+  try {
+    const result = await deleteDiagnosticReport(report.report_id, operator.value.trim())
+    window.alert(`已删除定界文档，连带硬删除 ${result.deleted_cases} 个案例。`)
+    void load()
+  } catch (err) {
+    window.alert(err instanceof Error ? err.message : '删除失败')
+  }
+}
 const closeImport = () => { if (!importing.value) importOpen.value = false }
 const toggleImport = () => {
   if (importing.value || props.view !== 'documents') return
@@ -290,7 +306,7 @@ watch(caseVersion, () => void load())
             <td>{{ formatReportTime(report.generated_at) }}</td>
             <td>{{ report.fault_count ?? '—' }}</td>
             <td>{{ documentProgress(report) }}</td>
-            <td><button class="btn btn-text" type="button" :disabled="report.report_available === false" @click="openReport(report.report_id)">{{ report.report_available === false ? '文档不可用' : '查看文档' }}</button></td>
+            <td><button class="btn btn-text" type="button" :disabled="report.report_available === false" @click="openReport(report.report_id)">{{ report.report_available === false ? '文档不可用' : '查看文档' }}</button><button class="btn btn-text btn-text-danger" type="button" @click="deleteReport(report)">删除</button></td>
           </tr></tbody>
         </table></div>
         <PageNav v-if="reportPages > 1" v-model:page="reportPage" :pages="reportPages" />

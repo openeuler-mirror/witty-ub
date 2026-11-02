@@ -119,10 +119,64 @@ WRITE_STAGES: list[dict[str, Any]] = [
     },
 ]
 
-_STAGE_BY_OPERATION: dict[str, list[dict[str, Any]]] = {
-    "GET": READ_STAGES,
-    "SET": WRITE_STAGES,
-}
+# 边定义随资产库模式切换：绑定模式 READ_STAGES/WRITE_STAGES，路由模式 _ROUTED_*_STAGES
+
+# ── 路由模式（enableLocalCache=false）边定义 ─────────────────────────────
+# 客户端直连 Worker，无 entry worker：
+# GET：client→meta(QueryAndGet RPC)、client→data(DS_POSIX_GET 远端供数)、
+#      data→client(URMA 回传)；
+# SET：client→data(Create/Publish/URMA 写)、data→client(回执)。
+# 边时延取值仍来自 9 段互斥分解（key 不变，仅 source/target/语义变化）。
+_ROUTED_READ_STAGES: list[dict[str, Any]] = [
+    {
+        "stage": "client_to_meta",
+        "source": "client",
+        "target": "meta",
+        "operation": "Client→Meta QueryAndGet RPC 网络/框架",
+        "decomp_keys": ["query_get_network_us", "query_get_framework_us"],
+        "reason": "路由模式客户端直连元数据 owner 的 DS_POSIX_QUERY_AND_GET 元数据查询 RPC 段。",
+        "report_reading": "路由模式下 QueryGet RPC 网络/框架，客户端直连元数据 owner。",
+    },
+    {
+        "stage": "client_to_data",
+        "source": "client",
+        "target": "data",
+        "operation": "Client→Data 远端供数",
+        "decomp_keys": ["entry_to_data_remote_us"],
+        "reason": "从 9 段分解的 Worker/Meta 内部(扣除UB)中切出远端供数段，路由模式下是客户端拿到 location 后直连数据 Worker 的 DS_POSIX_GET 拉数窗口。",
+        "report_reading": "客户端直连数据 Worker 的远端供数窗口；与 9 段分解的远端供数段一致。",
+    },
+    {
+        "stage": "data_to_client_ub",
+        "source": "data",
+        "target": "client",
+        "operation": "Worker UB 通信(URMA 回传)",
+        "decomp_keys": ["urma_processing_us"],
+        "reason": "数据 Worker 通过 URMA Write 直接写回客户端（路由模式无 entry 中转）。",
+        "report_reading": "读取路径的数据回传阶段，方向是 Data Worker → Client。",
+    },
+]
+
+_ROUTED_WRITE_STAGES: list[dict[str, Any]] = [
+    {
+        "stage": "client_to_data",
+        "source": "client",
+        "target": "data",
+        "operation": "Client UB 通信/数据写入",
+        "decomp_keys": ["client_urma_processing_us"],
+        "reason": "路由模式 SET 写入主路径：客户端直连数据 Worker，Create 分配 buffer 后通过 URMA 写入 payload 并 Publish（DS_POSIX_CREATE→URMA 写→DS_POSIX_PUBLISH）。",
+        "report_reading": "SET 写入的客户端侧 UB 传输/接收窗口，方向 Client → Data Worker。",
+    },
+    {
+        "stage": "data_to_client_ack",
+        "source": "data",
+        "target": "client",
+        "operation": "Worker UB 通信(回执)",
+        "decomp_keys": ["urma_processing_us"],
+        "reason": "数据 Worker seal/发布元数据后向客户端返回 Publish 回执；元数据发布（CreateMeta/UpdateMeta）由数据 Worker 代发到 master，不出现在客户端直连图上。",
+        "report_reading": "SET 写入的数据 Worker 回执窗口，方向 Data Worker → Client。",
+    },
+]
 
 # ── 正交分解段定义 ─────────────────────────────────────────────────────
 # 原则：以 total_latency_us 为预算池，按因果顺序逐段扣除 min(remaining, observed)，
@@ -157,6 +211,27 @@ _DECOMP_OPERATION: dict[str, list[tuple[str, str, str, str]]] = {
     "GET": _GET_DECOMP_SEGMENTS,
     "SET": _SET_DECOMP_SEGMENTS,
 }
+
+
+def _decomp_defs(
+    operation: str, enable_local_cache: bool = True
+) -> list[tuple[str, str, str, str]]:
+    """按资产库模式返回正交分解段定义（段 -> 归属节点）。
+
+    绑定模式：Worker/Meta 内部处理段归 entry worker（entry 中转所有请求）；
+    路由模式（enable_local_cache=false）：客户端直连 Worker，无 entry worker，
+    原归 entry 的 Worker/Meta 内部处理段改归 data worker（远端供数/写入的目标端）。
+    QueryGet Worker 内部段恒归 meta（元数据 owner）。
+    """
+    defs = _DECOMP_OPERATION.get(operation, _GET_DECOMP_SEGMENTS)
+    if enable_local_cache:
+        return defs
+    return [
+        (key, name, "data" if node == "entry" else node, obs)
+        for key, name, node, obs in defs
+    ]
+
+
 # 残差段的 key 与展示名（对齐瀑布图的"其他"残差）
 RESIDUAL_KEY = "residual"
 RESIDUAL_NAME = "其他"
@@ -300,11 +375,23 @@ class FlowSummaryService:
     async def summarize(req: ListFlowSummaryRequest) -> FlowSummaryModel:
         log_ids = await LogFailureEventPGManager._log_ids_for_kb_id(req.kb_id)
 
+        # 路由模式（enableLocalCache=false）无 entry worker，读/写流按客户端直连编排
+        from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
+
+        try:
+            enable_local_cache = (
+                await DiagnosisConfigPGManager.get_or_create(req.kb_id)
+            ).enable_local_cache
+        except Exception:
+            enable_local_cache = False
+
         trace_rows = await FlowSummaryService._load_trace_rows(req, log_ids)
         if not trace_rows:
             # 该批次 Trace 均无解析行（通断故障常见）：仍下发默认节点布局，
             # 并按请求 trace_ids 补充 pod_role 容器角色，保证单 Trace 图有角色可渲染。
-            return await FlowSummaryService._empty_model_with_roles(req, log_ids)
+            return await FlowSummaryService._empty_model_with_roles(
+                req, log_ids, enable_local_cache
+            )
 
         trace_ids = sorted(trace_rows.keys())
         roles = await PodRolePGManager.list_pod_roles_by_trace_ids(trace_ids)
@@ -320,11 +407,26 @@ class FlowSummaryService:
             # 正交分解（互斥分配值）：边/节点/残差统一从这里取值，保证可加总
             info["decomp"] = _decompose_trace(info, info["resolved_operation"])
 
-        per_trace = FlowSummaryService._build_per_trace(trace_rows, role_by_trace)
-        nodes = FlowSummaryService._build_nodes(trace_rows, role_by_trace)
-        read = FlowSummaryService._build_flow(READ_STAGES, trace_rows, role_by_trace, "GET")
-        write = FlowSummaryService._build_flow(WRITE_STAGES, trace_rows, role_by_trace, "SET")
-        decomposition = FlowSummaryService._build_decomposition(trace_rows, role_by_trace)
+        read_stages = _ROUTED_READ_STAGES if not enable_local_cache else READ_STAGES
+        write_stages = _ROUTED_WRITE_STAGES if not enable_local_cache else WRITE_STAGES
+
+        per_trace = FlowSummaryService._build_per_trace(
+            trace_rows, role_by_trace, read_stages, write_stages
+        )
+        nodes = FlowSummaryService._build_nodes(
+            trace_rows, role_by_trace, enable_local_cache=enable_local_cache
+        )
+        read = FlowSummaryService._build_flow(
+            read_stages, trace_rows, role_by_trace, "GET",
+            enable_local_cache=enable_local_cache,
+        )
+        write = FlowSummaryService._build_flow(
+            write_stages, trace_rows, role_by_trace, "SET",
+            enable_local_cache=enable_local_cache,
+        )
+        decomposition = FlowSummaryService._build_decomposition(
+            trace_rows, role_by_trace, enable_local_cache=enable_local_cache
+        )
 
         return FlowSummaryModel(
             nodes=nodes,
@@ -332,34 +434,47 @@ class FlowSummaryService:
             write=write,
             per_trace=per_trace,
             decomposition=decomposition,
+            enable_local_cache=enable_local_cache,
         )
 
     @staticmethod
-    def _empty_model() -> FlowSummaryModel:
-        default_nodes = [
+    def _default_nodes(enable_local_cache: bool) -> list[FlowNodeModel]:
+        """按资产库模式返回默认角色节点列表。
+
+        绑定模式含 entry worker（client→entry→meta/data）；
+        路由模式（enable_local_cache=false）客户端直连 Worker，无 entry 节点。
+        """
+        nodes = [
             FlowNodeModel(id="client", label="Client", role="client"),
-            FlowNodeModel(id="entry", label="Entry Worker", role="entry_worker"),
             FlowNodeModel(id="meta", label="Meta Worker", role="meta_worker"),
             FlowNodeModel(id="data", label="Data Worker", role="data_worker"),
         ]
+        if enable_local_cache:
+            nodes.insert(1, FlowNodeModel(id="entry", label="Entry Worker", role="entry_worker"))
+        return nodes
+
+    @staticmethod
+    def _empty_model(enable_local_cache: bool = True) -> FlowSummaryModel:
+        default_nodes = FlowSummaryService._default_nodes(enable_local_cache)
         return FlowSummaryModel(
             nodes=default_nodes,
             read=FlowGraphModel(nodes=default_nodes, warn_ms=WARN_MS, critical_ms=CRITICAL_MS),
             write=FlowGraphModel(nodes=default_nodes, warn_ms=WARN_MS, critical_ms=CRITICAL_MS),
+            enable_local_cache=enable_local_cache,
         )
 
     @staticmethod
     async def _empty_model_with_roles(
-        req: ListFlowSummaryRequest, log_ids: list[str]
+        req: ListFlowSummaryRequest, log_ids: list[str], enable_local_cache: bool = True
     ) -> FlowSummaryModel:
         """无解析行 Trace 的空汇总：保留默认节点布局，并按请求 trace_ids 补充角色信息。
 
         通断故障多数 Trace 在 log_parse_result 无对应行，仅存在 trace_failure_event /
         pod_role 记录。此方法保证单 Trace 角色交互时延流仍能渲染出完整角色布局，
         Client/Worker 容器名从 pod_role 聚合表中取；时延段信息（stages/total_ms）
-        留空，由前端显示"无数据"。
+        留空，由前端显示"无数据"。路由模式下节点列表不含 entry。
         """
-        model = FlowSummaryService._empty_model()
+        model = FlowSummaryService._empty_model(enable_local_cache)
         if not req.trace_ids:
             return model
 
@@ -393,6 +508,7 @@ class FlowSummaryService:
             read=model.read,
             write=model.write,
             per_trace=per_trace,
+            enable_local_cache=enable_local_cache,
         )
 
     @staticmethod
@@ -556,12 +672,20 @@ class FlowSummaryService:
     def _build_per_trace(
         trace_rows: dict[str, dict[str, Any]],
         role_by_trace: dict[str, Any],
+        read_stages: Optional[list[dict[str, Any]]] = None,
+        write_stages: Optional[list[dict[str, Any]]] = None,
     ) -> list[TraceFlowStageModel]:
+        read_stages = read_stages or READ_STAGES
+        write_stages = write_stages or WRITE_STAGES
+        stage_map: dict[str, list[dict[str, Any]]] = {
+            "GET": read_stages,
+            "SET": write_stages,
+        }
         per_trace: list[TraceFlowStageModel] = []
         for trace_id, info in trace_rows.items():
             stages: dict[str, float] = {}
             operation = info.get("resolved_operation") or ""
-            stage_defs = _STAGE_BY_OPERATION.get(operation, READ_STAGES)
+            stage_defs = stage_map.get(operation, read_stages)
             for stage in stage_defs:
                 value = FlowSummaryService._resolve_stage_value(info, stage)
                 if value is not None:
@@ -584,7 +708,9 @@ class FlowSummaryService:
 
     @staticmethod
     def _node_own_rollup(
-        operation: str, trace_rows: dict[str, dict[str, Any]]
+        operation: str,
+        trace_rows: dict[str, dict[str, Any]],
+        enable_local_cache: bool = True,
     ) -> tuple[dict[str, FlowEdgeRollupModel], dict[str, int]]:
         """节点自身处理统计：逐 trace 累加该节点"点归点"段（排除交互边/残差）。
 
@@ -592,7 +718,7 @@ class FlowSummaryService:
         无任何正值观测的节点 avg 置 None（前端回退仅显示节点名），避免"自身处理=0"误导。
         返回 (rollups, observed)：observed[node] = 观测到正值的 trace 数，供 tooltip 说明实际处理水平。
         """
-        decomp_defs = _DECOMP_OPERATION.get(operation, _GET_DECOMP_SEGMENTS)
+        decomp_defs = _decomp_defs(operation, enable_local_cache)
         per_node: dict[str, list[float]] = {node: [] for _k, _n, node, _o in decomp_defs}
         observed: dict[str, int] = {node: 0 for node in per_node}
         for info in trace_rows.values():
@@ -631,6 +757,7 @@ class FlowSummaryService:
         role_by_trace: dict[str, Any],
         own_rollups: Optional[dict[str, FlowEdgeRollupModel]] = None,
         own_observed: Optional[dict[str, int]] = None,
+        enable_local_cache: bool = True,
     ) -> list[FlowNodeModel]:
         pod_counter: dict[str, Counter] = {key: Counter() for key in _ROLE_POD_FIELDS}
         for trace_id in trace_rows:
@@ -656,12 +783,14 @@ class FlowSummaryService:
                 own_observed=(own_observed or {}).get(node_id),
             )
 
-        return [
+        nodes = [
             node("client", "Client", "client"),
-            node("entry", "Entry Worker", "entry_worker"),
             node("meta", "Meta Worker", "meta_worker"),
             node("data", "Data Worker", "data_worker"),
         ]
+        if enable_local_cache:
+            nodes.insert(1, node("entry", "Entry Worker", "entry_worker"))
+        return nodes
 
     @staticmethod
     def _build_flow(
@@ -669,6 +798,7 @@ class FlowSummaryService:
         trace_rows: dict[str, dict[str, Any]],
         role_by_trace: dict[str, Any],
         operation_filter: str,
+        enable_local_cache: bool = True,
     ) -> FlowGraphModel:
         edges: list[FlowEdgeModel] = []
         # 收集该 flow 全部交互段的时延值，按全局分位自适应 warn/critical 阈值
@@ -705,13 +835,14 @@ class FlowSummaryService:
                 )
             )
         own_rollups, own_observed = FlowSummaryService._node_own_rollup(
-            operation_filter, trace_rows
+            operation_filter, trace_rows, enable_local_cache
         )
         nodes = FlowSummaryService._build_nodes(
             trace_rows,
             role_by_trace,
             own_rollups,
             own_observed,
+            enable_local_cache=enable_local_cache,
         )
         return FlowGraphModel(nodes=nodes, edges=edges, warn_ms=warn_ms, critical_ms=critical_ms)
 
@@ -719,17 +850,19 @@ class FlowSummaryService:
     def _build_decomposition(
         trace_rows: dict[str, dict[str, Any]],
         role_by_trace: dict[str, Any],
+        enable_local_cache: bool = True,
     ) -> list[FlowDecompositionModel]:
         """总时延正交分解：GET/SET 各一份，段 = 互斥分配值，total/残差 一并标注。
 
         输出 order 与瀑布扣除顺序一致；残差恒为最后一段，满足
-        Σ(段) + 残差 = total（前端图旁标注用）。
+        Σ(段) + 残差 = total（前端图旁标注用）。路由模式下
+        Worker/Meta 内部处理段归属 data worker，不产生 entry 节点。
         """
         from latency.schemas.flow_summary import FlowDecompositionModel, FlowDecompositionSegmentModel
 
         result: list[FlowDecompositionModel] = []
         for operation in ("GET", "SET"):
-            decomp_defs = _DECOMP_OPERATION.get(operation, _GET_DECOMP_SEGMENTS)
+            decomp_defs = _decomp_defs(operation, enable_local_cache)
             totals: list[float] = []
             per_seg: dict[str, list[float]] = {}
             for info in trace_rows.values():
