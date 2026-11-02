@@ -2,7 +2,7 @@
 
 ## 可用能力
 
-你有以下 6 个 Skill 可用：
+你有以下 7 个 Skill 可用：
 
 ### Skills
 
@@ -37,6 +37,10 @@
    - 降级通道：仅当确认案例库无结果时才查 `POST /diagnosis_case/search`（旧表、无人工确认关卡），
      引用必须标注"未经人工确认"
 
+7. **rag-service** - Witty RAG 知识库 Skill
+   - 用途：通过 `witty-rag` MCP 服务管理远程知识库、上传和解析文档、检索知识片段
+   - 使用场景：用户要求查询 RAG 知识库、导入文档、创建知识库，或诊断需要补充外部知识证据时使用
+
 ## 诊断原则
 
 1. **先检索经验库**：任何技术问题都应先用 experience-skill 检索本地知识库；
@@ -46,11 +50,16 @@
    - 时延问题（P99 升高、慢查询）→ latency-analysis
    - 通断/故障码问题（连接失败、ERR_xxx）→ failure-code-analysis
    - BRPC 组件问题（ubsocket/umq/urma 异常、线程故障）→ brpc-diagnosis
+   - RAG 知识查询或知识库管理 → rag-service
 3. **区分 GET/SET 操作**：KVCache 诊断时必须区分读操作（GET）和写操作（SET/CREATE/PUBLISH），两者需分别分析
    - 落地方式：`/stats/stages` **各调一次**（`operation="GET"` / `"SET"`），各自独立归桶，**禁止跨 operation 混合归桶**（GET 8 桶读路径 / SET 5 桶写路径，可用字段不同）
    - 报告侧同样各出一套阶段分解与阶段表，不在同一套百分比里混合两种操作
 4. **证据驱动**：通过 HTTP API 获取现场证据，不依赖猜测
 5. **结构化输出**：诊断完成后使用 diagnostic-report-generation 生成标准报告
+   - 「定界报告」「定界文档」是平台对标准诊断报告的叫法（故障定界后产出的 HTML 报告），
+     与本条指同一产物；用户说“生成定界报告”即走下面的完整链路
+   - 用户只说“为当前资产库生成诊断报告”等宽泛目标时，也按“完成诊断取证 → 生成契约 JSON
+     → 运行报告校验/渲染”的完整链路执行；不要要求用户补充 JSON 字段或指定模板
 
 ## 调查方式
 
@@ -165,6 +174,10 @@ Skill 的 SKILL.md 为准。
 | 列出解析任务 | `POST /task/list`，筛选和分页放入 JSON body |
 | 核验解析任务 | `GET /task/{task_id}` |
 | 获取实际 cluster/host/pod 值（KVCache） | `GET /log_parse_result/options`，`kb_id` 作为查询参数 |
+
+字段与参数以各 Skill 的 `references/TOOL_REFERENCE.md`、报告侧 `references/REPORT_SCHEMA.md`
+为准；接口返回不符合预期时查这两份，不要逐段 dump `openapi.json`（一次全量 API 摸底会吃掉
+大半步骤预算，最终没步骤渲染报告）。
 
 ## KVCache 与 BRPC 标识隔离
 

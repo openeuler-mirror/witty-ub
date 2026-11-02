@@ -44,10 +44,11 @@ logger = logging.getLogger(__name__)
 # 常量
 # ---------------------------------------------------------------------------
 
-# 四档粒度（秒）与展示名 / 表名的映射。
-GRANULARITY_KEYS: tuple[int, ...] = (10, 60, 600, 3600)
+# 五档粒度（秒）与展示名 / 表名的映射。
+GRANULARITY_KEYS: tuple[int, ...] = (1, 10, 60, 600, 3600)
 
 GRANULARITY_LABELS: dict[int, str] = {
+    1: "1s",
     10: "10s",
     60: "1min",
     600: "10min",
@@ -55,6 +56,7 @@ GRANULARITY_LABELS: dict[int, str] = {
 }
 
 DEFAULT_TABLES: dict[int, str] = {
+    1: "latency_bucket_1s",
     10: "latency_bucket_10s",
     60: "latency_bucket_1min",
     600: "latency_bucket_10min",
@@ -311,10 +313,16 @@ def compute_bucket_stats_from_frame(
                 "mode": row["mode"],
                 "row": row,
                 "tid": row["tid"],
+                # GET 组按传输类型另选的 local/remote 分位代表（SET 组恒为 None）。
+                "tid_local": row.get("tid_local"),
+                "tid_remote": row.get("tid_remote"),
             })
 
     # ── Phase 2: yuanrong enrichment (dedup across all granularities) ─
-    rep_tids: set[Any] = {p["tid"] for p in pending if p["tid"]}
+    rep_tids: set[Any] = {
+        t for p in pending for t in (p["tid"], p["tid_local"], p["tid_remote"])
+        if t
+    }
     yr_lookup: dict[Any, dict[str, Any]] = {}
     rep_df = df_trace.filter(pl.col("tid").is_in(rep_tids))
     if trace_details is not None:
@@ -334,10 +342,22 @@ def compute_bucket_stats_from_frame(
             }
 
     # ── Phase 3: 每档粒度一个 BUCKET_COLUMNS 形状的 frame ─────────────
+    # query_get_local/remote 网络/框架分段来自各自传输类型的分位代表行，
+    # 其余 yuanrong 分段（含 query_get_server_exec_us）与 legacy 指标取整体代表。
+    qg_local_fields = {
+        "query_get_local_rpc_network_us",
+        "query_get_local_rpc_framework_us",
+    }
+    qg_remote_fields = {
+        "query_get_remote_rpc_network_us",
+        "query_get_remote_rpc_framework_us",
+    }
     records: dict[int, list[dict[str, Any]]] = {g: [] for g in GRANULARITY_KEYS}
     for item in pending:
         row = metric_lookup.get(item["tid"], item["row"])
         yrow = yr_lookup.get(item["tid"]) if item["tid"] else None
+        ylocal = yr_lookup.get(item["tid_local"]) if item["tid_local"] else None
+        yremote = yr_lookup.get(item["tid_remote"]) if item["tid_remote"] else None
         records[item["g"]].append({
             "kb_id": kb_id,
             "log_id": log_id,
@@ -351,7 +371,11 @@ def compute_bucket_stats_from_frame(
             "dst_ip": row.get("dst"),
             **{name: row.get(name) for name in METRIC_KEYS},
             **{
-                name: (yrow.get(name) if yrow else None)
+                name: (
+                    (ylocal.get(name) if ylocal else None) if name in qg_local_fields
+                    else (yremote.get(name) if yremote else None) if name in qg_remote_fields
+                    else (yrow.get(name) if yrow else None)
+                )
                 for name in YUANRONG_METRIC_FIELDS
             },
         })

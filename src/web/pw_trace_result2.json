@@ -1,0 +1,54 @@
+BUTTONS: [
+  "📊 时延故障监控",
+  "⚠️ 通断故障监控",
+  "🔗 相似案例分析",
+  "🔧 接口监控",
+  "⚠️ 通断故障监控",
+  "🛠️ Skill管理",
+  "📖 Wiki管理",
+  "📋 案例管理",
+  "重置全部",
+  "重置",
+  "重置",
+  "添加",
+  "重置",
+  "添加",
+  "重置",
+  "添加",
+  "重置",
+  "添加",
+  "重置",
+  "添加",
+  "确认筛选",
+  "GET",
+  "SET",
+  "全选",
+  "清空",
+  "聚合事件列表",
+  "异常Trace列表",
+  "上一页",
+  "1",
+  "下一页",
+  "跳转",
+  "GET",
+  "SET",
+  "聚合事件列表",
+  "异常Trace列表"
+]
+ROWS: []
+CLICKED: 
+MODAL: {
+  "modalOpen": false,
+  "traceFlowContainers": 0,
+  "canvases": [],
+  "traceFlowSection": ""
+}
+MODAL_PIXELS: []
+LOGS: [
+  "[debug] [vite] connecting...",
+  "[debug] [vite] connected.",
+  "[req] http://localhost:5173/log_failure_event_result/list_flow_summary",
+  "[log] [LatencyAbnormal] percentile: p99 threshold: 5",
+  "[log] [LatencyAbnormal] Total mark areas: 0",
+  "[resp 200] len=25572 body={\"code\":200,\"message\":\"success\",\"result\":{\"result\":{\"nodes\":[{\"id\":\"client\",\"label\":\"Client\",\"role\":\"client\",\"top_ips\":[],\"top_workers\":[\"192.168.219.66\",\"192.168.182.3\",\"192.168.219.99\"]},{\"id\":\"entr"
+]

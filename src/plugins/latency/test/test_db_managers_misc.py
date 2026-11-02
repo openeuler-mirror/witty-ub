@@ -458,13 +458,14 @@ async def test_create_manual_indexes_covers_all_groups(patch_engine):
     await init_module.create_manual_indexes()
     sqls = [sql_text(s) for s, _ in conn.statements]
     expected = (
-        12
+        13
         + len(init_module.LATENCY_BUCKET_TABLES)
         + len(init_module.BRPC_DIAG_INDEX_DDL)
         + len(init_module.DIAG_CASE_LIBRARY_DDL)
     )
     assert len(sqls) == expected
     assert any("idx_lpr_pod_ips" in s for s in sqls)
+    assert any("idx_lfe_log_trace ON log_failure_event (log_id, trace_id)" in s for s in sqls)
     assert any("ix_latency_bucket_1h_query" in s for s in sqls)
     assert any("idx_brpc_diag_hit_batch_timestamp" in s for s in sqls)
     assert any("ux_dcl_case_no" in s for s in sqls)

@@ -1,0 +1,45 @@
+ARG RAG_BASE_IMAGE
+
+FROM alpine/git:latest AS rag-mcp-source
+
+ARG RAG_MCP_SOURCE_REF=ffe465d93efbad266bf8b7eda0ae9a17aaec66b9
+RUN git init /src \
+    && cd /src \
+    && git remote add origin https://atomgit.com/openeuler/euler-copilot-rag.git \
+    && git fetch --depth 1 origin "${RAG_MCP_SOURCE_REF}" \
+    && git sparse-checkout init --cone \
+    && git sparse-checkout set rag_core/agent/rag_core_mcp \
+    && GIT_LFS_SKIP_SMUDGE=1 git checkout --detach FETCH_HEAD
+
+FROM ${RAG_BASE_IMAGE}
+
+COPY --from=rag-mcp-source \
+    /src/rag_core/agent/rag_core_mcp/ \
+    /opt/witty-rag-mcp-source/
+
+# The base image imports generic top-level modules named tools/schema/config.
+# Give the MCP modules unique names so Python's module cache cannot resolve
+# them to packages that belong to RAG Core or another installed dependency.
+RUN mv /opt/witty-rag-mcp-source/tools /opt/witty-rag-mcp-source/rag_mcp_tools \
+    && mv /opt/witty-rag-mcp-source/schema /opt/witty-rag-mcp-source/rag_mcp_schema \
+    && mv /opt/witty-rag-mcp-source/config.py /opt/witty-rag-mcp-source/rag_mcp_config.py \
+    && touch /opt/witty-rag-mcp-source/rag_mcp_tools/__init__.py \
+    && find /opt/witty-rag-mcp-source -type f -name '*.py' -exec sed -i \
+        -e 's/from tools\./from rag_mcp_tools./g' \
+        -e 's/from schema\./from rag_mcp_schema./g' \
+        -e 's/from config import/from rag_mcp_config import/g' {} + \
+    && test -f /opt/witty-rag-mcp-source/rag_mcp_tools/access_key.py \
+    && cd /opt/witty-rag-mcp-source \
+    && python3 -c 'import rag_mcp_tools; assert rag_mcp_tools.__file__.startswith("/opt/witty-rag-mcp-source/")'
+
+RUN python3 -m pip install --no-cache-dir \
+    'mcp<2' \
+    'fastapi>=0.115.0' \
+    'starlette>=0.49.1' \
+    APScheduler \
+    pyyaml
+
+COPY rag-with-mcp-entrypoint.sh /usr/local/bin/rag-with-mcp-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/rag-with-mcp-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/rag-with-mcp-entrypoint.sh"]

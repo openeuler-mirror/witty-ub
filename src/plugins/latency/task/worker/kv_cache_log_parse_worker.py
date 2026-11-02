@@ -59,6 +59,7 @@ from latency.database.managers.task_report import TaskReportPGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.log_failure_event import LogFailureEventPGManager
+from latency.database.managers.pod_role import PodRolePGManager
 from latency.database.utils import parse_timestamp
 from latency.database.managers.src_dst_aggregated_event import (
     SrcDstAggregatedEventPGManager,
@@ -109,17 +110,17 @@ def _trace_row_count(trace_index: Any) -> int:
 def _diagnosis_threshold_ms(diagnosis_config) -> float:
     """时延异常阈值（ms），对齐 _aggregate_three_way 的读取语义。
 
-    threshold 位于 ``log_analyzer_params.total_p99_threshold_ms``；缺省 5.0。
+    threshold 位于 ``log_analyzer_params.total_p99_threshold_ms``；缺省 2.0。
     parse_log 用它限定 build_trace_frame 的 yuanrong 明细子集，保证与
     run() 的 anomalous_tids 判定同阈值，__ 列对子集必然非空。
     """
     try:
         lp = getattr(diagnosis_config, "log_analyzer_params", None)
         if lp is not None:
-            return float(getattr(lp, "total_p99_threshold_ms", 5.0) or 5.0)
+            return float(getattr(lp, "total_p99_threshold_ms", 2.0) or 2.0)
     except Exception:
         pass
-    return 5.0
+    return 2.0
 
 
 def _merge_light_then_wide(light_rows, scan_ctx, threshold_ms: float, *, compact: bool = False):
@@ -142,7 +143,16 @@ def _merge_light_then_wide(light_rows, scan_ctx, threshold_ms: float, *, compact
     # all-trace sort/group selection runs only once per parse task.
     from latency.bucket.representatives import select_bucket_representatives
     representatives = select_bucket_representatives(trace_light)
-    needed = pl.concat([needed, *(rows["tid"] for rows in representatives.values())]).unique()
+    rep_tids = [
+        rows["tid"] for rows in representatives.values()
+    ] + [
+        rows["tid_local"].drop_nulls()
+        for rows in representatives.values() if "tid_local" in rows.columns
+    ] + [
+        rows["tid_remote"].drop_nulls()
+        for rows in representatives.values() if "tid_remote" in rows.columns
+    ]
+    needed = pl.concat([needed, *rep_tids]).unique()
     if needed.is_empty():
         return trace_light
 
@@ -1244,10 +1254,10 @@ class KVCacheLogParseWorker(BaseWorker):
         ``_merge_and_finalize`` 兜底。
         """
         # ── config ──────────────────────────────────────────────────
-        threshold_ms = 5.0
+        threshold_ms = 2.0
         if diagnosis_config is not None:
             threshold_ms = float(
-                getattr(diagnosis_config, "total_p99_threshold_ms", 5.0) or 5.0
+                getattr(diagnosis_config, "total_p99_threshold_ms", 2.0) or 2.0
             )
 
         _t_agg_start = time.perf_counter()
@@ -1944,7 +1954,7 @@ class KVCacheLogParseWorker(BaseWorker):
                     await DiagnosisConfigPGManager.get_or_create(kb_id)
                 ).log_analyzer_params
             threshold_ms = float(
-                getattr(analyzer_config, "total_p99_threshold_ms", 5.0) or 5.0
+                getattr(analyzer_config, "total_p99_threshold_ms", 2.0) or 2.0
             )
 
             # 检查任务是否被取消
@@ -2243,6 +2253,7 @@ class KVCacheLogParseWorker(BaseWorker):
             await SrcDstAggregatedEventPGManager.delete_aggregated_events_by_log_id(log_id)
             await LogFailureEventPGManager.delete_log_failure_events_by_log_id(log_id)
             await LogFailureEventPGManager.delete_trace_failure_events_by_log_id(log_id)
+            await PodRolePGManager.delete_pod_roles_by_log_id(log_id)
         else:
             logger.info(f"[KVCacheLogParseWorker] log_id={log_id} 还有其他同类任务，不清理数据")
         

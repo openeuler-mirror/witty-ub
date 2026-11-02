@@ -63,6 +63,10 @@ def _draft(**overrides) -> DiagCaseLibraryModel:
 
 def _confirmed(case_id: str, **overrides) -> DiagCaseLibraryModel:
     overrides.setdefault("status", DiagCaseStatus.CONFIRMED)
+    overrides.setdefault("verification_json", {
+        "method": "现场验证", "observed_result": "实操恢复", "closed_loop": True,
+        "verified_by": "tester",
+    })
     return _draft(id=case_id, **overrides)
 
 
@@ -101,7 +105,8 @@ def test_case_signals_follow_weights_and_are_normalized():
     assert pairs[("cluster", "cluster-a")] == 1.5
     assert pairs[("latency_component", "set_client")] == 1.5
     assert pairs[("log_keyword", "connect timeout")] == 1.0
-    assert pairs[("operation", "set")] == 1.5
+    # operation 只做过滤器，不生成匹配信号
+    assert not [pair for pair in pairs if pair[0] == "operation"]
 
 
 def test_search_text_is_generated_and_excludes_identity_noise():
@@ -221,10 +226,11 @@ def _install_state_store(monkeypatch, cases):
     async def get_case(case_id):
         return store.get(case_id)
 
-    async def confirm_case(case_id, confirmed_by, confidence=None):
+    async def confirm_case(case_id, confirmed_by, confidence=None, confirmation_source=None):
         case = store[case_id]
         case.status = DiagCaseStatus.CONFIRMED
         case.confirmed_by = confirmed_by
+        case.confirmation_source = confirmation_source
         if confidence is not None:
             case.confidence = confidence
         case.revision += 1
@@ -345,10 +351,10 @@ def _install_update_store(monkeypatch, cases):
     async def get_case(case_id):
         return store.get(case_id)
 
-    async def update_draft(case_id, case):
+    async def update_draft(case_id, case, *, expected_revision=None):
         return _apply(case_id, case, "draft")
 
-    async def update_verification(case_id, case):
+    async def update_verification(case_id, case, *, expected_revision=None):
         return _apply(case_id, case, "verification")
 
     monkeypatch.setattr(Manager, "get_case", get_case)
@@ -365,12 +371,14 @@ def test_update_case_is_partial_and_bumps_revision(monkeypatch):
         DiagCaseLibraryService.update_case(
             draft.id,
             UpdateDiagCaseRequest(
+                expected_revision=0,
                 verification_json={
                     "method": "复测 SET 时延",
                     "observed_result": "SET 恢复正常",
                     "closed_loop": True,
                     "verified_at": "2026-09-21 10:00:00",
-                }
+                    "verified_by": "ops",
+                },
             ),
         )
     )
@@ -445,12 +453,14 @@ def test_update_case_on_confirmed_freezes_content_but_accepts_verification(monke
         DiagCaseLibraryService.update_case(
             confirmed.id,
             UpdateDiagCaseRequest(
+                expected_revision=0,
                 verification_json={
                     "method": "复测 SET 时延",
                     "observed_result": "SET 恢复正常",
                     "closed_loop": True,
                     "verified_at": "2026-09-21 10:00:00",
-                }
+                    "verified_by": "ops",
+                },
             ),
         )
     )
@@ -497,7 +507,17 @@ def test_update_case_requires_source_url_for_external_source_on_merged_result(mo
 
 def test_update_request_has_same_field_set_as_create_without_metadata():
     update_fields = set(UpdateDiagCaseRequest.model_fields)
-    assert update_fields == set(CreateDiagCaseDraftRequest.model_fields) - {"created_by"}
+    # 绑定列、报告侧哈希与分类快照只在建案时写入，PATCH 不允许修改。
+    assert update_fields == set(CreateDiagCaseDraftRequest.model_fields) - {
+        "created_by",
+        "report_id",
+        "source_fault_id",
+        "expected_sidecar_hash",
+        "first_level_label",
+        "second_level_label",
+    } | {"expected_revision"}
+    assert "expected_revision" in update_fields
+    assert "expected_revision" not in CreateDiagCaseDraftRequest.model_fields
     assert not update_fields & {
         "id",
         "case_no",
@@ -522,6 +542,8 @@ def test_updatable_columns_cover_content_but_no_metadata():
         "revision",
         "created_by",
         "confirmed_by",
+        # 确认来源由确认动作写入，不属于可编辑内容物。
+        "confirmation_source",
         "confirmed_at",
         "archived_by",
         "archived_at",
@@ -533,12 +555,26 @@ def test_updatable_columns_cover_content_but_no_metadata():
         "existed_status",
         "created_at",
         "updated_at",
+        "report_id",
+        "source_fault_id",
+        "source_fault_hash",
+        # 建案时确认的整份报告版本随绑定冻结。
+        "source_sidecar_hash",
+        # 分类快照随建案冻结，PATCH 不可修改。
+        "first_level_label",
+        "second_level_label",
+        "label_taxonomy_version",
+        "source_label_hash",
     }
     assert set(Manager.UPDATABLE_COLUMNS) == set(
         DiagCaseLibraryModel.model_fields
-    ) - metadata
-    # 事后证据白名单必须落在内容物列内，否则 confirmed 通道会写不动。
-    assert set(Manager.VERIFICATION_COLUMNS) <= set(Manager.UPDATABLE_COLUMNS)
+    ) - metadata - {"verification_history_json"}
+    # 事后证据白名单必须落在内容物列内，否则 confirmed 通道会写不动；
+    # 验证历史是审计留痕，不进 draft 的内容物通道。
+    assert set(Manager.VERIFICATION_COLUMNS) - {"verification_history_json"} <= set(
+        Manager.UPDATABLE_COLUMNS
+    )
+    assert "verification_history_json" not in Manager.UPDATABLE_COLUMNS
 
 
 class _FakeSession:
@@ -606,7 +642,9 @@ def test_update_verification_only_writes_the_closure_and_keeps_signals(monkeypat
     assert not {"title", "search_text", "status_codes", "latency_components"} & set(values)
     # 状态白名单含 confirmed（draft 与 confirmed 都可回填）
     assert set(values["status_1"]) == {"draft", "confirmed"}
-    assert len(session.statements) == 1  # 不重建信号
+    # 不重建信号；同事务追加一条 outbox 事件保证标签传播。
+    assert len(session.statements) == 2
+    assert "index_event_outbox" in str(session.statements[1])
 
 
 def test_update_draft_returns_false_when_row_is_no_longer_draft(monkeypatch):
@@ -642,6 +680,7 @@ def test_search_defaults_to_confirmed_only():
     total_all, matches_all = _rank(
         [draft, confirmed, archived],
         SearchDiagCaseLibraryRequest(
+            scope="all",
             status_codes=["1004"],
             include_status=["draft", "confirmed", "archived"],
         ),
@@ -665,6 +704,72 @@ def test_search_operation_filter_excludes_other_operation():
 
     assert total == 1
     assert matches[0].case.id == "get-case"
+
+
+def test_mixed_operation_case_matches_both_get_and_set():
+    mixed = _confirmed("mixed-case", operation=DiagCaseOperation.MIXED)
+
+    for operation in ("GET", "SET"):
+        total, matches = _rank(
+            [mixed],
+            SearchDiagCaseLibraryRequest(operation=operation, status_codes=["1004"]),
+        )
+        assert total == 1, f"MIXED 案例必须能被 operation={operation} 命中"
+        assert matches[0].case.id == "mixed-case"
+        assert matches[0].match_score == 3.0
+
+
+def test_operation_filter_does_not_inflate_the_candidate_set():
+    """过滤器放行不等于命中：没有共同信号就不返回。"""
+    mixed = _confirmed("mixed-case", operation=DiagCaseOperation.MIXED, status_codes=["1004"])
+
+    total, matches = _rank(
+        [mixed],
+        SearchDiagCaseLibraryRequest(operation="GET", status_codes=["9999"]),
+    )
+
+    assert total == 0
+    assert matches == []
+
+
+def test_operation_only_query_lists_filtered_cases_without_scores():
+    mixed = _confirmed("mixed-case", operation=DiagCaseOperation.MIXED)
+    get_case = _confirmed("get-case", operation=DiagCaseOperation.GET)
+    set_case = _confirmed("set-case", operation=DiagCaseOperation.SET)
+
+    total, matches = _rank(
+        [mixed, get_case, set_case],
+        SearchDiagCaseLibraryRequest(operation="GET"),
+    )
+
+    assert total == 2
+    assert {match.case.id for match in matches} == {"mixed-case", "get-case"}
+    assert all(match.match_score == 0.0 for match in matches)
+
+
+def test_mixed_operation_case_ranks_level_with_single_operation_case():
+    mixed = _confirmed("mixed-case", operation=DiagCaseOperation.MIXED)
+    set_case = _confirmed("set-case", operation=DiagCaseOperation.SET)
+
+    _total, matches = _rank(
+        [mixed, set_case],
+        SearchDiagCaseLibraryRequest(operation="SET", status_codes=["1004"]),
+    )
+
+    scores = {match.case.id: match.score_norm for match in matches}
+    assert scores["mixed-case"] == scores["set-case"]
+
+
+def test_unlabelled_operation_case_stays_reachable_by_operation_filter():
+    unknown = _confirmed("unknown-case", operation=None)
+
+    total, matches = _rank(
+        [unknown],
+        SearchDiagCaseLibraryRequest(operation="SET", status_codes=["1004"]),
+    )
+
+    assert total == 1
+    assert matches[0].case.id == "unknown-case"
 
 
 def test_search_without_kb_id_recalls_other_knowledge_base_cases():

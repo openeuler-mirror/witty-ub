@@ -95,7 +95,7 @@ const {
 bindOverviewWatchers()
 
 // 数据域空态：该域没有可分析的任务时，用「去任务页面」入口替换整块空图表
-const { assetTab: appAssetTab } = useAssets()
+const { view: appView } = useAssets()
 const { statusOf: taskStatusOf, statusLabel: taskStatusLabel, openCreateTask, newTask } = useTasks()
 
 const domainLabel = computed<LogType>(() => (isBrpcTask.value ? 'UBSocket' : 'KVCache'))
@@ -160,9 +160,9 @@ const domainEmptyHint = computed(() => {
     : 'KVCache 分析汇总该资料库下已完成任务的解析结果。在任务页面创建并完成一个 KVCache 任务，这里就会显示时延与通断分析。'
 })
 
-// 跳转共用同一份 App 级页签状态（useAssets 单例），本页与任务页才会真正切过去
+// 跳转共用同一份 App 级导航状态（useAssets 单例），才能真正切到资产详情的任务区
 const goTasksPage = () => {
-  appAssetTab.value = 'tasks'
+  appView.value = 'assets'
 }
 
 const createTaskForDomain = () => {
@@ -251,6 +251,46 @@ const relatedFaultCodes = (id: string) => {
   return code ? [code] : []
 }
 
+// 抽屉容器角色：从 trace 行的 pod_role 展开各角色 pod（无数据时为空数组）
+const drawerRoleEntries = computed(() => {
+  const role = detailDrawerRow.value?.pod_role
+  if (!role) return []
+  const entries = [
+    { key: 'client', label: 'client', pods: role.client_pod ? [String(role.client_pod)] : [] },
+    {
+      key: 'entry_worker',
+      label: 'entry worker',
+      pods: Array.isArray(role.entry_worker_pods) ? role.entry_worker_pods : [],
+    },
+    {
+      key: 'meta_worker',
+      label: 'meta worker',
+      pods: Array.isArray(role.meta_worker_pods) ? role.meta_worker_pods : [],
+    },
+    {
+      key: 'data_worker',
+      label: 'data worker',
+      pods: Array.isArray(role.data_worker_pods) ? role.data_worker_pods : [],
+    },
+  ]
+  return entries.filter((entry) => entry.pods.length > 0)
+})
+// 抽屉容器角色对应的故障类型（按 trace 命中的故障模式名去重）
+const drawerRoleFaultNames = computed(() => {
+  const row = detailDrawerRow.value
+  if (!row) return []
+  const names = traceFailureModeIdsOf(row).map((id) => failureModeOf(id)?.name || id)
+  return names.filter((name, index) => names.indexOf(name) === index)
+})
+// 各角色 badge 配色（与总览页角色卡片同色系）
+const ROLE_BADGE_COLORS: Record<string, { background: string; color: string }> = {
+  client: { background: '#dbeafe', color: '#1d4ed8' },
+  entry_worker: { background: '#dcfce7', color: '#15803d' },
+  meta_worker: { background: '#fef3c7', color: '#b45309' },
+  data_worker: { background: '#fce7f3', color: '#be185d' },
+}
+const drawerRoleBadgeStyle = (key: string) => ROLE_BADGE_COLORS[key] ?? {}
+
 onMounted(() => {
   renderAnalysisModules()
 })
@@ -337,7 +377,7 @@ onMounted(() => {
             <span class="analysis-loading-dot" aria-hidden="true"></span>正在加载分析数据…
           </span>
         </div>
-        <div v-if="!isBrpcTask" class="scope-controls">
+        <div v-if="!isBrpcTask && analysisTab !== 'similarity'" class="scope-controls">
           <template v-if="!isBrpcTask">
             <template v-if="analysisTab === 'latency'">
               <label class="scope-field">
@@ -396,11 +436,20 @@ onMounted(() => {
         >
           通断故障监控
         </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="analysisTab === 'similarity'"
+          :class="['analysis-tab', { active: analysisTab === 'similarity' }]"
+          @click="analysisTab = 'similarity'"
+        >
+          相似案例分析
+        </button>
       </div>
 
       <!-- 加载中不再整体替换内容：切 GET/SET 或切数据域时只提示，不清空已渲染的图与指标，
          避免整页闪烁 -->
-      <div v-if="!isBrpcTask" class="kpi-row">
+      <div v-if="!isBrpcTask && analysisTab !== 'similarity'" class="kpi-row">
         <div class="kpi-card">
           <div class="kpi-num">{{ kpiData.totalTraces.toLocaleString() }}</div>
           <div class="kpi-label">
@@ -483,7 +532,7 @@ onMounted(() => {
       </template>
 
       <!-- ===== 通断故障监控 ===== -->
-      <template v-else-if="!isBrpcTask">
+      <template v-else-if="!isBrpcTask && analysisTab === 'disconnect'">
         <div class="view-tabs" role="tablist" aria-label="通断分析视图">
           <button
             type="button"
@@ -508,15 +557,15 @@ onMounted(() => {
         <DisconnectAggregateEvents v-else />
       </template>
 
-      <!-- ===== 相似案例分析 ===== -->
+      <!-- ===== 相似案例分析（与上两个监控页签同层级） ===== -->
       <SimilarityAnalysis
-        v-if="!isBrpcTask"
+        v-if="!isBrpcTask && analysisTab === 'similarity'"
         :log-file-id="currentAnalysisLogFileId"
         :log-file-name="currentAnalysisLogFileName"
       />
 
       <!-- ===== UBSocket 监控 ===== -->
-      <template v-else>
+      <template v-if="isBrpcTask">
         <div v-if="brpcMonitorError" class="error-banner">{{ brpcMonitorError }}</div>
         <div class="analysis-tabs" role="tablist" aria-label="UBSocket 分析类型">
           <button
@@ -989,7 +1038,7 @@ onMounted(() => {
         >异常 Trace <b>{{ objectDetail.total }}</b></span
       >
       <span class="stat-pill">{{
-        objectDetail.domain === 'latency' ? '时延异常口径' : '通断故障口径'
+        objectDetail.domain === 'latency' ? '时延异常' : '通断故障'
       }}</span>
     </div>
     <div v-if="objectDetail.error" class="error-banner">{{ objectDetail.error }}</div>
@@ -1102,6 +1151,58 @@ onMounted(() => {
           style="margin-left: 8px"
           >异常</span
         >
+      </div>
+
+      <div
+        v-if="drawerRoleEntries.length > 0"
+        style="
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          padding: 10px 12px;
+          margin-bottom: 14px;
+        "
+      >
+        <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">容器角色</div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div
+            v-for="entry in drawerRoleEntries"
+            :key="entry.key"
+            style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap"
+          >
+            <span
+              :style="drawerRoleBadgeStyle(entry.key)"
+              style="
+                display: inline-flex;
+                align-items: center;
+                padding: 2px 8px;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 700;
+              "
+              >{{ entry.label }}</span
+            >
+            <span
+              v-for="pod in entry.pods"
+              :key="pod"
+              class="trace-chip"
+              style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace"
+              >{{ pod }}</span
+            >
+          </div>
+        </div>
+        <div
+          v-if="drawerRoleFaultNames.length > 0"
+          style="margin-top: 8px; font-size: 12px; color: var(--text2)"
+        >
+          <span style="color: var(--text3)">对应故障类型：</span>
+          <span
+            v-for="name in drawerRoleFaultNames"
+            :key="name"
+            class="badge badge-warning"
+            style="margin-right: 6px"
+            >{{ name }}</span
+          >
+        </div>
       </div>
 
       <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px">

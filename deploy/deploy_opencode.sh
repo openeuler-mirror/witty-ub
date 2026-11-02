@@ -132,6 +132,9 @@ fi
 export OPENCODE_CONFIG="${OPENCODE_CONFIG:-${OPENCODE_CONFIG_PATH}}"
 export WITTY_DIR="${WITTY_ROOT}"
 export OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$(cd "$(dirname "${OPENCODE_CONFIG_PATH}")" && pwd)}"
+# Host deployments normally expose the RAG MCP service on localhost. Users
+# can override this for a remote MCP endpoint.
+export WITTY_RAG_MCP_URL="${WITTY_RAG_MCP_URL:-http://127.0.0.1:12312/sse}"
 
 echo "[INFO] Validating OpenCode configuration and diagnosis agent..."
 if ! "${COMMAND_NAME}" debug agent witty-ub-diagnostician >/dev/null 2>&1; then

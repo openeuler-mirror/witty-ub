@@ -94,6 +94,24 @@ class CaseServiceManager:
         return case_record
 
     @staticmethod
+    def get_case(case_id: str) -> dict:
+        """Read one legacy case JSON; raise ValueError when it is damaged."""
+        CaseServiceManager.ensure_case_dir()
+        json_path = os.path.join(CASE_DIR, f"{case_id}.json")
+        if not os.path.exists(json_path):
+            raise FileNotFoundError(case_id)
+        if os.path.getsize(json_path) > 5 * 1024 * 1024:
+            raise ValueError("案例文件超过 5MB 上限")
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                record = json.load(f)
+        except (json.JSONDecodeError, OSError) as exc:
+            raise ValueError("案例数据损坏") from exc
+        if not isinstance(record, dict):
+            raise ValueError("案例数据损坏")
+        return record
+
+    @staticmethod
     def list_cases() -> list[dict]:
         """List all cases from CASE_DIR."""
         CaseServiceManager.ensure_case_dir()

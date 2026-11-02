@@ -37,6 +37,23 @@ bool WildcardMatch(const std::string &pattern, const std::string &path)
     return fnmatch(pattern.c_str(), path.c_str(), FNMATCH_FLAGS) == 0;
 }
 
+std::string EscapeNewlines(std::string_view text)
+{
+    std::string result;
+    result.reserve(text.size());
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        if (text[index] == '\r' && index + 1 < text.size() && text[index + 1] == '\n') {
+            continue;
+        }
+        if (text[index] == '\n') {
+            result += "\\n";
+        } else {
+            result += text[index];
+        }
+    }
+    return result;
+}
+
 void SplitView(std::vector<std::string_view> &out, std::string_view str, std::string_view delim, bool keepEmpty)
 {
     out.clear();

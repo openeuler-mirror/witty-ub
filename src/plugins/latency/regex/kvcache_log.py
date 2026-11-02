@@ -12,11 +12,14 @@ NOT_FOUND_RE = re.compile(r"\bK_NOT_FOUND\b|not\s+found|notfound", re.IGNORECASE
 # URMA相关正则
 # -------------------------------------------------------------------
 
+#: URMA 行同时兼容新旧两种日志格式：
+#: 旧格式 ``cost 0.123ms ... src address: IP:port, target address: IP:port, ... urma_inflight_wr_count: N``
+#: 新格式 ``cost: 0.123ms, ... urmaSrcAddress=IP:port, urmaDstAddress=IP:port, ... inflight_wr_cnt: N``
 URMA_RE = re.compile(
-    r"\[URMA_ELAPSED_TOTAL\].*?cost\s+([\d.]+)ms.*?"
-    r"src\s+address\s*:\s*([^,]*?)\s*,\s*"
-    r"(?:target|dst|destination)\s+address\s*:\s*([^,]*?)\s*,.*?"
-    r"urma_inflight_wr_count:\s*(\d+)",
+    r"\[URMA_ELAPSED_TOTAL\].*?cost\s*(?::\s*)?([\d.]+)ms.*?"
+    r"(?:src\s+address|urmaSrcAddress)\s*(?::|=)\s*([^,]*?)\s*,.*?"
+    r"(?:(?:target|dst|destination)\s+address|urmaDstAddress)\s*(?::|=)\s*([^,]*?)\s*,.*?"
+    r"(?:urma_inflight_wr_count|inflight_wr_cnt)\s*:\s*(\d+)",
     re.IGNORECASE,
 )
 
@@ -113,17 +116,21 @@ MASTER_PROCESS_RE = re.compile(
     r".*?cost:\s*(?P<cost>[\d.]+)ms"
 )
 
-# 8. master_rpc - 关键字: [ZMQ_RPC_FRAMEWORK_SLOW] ... remote_processing_us=X
+# 8. master_rpc - 关键字: [ZMQ_RPC_FRAMEWORK_SLOW] / [BRPC_RPC_FRAMEWORK_SLOW] ... remote_processing_us=X
+#    BRPC 慢日志比 ZMQ 多一个 method= 字段，且缺 client_rsp_framework_us /
+#    server_rsp_queue_us（实测 KB 000 数据只有 BRPC marker）；两种 marker 共用同一套
+#    时延字段（对齐 kvcache 基准 parse_client_info_line / parse_worker_info_line）。
 MASTER_RPC_RE = re.compile(
-    r"\[ZMQ_RPC_FRAMEWORK_SLOW\]\s+"
+    r"(?:\[ZMQ_RPC_FRAMEWORK_SLOW\]|\[BRPC_RPC_FRAMEWORK_SLOW\])\s+"
     r"trace_id=(?P<rpc_trace_id>\S+)\s+"
+    r"(?:method=(?P<method>[^,\s]+)\s+)?"
     r"framework_us=(?P<framework_us>\d+)\s+"
     r"e2e_us=(?P<e2e_us>\d+)\s+"
     r"client_req_framework_us=(?P<client_req_framework_us>\d+)\s+"
     r"remote_processing_us=(?P<remote_processing_us>\d+)\s+"
-    r"client_rsp_framework_us=(?P<client_rsp_framework_us>\d+)\s+"
+    r"(?:client_rsp_framework_us=(?P<client_rsp_framework_us>\d+)\s+)?"
     r"server_req_queue_us=(?P<server_req_queue_us>\d+)\s+"
     r"server_exec_us=(?P<server_exec_us>\d+)\s+"
-    r"server_rsp_queue_us=(?P<server_rsp_queue_us>\d+)\s+"
+    r"(?:server_rsp_queue_us=(?P<server_rsp_queue_us>\d+)\s+)?"
     r"network_residual_us=(?P<network_residual_us>\d+)"
 )

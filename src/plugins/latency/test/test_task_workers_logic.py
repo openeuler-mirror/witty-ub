@@ -878,11 +878,12 @@ class TestStoreTraceContextLogsStore:
         # legacy 路径（add_log_failure_event_raw），polars 路径另由
         # test_context_store_bounded.py 覆盖。
         monkeypatch.setenv("WITTY_STORE_POLARS", "0")
+        monkeypatch.setattr(store_module.PodRolePGManager, "add_pod_role_raw", AsyncMock())
         monkeypatch.setattr(
             KVCacheLogEventDiagnosisWorker,
             "parse_filepath_config",
             AsyncMock(return_value={
-                "ds_worker_access_log_file": access_patterns or [],
+                "ds_worker_access_log_file": access_patterns or ["access*.log"],
                 "ds_client_access_log_file": [],
             }),
         )
@@ -890,7 +891,7 @@ class TestStoreTraceContextLogsStore:
             KVCacheLogEventDiagnosisWorker,
             "parse_filepath_config",
             AsyncMock(return_value={
-                "ds_worker_access_log_file": access_patterns or [],
+                "ds_worker_access_log_file": access_patterns or ["access*.log"],
                 "ds_client_access_log_file": [],
             }),
         )
@@ -921,6 +922,10 @@ class TestStoreTraceContextLogsStore:
         self._wire_common(monkeypatch)
         out = tmp_path / "out"
         out.mkdir()
+        (out / "access.log").write_text(
+            "2026-01-01T00:00:01 | I | f.cpp | pod-1 | 12:34 | t1 | clusterA | 0 | DS_KV_CLIENT_GET\n",
+            encoding="utf-8",
+        )
         raw_miss = "2026-01-01T00:00:00 | INFO | f.cpp | pod-2 | 1:2 | zz | cl | x"
         (out / "app.log").write_text(
             "\n"
@@ -951,10 +956,9 @@ class TestStoreTraceContextLogsStore:
             task_id="task-1", progress_base=20.0, progress_end=45.0,
         ))
 
-        assert add_raw.await_count == 1
-        batch = raw_batches[0]
-        assert len(batch) == 1
-        event = batch[0]
+        batch = [row for rows in raw_batches for row in rows]
+        assert len(batch) == 2
+        event = next(row for row in batch if row["log_file"] == "app.log")
         assert event["log_id"] == "log-9"
         assert event["log_file"] == "app.log"
         assert event["raw_text"] == _RAW_9
@@ -985,7 +989,7 @@ class TestStoreTraceContextLogsStore:
         self._wire_common(monkeypatch, access_patterns=["access*.log"])
         out = tmp_path / "out"
         out.mkdir()
-        raw_ok = "2026-01-01T00:00:00 | E | f.c | pod | 1:2 | t1 | cl | 500 | oops"
+        raw_ok = "2026-01-01T00:00:00 | E | f.c | pod | 1:2 | t1 | cl | 500 | DS_KV_CLIENT_GET"
         raw_short = "a | b | c | d | e | t1 | g"
         (out / "access.log").write_text(
             raw_ok + "\n" + raw_short + "\n", encoding="utf-8",
@@ -1017,7 +1021,7 @@ class TestStoreTraceContextLogsStore:
         batch = raw_batches[0]
         assert len(batch) == 1
         assert batch[0]["status_code"] == "500"
-        assert batch[0]["message"] == "500 | oops"
+        assert batch[0]["message"] == "500 | DS_KV_CLIENT_GET"
         trace_events = trace_batches[0]
         assert trace_events[0]["status_code"] == ["500"]
         assert trace_events[0]["failure_mode"] == ["modeA"]
@@ -1027,6 +1031,10 @@ class TestStoreTraceContextLogsStore:
         out = tmp_path / "out"
         out.mkdir()
         (out / "app.log").write_text(_RAW_9 + "\n", encoding="utf-8")
+        (out / "access.log").write_text(
+            "2026-01-01T00:00:01 | I | f.cpp | pod-1 | 12:34 | t1 | clusterA | 0 | DS_KV_CLIENT_GET\n",
+            encoding="utf-8",
+        )
         monkeypatch.setattr(
             store_module.LogFailureEventPGManager,
             "add_log_failure_event_raw",
@@ -1142,6 +1150,9 @@ class TestStoreTraceContextLogsRun:
             AsyncMock(return_value=log_file),
         )
         monkeypatch.setattr(store_module, "witty_dir", str(tmp_path))
+        monkeypatch.setattr(store_module, "has_parseable_log", lambda _path: True)
+        if log_file is not None:
+            log_file.file_path = str(tmp_path)
         out_dir = tmp_path / "log_abcdefgh"
         out_dir.mkdir()
         (out_dir / "failure_trace.log").write_text("m | x\n", encoding="utf-8")
@@ -1155,7 +1166,7 @@ class TestStoreTraceContextLogsRun:
             "_generate_trace_id_set_diagnosis",
             generate,
         )
-        store_logs = AsyncMock()
+        store_logs = AsyncMock(return_value={"t1"})
         monkeypatch.setattr(
             StoreTraceContextLogsWorker, "_store_trace_context_logs", store_logs
         )
@@ -1197,6 +1208,16 @@ class TestStoreTraceContextLogsRun:
         }
         assert update_task.await_args_list[-1].args[1] == {
             "status": TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE.value
+        }
+        mark_failed.assert_not_awaited()
+
+    def test_run_counts_only_persisted_diagnosis_traces(self, monkeypatch, tmp_path):
+        _, store_logs, update_log_file, mark_failed = self._wire_run(monkeypatch, tmp_path)
+        store_logs.return_value = set()
+        assert _run(StoreTraceContextLogsWorker.run("task-1")) is True
+        assert store_logs.await_args_list[0].kwargs["trace_id_set"] == {"t1"}
+        assert update_log_file.await_args.args[1] == {
+            "failure_count": 0, "trace_failure_event_cnt": 0,
         }
         mark_failed.assert_not_awaited()
 

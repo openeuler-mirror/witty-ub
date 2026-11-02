@@ -81,6 +81,21 @@ const stripComments = (html) => html.replace(/<!--[\s\S]*?-->/g, '')
 const DISPLAY_TEXT = (value) =>
   value === undefined || value === null || value === '' ? '—' : String(value)
 
+const INDEX_LABELS = {
+  indexed: '已索引',
+  partial: '部分索引',
+  pending: '待索引',
+  failed: '索引失败',
+  not_applicable: '无需索引',
+}
+
+const INDEX_BADGE_CLASS = {
+  indexed: 'status-successful',
+  partial: 'status-running',
+  pending: 'status-pending',
+  failed: 'status-failed',
+}
+
 const renderDialog = async (overrides = {}, reports = []) =>
   stripComments(
     await renderToString(
@@ -94,6 +109,8 @@ const renderDialog = async (overrides = {}, reports = []) =>
           assetReports: reports,
           assetReportListNotice: null,
           diagnosticReportDisplayText: DISPLAY_TEXT,
+          diagnosticReportIndexLabel: (value) => INDEX_LABELS[value] ?? '未知',
+          diagnosticReportIndexBadgeClass: (value) => INDEX_BADGE_CLASS[value] ?? 'status-unknown',
           openDiagnosticReport: () => {},
           loadAssetReports: () => {},
           closeAssetReportDialog: () => {},
@@ -130,6 +147,14 @@ const REPORT_A = {
   fault_count: 2,
   file_name: 'report_kvcache-验收库_20260923090000.html',
   has_sidecar: true,
+  index_status: 'indexed',
+  index_error: null,
+  status_counts: { indexed: 2 },
+  indexable_fault_count: 2,
+  confirmed_fault_count: 2,
+  case_count: 2,
+  verified_case_count: 1,
+  report_available: true,
 }
 
 const REPORT_B = {
@@ -142,6 +167,14 @@ const REPORT_B = {
   fault_count: 1,
   file_name: 'report_kvcache-验收库_20260923080000.html',
   has_sidecar: true,
+  index_status: 'failed',
+  index_error: 'sidecar_invalid',
+  status_counts: { failed: 1 },
+  indexable_fault_count: 1,
+  confirmed_fault_count: 1,
+  case_count: 0,
+  verified_case_count: 0,
+  report_available: true,
 }
 
 // ---------------------------------------------------------------- 纯逻辑（§5.1 三态）
@@ -217,11 +250,19 @@ test('用例3：弹层列出该库全部报告，条数一致且关键字段齐�
     '操作类型：GET',
     '时间范围：2026-09-23 08:00:00',
     '2026-09-23 08:30:00',
+    '案例：2',
+    '已索引',
+    '案例：0',
+    '索引失败',
     'KVCache 时延诊断报告',
     '操作类型：SET',
   ]) {
     assert.ok(html.includes(text), `弹层缺少字段：${text}`)
   }
+  // 索引状态用徽标呈现，失败原因落 title
+  assert.match(html, /class="status-badge status-successful"/)
+  assert.match(html, /class="status-badge status-failed"/)
+  assert.match(html, /title="sidecar_invalid"/)
   assert.equal((html.match(/>\s*查看\s*</g) ?? []).length, 2)
   assert.ok(html.includes('刷新'))
   assert.ok(html.includes('关闭'))

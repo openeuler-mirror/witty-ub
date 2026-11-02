@@ -51,6 +51,23 @@ class TestUrmaRe:
         assert m.group(3) == "5.6.7.8"
         assert m.group(4) == "3"
 
+    # 新格式（KB 000 实测 100% 使用）：cost 带冒号、urmaSrcAddress= / urmaDstAddress=、
+    # inflight_wr_cnt: 关键字
+    NEW_LINE = (
+        "[URMA_ELAPSED_TOTAL] [urma_request_id:0] urma post to completion "
+        "cost: 0.081ms, condition_wait: 0.0684ms, urma operation type=WRITE, "
+        "urmaSrcAddress=192.168.235.145:0, urmaDstAddress=192.168.219.127:31501, "
+        "data_size:1, cqe_status:0, inflight_wr_cnt: 1, wake_delay:7"
+    )
+
+    def test_new_format_full_match(self):
+        m = rx.URMA_RE.search(self.NEW_LINE)
+        assert m is not None
+        assert m.group(1) == "0.081"
+        assert m.group(2) == "192.168.235.145:0"
+        assert m.group(3) == "192.168.219.127:31501"
+        assert m.group(4) == "1"
+
     def test_no_match(self):
         assert rx.URMA_RE.search("unrelated log line") is None
 

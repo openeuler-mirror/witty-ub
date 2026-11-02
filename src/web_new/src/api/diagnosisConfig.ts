@@ -26,9 +26,7 @@ export const defaultDiagnosisConfig = (): DiagnosisConfigForm => ({
   logAnalyzerParams: {
     total_p99_threshold_ms: toml.log_analyzer_params.total_p99_threshold_ms,
     c2w_p99_threshold_ms: toml.log_analyzer_params.c2w_p99_threshold_ms,
-    w2w_p99_threshold_ms: toml.log_analyzer_params.w2w_p99_threshold_ms,
     urma_link_p99_threshold_ms: toml.log_analyzer_params.urma_link_p99_threshold_ms,
-    query_meta_p99_threshold_ms: toml.log_analyzer_params.query_meta_p99_threshold_ms,
     total_p9999_threshold_ms: toml.log_analyzer_params.total_p9999_threshold_ms,
     total_pmax_threshold_ms: toml.log_analyzer_params.total_pmax_threshold_ms,
     total_ave_threshold_ms: toml.log_analyzer_params.total_ave_threshold_ms,
@@ -54,9 +52,7 @@ export const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): Diagnos
   logAnalyzerParams: {
     total_p99_threshold_ms: config.log_analyzer_params.total_p99_threshold_ms,
     c2w_p99_threshold_ms: config.log_analyzer_params.c2w_p99_threshold_ms,
-    w2w_p99_threshold_ms: config.log_analyzer_params.w2w_p99_threshold_ms,
     urma_link_p99_threshold_ms: config.log_analyzer_params.urma_link_p99_threshold_ms,
-    query_meta_p99_threshold_ms: config.log_analyzer_params.query_meta_p99_threshold_ms,
     total_p9999_threshold_ms: config.log_analyzer_params.total_p9999_threshold_ms,
     total_pmax_threshold_ms: config.log_analyzer_params.total_pmax_threshold_ms,
     total_ave_threshold_ms: config.log_analyzer_params.total_ave_threshold_ms,
@@ -75,9 +71,7 @@ export const toDiagnosisConfigApi = (form: DiagnosisConfigForm): DiagnosisConfig
   log_analyzer_params: {
     total_p99_threshold_ms: Number(form.logAnalyzerParams.total_p99_threshold_ms),
     c2w_p99_threshold_ms: Number(form.logAnalyzerParams.c2w_p99_threshold_ms),
-    w2w_p99_threshold_ms: Number(form.logAnalyzerParams.w2w_p99_threshold_ms),
     urma_link_p99_threshold_ms: Number(form.logAnalyzerParams.urma_link_p99_threshold_ms),
-    query_meta_p99_threshold_ms: Number(form.logAnalyzerParams.query_meta_p99_threshold_ms),
     total_p9999_threshold_ms: Number(form.logAnalyzerParams.total_p9999_threshold_ms),
     total_pmax_threshold_ms: Number(form.logAnalyzerParams.total_pmax_threshold_ms),
     total_ave_threshold_ms: Number(form.logAnalyzerParams.total_ave_threshold_ms),

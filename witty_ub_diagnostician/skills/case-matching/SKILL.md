@@ -27,14 +27,42 @@ allowed-tools: >
 本 Skill **只做检索侧**：不诊断、不写报告、不沉淀案例。案例写入由
 `diagnostic-report-generation` 负责，字段口径见 `references/CASE_FEATURE_CONTRACT.md`。
 
-## 两条检索通道（可信度不同，不得混用）
+## 三条检索通道（可信度不同，不得混用）
 
 | 通道 | 端点 | 内容 | 用法纪律 |
 |---|---|---|---|
-| **library（默认，正解通道）** | `POST /diag_case_library/search` | 只返回 `status=confirmed` 的案例：人工确认过、含证据锚点、分步处置、验证闭环、不适用场景 | 可以作为经验依据引用，但仍须回到现场证据核对 |
+| **phenomenon（先查目录卡）** | `POST /phenomenon/search` | 现象卡片：相似度、已发布短摘要、信任标签、报告/案例详情指针，不含全文 | 只用来找线索和指针；必须按指针回取详情，卡片摘要不得当结论 |
+| **library（正解通道）** | `POST /diag_case_library/search` | 只返回 `status=confirmed` 的案例：人工确认过、含证据锚点、分步处置、验证闭环、不适用场景 | 可以作为经验依据引用，但仍须回到现场证据核对 |
 | legacy（降级通道） | `POST /diagnosis_case/search` | 旧的 `diagnosis_case` 表：**无人工确认关卡**、内容物只有现象/根因/建议三段、`kb_id` 必填 | **只能当线索**，必须标注"来源=diagnosis_case（未经人工确认）"，不得作为结论依据 |
 
 > 判别口诀：**没经确认的案例不是经验，只是别人的猜测。** 结论里引用案例时，必须写清来源通道。
+>
+> library 通道的案例带两级分类快照（`first_level_label` / `second_level_label`）。
+> `POST /diag_case_library/search` 可传同名过滤字段或 `unclassified_only=true`；
+> `GET /diag_case_library/{case_id}` 另返回 `source_report` 导航
+> （`valid` / `stale` / `deleted` / `unavailable` / `independent`）与
+> `classification_status`，引用前可据此回到源报告核对。
+
+## 现象检索与回取（自然语言通道）
+
+用本次现场证据提炼一段现象描述（操作对象、错误码、阻塞阶段、时延形态），先找历史线索：
+
+```http
+POST /phenomenon/search
+{"query": "GET 对象不存在时阻塞在订阅超时，返回 K_NOT_FOUND", "top_k": 5}
+```
+
+- 过滤条件按需传 `log_type` / `operation` / `fault_type`；`operation` 传 `GET`/`SET` 时，
+  `operation_scope=report` 的命中只代表整份报告包含该操作，须回取报告确认故障归属。
+- **回取优先级**：`get_case` → `get_legacy_case` → `get_fault` → `get_report`。
+  单故障接口只返回目标故障；`get_fault` 为空（合成键）时才回退完整报告并自行裁剪。
+- **信任标签**：`verified` 可作为已验证方案参考；`confirmed_unverified` 是待验证处方，
+  `applicability` 上限 `adjust`；`report_only` / `suspected` 只作诊断线索；`legacy_unverified`
+  只能作非结构化历史线索。
+- 指针返回 `404`、案例已归档或绑定已过期时，跳过该指针或回退到仍可用的关联报告，
+  不得引用失效的历史处置方案。
+- RAG 不可用（`503 retryable=true`）时回退 `POST /diag_case_library/search` 结构化检索；
+  无命中只记录"现象通道未召回"，不推断系统无故障。
 
 ## 纪律（硬约束）
 
@@ -48,9 +76,11 @@ allowed-tools: >
    并回到现场证据核对。案例自带 `counter_evidence_json` 的，优先借用其排除项。
 4. **不许只给笼统匹配分**：每条候选必须给 L1/L2/L3 逐级"命中/不命中"判定，并给出
    applicability。分数只是排序依据，不是采用依据。
-5. **GET / SET 分开检索**：library 通道 `operation` 是服务端过滤字段（提交即隔离，
-   且计入归一化分母）；legacy 通道没有该字段，隔离只能靠"分两次查询、各自只提交本
+5. **GET / SET 分开检索**：library 通道 `operation` 是纯过滤器（提交即隔离，不计入
+   归一化分母）；legacy 通道没有该字段，隔离只能靠"分两次查询、各自只提交本
    operation 的信号"。任何通道都禁止把两种操作的信号合并成一次查询。
+   `operation=MIXED` 或未标注操作的案例对两种操作都成立，会同时出现在 GET 与 SET 的
+   结果里；`MIXED` 只说明整份报告覆盖该操作，判定故障归属仍须回取报告。
 6. **特征只能来自现场观测**：不得为了凑匹配填入未观测到的 IP / Pod / 错误码；
    `log_keywords` 必须是本次现场日志的原文短语，不能套用历史案例里的短语。
 7. **命中即回写**：凡被采纳（含部分采纳）为参考的案例，回写对应通道的
@@ -89,7 +119,7 @@ python3 match_cases.py /tmp/case_match/features.json --source legacy   # 仅在 
 
 - **`--source library`（默认，正解通道）**：打 `POST /diag_case_library/search`，只召回
   `status=confirmed` 的已确认案例。`kb_id` 可省略（留空 = 跨知识库召回，`kb_id` 只作来源标注），
-  `operation` 由服务端过滤且计入归一化分母。
+  `operation` 由服务端精确过滤，不参与计分。
 - **`--source legacy`（降级通道）**：打 `POST /diagnosis_case/search`，`kb_id` 必填且服务端校验
   存在性，**不能传空串做跨库检索**；检索范围 = 本次知识库 + 全局案例。该通道案例未经人工确认，
   输出必须标注其来源属性。

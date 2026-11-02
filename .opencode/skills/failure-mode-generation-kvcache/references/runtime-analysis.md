@@ -105,7 +105,7 @@ access 根 -> 最上层 runtime 节点 -> 更下游 runtime 节点
 | 情况 | access 根 |
 | --- | --- |
 | 唯一非零 K_* 且已有对应根 | 对应 K_* 根 |
-| 唯一 K_* 但入口根缺失 | 记录脚本遗漏，不臆造边 |
+| 唯一 K_* 但入口根缺失 | 视为完整性错误，先补齐该 K_* 根再建边 |
 | `null` + FATAL | 进程级 FATAL 特殊根 |
 | `null` + ERROR | code=0 + respMsg 非空特殊根 |
 

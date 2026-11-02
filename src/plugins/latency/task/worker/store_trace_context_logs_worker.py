@@ -23,12 +23,14 @@ from latency.database.managers.task import TaskPGManager
 from latency.task.worker.kv_cache_log_event_diagnosis_worker import KVCacheLogEventDiagnosisWorker
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.database.managers.log_failure_event import LogFailureEventPGManager
+from latency.database.managers.pod_role import PodRolePGManager
 from latency.schemas.log import LogFileModel
 from latency.schemas.task import TaskModel
 from latency.database.managers.failure_mode_knowledge import FailureModeKnowledgePGManager
 from latency.database.utils import parse_timestamp
 from latency.task.log_preprocessor import cleanup_preprocess_dir, has_parseable_log
 from latency.common.stage_timing import StageTimer
+from latency.parse.role import LogRole, identify_log_role, role_expr
 
 
 logger = logging.getLogger(__name__)
@@ -51,7 +53,7 @@ _FAILURE_INDEX_BYTES = 32 * 1024 * 1024
 _CONTEXT_COLUMNS = (
     "log_file", "raw_text", "timestamp", "level", "filename", "pod_name",
     "pid", "tid", "trace_id", "cluster_name", "message", "status_code",
-    "src_ip", "dst_ip", "operation",
+    "src_ip", "dst_ip", "operation", "role",
 )
 _UUID_VARIANTS = dict(zip("0123456789abcdef", "89ab89ab89ab89ab"))
 
@@ -156,6 +158,10 @@ class _TraceContextState:
     operation: str = ""
     failure_modes: tuple[str, ...] = ()
     access_failure_modes: tuple[str, ...] = ()
+    client_pods: tuple[str, ...] = ()
+    entry_worker_pods: tuple[str, ...] = ()
+    meta_worker_pods: tuple[str, ...] = ()
+    data_worker_pods: tuple[str, ...] = ()
 
     def merge(self, row: dict) -> None:
         pod = row["pod_name"]
@@ -178,6 +184,21 @@ class _TraceContextState:
                     self.failure_modes += (mode,)
                 if row["status_code"] and mode and mode not in self.access_failure_modes:
                     self.access_failure_modes += (mode,)
+        # 容器角色：按行级 role 把 pod 归入对应角色集合（去重保序）。
+        role = row.get("role") or ""
+        if pod:
+            if role == LogRole.CLIENT.value:
+                if pod not in self.client_pods:
+                    self.client_pods += (pod,)
+            elif role == LogRole.ENTRY_WORKER.value:
+                if pod not in self.entry_worker_pods:
+                    self.entry_worker_pods += (pod,)
+            elif role == LogRole.META_WORKER.value:
+                if pod not in self.meta_worker_pods:
+                    self.meta_worker_pods += (pod,)
+            elif role == LogRole.DATA_WORKER.value:
+                if pod not in self.data_worker_pods:
+                    self.data_worker_pods += (pod,)
 
     def event(self, log_id: str, trace_id: str, failure_mode_cache: dict) -> dict:
         diagnosis = KVCacheLogEventDiagnosisWorker
@@ -195,6 +216,20 @@ class _TraceContextState:
             "operation": self.operation,
             "failure_mode": diagnosis._leaf_failure_modes(self.failure_modes, failure_mode_cache),
             "status_code": diagnosis._failure_mode_error_codes(access_modes, failure_mode_cache),
+        }
+
+    def pod_role_event(self, log_id: str, trace_id: str) -> dict:
+        """该 trace 的容器角色聚合事件（写入 pod_role 表）。"""
+        return {
+            "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{log_id}:{trace_id}")),
+            "log_id": log_id,
+            "trace_id": trace_id,
+            "operation": self.operation,
+            "client_pod": self.client_pods[0] if self.client_pods else None,
+            "entry_worker_pods": list(self.entry_worker_pods),
+            "meta_worker_pods": list(self.meta_worker_pods),
+            "data_worker_pods": list(self.data_worker_pods),
+            "timestamp": self.timestamp,
         }
 
 
@@ -217,6 +252,26 @@ class _TraceContextEvents:
             # releases each state without materializing a second full list.
             self.states[trace_id] = None
             yield event
+
+
+class _PodRoleEvents:
+    """Sized, single-pass event source for pod_role table writes.
+
+    Must be consumed BEFORE :class:`_TraceContextEvents` because the latter
+    clears each state while iterating.
+    """
+
+    def __init__(self, states: dict, log_id: str) -> None:
+        self.states = states
+        self.log_id = log_id
+        self.count = len(states)
+
+    def __len__(self) -> int:
+        return self.count
+
+    def __iter__(self) -> Iterator[dict]:
+        for trace_id, state in self.states.items():
+            yield state.pod_role_event(self.log_id, trace_id)
 
 
 def cleanup_temp_dirs(output_log_path: str, log_file_id: str) -> None:
@@ -405,6 +460,13 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 .when(handle.is_in(set_vals)).then(pl.lit("SET"))
                 .otherwise(pl.lit(""))
                 .alias("operation"),
+                role_expr(
+                    pod_name=strip(pl.col("_f3")),
+                    cluster_name=strip(pl.col("_f6")),
+                    filename=strip(pl.col("_f2")),
+                    message=strip(pl.col("_f7").fill_null("")),
+                    log_file=pl.col("log_file"),
+                ).alias("role"),
             ])
         )
 
@@ -649,6 +711,13 @@ class StoreTraceContextLogsWorker(BaseWorker):
                                 "cluster_name": parts[6].strip() if len(parts) > 6 else "",
                                 "message": message.strip(),
                                 "status_code": status_code,
+                                "role": identify_log_role(
+                                    pod_name=parts[3].strip(),
+                                    cluster_name=parts[6].strip() if len(parts) > 6 else "",
+                                    filename=parts[2].strip(),
+                                    message=message.strip(),
+                                    log_file=log_file_name,
+                                ),
                             })
                             if len(rows) >= _CONTEXT_BATCH_ROWS:
                                 yield rows
@@ -756,6 +825,22 @@ class StoreTraceContextLogsWorker(BaseWorker):
             pl.col("dst_ip").filter(has_src).last().fill_null(""),
             pl.col("operation").filter(pl.col("operation") != "").first().fill_null(""),
         ]
+        # 容器角色聚合：每 trace 按行级 role 收集对应角色的 pod（保序去重）。
+        # set 请求无远端拉取链路，data_worker_pods 自然为空数组。
+        aggregates.extend([
+            pl.col("pod_name").filter(
+                (pl.col("role") == LogRole.CLIENT.value) & (pl.col("pod_name") != "")
+            ).unique(maintain_order=True).alias("client_pods"),
+            pl.col("pod_name").filter(
+                (pl.col("role") == LogRole.ENTRY_WORKER.value) & (pl.col("pod_name") != "")
+            ).unique(maintain_order=True).alias("entry_worker_pods"),
+            pl.col("pod_name").filter(
+                (pl.col("role") == LogRole.META_WORKER.value) & (pl.col("pod_name") != "")
+            ).unique(maintain_order=True).alias("meta_worker_pods"),
+            pl.col("pod_name").filter(
+                (pl.col("role") == LogRole.DATA_WORKER.value) & (pl.col("pod_name") != "")
+            ).unique(maintain_order=True).alias("data_worker_pods"),
+        ])
         if has_modes:
             aggregates.extend([
                 pl.col("_modes").explode(empty_as_null=True).drop_nulls().unique(maintain_order=True).alias("failure_modes"),
@@ -843,6 +928,10 @@ class StoreTraceContextLogsWorker(BaseWorker):
             pl.col("src_ip").filter(pl.col("src_ip") != "").last().fill_null(""),
             pl.col("dst_ip").filter(pl.col("src_ip") != "").last().fill_null(""),
             pl.col("operation").filter(pl.col("operation") != "").first().fill_null(""),
+            pl.col("client_pods").explode(empty_as_null=True).drop_nulls().unique(maintain_order=True),
+            pl.col("entry_worker_pods").explode(empty_as_null=True).drop_nulls().unique(maintain_order=True),
+            pl.col("meta_worker_pods").explode(empty_as_null=True).drop_nulls().unique(maintain_order=True),
+            pl.col("data_worker_pods").explode(empty_as_null=True).drop_nulls().unique(maintain_order=True),
         ]
         if has_modes:
             aggregates.extend([
@@ -851,18 +940,33 @@ class StoreTraceContextLogsWorker(BaseWorker):
             ])
         merged = frame.group_by("trace_id", maintain_order=True).agg(aggregates)
         states: dict[str, _TraceContextState] = {}
+        columns = merged.columns
         for row in merged.iter_rows():
-            trace_id, timestamp, pods, clusters, src, dst, operation, *mode_columns = row
+            values = dict(zip(columns, row))
+            trace_id = values["trace_id"]
             state = _TraceContextState(
-                timestamp,
-                tuple(canonical(pod) for pod in pods if pod),
-                tuple(canonical(cluster) for cluster in clusters if cluster),
-                canonical(src), canonical(dst), operation or "",
+                values["timestamp"],
+                tuple(canonical(pod) for pod in (values["pod_name"] or ()) if pod),
+                tuple(canonical(cluster) for cluster in (values["cluster_name"] or ()) if cluster),
+                canonical(values["src_ip"]), canonical(values["dst_ip"]),
+                values["operation"] or "",
             )
-            if mode_columns and mode_columns[0]:
-                state.failure_modes = tuple(mode_columns[0])
-            if len(mode_columns) > 1 and mode_columns[1]:
-                state.access_failure_modes = tuple(mode_columns[1])
+            if values.get("failure_modes"):
+                state.failure_modes = tuple(values["failure_modes"])
+            if values.get("access_failure_modes"):
+                state.access_failure_modes = tuple(values["access_failure_modes"])
+            state.client_pods = tuple(
+                canonical(pod) for pod in (values.get("client_pods") or ()) if pod
+            )
+            state.entry_worker_pods = tuple(
+                canonical(pod) for pod in (values.get("entry_worker_pods") or ()) if pod
+            )
+            state.meta_worker_pods = tuple(
+                canonical(pod) for pod in (values.get("meta_worker_pods") or ()) if pod
+            )
+            state.data_worker_pods = tuple(
+                canonical(pod) for pod in (values.get("data_worker_pods") or ()) if pod
+            )
             states[trace_id] = state
         return states
 
@@ -1066,8 +1170,11 @@ class StoreTraceContextLogsWorker(BaseWorker):
         """Stream completed trace state into a single atomic COPY."""
         trace_count = len(trace_failure_events_map)
         if trace_count:
-            events = _TraceContextEvents(trace_failure_events_map, log_id, failure_mode_cache)
+            # pod_role 必须先生成：_TraceContextEvents 迭代时会清空 state。
+            pod_role_events = _PodRoleEvents(trace_failure_events_map, log_id)
             try:
+                await PodRolePGManager.add_pod_role_raw(pod_role_events)
+                events = _TraceContextEvents(trace_failure_events_map, log_id, failure_mode_cache)
                 await LogFailureEventPGManager.add_trace_failure_event_raw(events)
             finally:
                 trace_failure_events_map.clear()
@@ -1081,6 +1188,49 @@ class StoreTraceContextLogsWorker(BaseWorker):
             )
 
     @staticmethod
+    def _select_get_set_trace_ids(
+        log_files: list[tuple[str, str]],
+        trace_id_set: set[str],
+        worker_access_patterns: list[str],
+        client_access_patterns: list[str],
+    ) -> set[str]:
+        """Select whole traces by access operation before writing any context.
+
+        Runtime rows have no operation, so filtering individual rows would lose
+        GET/SET diagnostic evidence. Only pre-scan access files, in bounded
+        batches, then keep all context for the selected traces.
+        """
+        access_files = [
+            (name, path) for name, path in log_files
+            if KVCacheLogEventDiagnosisWorker._matches_any(name, worker_access_patterns)
+            or KVCacheLogEventDiagnosisWorker._matches_any(name, client_access_patterns)
+        ]
+        _, use_polars, batches, _ = StoreTraceContextLogsWorker._scan_context_rows(
+            access_files, trace_id_set, worker_access_patterns, client_access_patterns
+        )
+        selected: set[str] = set()
+        try:
+            for batch in batches:
+                if use_polars:
+                    import polars as pl
+
+                    selected.update(batch.filter(
+                        pl.col("operation").is_in(["GET", "SET"])
+                    )["trace_id"].unique().to_list())
+                else:
+                    selected.update(
+                        row["trace_id"] for row in batch
+                        if KVCacheLogEventDiagnosisWorker._extract_operation(
+                            row["raw_text"]
+                        ) in {"GET", "SET"}
+                    )
+                if selected == trace_id_set:
+                    break
+        finally:
+            batches.close()
+        return selected
+
+    @staticmethod
     async def _store_trace_context_logs(
         output_log_path: str,
         log_id: str,
@@ -1089,7 +1239,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
         task_id: str | None = None,
         progress_base: float = 0.0,
         progress_end: float = 100.0,
-    ) -> None:
+    ) -> set[str]:
         # 将output_log_path下，除了failure_trace.log以外的所有日志读到log_failure_event_table数据库中
         # 除了failure_trace.log以外，output_log_path目录下的日志都是以下模板："timestamp | level | filename | pod_name | pid:tid | trace_id | cluster_name | message"，  
         # 对应LogFailureEventModel数据结构中的相应字段。除了这些字段以外，log_id对应函数参数输入，log_file对应日志文件名，raw_text对应原始日志。
@@ -1101,7 +1251,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
         try:
             if not trace_id_set:
                 logger.info("failure_trace.log 中没有可落库的 trace_id")
-                return
+                return set()
 
             (
                 worker_access_patterns,
@@ -1109,6 +1259,17 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 failure_mode_cache,
                 log_files,
             ) = await StoreTraceContextLogsWorker._load_store_context(output_log_path, log_id)
+
+            selected_trace_ids = StoreTraceContextLogsWorker._select_get_set_trace_ids(
+                log_files, trace_id_set, worker_access_patterns, client_access_patterns
+            )
+            logger.info(
+                "Trace operation filter: selected %s GET/SET traces, skipped %s other traces",
+                len(selected_trace_ids), len(trace_id_set) - len(selected_trace_ids),
+            )
+            trace_id_set = selected_trace_ids
+            if not trace_id_set:
+                return set()
 
             (
                 total_log_failure_events,
@@ -1149,6 +1310,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                     "[utf8] 部分日志文件存在二进制字节，可能导致故障解析产生异常"
                 )
 
+            stored_trace_ids = set(trace_failure_events_map)
             await StoreTraceContextLogsWorker._write_trace_failure_events(
                 trace_failure_events_map=trace_failure_events_map,
                 failure_mode_cache=failure_mode_cache,
@@ -1160,7 +1322,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 log_id=log_id,
             )
 
-            return
+            return stored_trace_ids
 
         except Exception as e:
             # 不打第二套机制：上下文留全后照旧外抛，由 run() 统一落失败原因
@@ -1172,8 +1334,6 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 output_log_path,
             )
             raise
-
-        return
 
     @staticmethod
     async def init(op_id: str) -> str | None:
@@ -1399,7 +1559,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
             collect_scope.detail = f"定界产出 {len(trace_id_set)} 个故障 trace"
 
         with timer.stage("trace_store_write") as write_scope:
-            await StoreTraceContextLogsWorker._store_trace_context_logs(
+            trace_id_set = await StoreTraceContextLogsWorker._store_trace_context_logs(
                 output_log_path=output_log_path,
                 log_id=log_id,
                 trace_id_set=trace_id_set,

@@ -1,0 +1,390 @@
+[
+  {
+    "first_level_label": "业务故障",
+    "second_level_label": "业务故障-异常请求"
+  },
+  {
+    "first_level_label": "业务故障",
+    "second_level_label": "业务故障-过多请求"
+  },
+  {
+    "first_level_label": "SDK故障",
+    "second_level_label": "SDK故障-进程异常退出"
+  },
+  {
+    "first_level_label": "SDK故障",
+    "second_level_label": "SDK故障-进程反复重启"
+  },
+  {
+    "first_level_label": "SDK故障",
+    "second_level_label": "SDK故障-进程挂死"
+  },
+  {
+    "first_level_label": "SDK故障",
+    "second_level_label": "SDK故障-进程CPU/内存/IO等资源使用超限"
+  },
+  {
+    "first_level_label": "SDK故障",
+    "second_level_label": "SDK故障-进程申请不到CPU/内存/IO等资源"
+  },
+  {
+    "first_level_label": "Worker故障",
+    "second_level_label": "Worker故障-进程退出"
+  },
+  {
+    "first_level_label": "Worker故障",
+    "second_level_label": "Worker故障-进程反复重启"
+  },
+  {
+    "first_level_label": "Worker故障",
+    "second_level_label": "Worker故障-进程挂死"
+  },
+  {
+    "first_level_label": "Worker故障",
+    "second_level_label": "Worker故障-进程CPU/内存/IO等资源使用超限"
+  },
+  {
+    "first_level_label": "Worker故障",
+    "second_level_label": "Worker故障-进程申请不到CPU/内存/IO等资源"
+  },
+  {
+    "first_level_label": "Coordinator故障",
+    "second_level_label": "Coordinator故障-进程异常退出"
+  },
+  {
+    "first_level_label": "Coordinator故障",
+    "second_level_label": "Coordinator故障-进程反复重启"
+  },
+  {
+    "first_level_label": "Coordinator故障",
+    "second_level_label": "Coordinator故障-进程挂死"
+  },
+  {
+    "first_level_label": "Coordinator故障",
+    "second_level_label": "Coordinator故障-进程CPU/内存/IO等资源使用超限"
+  },
+  {
+    "first_level_label": "Coordinator故障",
+    "second_level_label": "Coordinator故障-进程申请不到CPU/内存/IO等资源"
+  },
+  {
+    "first_level_label": "杰夫系统故障",
+    "second_level_label": "杰夫系统故障-系统不可用"
+  },
+  {
+    "first_level_label": "URMA故障",
+    "second_level_label": "URMA故障-初始化异常"
+  },
+  {
+    "first_level_label": "URMA故障",
+    "second_level_label": "URMA故障-建链异常"
+  },
+  {
+    "first_level_label": "URMA故障",
+    "second_level_label": "URMA故障-数据通信API返回值异常"
+  },
+  {
+    "first_level_label": "URMA故障",
+    "second_level_label": "URMA故障-数据通信CQE异步事件"
+  },
+  {
+    "first_level_label": "URMA故障",
+    "second_level_label": "URMA故障-数据通信AE异步事件"
+  },
+  {
+    "first_level_label": "URMA故障",
+    "second_level_label": "URMA故障-反初始化异常"
+  },
+  {
+    "first_level_label": "UDMA故障",
+    "second_level_label": "UDMA故障-驱动接口异常"
+  },
+  {
+    "first_level_label": "UB管控面故障",
+    "second_level_label": "UB管控面故障-UBSE进程故障"
+  },
+  {
+    "first_level_label": "UB管控面故障",
+    "second_level_label": "UB管控面故障-UBM进程故障"
+  },
+  {
+    "first_level_label": "OS故障",
+    "second_level_label": "OS故障-重启"
+  },
+  {
+    "first_level_label": "OS故障",
+    "second_level_label": "OS故障-Panic"
+  },
+  {
+    "first_level_label": "OS故障",
+    "second_level_label": "OS故障-挂死"
+  },
+  {
+    "first_level_label": "OS故障",
+    "second_level_label": "OS故障-CPU满"
+  },
+  {
+    "first_level_label": "OS故障",
+    "second_level_label": "OS故障-内存不足"
+  },
+  {
+    "first_level_label": "OS故障",
+    "second_level_label": "OS故障-硬盘IO速度慢"
+  },
+  {
+    "first_level_label": "OS故障",
+    "second_level_label": "OS故障-硬盘空间不足"
+  },
+  {
+    "first_level_label": "OS故障",
+    "second_level_label": "OS故障-fd不足"
+  },
+  {
+    "first_level_label": "OS故障",
+    "second_level_label": "OS故障-时间跳变"
+  },
+  {
+    "first_level_label": "容器故障",
+    "second_level_label": "容器故障-SDK容器重启"
+  },
+  {
+    "first_level_label": "容器故障",
+    "second_level_label": "容器故障-Worker容器重启"
+  },
+  {
+    "first_level_label": "容器故障",
+    "second_level_label": "容器故障-Coordinator容器重启"
+  },
+  {
+    "first_level_label": "容器故障",
+    "second_level_label": "容器故障-CPU满"
+  },
+  {
+    "first_level_label": "容器故障",
+    "second_level_label": "容器故障-内存不足"
+  },
+  {
+    "first_level_label": "容器故障",
+    "second_level_label": "容器故障-存储空间不足"
+  },
+  {
+    "first_level_label": "容器故障",
+    "second_level_label": "容器故障-存储空间只读"
+  },
+  {
+    "first_level_label": "容器故障",
+    "second_level_label": "容器故障-fd不足"
+  },
+  {
+    "first_level_label": "Coordinator集群故障",
+    "second_level_label": "Coordinator集群故障-主节点故障"
+  },
+  {
+    "first_level_label": "Coordinator集群故障",
+    "second_level_label": "Coordinator集群故障-备节点故障"
+  },
+  {
+    "first_level_label": "Coordinator集群故障",
+    "second_level_label": "Coordinator集群故障-少数派节点故障"
+  },
+  {
+    "first_level_label": "Coordinator集群故障",
+    "second_level_label": "Coordinator集群故障-集群不可用"
+  },
+  {
+    "first_level_label": "Coordinator集群故障",
+    "second_level_label": "Coordinator集群故障-脑裂"
+  },
+  {
+    "first_level_label": "Coordinator集群故障",
+    "second_level_label": "Coordinator集群故障-主备反复倒换"
+  },
+  {
+    "first_level_label": "Worker集群故障",
+    "second_level_label": "Worker集群故障-单节点故障"
+  },
+  {
+    "first_level_label": "Worker集群故障",
+    "second_level_label": "Worker集群故障-部分节点故障"
+  },
+  {
+    "first_level_label": "Worker集群故障",
+    "second_level_label": "Worker集群故障-集群不可用"
+  },
+  {
+    "first_level_label": "服务器故障",
+    "second_level_label": "服务器故障-掉电"
+  },
+  {
+    "first_level_label": "服务器故障",
+    "second_level_label": "服务器故障-CPU故障"
+  },
+  {
+    "first_level_label": "服务器故障",
+    "second_level_label": "服务器故障-内存故障"
+  },
+  {
+    "first_level_label": "服务器故障",
+    "second_level_label": "服务器故障-硬盘故障"
+  },
+  {
+    "first_level_label": "服务器故障",
+    "second_level_label": "服务器故障-UB级联卡故障"
+  },
+  {
+    "first_level_label": "以太网卡故障",
+    "second_level_label": "网卡故障-双网卡down"
+  },
+  {
+    "first_level_label": "以太网卡故障",
+    "second_level_label": "网卡故障-单网卡down"
+  },
+  {
+    "first_level_label": "以太网卡故障",
+    "second_level_label": "网卡故障-时延高"
+  },
+  {
+    "first_level_label": "以太网卡故障",
+    "second_level_label": "网卡故障-丢包"
+  },
+  {
+    "first_level_label": "以太网卡故障",
+    "second_level_label": "网卡故障-抖动"
+  },
+  {
+    "first_level_label": "以太网卡故障",
+    "second_level_label": "网卡故障-闪断"
+  },
+  {
+    "first_level_label": "以太网卡故障",
+    "second_level_label": "网卡故障-带宽不足"
+  },
+  {
+    "first_level_label": "UDie故障",
+    "second_level_label": "UDie故障-NFE故障"
+  },
+  {
+    "first_level_label": "UDie故障",
+    "second_level_label": "Udie故障-CE故障"
+  },
+  {
+    "first_level_label": "UDie故障",
+    "second_level_label": "UDie故障-FE故障"
+  },
+  {
+    "first_level_label": "UDie故障",
+    "second_level_label": "UDie故障-Jetty不足"
+  },
+  {
+    "first_level_label": "UDie故障",
+    "second_level_label": "UDie故障-UB带宽不足"
+  },
+  {
+    "first_level_label": "UB交换机故障",
+    "second_level_label": "L1交换机故障-芯片故障"
+  },
+  {
+    "first_level_label": "UB交换机故障",
+    "second_level_label": "L1交换机故障-整机故障"
+  },
+  {
+    "first_level_label": "UB交换机故障",
+    "second_level_label": "L2交换机故障-芯片故障"
+  },
+  {
+    "first_level_label": "UB交换机故障",
+    "second_level_label": "L2交换机故障-整机故障"
+  },
+  {
+    "first_level_label": "以太交换机故障",
+    "second_level_label": "以太交换机故障-整机故障"
+  },
+  {
+    "first_level_label": "光模块故障",
+    "second_level_label": "光模块故障-down"
+  },
+  {
+    "first_level_label": "光模块故障",
+    "second_level_label": "光模块故障-闪断"
+  },
+  {
+    "first_level_label": "光模块故障",
+    "second_level_label": "光模块故障-丢包"
+  },
+  {
+    "first_level_label": "光模块故障",
+    "second_level_label": "光模块故障-降lane"
+  },
+  {
+    "first_level_label": "光模块故障",
+    "second_level_label": "光模块故障-时延高"
+  },
+  {
+    "first_level_label": "光模块故障",
+    "second_level_label": "光模块故障-抖动"
+  },
+  {
+    "first_level_label": "光纤故障",
+    "second_level_label": "光纤故障-UB光纤故障"
+  },
+  {
+    "first_level_label": "光纤故障",
+    "second_level_label": "光纤故障-以太铜缆/光纤故障"
+  },
+  {
+    "first_level_label": "数据故障",
+    "second_level_label": "数据故障-数据丢失"
+  },
+  {
+    "first_level_label": "数据故障",
+    "second_level_label": "数据故障-数据损坏"
+  },
+  {
+    "first_level_label": "数据故障",
+    "second_level_label": "数据故障-数据不一致"
+  },
+  {
+    "first_level_label": "数据故障",
+    "second_level_label": "数据故障-过期数据未清理"
+  },
+  {
+    "first_level_label": "文件故障",
+    "second_level_label": "文件故障-文件丢失"
+  },
+  {
+    "first_level_label": "文件故障",
+    "second_level_label": "文件故障-文件损坏"
+  },
+  {
+    "first_level_label": "文件故障",
+    "second_level_label": "文件故障-文件权限错误"
+  },
+  {
+    "first_level_label": "亚健康故障",
+    "second_level_label": "亚健康故障-慢节点"
+  },
+  {
+    "first_level_label": "亚健康故障",
+    "second_level_label": "亚健康故障-UB链路亚健康"
+  },
+  {
+    "first_level_label": "亚健康故障",
+    "second_level_label": "亚健康故障-TCP链路亚健康"
+  },
+  {
+    "first_level_label": "误操作故障",
+    "second_level_label": "误操作故障-拔服务器侧UB光纤"
+  },
+  {
+    "first_level_label": "误操作故障",
+    "second_level_label": "误操作故障-拔交换机侧UB光纤"
+  },
+  {
+    "first_level_label": "误操作故障",
+    "second_level_label": "误操作故障-拔机柜UB光纤"
+  },
+  {
+    "first_level_label": "误操作故障",
+    "second_level_label": "误操作故障-拔以太光纤"
+  }
+]

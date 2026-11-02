@@ -16,6 +16,7 @@
 以下链接可协助您使用witty-ub:
 
 * [witty-ub快速使用指导](docs/quick-start.md)涵盖了编译和使用witty-ub组件的全流程。
+* [Witty RAG MCP 接入指导](docs/rag-mcp-deployment.md)说明如何使用 openGauss、RAG Core 镜像并让 Agent 通过 MCP 调用知识库。
 
 ## 特性介绍
 

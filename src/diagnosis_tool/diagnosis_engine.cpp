@@ -29,6 +29,7 @@
 #include <unistd.h>
 
 #include "failure_log_helper.h"
+#include "runtime_record_reader.h"
 #include "logger.h"
 
 namespace diag {
@@ -77,7 +78,7 @@ constexpr std::size_t URMA_LIBRARY_FIELD_INDEX = 1;
 constexpr std::size_t URMA_FUNCTION_FIELD_INDEX = 4;
 constexpr int SUCCESS_STATUS_CODE = 0;
 constexpr std::array<char, 8> RULE_CACHE_MAGIC = {'W', 'U', 'B', 'D', 'I', 'A', 'G', '1'};
-constexpr std::uint32_t RULE_CACHE_VERSION = 1;
+constexpr std::uint32_t RULE_CACHE_VERSION = 2;
 constexpr std::size_t RULE_SOURCE_COUNT = 3;
 constexpr std::uint64_t MAX_CACHED_RULES = 1000000;
 constexpr std::uint64_t MAX_CACHED_ITEMS = 10000000;
@@ -999,6 +1000,13 @@ void DiagnosisEngine::AnalyzeRuntimeLines(const std::vector<std::string_view> &l
 
 void DiagnosisEngine::MatchRuntimeLine(std::string_view line, RuntimeMatchBatch &batch) const
 {
+    // Callers may also supply an already assembled record with real newlines.
+    // Persist the same escaped representation used by the file extraction path.
+    std::string normalized;
+    if (line.find('\n') != std::string_view::npos) {
+        normalized = log_helper::EscapeNewlines(line);
+        line = normalized;
+    }
     const std::string_view traceId = ExtractRuntimeTraceId(line);
     if (traceId.empty() || accessTraceIds_.find(traceId) == accessTraceIds_.end()) {
         return;
@@ -1107,10 +1115,16 @@ bool DiagnosisEngine::AnalyzeRuntimeLogs(const std::vector<std::string> &paths)
             LOG_ERROR << "failed to open runtime log: " << path;
             return false;
         }
+        log_helper::RuntimeRecordReader records([this](std::string_view record, bool) {
+            AnalyzeRuntimeLine(record);
+            return true;
+        });
         std::string line;
         while (std::getline(stream, line)) {
-            AnalyzeRuntimeLine(line);
+            records.Feed(line);
+            records.OwnPending();
         }
+        records.Finish();
         if (stream.bad()) {
             LOG_ERROR << "failed while reading runtime log: " << path;
             return false;
@@ -1186,11 +1200,8 @@ void DiagnosisEngine::ActivateKvcachePaths(const std::unordered_map<std::string,
 void DiagnosisEngine::AnalyzeUrmaRuntime(const std::vector<std::string> &candidateLines,
                                          const std::unordered_map<std::string, TraceContext> &traces)
 {
-    struct UrmaMatchRecord {
-        std::shared_ptr<FailureLogInfoRuntime> log;
-        std::size_t failureIndex;
-        InterfaceToAnchors interfaceToAnchors;
-    };
+    // 缓存只在本次调用内有效，避免跨诊断复用其他 trace 的匹配范围或路径状态。
+    UrmaMatchCache cache;
     std::vector<UrmaMatchRecord> matchedRecords;
 
     for (const std::string &line : candidateLines) {
@@ -1207,27 +1218,55 @@ void DiagnosisEngine::AnalyzeUrmaRuntime(const std::vector<std::string> &candida
             continue;
         }
 
-        InterfaceToAnchors interfaceToAnchors = CollectUrmaInterfaces(traceIterator->second);
-        const RuleIndexSet allowed = CollectUrmaFailureRules(interfaceToAnchors);
+        UrmaTraceContext &context = GetUrmaTraceContext(traceIterator->first, traceIterator->second, cache);
         auto urmaLog = std::make_shared<FailureLogInfoRuntime>(*record.log);
         urmaLog->failureModeIds.clear();
         urmaLog->functionName = record.matchFunctionName;
         urmaLog->message = record.matchMessage;
-        const auto matched = SelectBestRule(functionIterator->second, allowed, *urmaLog, record.matchMessage);
+        const auto matched = SelectBestRule(functionIterator->second, *context.allowed, *urmaLog, record.matchMessage);
         if (matched.has_value()) {
             matchedRecords.push_back(UrmaMatchRecord{
                 std::move(urmaLog),
                 *matched,
-                std::move(interfaceToAnchors),
+                &context,
             });
         }
     }
 
-    std::stable_sort(matchedRecords.begin(), matchedRecords.end(), [](const auto &left, const auto &right) {
+    RecordUrmaMatches(matchedRecords);
+}
+
+DiagnosisEngine::UrmaTraceContext &DiagnosisEngine::GetUrmaTraceContext(
+    std::string_view traceId, const TraceContext &trace, UrmaMatchCache &cache) const
+{
+    auto [contextIterator, inserted] = cache.contexts.try_emplace(traceId);
+    UrmaTraceContext &context = contextIterator->second;
+    if (inserted) {
+        context.interfaceToAnchors = CollectUrmaInterfaces(trace);
+        RuleIndices interfaces;
+        interfaces.reserve(context.interfaceToAnchors.size());
+        for (const auto &entry : context.interfaceToAnchors) {
+            interfaces.push_back(entry.first);
+        }
+        std::sort(interfaces.begin(), interfaces.end());
+        auto [allowedIterator, newScope] = cache.allowedByInterfaces.try_emplace(std::move(interfaces));
+        if (newScope) {
+            allowedIterator->second = CollectUrmaFailureRules(context.interfaceToAnchors);
+        }
+        context.allowed = &allowedIterator->second;
+    }
+    return context;
+}
+
+void DiagnosisEngine::RecordUrmaMatches(std::vector<UrmaMatchRecord> &records)
+{
+    std::stable_sort(records.begin(), records.end(), [](const auto &left, const auto &right) {
         return std::tie(left.log->timestamp, left.log->rawLog) < std::tie(right.log->timestamp, right.log->rawLog);
     });
-    for (UrmaMatchRecord &record : matchedRecords) {
-        ActivateUrmaPath(record.failureIndex, record.interfaceToAnchors);
+    for (UrmaMatchRecord &record : records) {
+        if (record.context->activatedFailures.insert(record.failureIndex).second) {
+            ActivateUrmaPath(record.failureIndex, record.context->interfaceToAnchors);
+        }
         RecordHit(record.failureIndex, record.log);
     }
 }
@@ -1255,27 +1294,69 @@ DiagnosisEngine::RuleIndexSet DiagnosisEngine::CollectUrmaFailureRules(
     const InterfaceToAnchors &interfaceToAnchors) const
 {
     RuleIndexSet failureRules;
+    RuleIndexSet visited;
+    RuleIndices pending;
     for (const auto &entry : interfaceToAnchors) {
-        const std::size_t interfaceIndex = entry.first;
-        for (std::size_t childIndex : rules_[interfaceIndex].childIndices) {
-            if (rules_[childIndex].failureMode->GetNodeType() == FailureModeNodeType::URMA_FAILURE) {
-                failureRules.insert(childIndex);
-            }
+        pending.push_back(entry.first);
+    }
+    // 用显式栈遍历全部 URMA 后代，避免深层调用栈溢出及共享节点重复展开。
+    while (!pending.empty()) {
+        const std::size_t index = pending.back();
+        pending.pop_back();
+        const auto type = rules_[index].failureMode->GetNodeType();
+        if ((type != FailureModeNodeType::URMA_INTERFACE && type != FailureModeNodeType::URMA_FAILURE) ||
+            !visited.insert(index).second) {
+            continue;
         }
+        if (type == FailureModeNodeType::URMA_FAILURE) {
+            failureRules.insert(index);
+        }
+        const auto &children = rules_[index].childIndices;
+        pending.insert(pending.end(), children.begin(), children.end());
     }
     return failureRules;
 }
 
 void DiagnosisEngine::ActivateUrmaPath(std::size_t failureIndex, const InterfaceToAnchors &interfaceToAnchors)
 {
+    // 先收集命中节点的 URMA 祖先，再从当前 trace 的接口向下连接所有有效路径。
+    // 共享后代可以连接多个已启用接口，但不能激活其他 trace 的接口或无关分支。
+    RuleIndexSet ancestors;
+    RuleIndices pending{failureIndex};
+    while (!pending.empty()) {
+        const std::size_t index = pending.back();
+        pending.pop_back();
+        const auto type = rules_[index].failureMode->GetNodeType();
+        if ((type != FailureModeNodeType::URMA_INTERFACE && type != FailureModeNodeType::URMA_FAILURE) ||
+            !ancestors.insert(index).second) {
+            continue;
+        }
+        const auto &parents = rules_[index].parentIndices;
+        pending.insert(pending.end(), parents.begin(), parents.end());
+    }
     for (const auto &[interfaceIndex, anchors] : interfaceToAnchors) {
-        if (!ContainsIndex(rules_[interfaceIndex].childIndices, failureIndex)) {
+        if (ancestors.count(interfaceIndex) == 0) {
             continue;
         }
         for (std::size_t anchorIndex : anchors) {
             ActivateEdge(anchorIndex, interfaceIndex);
         }
-        ActivateEdge(interfaceIndex, failureIndex);
+        pending.push_back(interfaceIndex);
+    }
+    RuleIndexSet visited;
+    while (!pending.empty()) {
+        const std::size_t index = pending.back();
+        pending.pop_back();
+        if (!visited.insert(index).second || index == failureIndex) {
+            continue;
+        }
+        for (std::size_t childIndex : rules_[index].childIndices) {
+            if (ancestors.count(childIndex) != 0) {
+                // 路径节点不等于日志命中；只有实际匹配的节点才由 RecordHit 记录。
+                ActivateEdge(index, childIndex);
+                pending.push_back(childIndex);
+            }
+        }
     }
 }
 
@@ -1432,7 +1513,14 @@ std::vector<std::string> DiagnosisEngine::ParseKeywords(const std::string &pheno
         if (end == std::string::npos) {
             break;
         }
-        const std::string keyword = phenomenon.substr(begin + 1, end - begin - 1);
+        std::string keyword = phenomenon.substr(begin + 1, end - begin - 1);
+        // A trailing line terminator is formatting, not diagnostic content.
+        // Embedded line breaks remain required and use the same single-line
+        // representation as extracted runtime records and failure_trace.log.
+        while (!keyword.empty() && (keyword.back() == '\n' || keyword.back() == '\r')) {
+            keyword.pop_back();
+        }
+        keyword = log_helper::EscapeNewlines(keyword);
         if (!keyword.empty()) {
             keywords.push_back(keyword);
         }
@@ -1529,7 +1617,7 @@ bool DiagnosisEngine::ParseRuntimeMatchView(std::string_view line, RuntimeMatchV
     view.functionName = functionSeparator == std::string_view::npos ? std::string_view{} :
                                                                       filenameFunction.substr(functionSeparator + 1);
     view.traceId = log_helper::TrimView(fields[TRACEID_IDX]);
-    view.message = log_helper::TrimView(fields[MESSAGE_IDX]);
+    view.message = fields[MESSAGE_IDX];
     view.level = level;
     return true;
 }

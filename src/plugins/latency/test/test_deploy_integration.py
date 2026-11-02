@@ -127,6 +127,15 @@ class TestDeployConf:
         assert "POSTGRESQL_PASSWORD=witty-ub" not in compose
         assert "secrets:" in compose and "/run/secrets/pg_password" in compose
 
+    def test_trusted_operator_switch_reaches_backend_containers(self):
+        conf = (_DEPLOY_DIR / "deploy.conf").read_text()
+        app_deploy = (_DEPLOY_DIR / "docker/deploy_witty.sh").read_text()
+        assert 'WITTY_REQUIRE_TRUSTED_OPERATOR="false"' in conf
+        assert "WITTY_REQUIRE_TRUSTED_OPERATOR" in app_deploy
+        # backend 与 all 两个角色都要注入，frontend 角色不承载审核逻辑
+        assert app_deploy.count('"${REVIEW_ENV_ARGS[@]}"') == 2
+        assert '-e "WITTY_REQUIRE_TRUSTED_OPERATOR=true"' in app_deploy
+
 
 class TestDeployPgSh:
     """deploy/deploy_pg.sh mode flags and --help."""

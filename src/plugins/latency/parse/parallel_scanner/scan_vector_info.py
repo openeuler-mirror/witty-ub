@@ -106,6 +106,9 @@ _EXTRA_COLUMNS: tuple[str, ...] = (
     "_rpc_e2e_us",
     "_rpc_server_exec_us",
     "_rpc_network_us",
+    # URMA 调度时延原始值：仅 URMA 行产出，供 trace_frame 按 trace 取 max
+    # （对齐 kvcache 基准 urma_sched_us 语义；不进 TRACE_COLUMNS 平铺契约）。
+    "urma_sched_us",
 )
 
 _OUTPUT_COLUMNS: tuple[str, ...] = (
@@ -133,7 +136,7 @@ _TEXT_COLUMNS = frozenset({
     "tid", "src", "dst", "op", "operation", "op_key",
     "timestamp", "pod_ip", "cluster_name", "host", "data_size", "log_id",
 })
-_INT_COLUMNS = frozenset({"bucket_epoch", "status_code"})
+_INT_COLUMNS = frozenset({"bucket_epoch", "epoch_sec", "status_code"})
 
 #: 列 → dtype（与 ``entries_to_columns`` 的 Python 值类型一一对应）
 _DTYPE_OF: dict[str, Any] = {}
@@ -146,6 +149,7 @@ for _name in TRACE_COLUMNS:
         _DTYPE_OF[_name] = pl.Float64
 _DTYPE_OF["_label"] = pl.Utf8
 _DTYPE_OF["_src_rank"] = pl.Int64
+_DTYPE_OF["epoch_sec"] = pl.Int64
 _DTYPE_OF["_elapsed_us"] = pl.Float64
 _DTYPE_OF["_resp_msg"] = pl.Utf8
 for _name in ("_rpc_e2e_us", "_rpc_server_exec_us", "_rpc_network_us"):
@@ -155,17 +159,33 @@ _DTYPE_OF[_ROW_COLUMN] = pl.Int64
 # light 帧里要多带一列定位键 __rank（走 _empty_frame 时需要 dtype 表里有它）
 _DTYPE_OF[_RANK_COLUMN] = pl.Int64
 _DTYPE_OF["__info_cat"] = pl.UInt8
+_DTYPE_OF["urma_sched_us"] = pl.Float64
 
 # ---------------------------------------------------------------------------
 # 1. 列式正则：与 regex/kvcache_log.py 同语义，仅把位置捕获组补上命名
 #    （命名不改变匹配语义；str.extract_groups 要求全部捕获组已命名）
 # ---------------------------------------------------------------------------
 
+#: URMA 行同时兼容新旧两种日志格式（与 regex/kvcache_log.URMA_RE 同语义）：
+#: 旧格式 ``cost 0.123ms ... src address: IP:port, target address: IP:port, ... urma_inflight_wr_count: N``
+#: 新格式 ``cost: 0.123ms, ... urmaSrcAddress=IP:port, urmaDstAddress=IP:port, ... inflight_wr_cnt: N``
 V_URMA_RE = (
-    r"(?i)\[URMA_ELAPSED_TOTAL\].*?cost\s+(?P<cost>[\d.]+)ms.*?"
-    r"src\s+address\s*:\s*(?P<src>[^,]*?)\s*,\s*"
-    r"(?:target|dst|destination)\s+address\s*:\s*(?P<dst>[^,]*?)\s*,.*?"
-    r"urma_inflight_wr_count:\s*(?P<inflight>\d+)"
+    r"(?i)\[URMA_ELAPSED_TOTAL\].*?cost\s*(?::\s*)?(?P<cost>[\d.]+)ms.*?"
+    r"(?:src\s+address|urmaSrcAddress)\s*(?::|=)\s*(?P<src>[^,]*?)\s*,.*?"
+    r"(?:(?:target|dst|destination)\s+address|urmaDstAddress)\s*(?::|=)\s*(?P<dst>[^,]*?)\s*,.*?"
+    r"(?:urma_inflight_wr_count|inflight_wr_cnt)\s*:\s*(?P<inflight>\d+)"
+)
+#: URMA 调度字段（urma_sched_us）——基准按优先级取第一个非空：
+#: wake_delay > wakeSchedLatencyUs > urmaWriteWakeSchedLatencyUs
+#: > firstUrmaWriteWakeSchedLatencyUs > secondUrmaWriteWakeSchedLatencyUs。
+#: 五个独立捕获组 + coalesce 与基准的 extract_int(...) or extract_int(...) 链完全等价；
+#: 调度字段在行中位置不定，独立正则从 msg 全文搜索，不受 V_URMA_RE 段序约束。
+V_URMA_SCHED_RE = (
+    r"(?i)(?:.*?(?:wake_delay\s*:\s*(?P<wd>\d+)))?"
+    r"(?:.*?(?:wakeSchedLatencyUs:\s*(?P<ws1>\d+)))?"
+    r"(?:.*?(?:urmaWriteWakeSchedLatencyUs:\s*(?P<ws2>\d+)))?"
+    r"(?:.*?(?:firstUrmaWriteWakeSchedLatencyUs:\s*(?P<ws3>\d+)))?"
+    r"(?:.*?(?:secondUrmaWriteWakeSchedLatencyUs:\s*(?P<ws4>\d+)))?"
 )
 V_CREATE_META_REQ_RE = (
     r"Processing CreateMetaReq,.*?src=(?P<src>[^:]+):\d+,\s*dst=(?P<dst>[^:]+):\d+"
@@ -254,9 +274,10 @@ _CHAIN: tuple[tuple[str | None, str], ...] = (
     ("[Get] Remote done", REMOTE_WORKER_RPC_LABEL),
     ("QueryMeta done", MASTER_PROCESS_LABEL),
     ("[ZMQ_RPC_FRAMEWORK_SLOW]", MASTER_RPC_LABEL),
+    ("[BRPC_RPC_FRAMEWORK_SLOW]", MASTER_RPC_LABEL),
     (None, REMOTE_PULL_LABEL),
 )
-_CAT_FALLBACK = len(_CHAIN)  # 15
+_CAT_FALLBACK = len(_CHAIN)  # 16
 
 _CATS_FOR_LABEL: dict[str, tuple[int, ...]] = {}
 for _idx, (_kw, _label) in enumerate(_CHAIN, start=1):
@@ -695,6 +716,8 @@ def _urma(frame: pl.LazyFrame) -> tuple[pl.LazyFrame, dict[str, pl.Expr], pl.Exp
     """``_parse_urma``：URMA_RE 优先，其次 CREATE_META_REQ_RE（SET 请求）。"""
     frame = _extract(frame, V_URMA_RE, ("cost", "src", "dst", "inflight"), "u_")
     frame = _extract(frame, V_CREATE_META_REQ_RE, ("src", "dst"), "c_")
+    # urma_sched_us 原始值：五个调度字段按优先级取第一个非空（对齐基准）
+    frame = _extract(frame, V_URMA_SCHED_RE, ("wd", "ws1", "ws2", "ws3", "ws4"), "s_")
     frame = frame.with_columns(
         _numeric_expr("u_cost", "u_cost_f", float, pl.Float64),
         _numeric_expr("u_inflight", "u_inflight_i", int, pl.Int64),
@@ -729,6 +752,12 @@ def _urma(frame: pl.LazyFrame) -> tuple[pl.LazyFrame, dict[str, pl.Expr], pl.Exp
     values = _base_values(elapsed, None)
     values["src"] = src.fill_null("")
     values["dst"] = dst.fill_null("")
+    # urma_sched_us：按优先级 coalesce 五个调度字段（单位已是微秒，无需换算）
+    values["urma_sched_us"] = (
+        pl.coalesce([pl.col("s_wd"), pl.col("s_ws1"), pl.col("s_ws2"),
+                     pl.col("s_ws3"), pl.col("s_ws4")])
+        .cast(pl.Float64, strict=False)
+    )
     return frame, values, valid
 
 
@@ -964,10 +993,16 @@ def _finalize(
         exprs.append(pl.lit(label, dtype=pl.Utf8).alias("_label"))
     exprs.append(pl.lit(_SRC_RANK.get(label, 0), dtype=pl.Int64).alias("_src_rank"))
     if lights is None:
+        # epoch_sec：INTERNAL_COLUMNS 成员（_OUTPUT_COLUMNS 必选输出列）。info
+        # 扫描的日志行不携带 SDK 秒级时间戳（只有 SDK/Worker access 行才有真实
+        # 值），补 null 占位即可 —— 归并聚合 first() 跳过 null，取 access 行值。
+        exprs.append(_lit_none(pl.Int64).alias("epoch_sec"))
         exprs.append(pl.col("_elapsed_us"))
         if "_resp_msg" in keep_values:
             exprs.append(pl.col("_resp_msg"))
         exprs.extend(pl.col(column) for _, column in _RPC_KEYS if column in keep_values)
+        if "urma_sched_us" in keep_values:
+            exprs.append(pl.col("urma_sched_us"))
 
     out = out.select(exprs)
     if latency_column is not None and (lights is None or latency_column in lights):
@@ -981,6 +1016,9 @@ def _finalize(
     out = out.with_columns(*[
         _rpc_expr(key, column) for key, column in _RPC_KEYS if column not in keep_values
     ])
+    # urma_sched_us 只由 URMA 行产出；其余 label 补 null 占位（聚合帧列集对齐）
+    if "urma_sched_us" not in keep_values:
+        out = out.with_columns(_lit_none(pl.Float64).alias("urma_sched_us"))
     if sparse:
         return out
     return out.select(*_OUTPUT_COLUMNS, _RANK_COLUMN)

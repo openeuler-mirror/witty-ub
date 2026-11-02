@@ -71,7 +71,7 @@ spec 不进本仓，仍在 src-openeuler 社区打包仓（openEuler-24.03-LTS-S
 
 - 新增 Patch0017：携带本仓 `deploy/rpm/*` 角色化脚本、`packaging/nginx/witty-ub-web.conf.template`、`deploy/rpm/web.env`、`deploy_opencode.sh` 参数化，以及打包仓树内 `config/agents` 提示词参数化与 `config/opencode.json` curl 权限放宽（Agent bundle 含 2.6MB 二进制，不随 patch 携带，打包仓沿用 `config/agents` 提示词布局，`deploy_opencode.sh`/`_lib.sh` 双布局兼容）；
 - spec 改写为四包结构（子包拆分、依赖矩阵、%post 归属），Release 递增；
-- 验证路径：OrbStack openEuler VM 内 `rpmbuild` 构建 → 本地 repo → `dnf install` 分离部署实测。
+- 验证路径：openEuler aarch64 虚拟机内 `rpmbuild` 构建 → 本地 repo → `dnf install` 分离部署实测。
 
 **服务维持手动启动**：spec 的 %post 只做安装期准备（backend 建 venv、web 渲染默认 nginx.conf、daemon-reload），不 `systemctl enable --now` 任何服务；服务一律由用户显式执行 `witty-ub manager install` 或 `systemctl start` 启动。
 

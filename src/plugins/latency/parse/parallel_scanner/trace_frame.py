@@ -36,6 +36,7 @@ from latency.parse.parallel_scanner.columnar import (
 )
 from latency.parse.labels import (
     CLIENT_RPC_LABEL,
+    CLIENT_URMA_LABEL,
     MASTER_RPC_LABEL,
     QUERY_META_LABEL,
     REMOTE_WORKER_RPC_LABEL,
@@ -72,6 +73,9 @@ _MERGE_SPEC["op_key"] = "first"
 _MERGE_SPEC["timestamp"] = "sdk_then_worker"
 _MERGE_SPEC["pod_ip"] = "implode_unique"
 _MERGE_SPEC["cluster_name"] = "implode_unique"
+# epoch_sec（内部列，不在 TRACE_COLUMNS）：与 bucket_epoch 同源同取法，
+# 1s 粒度分桶的秒级桶号依赖它（bucket_epoch // 1 会退化为 10s 对齐值）。
+_MERGE_SPEC["epoch_sec"] = "first"
 
 _SRC_RANK_COL: str = INTERNAL_COLUMNS[1]  # "_src_rank"
 
@@ -118,12 +122,19 @@ _YUANRONG_LABELS: frozenset[str] = frozenset({
 })
 _YUANRONG_EXTRA_COLS: tuple[str, ...] = (
     "_elapsed_us", "_rpc_e2e_us", "_rpc_server_exec_us", "_rpc_network_us",
-    "op", "inflight_count",
+    "op", "inflight_count", "urma_sched_us", "query_get_transport",
 )
 
 
 def _has_yuanrong_cols(worker_columnar: dict[str, list]) -> bool:
     return all(k in worker_columnar for k in _YUANRONG_EXTRA_COLS)
+
+
+def _yr_null() -> "pl.Expr":
+    """Phase 4 输出的显式 Float64 null（避免 when/otherwise 类型推断漂移）。"""
+    import polars as pl
+
+    return pl.lit(None, dtype=pl.Float64)
 
 
 # ── yuanrong 纯 polars 实现 ─────────────────────────────────────────────
@@ -144,6 +155,9 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
         pl.col("__sop").cast(pl.Utf8).str.contains("SET").fill_null(False).alias("__isset"),
         pl.col("__me").is_not_null().alias("__hm"),
         pl.col("__re").is_not_null().alias("__hr"),
+        # QueryAndGet 识别：worker access 行带 transportType（对齐基准
+        # query_get_wa is not None 判断；非 QueryAndGet trace 恒 False）。
+        pl.col("__qgt").is_not_null().alias("__qg"),
     ])
 
     # Phase 2b: __swap needs __hm, __hr, __isset from 2a
@@ -179,6 +193,18 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
 
     _remote_proc = pl.when(pl.col("__isd")).then(_cs1).otherwise(_r_se)
 
+    # QueryAndGet（DS_POSIX_QUERY_AND_GET）：独立 client→meta-worker RPC 分段。
+    # 基准 query_get_wa.transportType == 'UB' → remote_meta_worker（query_get_remote_rpc），
+    # 其余（含缺省）→ local_meta_worker（query_get_local_rpc）；RPC 分解复用 cr_list[0]
+    # 的三字段（rpc_lat：network=network_residual；total=max(0,e2e-server_exec)；
+    # framework=max(0,total-network)）。
+    _qg_total = (pl.col("__ce0") - pl.col("__cs0")).clip(0)
+    _qg_framework = (_qg_total - pl.col("__cnw0")).clip(0)
+    _qg_net = pl.col("__cnw0")
+    _qg_is_ub = (pl.col("__qgt").cast(pl.Utf8, strict=False).str.to_uppercase() == "UB").fill_null(False)
+    _qg_local = pl.col("__qg") & ~_qg_is_ub
+    _qg_remote = pl.col("__qg") & _qg_is_ub
+
     yr = yr.with_columns([
         pl.when(pl.col("__se").is_not_null())
         .then(pl.col("__se"))
@@ -211,18 +237,16 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
 
         pl.col("__wmax").alias("worker_access_latency_us"),
 
-        pl.when(pl.col("__isset"))
-          .then((_remote_proc - pl.col("__umax")).clip(0))
-          .otherwise(_remote_proc)
-          .alias("remote_worker_internal_us"),
+        # remote_worker_internal = rem_proc − urma_proc（GET/SET 统一扣减，对齐基准）
+        (_remote_proc - pl.col("__umax")).clip(0).alias("remote_worker_internal_us"),
 
         pl.when(~pl.col("__isd") & (pl.col("__wn") > 0))
           .then((pl.col("__wsum") - _m_e2e.fill_null(0) - _r_e2e.fill_null(0)).clip(0))
           .alias("local_worker_internal_us"),
 
-        pl.when(~pl.col("__isd")).then(_cnw0).alias("sdk_rpc_network_us"),
-        pl.when(~pl.col("__isd")).then(_ct_0).alias("sdk_rpc_total_us"),
-        pl.when(~pl.col("__isd")).then(_cf_0).alias("sdk_rpc_framework_us"),
+        pl.when(~pl.col("__isd") & ~pl.col("__qg")).then(_cnw0).alias("sdk_rpc_network_us"),
+        pl.when(~pl.col("__isd") & ~pl.col("__qg")).then(_ct_0).alias("sdk_rpc_total_us"),
+        pl.when(~pl.col("__isd") & ~pl.col("__qg")).then(_cf_0).alias("sdk_rpc_framework_us"),
 
         pl.when(~pl.col("__isd")).then(_m_nw).alias("master_rpc_network_us"),
         pl.when(~pl.col("__isd")).then(_mf).alias("master_rpc_framework_us"),
@@ -240,17 +264,27 @@ def _yuanrong_from_grouped(df_trace) -> "pl.DataFrame":
         pl.when(pl.col("__isd")).then(_cf_1).alias("client_remote_rpc_framework_us"),
         pl.when(pl.col("__isd")).then(_ct_1).alias("client_remote_rpc_total_us"),
 
-        pl.when(pl.col("__isset"))
-          .then(pl.lit(None, dtype=pl.Float64))
-          .otherwise(pl.col("__umax"))
-          .alias("urma_processing_us"),
+        # urma_processing / urma_inflight：GET/SET 统一取值（对齐基准，不再 SET 置空）
+        pl.col("__umax").alias("urma_processing_us"),
 
-        pl.when(pl.col("__isset"))
-          .then(pl.lit(None, dtype=pl.Float64))
-          .otherwise(pl.col("__uimax"))
-          .alias("urma_inflight_max"),
+        pl.col("__uimax").alias("urma_inflight_max"),
+
+        pl.col("__usched").alias("urma_sched_us"),
 
         _remote_proc.alias("remote_worker_processing_us"),
+
+        # QueryAndGet client→meta-worker RPC 分段（互斥：非 QueryAndGet trace 全 null，
+        # sdk_rpc 已在上方置空避免分段重叠，对齐基准 query_get_* 语义）。
+        # 列名用下划线（query_get_local_rpc_network_us）对齐 YUANRONG_METRIC_FIELDS
+        # 落库契约（statistics/database 按该元组名字直接取值）。
+        pl.when(_qg_local).then(_qg_net).otherwise(_yr_null()).alias("query_get_local_rpc_network_us"),
+        pl.when(_qg_local).then(_qg_framework).otherwise(_yr_null()).alias("query_get_local_rpc_framework_us"),
+        pl.when(_qg_remote).then(_qg_net).otherwise(_yr_null()).alias("query_get_remote_rpc_network_us"),
+        pl.when(_qg_remote).then(_qg_framework).otherwise(_yr_null()).alias("query_get_remote_rpc_framework_us"),
+        pl.when(pl.col("__qg")).then(pl.col("__cs0")).otherwise(_yr_null()).alias("query_get_server_exec_us"),
+
+        # 客户端侧 URMA 处理时延（每 trace 取 max，对齐基准 client_urma_processing_us）。
+        pl.col("__cuma").alias("client_urma_processing_us"),
     ])
 
     # Phase 4b: depends on Phase 4a output
@@ -344,6 +378,15 @@ def _yuanrong_agg_exprs() -> dict[str, "pl.Expr"]:
         "__wn": pl.col("_label").filter(pl.col("_label") == WORKER_ACCESS_LABEL).len(),
         "__umax": pl.col("_elapsed_us").filter(pl.col("_label") == URMA_LABEL).max(),
         "__uimax": pl.col("inflight_count").filter(pl.col("_label") == URMA_LABEL).max(),
+        "__usched": pl.col("urma_sched_us").filter(pl.col("_label") == URMA_LABEL).max(),
+        # QueryAndGet（DS_POSIX_QUERY_AND_GET）worker access 行的传输类型原始值：
+        # 首个非空（对齐基准 query_get_wa.transportType 的 next() 取第一个）。
+        "__qgt": pl.col("query_get_transport").filter(
+            pl.col("_label") == WORKER_ACCESS_LABEL
+        ).first(ignore_nulls=True),
+        # 客户端侧 URMA 处理时延（_elapsed_us 已按 ms×1000 存成微秒）：每 trace
+        # 取最大（对齐基准 client_urma_list 的 max(urma_total_ms)*1000）。
+        "__cuma": pl.col("_elapsed_us").filter(pl.col("_label") == CLIENT_URMA_LABEL).max(),
         "__cn": pl.col("_label").filter(pl.col("_label") == CLIENT_RPC_LABEL).count(),
         "__ce0": pl.col("_rpc_e2e_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).first(),
         "__ce1": pl.col("_rpc_e2e_us").filter(pl.col("_label") == CLIENT_RPC_LABEL).last(),
@@ -569,6 +612,9 @@ def build_trace_frame(
         df_trace = df_trace.join(detail_frame, on="tid", how="left", coalesce=True)
 
     out_cols = list(TRACE_COLUMNS)
+    if "epoch_sec" in df_trace.columns:
+        # 内部列（不进 TRACE_COLUMNS 冻结契约）：1s 粒度分桶的秒级桶号来源。
+        out_cols.append("epoch_sec")
     if do_yuanrong:
         internals = [c for c in df_trace.columns if c.startswith("__")]
         out_cols.extend(internals)
@@ -589,7 +635,9 @@ def build_trace_frame(
 #      （宽列子集 = 明细子集 ∪ 这个集合，故这里必须先算出来）。
 # 两条路径的口径必须与全宽路径**逐步一致**，否则桶表/聚合结果会漂移。
 
-# 轻列 df_trace 的输出列（与 build_trace_frame 的 TRACE_COLUMNS 子集逐列同名同序）。
+# 轻列 df_trace 的输出列（与 build_trace_frame 的 TRACE_COLUMNS 子集逐列同名同序；
+# 末尾 ``__qgt`` 为 QueryAndGet 传输类型轻列 —— 分桶代表行按 local/remote 分别
+# 选代表的前置依赖，宽列路径由 _yuanrong_agg_exprs 产出同名列）。
 _LIGHT_TRACE_COLUMNS: tuple[str, ...] = (
     "tid",
     "total_ms",
@@ -599,7 +647,9 @@ _LIGHT_TRACE_COLUMNS: tuple[str, ...] = (
     "op_key",
     "operation",
     "bucket_epoch",
+    "epoch_sec",
     "log_id",
+    "__qgt",
 )
 
 # 与 bucket/statistics.py PERCENTILE_MODES 同源的本地副本：仅在分层 import
@@ -625,7 +675,8 @@ def _percentile_modes() -> tuple[tuple[str, float], ...]:
 
 
 def build_trace_frame_light(frame) -> "pl.DataFrame":
-    """轻列行帧 → 每 trace 一行，列 = ``_LIGHT_TRACE_COLUMNS``（9 列）。
+    """轻列行帧 → 每 trace 一行，列 = ``_LIGHT_TRACE_COLUMNS``（10 列，
+    含 ``__qgt`` 传输类型轻列）。
 
     口径与 ``build_trace_frame`` 逐步一致（同一条代码路径，不是第二套实现）：
 
@@ -658,7 +709,14 @@ def build_trace_frame_light(frame) -> "pl.DataFrame":
     det = deterministic_enabled()
 
     df_trace = src.group_by("tid", maintain_order=det).agg(
-        **_base_agg_exprs(LIGHT_COLUMNS, nullable_rank=bool(src[_SRC_RANK_COL].null_count()))
+        **_base_agg_exprs(LIGHT_COLUMNS, nullable_rank=bool(src[_SRC_RANK_COL].null_count())),
+        # QueryAndGet 传输类型轻列：首个非空。light 帧无 _label，但
+        # query_get_transport 只在 worker access 行有值（scan_vector_access
+        # 仅对该 label 分支提取），故 first(ignore_nulls=True) 与宽路径
+        # `filter(_label == WORKER_ACCESS_LABEL).first(ignore_nulls=True)`
+        # 语义一致（宽列路径同名列 __qgt 由 _yuanrong_agg_exprs 产出）。
+        # epoch_sec 已在 _MERGE_SPEC 注册为 first，由 _base_agg_exprs 一并聚合。
+        __qgt=pl.col("query_get_transport").first(ignore_nulls=True),
     )
 
     # Fallback: total_ms / total_latency 为空时退回 worker_total_latency
@@ -693,7 +751,7 @@ def build_trace_frame_light(frame) -> "pl.DataFrame":
 
 
 def bucket_representative_tids(
-    df_trace_light, *, granularities: tuple[int, ...] = (10, 60, 600, 3600)
+    df_trace_light, *, granularities: tuple[int, ...] = (1, 10, 60, 600, 3600)
 ) -> set:
     """Use the same percentile selector as bucket persistence."""
     from latency.bucket.representatives import select_bucket_representatives

@@ -140,7 +140,7 @@ KVCache 侧：`log_parse_result.request_mode`（如 `__cn` 单跳/多跳相关�
 - `kb_id`：library 通道可选，留空 = 跨知识库召回（`kb_id` 只作来源标注）；legacy 通道必填，
   服务端校验知识库存在性，**空串会被拒**，不能用来做"跨库检索"。
 - 至少要有一个可匹配信号，否则脚本以退出码 2 拒绝。
-- `operation`：library 通道是服务端过滤字段，提交即隔离 GET/SET，且计入归一化分母；
+- `operation`：library 通道是纯过滤字段，提交即隔离 GET/SET，不计入归一化分母；
   legacy 通道没有该字段，只能把 `operation` 留在正文标注，靠"分两次查询、各自只提交本
   operation 的信号"实现隔离。任何通道都禁止把两种操作的信号合并成一次查询。
 - `time_window`、`notes` 不参与打分，落盘留存供报告引用。

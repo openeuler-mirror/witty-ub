@@ -469,10 +469,8 @@ onBeforeUnmount(() => {
     </div>
     <div style="font-size: 12px; color: var(--text3); margin-bottom: 8px">
       行 = 单个端点
-      IP（当前时段内作为源/目标汇总，默认按异常数排序）；「请求数」为异常桶内请求量，不代表故障严重度；各阶段时延
-      =
-      <b>所选时间段内各阶段的 P99 耗时</b>（后端随 `stat_type=p99` 只返回阶段
-      P99，不再返回加权均值）。悬停彩色条查看数值
+      IP（当前时段内作为源/目标汇总，默认按异常数排序）；「请求数」为该时段的异常请求量；各阶段时延
+      = <b>所选时间段内各阶段的 P99 耗时</b>。悬停彩色条查看数值
     </div>
     <div
       v-if="nodeWhitelist.length"

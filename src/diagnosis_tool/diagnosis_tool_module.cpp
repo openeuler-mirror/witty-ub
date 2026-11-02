@@ -34,6 +34,7 @@
 
 #include "failure_def.h"
 #include "failure_log_helper.h"
+#include "runtime_record_reader.h"
 #include "logger.h"
 #include "ubse_context.h"
 
@@ -71,6 +72,18 @@ constexpr std::size_t GZIP_INTERNAL_BUFFER_SIZE = 1024 * 1024;
 constexpr std::size_t OUTPUT_BUFFER_SIZE = 1024 * 1024;
 constexpr std::size_t POSTFIX_LEN = 3;
 constexpr std::size_t SIZE_SCALE = 2;
+
+bool CloseGzipInput(gzFile gzip, const std::string &inputPath, bool keepReading, int bytesRead)
+{
+    int gzipError = Z_OK;
+    const char *gzipMessage = gzerror(gzip, &gzipError);
+    const bool succeeded = !keepReading || (bytesRead == 0 && (gzipError == Z_OK || gzipError == Z_STREAM_END));
+    if (!succeeded) {
+        LOG_WARN << "Failed while reading gzip log: " << inputPath
+                 << ", error: " << (gzipMessage == nullptr ? "unknown zlib error" : gzipMessage);
+    }
+    return gzclose(gzip) == Z_OK && succeeded;
+}
 
 bool IsGzipPath(const std::string &path)
 {
@@ -481,6 +494,17 @@ bool DiagnosisToolModule::ProcessExtractedLine(std::string_view line, LineProces
     return true;
 }
 
+bool DiagnosisToolModule::ProcessRuntimeRecord(std::string_view line, bool owned, LineProcessContext &ctx) const
+{
+    // Assembled records are released after the callback; do not retain views
+    // into their storage in the parallel batch. Ordinary mmap lines stay zero-copy.
+    const bool batched = ctx.batchRuntimeLines;
+    ctx.batchRuntimeLines = batched && !owned;
+    const bool result = ProcessExtractedLine(line, ctx);
+    ctx.batchRuntimeLines = batched;
+    return result;
+}
+
 bool DiagnosisToolModule::ProcessGzipInput(const std::string &inputPath, LineProcessContext &ctx) const
 {
     gzFile gzip = gzopen(inputPath.c_str(), "rb");
@@ -501,6 +525,9 @@ bool DiagnosisToolModule::ProcessGzipInput(const std::string &inputPath, LinePro
         }
     };
     bool keepReading = true;
+    log_helper::RuntimeRecordReader records([this, &ctx](std::string_view line, bool owned) {
+        return ProcessRuntimeRecord(line, owned, ctx);
+    });
     int bytesRead = 0;
     while (keepReading && (bytesRead = gzread(gzip, buffer.data(), static_cast<unsigned int>(buffer.size()))) > 0) {
         pending.append(buffer.data(), static_cast<std::size_t>(bytesRead));
@@ -510,41 +537,44 @@ bool DiagnosisToolModule::ProcessGzipInput(const std::string &inputPath, LinePro
             if (end == std::string::npos) {
                 break;
             }
-            keepReading = ProcessExtractedLine(std::string_view(pending).substr(offset, end - offset), ctx);
+            const auto line = std::string_view(pending).substr(offset, end - offset);
+            keepReading = ctx.kind == LogKind::RUNTIME ? records.Feed(line) : ProcessExtractedLine(line, ctx);
             offset = end + 1;
         }
         // Runtime string_views point into pending. Analyze them before erase() reuses that storage.
         analyzeRuntimeBatch();
+        records.OwnPending();
         pending.erase(0, offset);
     }
     if (keepReading && bytesRead == 0 && !pending.empty()) {
-        keepReading = ProcessExtractedLine(pending, ctx);
+        keepReading = ctx.kind == LogKind::RUNTIME ? records.Feed(pending) : ProcessExtractedLine(pending, ctx);
+    }
+    if (keepReading && ctx.kind == LogKind::RUNTIME) {
+        keepReading = records.Finish();
     }
     analyzeRuntimeBatch();
-    int gzipError = Z_OK;
-    const char *gzipMessage = gzerror(gzip, &gzipError);
-    const bool succeeded = !keepReading || (bytesRead == 0 && (gzipError == Z_OK || gzipError == Z_STREAM_END));
-    if (!succeeded) {
-        LOG_WARN << "Failed while reading gzip log: " << inputPath
-                 << ", error: " << (gzipMessage == nullptr ? "unknown zlib error" : gzipMessage);
-    }
-    return gzclose(gzip) == Z_OK && succeeded;
+    return CloseGzipInput(gzip, inputPath, keepReading, bytesRead);
 }
 
 bool DiagnosisToolModule::ProcessMappedInput(const MappedReadFile &input, LineProcessContext &ctx) const
 {
+    log_helper::RuntimeRecordReader records([this, &ctx](std::string_view line, bool owned) {
+        return ProcessRuntimeRecord(line, owned, ctx);
+    });
     const std::string_view content = input.Content();
     std::size_t offset = 0;
     while (offset < content.size()) {
         const std::size_t end = content.find('\n', offset);
         const std::string_view line = end == std::string_view::npos ? content.substr(offset) :
                                                                       content.substr(offset, end - offset);
-        if (!ProcessExtractedLine(line, ctx) || end == std::string_view::npos) {
+        const bool keepReading = ctx.kind == LogKind::RUNTIME ? records.Feed(line) : ProcessExtractedLine(line, ctx);
+        if (!keepReading || end == std::string_view::npos) {
             break;
         }
         offset = end + 1;
     }
     if (ctx.kind == LogKind::RUNTIME) {
+        records.Finish();
         engine_->AnalyzeRuntimeLines(ctx.runtimeLines);
     }
     return true;
@@ -552,11 +582,19 @@ bool DiagnosisToolModule::ProcessMappedInput(const MappedReadFile &input, LinePr
 
 bool DiagnosisToolModule::ProcessStreamInput(std::istream &input, LineProcessContext &ctx) const
 {
+    log_helper::RuntimeRecordReader records([this, &ctx](std::string_view line, bool owned) {
+        return ProcessRuntimeRecord(line, owned, ctx);
+    });
     std::string line;
     while (std::getline(input, line)) {
-        if (!ProcessExtractedLine(line, ctx)) {
+        const bool keepReading = ctx.kind == LogKind::RUNTIME ? records.Feed(line) : ProcessExtractedLine(line, ctx);
+        if (!keepReading) {
             break;
         }
+        records.OwnPending();
+    }
+    if (ctx.kind == LogKind::RUNTIME) {
+        records.Finish();
     }
     return !input.bad();
 }

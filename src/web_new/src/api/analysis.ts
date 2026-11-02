@@ -260,7 +260,14 @@ export const searchFaultTracesByTraceId = async (
   return { total: result.total ?? 0, rows: result.trace_failure_event_results ?? [] }
 }
 
-export const fetchFaultChart = async (kbId: string, op: 'get' | 'set') => {
+// 分桶由后端按 bucket_seconds 精确统计（同一桶内的事件不丢），max_points 只控制抽稀上限：
+// 桶数不超过 max_points 时点数是精确值，超出才由后端保峰抽稀。
+export const fetchFaultChart = async (
+  kbId: string,
+  op: 'get' | 'set',
+  bucketSeconds: number,
+  maxPoints: number,
+) => {
   const result = await request<{
     metrics: Record<
       string,
@@ -268,7 +275,12 @@ export const fetchFaultChart = async (kbId: string, op: 'get' | 'set') => {
     >
   }>('/log_failure_event_result/metrics/err_code', {
     method: 'POST',
-    body: JSON.stringify({ kb_id: kbId, max_points: 1000, operation: op.toUpperCase() }),
+    body: JSON.stringify({
+      kb_id: kbId,
+      max_points: maxPoints,
+      bucket_seconds: bucketSeconds,
+      operation: op.toUpperCase(),
+    }),
   })
   const out: Record<string, Array<{ time: string; err_cnt: number }>> = {}
   for (const [code, points] of Object.entries(result.metrics ?? {})) {

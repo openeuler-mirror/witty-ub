@@ -3,6 +3,7 @@
 
 用法：
     python3 scripts/render_report.py <data.json> [out.html] [--kb-id <id>] [--no-sidecar]
+    python3 scripts/render_report.py <data.json> --validate-only
     python3 scripts/render_report.py --spec [section]
 
 约定：
@@ -11,6 +12,7 @@
       同名侧车 .json（原样报告数据，供前端列表展示与复现渲染）。
       WITTY_REPORT_DIR 未设置时回落 /tmp/reports（本地调试用）。
     - 显式传 out.html 时按该路径输出，侧车写到同目录同名。
+    - ``--validate-only`` 只加载并校验 JSON，不加载模板、不写 HTML/侧车。
     - 成功时只回显 ≤15 行摘要；数据/校验失败 exit 2，模板缺失 exit 3，
       缺 jinja2 exit 4，写盘失败 exit 5。
 """
@@ -23,10 +25,17 @@ import os
 import re
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
+from typing import NamedTuple
+
+from error_features import validate_error
+from latency_features import validate_features
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_TEMPLATE = SKILL_DIR / "templates" / "report.html"
+LABEL_REFERENCE = SKILL_DIR / "references" / "log_label.json"
 FALLBACK_OUT_DIR = Path("/tmp/reports")
 KB_SLUG_FALLBACK = "unknown"
 
@@ -38,6 +47,11 @@ STAGE_STATUS_ENUM = ("ok", "warn", "bottleneck")
 SHARE_CLS_ENUM = ("s-ok", "s-warn", "s-bottleneck")
 TRACE_KIND_ENUM = ("latency", "error")
 EVIDENCE_TRACES_MAX = 5
+
+# 清理旧报告时保留的状态：已确认报告是案例与证据锚点回指的原文。
+CLEANUP_PROTECTED_STATUS = "confirmed"
+CLEANUP_PAGE_SIZE = 100
+CLEANUP_TIMEOUT = 5.0
 
 REQUIRED_TOP = ("report", "basic_info", "statistics", "workflow")
 
@@ -80,6 +94,36 @@ def _check_enum(path, value, enum, errors, required=True):
         return
     if value not in enum:
         errors.append(f"{path}: {value!r} 不是合法取值（{'|'.join(enum)}）")
+
+
+def _check_fault_labels(path, conclusion, errors, warnings):
+    if not isinstance(conclusion, dict):
+        return
+    fields = ("first_level_label", "second_level_label")
+    if not any(field in conclusion for field in fields):
+        warnings.append(f"{path}: 新报告须填写 first_level_label / second_level_label（无法匹配填 null）")
+        return  # 兼容未包含标签的历史报告。
+    for field in fields:
+        if field not in conclusion:
+            errors.append(f"{path}.{field}: 必填，无法匹配时填 null")
+        elif conclusion[field] is not None and not isinstance(conclusion[field], str):
+            errors.append(f"{path}.{field}: 必须是字符串或 null")
+    if any(field not in conclusion or
+           (conclusion[field] is not None and not isinstance(conclusion[field], str))
+           for field in fields):
+        return
+    first, second = (conclusion[field] for field in fields)
+    if first is None and second is None:
+        return
+    try:
+        rows = json.loads(LABEL_REFERENCE.read_text(encoding="utf-8"))
+        pairs = {(row[fields[0]], row[fields[1]]) for row in rows}
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise Fatal(f"无法读取故障标签参考: {LABEL_REFERENCE}", str(exc)) from exc
+    if first not in {pair[0] for pair in pairs}:
+        errors.append(f"{path}.first_level_label: 必须取自 references/log_label.json；一级为 null 时二级也须为 null")
+    elif second is not None and (first, second) not in pairs:
+        errors.append(f"{path}.second_level_label: 必须与一级标签组成 references/log_label.json 中已有的标签对")
 
 
 def _check_evidence_traces(path, traces, errors, warnings):
@@ -160,6 +204,28 @@ def _check_stage_breakdown(path, bd, errors, warnings):
             )
 
 
+def _check_latency(path, latency, errors):
+    if latency is None:
+        return
+    if not isinstance(latency, dict):
+        errors.append(f"{path}: 必须是对象")
+        return
+    stages = latency.get("stages")
+    if stages is None:
+        return
+    if not isinstance(stages, list):
+        errors.append(f"{path}.stages: 必须是数组")
+        return
+    for i, stage in enumerate(stages):
+        p = f"{path}.stages[{i}]"
+        if not isinstance(stage, dict) or not stage.get("name"):
+            errors.append(f"{p}: 缺少 name")
+            continue
+        _check_enum(f"{p}.status", stage.get("status"), STAGE_STATUS_ENUM, errors)
+        if stage.get("features") is not None:
+            errors.extend(f"{p}.features: {error}" for error in validate_features(stage["features"]))
+
+
 def validate(data) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -188,7 +254,10 @@ def validate(data) -> tuple[list[str], list[str]]:
         if not isinstance(data.get("conclusion"), dict):
             errors.append("faults / conclusion: 二者必须至少提供一个（单故障可用扁平 conclusion）")
         else:
+            _check_fault_labels("conclusion", data["conclusion"], errors, warnings)
             _check_evidence_traces("evidence_traces", data.get("evidence_traces"), errors, warnings)
+        _check_latency("latency", data.get("latency"), errors)
+        errors.extend(f"error: {message}" for message in validate_error(data.get("error")))
     elif not isinstance(faults, list) or not faults:
         errors.append("faults: 必须是至少含 1 个故障的数组")
     else:
@@ -209,6 +278,7 @@ def validate(data) -> tuple[list[str], list[str]]:
                 errors.append(f"{p}.title: 缺少故障名称")
             if not isinstance(f.get("conclusion"), dict):
                 errors.append(f"{p}.conclusion: 必填对象（一句话结论/故障域/影响面）")
+            _check_fault_labels(f"{p}.conclusion", f.get("conclusion"), errors, warnings)
             _check_enum(f"{p}.role", f.get("role"), ROLE_ENUM, errors)
             _check_enum(f"{p}.status", f.get("status"), STATUS_ENUM, errors)
             _check_enum(f"{p}.severity", f.get("severity"), SEVERITY_ENUM, errors)
@@ -219,16 +289,42 @@ def validate(data) -> tuple[list[str], list[str]]:
             if f.get("role") == "primary":
                 primary_cnt += 1
             _check_evidence_traces(f"{p}.evidence_traces", f.get("evidence_traces"), errors, warnings)
-            lat = f.get("latency")
-            if isinstance(lat, dict):
-                for j, st in enumerate(lat.get("stages") or []):
-                    if isinstance(st, dict):
-                        _check_enum(
-                            f"{p}.latency.stages[{j}].status",
-                            st.get("status"),
-                            STAGE_STATUS_ENUM,
-                            errors,
+            _check_latency(f"{p}.latency", f.get("latency"), errors)
+            rc = f.get("root_cause")
+            if isinstance(rc, dict) and rc:
+                if not (
+                    any(isinstance(s, dict) and s.get("step_label") and s.get("title")
+                        for s in rc.get("reasoning_chain") or [])
+                    or rc.get("confirmed_root_cause")
+                ):
+                    errors.append(
+                        f"{p}.root_cause: 提供了对象但未命中契约字段"
+                        "（需 reasoning_chain[]{step_label,title,...} / confirmed_root_cause 至少一项有效）"
+                    )
+            prop = f.get("propagation")
+            if isinstance(prop, dict) and prop:
+                if not any(isinstance(n, dict) and n.get("label")
+                           for n in prop.get("chain") or []):
+                    errors.append(
+                        f"{p}.propagation: 提供了对象但未命中契约字段"
+                        "（需 chain[]{label,detail,...}）"
+                    )
+            kms = f.get("knowledge_matches")
+            if isinstance(kms, list):
+                for j, km in enumerate(kms):
+                    if not isinstance(km, dict):
+                        errors.append(f"{p}.knowledge_matches[{j}]: 必须是对象")
+                        continue
+                    if not km.get("id"):
+                        errors.append(f"{p}.knowledge_matches[{j}].id: 缺少知识库匹配 ID")
+                    if not (km.get("match_logic") or km.get("symptom") or km.get("root_cause")):
+                        errors.append(
+                            f"{p}.knowledge_matches[{j}]: 缺少可渲染内容"
+                            "（需 match_logic / symptom / root_cause 至少一项）"
                         )
+            errors.extend(f"{p}.error: {message}" for message in validate_error(f.get("error")))
+            if f.get("category") in ("error", "mixed") and not f.get("simplified") and not f.get("error"):
+                warnings.append(f"{p}.error: 新报告建议填写错误码构成和时间分布；无证据时省略并说明")
         if primary_cnt != 1:
             warnings.append(f"faults[].role: primary 数量为 {primary_cnt}（多故障建议恰好 1 个）")
         if len(faults) > 1:
@@ -351,7 +447,7 @@ SPEC = {
     "top": """顶层变量（全部为 JSON 键）
 report{title,report_id,generated_at}
 basic_info{kb_id,kb_name,log_file,operation,time_range_start,time_range_end,total_trace_cnt,fault_trace_cnt,fault_ratio,parse_ok,diagnosis_ok}
-faults[]{id,title,role,status,severity,confidence,category,affected_scope,conclusion,latency,root_cause,propagation,evidence_traces,knowledge_matches,solution,source_code,simplified,upstream,need_independent_fix}
+faults[]{id,title,role,status,severity,confidence,category,affected_scope,conclusion,error,latency,root_cause,propagation,evidence_traces,knowledge_matches,solution,source_code,simplified,upstream,need_independent_fix}
 incident_summary{one_line_conclusion,fault_count,primary_fault_id,secondary_fault_count,independent_fault_count,overall_impact,confidence}
 fault_relations[]{from,to,type,confidence,evidence}
 action_plan[]{priority,fault_ids,action,depends_on,expected_effect,verify}
@@ -360,11 +456,34 @@ workflow{session_id,total_steps,api_calls,duration,steps[]}
 枚举：role=primary|secondary|independent; status=confirmed|suspected|excluded; severity=P1|P2|P3
      category=error|latency|mixed; stage.status=ok|warn|bottleneck; share_bar.cls=s-ok|s-warn|s-bottleneck
      fault_relations.type=causes|common_cause|independent|correlated; evidence_traces[].kind=latency|error
-单故障可用扁平 conclusion/root_cause/propagation/evidence_traces/knowledge_matches/solution/source_code，模板自动包成 F01
+单故障可用扁平 conclusion/error/latency/root_cause/propagation/evidence_traces/knowledge_matches/solution/source_code，模板自动包成 F01
+每条 conclusion 新增 first_level_label / second_level_label（string|null）；每次生成须读取 references/log_label.json，按证据选已有标签对；只确定一级则二级为 null，均无法匹配则均为 null
 示例与逐字段说明：references/REPORT_BLOCKS.md""",
     "basic_info": "kb_id,kb_name,log_file,operation,time_range_start,time_range_end,total_trace_cnt,fault_trace_cnt,fault_ratio,parse_ok,diagnosis_ok",
-    "conclusion": "one_line_conclusion,fault_domain,fault_component,fault_function,fault_function_loc,affected_scope_pct,affected_scope_desc,confidence,key_findings[]",
-    "latency": "metrics[]{label,value,sub,tone},stages[]{name,p99,baseline,ratio,share,status,detail},conclusion",
+    "conclusion": """first_level_label,second_level_label,one_line_conclusion,fault_domain,fault_component,fault_function,fault_function_loc,affected_scope_pct,affected_scope_desc,confidence,key_findings[]
+first_level_label / second_level_label：一级/二级标签，新报告必填 string|null，取值及配对见 references/log_label.json；按诊断证据语义匹配，未知层级填 null，一级 null 时二级也须 null""",
+    "latency": """metrics[]{label,value,sub,tone},stages[]{name,p99,baseline,ratio,share,status,detail,features?},conclusion
+features：从已有 /stats/stages 响应提取的互斥归因桶快照，不等同于物理阶段；旧字段保留
+features{operation,bucket_key,metric_name,source{endpoint,request,response_path},sample_cnt,truncated,sample_note,
+ trace_cnt,normal_cnt,anomalous_cnt,bucket_share_pct,anomalous_ratio_pct,
+ distribution{p50_ms,p90_ms,max_ms,client_p50_ms,client_p90_ms},tail_ratio_p90_p50,note,action,
+ top_traces[]{trace_id,evidence_ms,client_ms,is_anomalous?,host?,pod_ips?,src_ip?,dst_ip?,failure_codes?},
+ trace_source?,trace_coverage?{requested_cnt,returned_cnt,missing_trace_ids},
+ baseline?{同桶快照,delta_p90_ms,p90_amplification},windows?[]{同桶快照}}
+来源/公式/缺失规则：references/LATENCY_FEATURES.md；提取：python3 scripts/latency_features.py snapshots.json features.json
+不得把 P90 当 P99、桶内异常标记比例当超时率、桶请求占比当耗时占比；无响应就省略可选块""",
+    "error": """metrics?[]{label,value,sub,tone},conclusion,breakdowns[]{
+ operation(GET|SET),scope{kb_id,operation,start_time,end_time,cluster_name?,host?,pod_ip?,src_ip?,dst_ip?},
+ code_filter?(string[]|null),unit(trace_code_occurrence),
+ source{endpoint,pages[]{request,response_path,total_windows,returned_windows}},
+ coverage{complete,returned_windows,total_windows},
+ code_distribution{total_count,items[]{code,count,share_pct},other_count},
+ timeline{interval_seconds,windows[]{start_time,end_time,complete,counts{错误码:整数|null},other_count}}}
+从 /log_failure_event_result/list_time_aggregated_failure_events 的真实分页响应离线提取：
+python3 scripts/error_features.py snapshots.json error.json [--top-n 5] [--max-windows 48]
+同一时间聚合口径：逐码命中次数，不是去重失败请求数/失败率；分页不全比例为 null，未取窗口为未知
+GET/SET 各一套；不关联时延阶段；旧报告可省略，扁平单故障支持顶层 error
+来源/公式/缺失规则与输入示例：references/ERROR_FEATURES.md""",
     "root_cause": "reasoning_chain[]{step_label,title,description,evidence,excluded,confirmed},confirmed_root_cause,supporting_knowledge",
     "evidence_traces": "可选，0~5 条；trace_id(必填,逐字来自工具响应),kind(必填,latency|error),why(必填,含桶key或过滤条件),evidence_ms,client_ms,status_code,failure_mode_id,pod,host,timestamp；latency 类取 /stats/stages 归因桶 top_traces[]；缺省/[]/null 均不渲染",
     "propagation": "chain[]{label,detail,type,transition,branches[{label,nodes[]}]},impact_scope[]",
@@ -420,6 +539,224 @@ def sidecar_payload(data: dict, out_path: Path) -> dict:
     return payload
 
 
+def load_report_json(data_path: Path) -> dict:
+    """Load one report JSON without invoking the template engine."""
+    if not data_path.is_file():
+        raise Fatal(
+            f"数据文件不存在: {data_path}",
+            f"先把报告变量写入该 JSON，再执行 {Path(__file__).name} <data.json>",
+        )
+    try:
+        return json.loads(data_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise Fatal(
+            f"JSON 解析失败 {data_path}:{exc.lineno}:{exc.colno} — {exc.msg}"
+        ) from exc
+    except OSError as exc:
+        raise Fatal(f"无法读取数据文件: {data_path}", str(exc)) from exc
+
+
+def validate_report_json(data: dict, data_path: Path) -> list[str]:
+    """Apply the canonical render contract and return non-blocking warnings."""
+    errors, warnings = validate(data)
+    if errors:
+        details = "\n".join(f"  - {line}" for line in errors[:6])
+        if len(errors) > 6:
+            details += f"\n  ... 另有 {len(errors) - 6} 处"
+        raise Fatal(
+            f"数据校验未通过（{len(errors)} 处）：\n{details}",
+            f"修正 {data_path} 中上述字段后重跑；字段清单见 --spec top",
+        )
+    return warnings
+
+
+def render_report_html(data: dict, template_path: Path, data_path: Path) -> str:
+    """Render validated data in memory; this function performs no writes."""
+    try:
+        from jinja2 import Environment, FileSystemLoader, select_autoescape
+    except ImportError as exc:
+        raise Fatal(
+            "缺少 jinja2 模块",
+            "dnf install -y python3-jinja2（镜像已内置；本地调试可用 pip3 install jinja2）",
+            code=4,
+        ) from exc
+
+    if not template_path.is_file():
+        raise Fatal(f"模板不存在: {template_path}", "--template 指向 report.html", code=3)
+
+    env = Environment(
+        loader=FileSystemLoader(str(template_path.parent)),
+        autoescape=select_autoescape(["html"]),
+        trim_blocks=False,
+        lstrip_blocks=False,
+    )
+    try:
+        return env.get_template(template_path.name).render(**data)
+    except Exception as exc:  # 模板语法/结构问题：给出模板侧定位
+        raise Fatal(
+            f"渲染失败: {type(exc).__name__}: {exc}",
+            f"模板 {template_path}；数据 {data_path}",
+        ) from exc
+
+
+def output_path(args, data: dict) -> Path:
+    if args.out:
+        return Path(args.out)
+    slug = kb_slug(args.kb_id or (data.get("basic_info") or {}).get("kb_id"))
+    base = f"report_{slug}_{time.strftime('%Y%m%d_%H%M%S')}"
+    result = report_root() / slug / f"{base}.html"
+    seq = 0
+    while result.exists() or (
+        not args.no_sidecar and result.with_suffix(".json").exists()
+    ):
+        seq += 1
+        result = result.with_name(f"{base}_{seq}.html")
+    return result
+
+
+def write_report_files(
+    data: dict, html: str, out_path: Path, no_sidecar: bool
+) -> Path | None:
+    """Persist an already-rendered report and its optional source sidecar."""
+    sidecar_path = None if no_sidecar else out_path.with_suffix(".json")
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(html, encoding="utf-8")
+        if sidecar_path is not None:
+            payload = json.dumps(
+                sidecar_payload(data, out_path), ensure_ascii=False, indent=2
+            )
+            sidecar_path.write_text(payload + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise Fatal(
+            f"写盘失败: {exc}",
+            f"确认 {out_path.parent} 可写（WITTY_REPORT_DIR={report_root()}），或显式传 out 路径",
+            code=5,
+        ) from exc
+    return sidecar_path
+
+
+class CleanupOutcome(NamedTuple):
+    removed: list[str]
+    kept: dict[str, str]
+    error: str | None
+
+
+class CleanupStateUnavailable(RuntimeError):
+    """旧报告的确认状态取不到；据此拒绝删除。"""
+
+
+def report_states(kb_id: str) -> dict[str, dict]:
+    """该资产库下每份报告的列表项（含 review_status / case_count）。
+
+    确认与绑案状态只存在于后端库里，报告目录里只有 HTML 与侧车，所以清理前
+    必须回查一次列表接口。
+    """
+    base = (os.environ.get("WITTY_API_BASE") or "").strip().rstrip("/")
+    if not base:
+        raise CleanupStateUnavailable("WITTY_API_BASE 未设置")
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    states: dict[str, dict] = {}
+    page = 1
+    while True:
+        payload = json.dumps(
+            {"kb_id": kb_id, "page_cnt": CLEANUP_PAGE_SIZE, "page_num": page}
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"{base}/diagnostic_report/list",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+        with opener.open(request, timeout=CLEANUP_TIMEOUT) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        result = body.get("result") if isinstance(body, dict) else None
+        result = result if isinstance(result, dict) else {}
+        items = [
+            item
+            for item in result.get("items") or []
+            if isinstance(item, dict) and item.get("report_id")
+        ]
+        for item in items:
+            states[str(item["report_id"])] = item
+        if len(items) < CLEANUP_PAGE_SIZE or len(states) >= int(result.get("total") or 0):
+            return states
+        page += 1
+
+
+def keep_reason(item: dict | None) -> str | None:
+    """旧报告必须保留的原因；返回 None 表示可以清理。"""
+    if item is None:
+        return "确认状态未知"
+    status = str(item.get("review_status") or "")
+    if status == CLEANUP_PROTECTED_STATUS:
+        return "已确认"
+    if int(item.get("case_count") or 0) > 0:
+        return "已绑定确认案例"
+    return None
+
+
+def cleanup_old_reports(
+    out_path: Path, slug: str, *, remove_sidecar: bool = True
+) -> CleanupOutcome:
+    """删除同知识库目录下的旧报告与侧车。
+
+    已确认报告是案例与证据锚点回指的原文，已绑定确认案例的报告同理，两者一律
+    保留；状态取不到时（接口不可用、报告不在列表里）同样保留 —— 清理只是可选
+    动作，删掉的原文不可恢复。
+    """
+    olds = [
+        path
+        for path in sorted(out_path.parent.glob(f"report_{slug}_*.html"))
+        if path.resolve() != out_path.resolve()
+    ]
+    if not olds:
+        return CleanupOutcome([], {}, None)
+
+    try:
+        states = report_states(slug)
+    except (CleanupStateUnavailable, OSError, ValueError) as exc:
+        return CleanupOutcome(
+            [], {path.stem: "确认状态未知" for path in olds}, str(exc) or type(exc).__name__
+        )
+
+    removed: list[str] = []
+    kept: dict[str, str] = {}
+    error = None
+    for old in olds:
+        reason = keep_reason(states.get(old.stem))
+        if reason is not None:
+            kept[old.stem] = reason
+            continue
+        try:
+            old.unlink(missing_ok=True)
+            if remove_sidecar:
+                old.with_suffix(".json").unlink(missing_ok=True)
+        except OSError as exc:
+            kept[old.stem] = f"删除失败: {exc}"
+            error = error or str(exc)
+            continue
+        removed.append(old.name)
+    return CleanupOutcome(removed, kept, error)
+
+
+def print_warnings(warnings: list[str]) -> None:
+    shown = warnings[:3]
+    for line in shown:
+        print(f"  ⚠ {line}")
+    if len(warnings) > len(shown):
+        print(f"  ⚠ ... 另有 {len(warnings) - len(shown)} 条提示（不影响校验）")
+
+
+def print_fatal(exc: Fatal) -> int:
+    print(f"✘ {exc.message}", file=sys.stderr)
+    if exc.hint:
+        print(f"  提示：{exc.hint}", file=sys.stderr)
+    return exc.code
+
+
 # --------------------------------------------------------------------------- #
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(add_help=True, description="渲染诊断报告 HTML")
@@ -430,92 +767,68 @@ def main(argv=None) -> int:
                         help="知识库 ID（默认取 basic_info.kb_id），决定默认输出目录与文件名")
     parser.add_argument("--no-sidecar", action="store_true",
                         help="不写同名侧车 JSON（前端列表将缺少标题/故障数）")
+    parser.add_argument("--validate-only", action="store_true",
+                        help="只校验 JSON 是否满足渲染契约，不加载模板或生成任何文件")
     parser.add_argument("--spec", nargs="?", const="all", default=None, metavar="SECTION",
                         help="打印紧凑字段清单（top|basic_info|statistics|... 或 all）后退出")
     parser.add_argument("--template", default=str(DEFAULT_TEMPLATE), help="模板路径")
+    parser.add_argument("--allow-incomplete", action="store_true",
+                        help="数据校验不通过时仍然渲染（用于字段缺失但来自一线的真实数据）；"
+                             "校验问题改为提示输出，缺的区块按模板默认空白处理")
     args = parser.parse_args(argv)
 
     if args.spec is not None:
         return print_spec(args.spec)
     if not args.data:
         parser.error("需要提供数据 JSON 路径（或用 --spec 查字段清单）")
+    if args.validate_only and args.out:
+        print("✘ --validate-only 不接受输出 HTML 路径", file=sys.stderr)
+        return 2
+    if args.validate_only and args.allow_incomplete:
+        print("✘ --validate-only 不接受 --allow-incomplete（校验口径必须严格）", file=sys.stderr)
+        return 2
 
     data_path = Path(args.data)
-    if not data_path.is_file():
-        print(f"✘ 数据文件不存在: {data_path}", file=sys.stderr)
-        print(f"  提示：先把报告变量写入该 JSON，再执行 {Path(__file__).name} <data.json>", file=sys.stderr)
-        return 2
     try:
-        data = json.loads(data_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        print(f"✘ JSON 解析失败 {data_path}:{exc.lineno}:{exc.colno} — {exc.msg}", file=sys.stderr)
-        return 2
-
-    try:
-        errors, warnings = validate(data)
+        data = load_report_json(data_path)
+        if args.allow_incomplete:
+            # 一线数据允许字段不全：契约问题降级为提示，缺失区块按模板默认呈现。
+            errors, warnings = validate(data)
+            if errors:
+                print(
+                    f"⚠ 数据不完整（{len(errors)} 处），按 --allow-incomplete 降级渲染：",
+                    file=sys.stderr,
+                )
+                for line in errors[:6]:
+                    print(f"  - {line}", file=sys.stderr)
+                if len(errors) > 6:
+                    print(f"  ... 另有 {len(errors) - 6} 处", file=sys.stderr)
+            warnings = warnings + [f"数据不完整: {line}" for line in errors]
+        else:
+            warnings = validate_report_json(data, data_path)
     except Fatal as exc:
-        print(f"✘ {exc.message}", file=sys.stderr)
-        if exc.hint:
-            print(f"  提示：{exc.hint}", file=sys.stderr)
-        return exc.code
+        return print_fatal(exc)
 
-    if errors:
-        print(f"✘ 数据校验未通过（{len(errors)} 处）：", file=sys.stderr)
-        for line in errors[:6]:
-            print(f"  - {line}", file=sys.stderr)
-        if len(errors) > 6:
-            print(f"  ... 另有 {len(errors) - 6} 处", file=sys.stderr)
-        print(f"  提示：修正 {data_path} 中上述字段后重跑；字段清单见 --spec top", file=sys.stderr)
-        return 2
+    if args.validate_only:
+        print(f"✔ JSON 校验通过（未生成 HTML）: {data_path}")
+        print("  故障 " + faults_line(data))
+        print("  统计 " + stats_line(data))
+        print_warnings(warnings)
+        return 0
 
-    try:
-        from jinja2 import Environment, FileSystemLoader, select_autoescape
-    except ImportError:
-        print("✘ 缺少 jinja2 模块", file=sys.stderr)
-        print("  提示：dnf install -y python3-jinja2（镜像已内置；本地调试可用 pip3 install jinja2）", file=sys.stderr)
-        return 4
+    # 统一用实际渲染时间覆盖 report.generated_at：HTML 页头、侧车 JSON、
+    # 报告库列表三处显示一致，避免数据里整点占位值被误当作真实生成时间。
+    report_block = data.get("report")
+    if isinstance(report_block, dict):
+        report_block["generated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
     template_path = Path(args.template)
-    if not template_path.is_file():
-        print(f"✘ 模板不存在: {template_path}", file=sys.stderr)
-        print("  提示：--template 指向 report.html", file=sys.stderr)
-        return 3
-
-    env = Environment(
-        loader=FileSystemLoader(str(template_path.parent)),
-        autoescape=select_autoescape(["html"]),
-        trim_blocks=False,
-        lstrip_blocks=False,
-    )
     try:
-        html = env.get_template(template_path.name).render(**data)
-    except Exception as exc:  # 模板语法/结构问题：给出模板侧定位
-        print(f"✘ 渲染失败: {type(exc).__name__}: {exc}", file=sys.stderr)
-        print(f"  提示：模板 {template_path}；数据 {data_path}", file=sys.stderr)
-        return 2
-
-    if args.out:
-        out_path = Path(args.out)
-    else:
-        slug = kb_slug(args.kb_id or (data.get("basic_info") or {}).get("kb_id"))
-        base = f"report_{slug}_{time.strftime('%Y%m%d_%H%M%S')}"
-        out_path = report_root() / slug / f"{base}.html"
-        seq = 0
-        while out_path.exists() or (not args.no_sidecar and out_path.with_suffix(".json").exists()):
-            seq += 1
-            out_path = out_path.with_name(f"{base}_{seq}.html")
-
-    sidecar_path = None if args.no_sidecar else out_path.with_suffix(".json")
-    try:
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(html, encoding="utf-8")
-        if sidecar_path is not None:
-            payload = json.dumps(sidecar_payload(data, out_path), ensure_ascii=False, indent=2)
-            sidecar_path.write_text(payload + "\n", encoding="utf-8")
-    except OSError as exc:
-        print(f"✘ 写盘失败: {exc}", file=sys.stderr)
-        print(f"  提示：确认 {out_path.parent} 可写（WITTY_REPORT_DIR={report_root()}），或显式传 out 路径", file=sys.stderr)
-        return 5
+        html = render_report_html(data, template_path, data_path)
+        out_path = output_path(args, data)
+        sidecar_path = write_report_files(data, html, out_path, args.no_sidecar)
+    except Fatal as exc:
+        return print_fatal(exc)
 
     print(f"✔ {out_path}  ({len(html.encode('utf-8')):,} bytes)")
     if sidecar_path is not None:
@@ -523,12 +836,25 @@ def main(argv=None) -> int:
     print("  章节 " + str(len(section_names(data))) + ": " + " · ".join(section_names(data)))
     print("  故障 " + faults_line(data))
     print("  统计 " + stats_line(data))
-    if warnings:
-        shown = warnings[:3]
-        for line in shown:
-            print(f"  ⚠ {line}")
-        if len(warnings) > len(shown):
-            print(f"  ⚠ ... 另有 {len(warnings) - len(shown)} 条提示（不影响渲染）")
+    print_warnings(warnings)
+
+    # 渲染成功且已落盘：清理同知识库目录下的旧报告。仅匹配 report_<slug>_*
+    # 前缀，不影响同目录下其它知识库的报告；已确认与已绑案的旧报告保留。
+    slug = kb_slug(args.kb_id or (data.get("basic_info") or {}).get("kb_id"))
+    outcome = cleanup_old_reports(out_path, slug, remove_sidecar=not args.no_sidecar)
+    if outcome.removed:
+        print(
+            f"  清理旧报告 {len(outcome.removed)} 份（仅保留最新）："
+            + ", ".join(sorted(outcome.removed))
+        )
+    if outcome.kept:
+        detail = "、".join(
+            f"{rid}（{reason}）" for rid, reason in sorted(outcome.kept.items())
+        )
+        print(f"  保留旧报告 {len(outcome.kept)} 份：{detail}")
+    if outcome.error:
+        print(f"  ⚠ 未清理旧报告：{outcome.error}", file=sys.stderr)
+
     return 0
 
 

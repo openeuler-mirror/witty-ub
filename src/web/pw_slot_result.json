@@ -1,0 +1,23 @@
+[console] debug [vite] connecting...
+[console] debug [vite] connected.
+[console] log [LatencyAbnormal] percentile: p99 threshold: 5
+[console] log [LatencyAbnormal] Total mark areas: 0
+SLOTS: [
+  {
+    "idx": 0,
+    "activeTab": "异常Trace列表",
+    "hasTable": false,
+    "rowCount": 0,
+    "firstRow": ""
+  },
+  {
+    "idx": 1,
+    "activeTab": "聚合事件列表",
+    "hasTable": false,
+    "rowCount": 0,
+    "firstRow": ""
+  }
+]
+FIRST_SLOT_HTML: "<div class=\"monitor-card-title aggregate-title\"><div class=\"aggregate-tab-list\"><button class=\"aggregate-tab-item\" type=\"button\"> 聚合事件列表 </button><button class=\"aggregate-tab-item active\" type=\"button\"> 异常Trace列表 </button></div><div class=\"abnormal-trace-filter-actions\"><form class=\"trace-id-search\"><label class=\"trace-id-search-field\"><span>Trace ID</span><input type=\"text\" placeholder=\"输入 Trace ID\" autocomplete=\"off\"></label><button class=\"save-btn compact-action-btn trace-id-search-submit\" type=\"submit\"> 查询 </button></form><button class=\"ghost-btn compact-action-btn\" type=\"button\"> 按集群/主机过滤"
+CLICKED: 时延2026-05-11 00:15:33199bb6a7-82e4-48c1-bbea-2455b8c67520192.168.219.66192.168.219.72192.168.235.172
+MODAL: {"modalOpen":false,"flowSection":false,"charts":[]}

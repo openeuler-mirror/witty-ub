@@ -4,6 +4,11 @@
 
 - §1 / §2 为**旧版报告正文结构**，仅供追溯；报告正文的权威契约现由
   `scripts/render_report.py --spec <板块>` 与 `references/REPORT_BLOCKS.md` 承载。
+
+写完数据 JSON 后，无论是否需要 HTML，都必须先运行
+`python3 scripts/render_report.py <data.json> --validate-only`。该命令使用正式渲染的同一
+校验契约，但不加载模板、不写 HTML/侧车；退出码 `0` 的 JSON 才可交付或进入导入流程。
+
 - §3 为**案例沉淀契约**，已对齐超节点诊断案例库
   （`latency/schemas/diag_case_library.py::CreateDiagCaseDraftRequest`）。
 
@@ -231,22 +236,33 @@
 ## 3. CaseDraft 案例沉淀契约（映射至 `CreateDiagCaseDraftRequest`）
 
 本对象字段与 `latency/schemas/diag_case_library.py::CreateDiagCaseDraftRequest`
-一一对应，可直接 `CreateDiagCaseDraftRequest.model_validate(case_draft)` 建草稿。
+一一对应。报告派生案例由服务端映射生成：先 `GET /diagnostic_report/{report_id}/faults/
+{source_fault_id}/case_preview` 拿预填草稿与 `missing_fields`，再
+`POST /diagnostic_report/{report_id}/faults/{source_fault_id}/case` 建草稿。
+两级分类、故障指纹与分类快照由服务端从已确认报告复制，客户端不得自填；
+`draft` 中的字段仍按 §3.2 对齐（缺证据/处置/可匹配信号会在 `missing_fields` 中列出）。
 
 > ⚠️ **旧桥接（`DiagnosisCaseModel` 口径：`root_cause` / `recommendation` /
 > `fingerprint_json` / `evidence_refs_json`）已废弃**：它没有带 `kind` 的证据锚点、
 > 没有分步处置、也没有独立信号列，**过不了 `/diag_case_library/{case_id}/confirm`
 > 的确认闸门**。不要再按旧口径组织写入数据。
 
-### 3.1 三步链路（对话确认，不引入前端页面与审批流）
+### 3.1 三步链路（报告确认 → 故障建案 → 验证回填）
 
 1. 报告渲染完成 → Agent 把报告路径与摘要交给用户；
-2. 用户点头「报告 OK」→ `POST /diag_case_library`（本对象）取 `case_id` →
+2. 用户点头「报告 OK」→ 先确认整份报告：`GET /diagnostic_report/{report_id}` 取
+   `report.current_sidecar_hash`，`POST /diagnostic_report/{report_id}/confirm`
+   （`expected_sidecar_hash` = 页面所见哈希，`reviewed_by` = 用户标识）；侧车已变化返回
+   409，刷新后重新确认。未确认报告不能派生案例；
+3. `GET /diagnostic_report/{report_id}/faults/{source_fault_id}/case_preview` 预览 →
+   `POST /diagnostic_report/{report_id}/faults/{source_fault_id}/case` 取 `case_id` →
    `POST /diag_case_library/{case_id}/confirm`（`confirmed_by` = 用户标识）→
    案例进入可检索集合；
-3. 处置执行 + 复测后 → `PATCH /diag_case_library/{case_id}` **只补** `verification_json`。
+4. 处置执行 + 复测后 → `PATCH /diag_case_library/{case_id}` **只补** `verification_json`
+   （带 `expected_revision`；`closed_loop=true` 需 `method` / `observed_result` /
+   `verified_by`，`verified_at` 由服务端补）。
 
-> 步骤 2 与 3 之间案例已可检索，但 `closed_loop` 为假：检索侧按「待验证处方」处理，
+> 步骤 3 与 4 之间案例已可检索，但 `closed_loop` 为假：检索侧按「待验证处方」处理，
 > `applicability` 上限 `adjust`（见 `case-matching/SKILL.md` 纪律 9）。
 
 ### 3.2 字段映射
@@ -263,24 +279,24 @@
 | `operation` | `GET`/`SET` | ❌ | 板块 1 `operation`；GET 与 SET 不许混写一条案例 |
 | `fault_type` | string | ✅ | 报告 `fault_type`：`latency` / `connectivity` / `mixed` / `unknown` |
 | `confidence` | number | ❌ | 板块 2 `confidence` 转 0~1 数值（如 `"高 92%"` → `0.92`）；仅知识库解释支撑的不得给高值 |
-| `status_codes[]` | string[] | ❌ | 板块 6 `top_error_codes[].code`（**原始码**，不是 `name`），信号权重 3.0 |
+| `status_codes[]` | string[] | ❌ | 按顺序去重：对应故障 `error.breakdowns[].code_distribution.items[]` 中 `count > 0` 的 `code` → `evidence_traces[].status_code`；仅单故障旧报告才回落板块 6 `top_error_codes[].code`。均为**原始码**，不是名称；`other_count` 无具体码，不反推；不要把仅筛选但未观测到的码存为信号。信号权重 3.0 |
 | `failure_mode_ids[]` | string[] | ❌ | 板块 7 `knowledge_matches[].id`（故障模式 ID），信号权重 3.0 |
-| `latency_components[]` | string[] | ❌ | **必须取 `/stats/stages` 的桶 key**（`set_client` / `urma`）；**禁止**照抄板块 6 的阶段展示名（`URMA 网络`），否则 L2 信号全部打空（见 `CASE_FEATURE_CONTRACT.md` §三） |
+| `latency_components[]` | string[] | ❌ | 取对应故障 `latency.stages[].features.bucket_key`（由 `latency_features.py` 从 `/stats/stages` 提取，如 `set_client` / `urma`）；**禁止**照抄阶段展示名（`URMA 网络`），否则 L2 信号全部打空（见 `CASE_FEATURE_CONTRACT.md` §三） |
 | `log_keywords[]` | string[] | ❌ | 现场日志**原文短语**（保留大小写与下划线），禁意译、禁套用历史案例的短语 |
-| `hosts[]` | string[] | ❌ | 板块 6 `top_hosts[].host` |
-| `pods[]` | string[] | ❌ | 板块 6 `top_pods[].pod` |
-| `src_ips[]` / `dst_ips[]` | string[] | ❌ | 现场接口返回（`/stats/links`、`/log_parse_result/options`），逐字保留 |
-| `cluster_name` | string | ❌ | 现场接口返回的集群名 |
+| `hosts[]` | string[] | ❌ | 对应故障的 `evidence_traces[].host`、`latency...features.top_traces[].host`，以及 `top_hosts[]` 中 `fault` 等于当前故障的条目；仅单故障报告可用未标 `fault` 的事件级条目 |
+| `pods[]` | string[] | ❌ | 对应故障的 `evidence_traces[].pod`，以及 `top_pods[]` 中 `fault` 等于当前故障的条目；仅单故障报告可用未标 `fault` 的事件级条目 |
+| `src_ips[]` / `dst_ips[]` | string[] | ❌ | 对应故障 `error.breakdowns[].scope` 与 `latency...features.top_traces[]` 中的现场值，逐字保留 |
+| `cluster_name` | string | ❌ | 对应故障 `error.breakdowns[].scope.cluster_name`；多个不同集群时不猜选 |
 | `version_json` | object | ❌ | `{kernel, os, urma, umq, ubsocket}`；**有可靠来源才填** |
-| `stage_features_json` | object | ❌ | `/stats/stages` 原始响应整理为 `{operation, buckets[], sample_cnt, truncated}`，`buckets[].key` 用桶 key |
+| `stage_features_json` | object | ❌ | 对应故障的 `latency.stages[].features` 确定性转换为 `{operation, buckets[], sample_cnt, truncated}`；`buckets[].key` 用桶 key；混合 operation 时不合并快照 |
 | `fault_shape` | string | ❌ | 板块 6 `time_heatmap` 体现的时间形状 |
 | `time_window_json` | object | ❌ | 板块 1 `time_range_start` / `time_range_end`（或板块 6 的尖峰窗） |
 | `scope_limits` | string | ❌ | 报告须新写：本方案不适用的场景（防跨域误套用） |
 | `node_type` | string | ❌ | 超节点形态（现场有才填） |
 | `kb_id` / `kb_name` | string | ❌ | 板块 1 `kb_id` / `kb_name`；留空 = 全局案例（可跨库召回） |
-| `evidence_json[]` | array | ✅ 闸门要求 ≥1 | `{kind: api\|trace\|log\|sql, ref, params, excerpt, note}`。板块 4 的 `reasoning_chain[].evidence` 是自由文本，**需由 Agent 按实际调用补成结构化锚点**：`kind` 取证据通道，`ref` 取可复现引用（接口路径 / trace_id / `文件:行号`） |
+| `evidence_json[]` | array | ✅ 闸门要求 ≥1 | 优先把 `evidence_traces[]` 转为 `kind=trace`；无代表 trace 时，把 `latency...features.source` 或 `error.breakdowns[].source.pages[]` 中真实保存的 `endpoint + request` 转为 `kind=api`。`reasoning_chain[].evidence` 是自由文本，不能自动当作可复现锚点；没有结构化来源时保留缺失，禁止编造 |
 | `counter_evidence_json[]` | array | ❌ | 板块 4 `reasoning_chain[]` 中 `excluded=true` 的步骤（已排除项 + 排除依据） |
-| `remediation_json[]` | array | ✅ 闸门要求 ≥1 | 板块 3 `short_term` + `long_term` **拆成分步**：`{step, action, expected, risk}`，`expected` 可用 `verification[]` |
+| `remediation_json[]` | array | ✅ 闸门要求 ≥1 | 板块 3 `short_term` + `long_term`，再合并当前故障关联的事件级 `action_plan[]`，按顺序去重并拆成 `{step, action, expected, risk}`；`expected` 优先用 `verification[]` / `action_plan[].verify` / `expected_effect`，没有可靠值则省略 |
 | `relations_json[]` | array | ❌ | 本次报告关联的其他案例 `case_no`（无则留空，不要编） |
 | `source_log_ids[]` | string[] | ❌ | 现场取到的来源日志 ID（板块 1 只有文件名，ID 需另取自日志列表接口） |
 | `created_by` | string | ❌ | 报告生成者标识 |

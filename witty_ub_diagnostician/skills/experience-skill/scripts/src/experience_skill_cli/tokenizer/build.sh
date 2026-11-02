@@ -51,7 +51,7 @@ mkdir -p "${BUILD_DIR}"
 echo "[Tokenizer] cmake..."
 cmake -S "${SRC_DIR}" -B "${BUILD_DIR}" \
     -DSIMPLE_WITH_JIEBA=OFF \
-    -DBUILD_TESTING=OFF \
+    -DBUILD_TEST_EXAMPLE=OFF \
     -DCMAKE_INSTALL_PREFIX="${OUTPUT_DIR}" \
     -DCMAKE_BUILD_TYPE=Release
 

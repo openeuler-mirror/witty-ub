@@ -4,8 +4,11 @@ import {
   buildBasicAuthHeader,
   defaultAgentApiBase,
   extractAgentError,
+  isAgentAbortError,
   isSecureRemoteAgentAddress,
   normalizeAgentServerAddress,
+  type AgentPermissionRequest,
+  type AgentQuestionRequest,
   type AgentStreamEvent,
   type OpenCodeMessage,
   type OpenCodeSession,
@@ -39,12 +42,25 @@ export type AgentChatMessage = {
   reasoning: string
   status: 'thinking' | 'done' | 'error'
   messageId?: string
+  /** 结构化问询的答复：有值时按「问题 / 答案」成对渲染，而不是普通文本气泡。 */
+  questionReply?: Array<{ question: string; answer: string }>
+  /** 这条答复插在哪个历史消息之后（重载历史后按锚点归位）。 */
+  questionReplyAfterMessageId?: string
+}
+
+/** 会话级「本会话始终允许」规则：permission 相同且 patterns 全部被某个 pattern 覆盖才算命中。 */
+export type AgentPermissionRule = {
+  permission: string
+  patterns: string[]
 }
 
 const CONNECTION_KEY = 'witty-ub.agent-connection'
 const SESSION_ASSET_KEY = 'witty-ub.agent-session-assets'
 const ACTIVE_SESSION_KEY = 'witty-ub.active-session'
 const DEFAULT_MODEL_KEY = 'witty-ub.agent-default-model'
+const SESSION_PERMISSIONS_KEY = 'witty-ub.agent-session-permissions'
+const QUESTION_REPLIES_KEY = 'witty-ub.agent-question-replies'
+const USER_ABORT_TEXT = '用户终止响应'
 const KNOWLEDGE_PREFIX_RE = /^当前(?:页面选中|会话对应)的知识库 ID 是 [^。]+。\n\n/
 const KNOWLEDGE_ID_RE = /^当前(?:页面选中|会话对应)的知识库 ID 是 ([^。]+)。/
 
@@ -98,6 +114,15 @@ export function createAgentChatState() {
   const messages = ref<AgentChatMessage[]>([])
   const input = ref('')
   const isSending = ref(false)
+  // Agent 挂起的受限操作与问询：答复前不会继续，必须显式处理
+  const pendingPermissions = ref<AgentPermissionRequest[]>([])
+  const pendingQuestions = ref<AgentQuestionRequest[]>([])
+  const questionAnswers = ref<Record<string, string[][]>>({})
+  const questionCustomAnswers = ref<Record<string, string[]>>({})
+  const interactionSubmitting = ref('')
+  const interactionError = ref('')
+  const sessionPermissionRules = ref<Record<string, AgentPermissionRule[]>>({})
+  const questionReplyMessages = ref<Record<string, AgentChatMessage[]>>({})
   const sessionDialog = ref<{ kind: 'rename' | 'delete'; session: OpenCodeSession } | null>(null)
   const sessionTitleInput = ref('')
   const sessionDialogError = ref('')
@@ -168,6 +193,39 @@ export function createAgentChatState() {
     }
   }
 
+  const loadStoredRecord = <T,>(baseKey: string): Record<string, T> => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(storageKey(baseKey)) ?? '{}')
+      return stored && typeof stored === 'object' && !Array.isArray(stored)
+        ? (stored as Record<string, T>)
+        : {}
+    } catch {
+      return {}
+    }
+  }
+
+  const saveStoredRecord = (baseKey: string, value: unknown) => {
+    try {
+      localStorage.setItem(storageKey(baseKey), JSON.stringify(value))
+    } catch {
+      // 浏览器可能禁用存储：忽略写入失败，授权规则在本次页面内仍然有效
+    }
+  }
+
+  const loadSessionPermissionRules = () => {
+    sessionPermissionRules.value = loadStoredRecord<AgentPermissionRule[]>(SESSION_PERMISSIONS_KEY)
+  }
+
+  const saveSessionPermissionRules = () =>
+    saveStoredRecord(SESSION_PERMISSIONS_KEY, sessionPermissionRules.value)
+
+  const loadQuestionReplyMessages = () => {
+    questionReplyMessages.value = loadStoredRecord<AgentChatMessage[]>(QUESTION_REPLIES_KEY)
+  }
+
+  const saveQuestionReplyMessages = () =>
+    saveStoredRecord(QUESTION_REPLIES_KEY, questionReplyMessages.value)
+
   const restoreConnection = (): AgentApi | null => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(CONNECTION_KEY) ?? 'null')
@@ -209,11 +267,33 @@ export function createAgentChatState() {
           (right.time?.updated ?? right.time?.created ?? 0) -
           (left.time?.updated ?? left.time?.created ?? 0),
       )
+      void backfillSessionAssets(instance, loaded)
     } catch (error) {
       if (sequence !== sessionListSequence || instance !== api.value) return
       connectionError.value = error instanceof Error ? error.message : '读取会话失败'
     } finally {
       if (sequence === sessionListSequence) isSessionsLoading.value = false
+    }
+  }
+
+  // 会话与资产的绑定存在本机 localStorage，换浏览器后列表会整体缺失；
+  // 对未登记的会话用首条用户消息里的知识库 ID 惰性回填，失败不影响其余会话
+  const backfillSessionAssets = async (instance: AgentApi, loaded: OpenCodeSession[]) => {
+    for (const session of loaded) {
+      if (sessionAssetIndex.value[session.id]) continue
+      try {
+        const history = (await instance.listMessages(session.id)) ?? []
+        if (instance !== api.value) return
+        const context = history
+          .find((message) => message.info.role === 'user')
+          ?.parts?.find((part) => part.type === 'text')?.text
+        const assetId = context?.match(KNOWLEDGE_ID_RE)?.[1]
+        if (assetId && !sessionAssetIndex.value[session.id]) {
+          registerSessionAsset(session.id, assetId)
+        }
+      } catch {
+        // 单个会话回填失败按未关联展示
+      }
     }
   }
 
@@ -274,6 +354,8 @@ export function createAgentChatState() {
     sessionDrafts.value = {}
     selectedModel.value = null
     loadSessionAssetIndex()
+    loadSessionPermissionRules()
+    loadQuestionReplyMessages()
     try {
       const health = await instance.health()
       if (sequence !== connectionSequence || instance !== api.value) return
@@ -391,10 +473,10 @@ export function createAgentChatState() {
       void api.value
         .listMessages(sid)
         .then((history) => {
-          if (sequence === requestSequence && sid === sessionId.value && !isSending.value) {
-            assistantMessageIds = new Set()
-            messages.value = toChatMessages(history ?? [])
-          }
+      if (sequence === requestSequence && sid === sessionId.value && !isSending.value) {
+        assistantMessageIds = new Set()
+        messages.value = withQuestionReplies(sid, toChatMessages(history ?? []))
+      }
         })
         .catch(() => null)
     }
@@ -421,6 +503,277 @@ export function createAgentChatState() {
     void scrollToBottom()
   }
 
+  // 用户中止（本地按钮或服务端上报）不是失败：气泡统一显示为「用户终止响应」
+  const markResponseAborted = () => {
+    const pending = messages.value.find((message) => message.status === 'thinking')
+    if (pending) {
+      pending.parts = [{ id: `${pending.id}:aborted`, type: 'text', text: USER_ABORT_TEXT }]
+      syncMessageText(pending)
+      pending.status = 'done'
+    }
+    isSending.value = false
+    if (sessionId.value) sessionStatuses.value[sessionId.value] = { type: 'idle' }
+    void scrollToBottom()
+  }
+
+  // ---------- 受限操作授权与结构化问询 ----------
+
+  const permissionRequestKey = (request: AgentPermissionRequest) =>
+    JSON.stringify([
+      request.sessionID,
+      request.permission,
+      [...request.patterns].sort(),
+      request.metadata ?? {},
+    ])
+
+  // 服务端 pattern 是 glob（`*` 通配），按同样口径做整串匹配
+  const matchesPermissionPattern = (value: string, pattern: string) => {
+    const expression = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
+    return new RegExp(`^${expression}$`).test(value)
+  }
+
+  const isSessionPermissionApproved = (request: AgentPermissionRequest) =>
+    (sessionPermissionRules.value[request.sessionID] ?? []).some(
+      (rule) =>
+        rule.permission === request.permission &&
+        request.patterns.every((pattern) =>
+          rule.patterns.some((allowed) => matchesPermissionPattern(pattern, allowed)),
+        ),
+    )
+
+  const respondPermission = (request: AgentPermissionRequest, response: 'once' | 'reject') =>
+    api.value?.respondPermission(request.sessionID, request.id, response) ??
+    Promise.resolve(false)
+
+  const dedupePermissionRequests = (requests: AgentPermissionRequest[]) => {
+    const keys = new Set<string>()
+    return requests.filter((request) => {
+      const key = permissionRequestKey(request)
+      if (keys.has(key)) return false
+      keys.add(key)
+      return true
+    })
+  }
+
+  const addPermissionRequest = (request: AgentPermissionRequest) => {
+    if (!request.id || !request.sessionID) return
+    if (isSessionPermissionApproved(request)) {
+      // 命中的同类请求不再打断用户：服务端只认 once，前端直接放行
+      void respondPermission(request, 'once').catch(() => {
+        pendingPermissions.value = [
+          ...pendingPermissions.value.filter((item) => item.id !== request.id),
+          request,
+        ]
+        interactionError.value = '本会话自动授权失败，请手动确认。'
+      })
+      return
+    }
+    const existing = pendingPermissions.value.find(
+      (item) => permissionRequestKey(item) === permissionRequestKey(request),
+    )
+    if (existing && existing.id !== request.id) return
+    pendingPermissions.value = dedupePermissionRequests([
+      ...pendingPermissions.value.filter((item) => item.id !== request.id),
+      request,
+    ])
+    interactionError.value = ''
+    void scrollToBottom()
+  }
+
+  const normalizePermissionRequest = (
+    value: Partial<AgentPermissionRequest> & {
+      type?: string
+      title?: string
+      pattern?: string | string[]
+    },
+  ): AgentPermissionRequest | null => {
+    if (!value.id || !value.sessionID) return null
+    const pattern = value.pattern
+    return {
+      id: value.id,
+      sessionID: value.sessionID,
+      permission: value.permission || value.type || value.title || '受限操作',
+      patterns: value.patterns ?? (Array.isArray(pattern) ? pattern : pattern ? [pattern] : []),
+      metadata: value.metadata,
+      always: value.always,
+      tool: value.tool,
+    }
+  }
+
+  const addQuestionRequest = (request: AgentQuestionRequest) => {
+    if (!request.id || !request.sessionID) return
+    pendingQuestions.value = [
+      ...pendingQuestions.value.filter((item) => item.id !== request.id),
+      request,
+    ]
+    questionAnswers.value[request.id] ||= request.questions.map(() => [])
+    questionCustomAnswers.value[request.id] ||= request.questions.map(() => '')
+    interactionError.value = ''
+    void scrollToBottom()
+  }
+
+  // 挂起请求可能在本页面之外产生（刷新、换会话、多个页签），打开会话时按服务端状态补齐
+  const loadPendingInteractions = async (sid: string) => {
+    const instance = api.value
+    if (!instance) return
+    const [permissions, questions] = await Promise.all([
+      instance.listPermissions().catch(() => [] as AgentPermissionRequest[]),
+      instance.listQuestions().catch(() => [] as AgentQuestionRequest[]),
+    ])
+    if (instance !== api.value || sid !== sessionId.value) return
+    pendingPermissions.value = []
+    dedupePermissionRequests(
+      (permissions ?? [])
+        .map((item) => normalizePermissionRequest(item))
+        .filter(
+          (item): item is AgentPermissionRequest => !!item && item.sessionID === sid,
+        ),
+    ).forEach(addPermissionRequest)
+    pendingQuestions.value = []
+    ;(questions ?? []).filter((item) => item.sessionID === sid).forEach(addQuestionRequest)
+  }
+
+  const answerPermission = async (
+    request: AgentPermissionRequest,
+    reply: 'once' | 'always' | 'reject',
+  ) => {
+    if (interactionSubmitting.value) return
+    interactionSubmitting.value = request.id
+    interactionError.value = ''
+    try {
+      await respondPermission(request, reply === 'reject' ? 'reject' : 'once')
+      if (reply === 'always') {
+        const rules = sessionPermissionRules.value[request.sessionID] ?? []
+        sessionPermissionRules.value[request.sessionID] = [
+          ...rules,
+          {
+            permission: request.permission,
+            patterns: request.always?.length ? request.always : request.patterns,
+          },
+        ]
+        saveSessionPermissionRules()
+      }
+      pendingPermissions.value = pendingPermissions.value.filter((item) => item.id !== request.id)
+      await loadPendingInteractions(sessionId.value)
+    } catch (error) {
+      interactionError.value = error instanceof Error ? error.message : '权限答复失败'
+      await loadPendingInteractions(sessionId.value)
+    } finally {
+      interactionSubmitting.value = ''
+    }
+  }
+
+  const toggleQuestionOption = (
+    request: AgentQuestionRequest,
+    questionIndex: number,
+    label: string,
+  ) => {
+    const question = request.questions[questionIndex]
+    if (!question) return
+    const answers = questionAnswers.value[request.id] ?? request.questions.map(() => [])
+    const selected = answers[questionIndex] ?? []
+    answers[questionIndex] = question.multiple
+      ? selected.includes(label)
+        ? selected.filter((item) => item !== label)
+        : [...selected, label]
+      : [label]
+    questionAnswers.value[request.id] = [...answers]
+  }
+
+  const setQuestionCustomAnswer = (
+    request: AgentQuestionRequest,
+    questionIndex: number,
+    value: string,
+  ) => {
+    const custom = questionCustomAnswers.value[request.id] ?? request.questions.map(() => '')
+    custom[questionIndex] = value
+    questionCustomAnswers.value[request.id] = [...custom]
+  }
+
+  const submitQuestion = async (request: AgentQuestionRequest) => {
+    const instance = api.value
+    if (!instance || interactionSubmitting.value) return
+    const selected = questionAnswers.value[request.id] ?? request.questions.map(() => [])
+    const custom = questionCustomAnswers.value[request.id] ?? request.questions.map(() => '')
+    const answers = request.questions.map((_, index) => [
+      ...(selected[index] ?? []),
+      ...(custom[index]?.trim() ? [custom[index].trim()] : []),
+    ])
+    if (answers.some((answer) => answer.length === 0)) {
+      interactionError.value = '请回答每一个问题后再提交。'
+      return
+    }
+    interactionSubmitting.value = request.id
+    interactionError.value = ''
+    try {
+      await instance.replyQuestion(request.id, answers)
+      const questionReply = request.questions.map((question, index) => ({
+        question: question.question,
+        answer: answers[index]?.join('、') ?? '',
+      }))
+      const previous = messages.value.at(-1)
+      const replyMessage: AgentChatMessage = {
+        id: `agent-question-reply-${request.id}`,
+        role: 'user',
+        parts: [],
+        reasoning: '',
+        content: questionReply
+          .map((item, index) => `${index === 0 ? '# 问题\n\n' : ''}${item.question}\n${item.answer}`)
+          .join('\n\n---\n\n'),
+        status: 'done',
+        questionReply,
+        questionReplyAfterMessageId: previous?.messageId || previous?.id,
+      }
+      messages.value = [...messages.value, replyMessage]
+      if (sessionId.value) {
+        questionReplyMessages.value[sessionId.value] = [
+          ...(questionReplyMessages.value[sessionId.value] ?? []),
+          replyMessage,
+        ]
+        saveQuestionReplyMessages()
+      }
+      pendingQuestions.value = pendingQuestions.value.filter((item) => item.id !== request.id)
+      void scrollToBottom()
+    } catch (error) {
+      interactionError.value = error instanceof Error ? error.message : '操作选择提交失败'
+      await loadPendingInteractions(sessionId.value)
+    } finally {
+      interactionSubmitting.value = ''
+    }
+  }
+
+  const rejectQuestion = async (request: AgentQuestionRequest) => {
+    const instance = api.value
+    if (!instance || interactionSubmitting.value) return
+    interactionSubmitting.value = request.id
+    interactionError.value = ''
+    try {
+      await instance.rejectQuestion(request.id)
+      pendingQuestions.value = pendingQuestions.value.filter((item) => item.id !== request.id)
+    } catch (error) {
+      interactionError.value = error instanceof Error ? error.message : '取消问询失败'
+      await loadPendingInteractions(sessionId.value)
+    } finally {
+      interactionSubmitting.value = ''
+    }
+  }
+
+  // 问询答复是本地气泡（服务端历史里没有），重载历史时按锚点插回去
+  const withQuestionReplies = (sid: string, list: AgentChatMessage[]): AgentChatMessage[] => {
+    const result = [...list]
+    const ids = new Set(result.map((message) => message.id))
+    for (const reply of questionReplyMessages.value[sid] ?? []) {
+      if (ids.has(reply.id)) continue
+      const anchor = reply.questionReplyAfterMessageId
+      const anchorIndex = anchor
+        ? result.findIndex((message) => message.id === anchor || message.messageId === anchor)
+        : -1
+      result.splice(anchorIndex >= 0 ? anchorIndex + 1 : result.length, 0, reply)
+      ids.add(reply.id)
+    }
+    return result
+  }
+
   const handleAgentEvent = (event: AgentStreamEvent) => {
     const props = event.properties ?? {}
     if (event.type === 'session.updated' && props.info?.id) {
@@ -438,13 +791,53 @@ export function createAgentChatState() {
       return
     }
 
+    if (event.type === 'permission.asked' && props.id) {
+      const request = normalizePermissionRequest(props)
+      if (request && request.sessionID === sessionId.value) addPermissionRequest(request)
+      return
+    }
+
+    if (event.type === 'permission.replied' && props.requestID) {
+      pendingPermissions.value = pendingPermissions.value.filter(
+        (item) => item.id !== props.requestID,
+      )
+      return
+    }
+
+    if (event.type === 'question.asked' && props.id && props.questions) {
+      const request: AgentQuestionRequest = {
+        id: props.id,
+        sessionID: props.sessionID ?? '',
+        questions: props.questions,
+        tool: props.tool,
+      }
+      if (request.sessionID === sessionId.value) addQuestionRequest(request)
+      return
+    }
+
+    if (
+      (event.type === 'question.replied' || event.type === 'question.rejected') &&
+      props.requestID
+    ) {
+      pendingQuestions.value = pendingQuestions.value.filter(
+        (item) => item.id !== props.requestID,
+      )
+      return
+    }
+
     if (event.type === 'session.status' && ['busy', 'retry'].includes(props.status?.type ?? '')) {
       isSending.value = true
     }
 
     if (event.type === 'message.updated' && props.info?.role === 'assistant' && props.info.id) {
       // 中止后的 message.updated 带 Aborted 错误：不新建气泡、不弹错误条
-      if (props.info.error && isIgnoredAbortError(eventSession || sessionId.value)) return
+      if (
+        props.info.error &&
+        (isAgentAbortError(props.info.error) || isIgnoredAbortError(eventSession || sessionId.value))
+      ) {
+        markResponseAborted()
+        return
+      }
       assistantMessageIds.add(props.info.id)
       let pending = messages.value.find((message) => message.status === 'thinking')
       if (pending?.messageId && pending.messageId !== props.info.id) {
@@ -507,10 +900,9 @@ export function createAgentChatState() {
 
     if (event.type === 'session.error') {
       const errorSession = eventSession || sessionId.value
-      if (isIgnoredAbortError(errorSession)) {
-        // 保留本地「用户终止响应」气泡；重载历史会被服务端的 Aborted 覆盖
-        isSending.value = false
-        if (sessionId.value) sessionStatuses.value[sessionId.value] = { type: 'idle' }
+      // 服务端用 Aborted 错误收尾中止：按「用户终止响应」处理，不当失败弹错误条
+      if (isIgnoredAbortError(errorSession) || isAgentAbortError(props.error ?? props)) {
+        markResponseAborted()
         return
       }
       markResponseFailed(extractAgentError(props.error) || 'Agent 处理出错，请稍后重试')
@@ -602,6 +994,12 @@ export function createAgentChatState() {
     closeEventStream()
     sessionId.value = ''
     messages.value = []
+    pendingPermissions.value = []
+    pendingQuestions.value = []
+    questionAnswers.value = {}
+    questionCustomAnswers.value = {}
+    interactionSubmitting.value = ''
+    interactionError.value = ''
     assistantMessageIds = new Set()
     historyEvents = []
     ignoredAbortError = null
@@ -627,16 +1025,20 @@ export function createAgentChatState() {
           // 历史思考过程默认收起
           collapsed: part.type === 'reasoning',
         }))
+      const aborted = isAgentAbortError(item.info?.error)
       const message: AgentChatMessage = {
         id: item.info?.id || `history-${result.length}`,
         role,
         parts,
         reasoning: '',
         content: '',
-        status: item.info?.error ? 'error' : 'done',
+        status: item.info?.error && !aborted ? 'error' : 'done',
         messageId: item.info?.id,
       }
-      if (item.info?.error) {
+      if (aborted) {
+        // 被中止的历史消息：服务端记的是 Aborted 错误，按用户主动停止渲染
+        message.parts = [{ id: `${message.id}:aborted`, type: 'text', text: USER_ABORT_TEXT }]
+      } else if (item.info?.error) {
         const errorText = extractAgentError(item.info.error) || '模型响应失败'
         message.parts.push({ id: `${message.id}:error`, type: 'text', text: errorText })
       }
@@ -667,7 +1069,7 @@ export function createAgentChatState() {
       const history = (await instance.listMessages(sid)) ?? []
       if (sequence !== requestSequence || sid !== sessionId.value || instance !== api.value) return
       sessionStatuses.value = statuses ?? {}
-      messages.value = toChatMessages(history)
+      messages.value = withQuestionReplies(sid, toChatMessages(history))
       const context = history
         .find((message) => message.info.role === 'user')
         ?.parts?.find((part) => part.type === 'text')?.text
@@ -703,6 +1105,8 @@ export function createAgentChatState() {
           })
         }
       }
+      await loadPendingInteractions(sid)
+      if (sequence !== requestSequence || sid !== sessionId.value) return
       isHistoryLoading.value = false
       replayHistoryEvents()
     } catch (error) {
@@ -761,6 +1165,10 @@ export function createAgentChatState() {
       sessions.value = sessions.value.filter((item) => item.id !== session.id)
       delete sessionAssetIndex.value[session.id]
       saveSessionAssetIndex()
+      delete sessionPermissionRules.value[session.id]
+      saveSessionPermissionRules()
+      delete questionReplyMessages.value[session.id]
+      saveQuestionReplyMessages()
       delete sessionDrafts.value[session.id]
       delete sessionStatuses.value[session.id]
       if (sessionId.value === session.id) {
@@ -786,15 +1194,7 @@ export function createAgentChatState() {
       // 中止失败也按已完成处理，等待事件流收尾
     }
     if (sequence !== requestSequence) return
-    const pending = messages.value.find((message) => message.status === 'thinking')
-    if (pending) {
-      pending.parts = [{ id: 'text:abort', type: 'text', text: '用户终止响应' }]
-      pending.content = '用户终止响应'
-      pending.status = 'done'
-    }
-    isSending.value = false
-    sessionStatuses.value[abortingSessionId] = { type: 'idle' }
-    void scrollToBottom()
+    markResponseAborted()
   }
 
   const ensureSession = async () => {
@@ -986,6 +1386,12 @@ export function createAgentChatState() {
     messages,
     input,
     isSending,
+    pendingPermissions,
+    pendingQuestions,
+    questionAnswers,
+    questionCustomAnswers,
+    interactionSubmitting,
+    interactionError,
     sessionDialog,
     sessionTitleInput,
     sessionDialogError,
@@ -1007,6 +1413,11 @@ export function createAgentChatState() {
     showSessionDialog,
     submitSessionDialog,
     abortAgentSession,
+    answerPermission,
+    toggleQuestionOption,
+    setQuestionCustomAnswer,
+    submitQuestion,
+    rejectQuestion,
     closeEventStream,
     suspend,
     sendMessage,

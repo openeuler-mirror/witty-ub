@@ -38,12 +38,14 @@
 
 ## Access 根
 
-为 runtime 扫描中实际出现的每个非零 K_* 建一个根，按 `error_definitions` 数值升序编号。同一 K_* 只建一个根。随后追加：
+为 `status.h` 中的每个非零 K_* 建一个根，按 `error_definitions` 数值升序编号。同一 K_* 只建一个根；是否存在对应 runtime 节点不影响建根，没有 runtime 子节点的根在 `failure_mode_tree.json` 中保留 `[]`。随后追加：
 
 1. `code=0 + respMsg 非空`：规定错误码 `K_OK(0)`、故障域 `用户`，此外必须增加结构化字段 `"匹配条件": {"status_code": 0, "resp_msg_nonempty": true}`；定界代码不得通过编号或自然语言识别该根。
 2. `进程级 FATAL 故障`：CHECK/LOG(FATAL) 导致 SIGABRT、access recorder 可能不输出正常行；`错误码=null`、函数 `FailureWriter`、文件 `failure_handler.cpp`、故障域 `KVCache`。
 
 K_* 根的 `故障名称` 必须是“业务参数非法”“对象不存在”等自然语言，不得使用 `K_NAME(value) 错误码故障` 的枚举拼接形式。`故障现象`、`故障原因` 必须直接取错误码信息表。
+
+最终 access 根必须覆盖 `status.h` 的全部 K_*：每个非零 K_* 根各一个、`K_OK(0)` 特殊根一个，再加 FATAL 特殊根一个。因此 access 根数等于 `status.h` 错误码数加一。runtime 扫描结果只决定连边，不决定是否创建 K_* 根。
 
 ## 错误码信息表
 
@@ -104,19 +106,54 @@ K_OK(0) 是特例：当 `Status::IsOk()` 为真但 `respMsg` 非空时仍可能�
 | K_REPLICA_NOT_READY | 27 | KVCache |
 | K_CLIENT_WORKER_VERSION_MISMATCH | 28 | KVCache |
 | K_SERVER_FD_CLOSED | 29 | KVCache |
+| K_RETRY_IF_LEAVING | 30 | 三方 etcd |
+| K_SCALE_DOWN | 31 | KVCache |
+| K_SCALING | 32 | KVCache |
+| K_CLIENT_DEADLOCK | 33 | KVCache |
+| K_LRU_HARD_LIMIT | 34 | KVCache |
+| K_LRU_SOFT_LIMIT | 35 | KVCache |
+| K_NOT_SUPPORTED | 36 | 用户 |
+| K_NO_AVAILABLE_WORKER | 37 | KVCache |
+| K_NOT_OWNER | 38 | KVCache |
+| K_METADATA_OWNER_UNAVAILABLE | 39 | RPC/网络 |
+| K_RPC_CANCELLED | 1000 | RPC/网络 |
 | K_RPC_DEADLINE_EXCEEDED | 1001 | RPC/网络 |
 | K_RPC_UNAVAILABLE | 1002 | RPC/网络 |
+| K_RPC_STREAM_END | 1003 | RPC/网络 |
 | K_URMA_ERROR | 1004 | URMA/硬件 |
 | K_RDMA_ERROR | 1005 | URMA/硬件 |
 | K_URMA_NEED_CONNECT | 1006 | URMA |
+| K_RDMA_NEED_CONNECT | 1007 | URMA/硬件 |
 | K_URMA_TRY_AGAIN | 1008 | URMA |
+| K_URMA_CONNECT_FAILED | 1009 | URMA |
 | K_URMA_WAIT_TIMEOUT | 1010 | URMA/硬件 |
+| K_RPC_PEER_DEAD | 1011 | RPC/网络 |
+| K_RPC_NETWORK_BLIP | 1012 | RPC/网络 |
+| K_OC_ALREADY_SEALED | 2000 | 用户 |
+| K_OC_OBJECT_NOT_IN_USED | 2001 | 用户 |
 | K_OC_REMOTE_GET_NOT_ENOUGH | 2002 | KVCache |
+| K_WRITE_BACK_QUEUE_FULL | 2003 | KVCache |
 | K_OC_KEY_ALREADY_EXIST | 2004 | 用户 |
+| K_WORKER_PULL_OBJECT_NOT_FOUND | 2005 | KVCache |
+| K_BUFFER_DEPRECATED | 2006 | 用户 |
+| K_URMA_WORKER_UNAVAILABLE | 2007 | URMA |
+| K_URMA_DATA_WORKER_UNAVAILABLE | 2008 | URMA |
+| K_URMA_READ_SOURCE_DENIED | 2009 | URMA |
+| K_SC_STREAM_NOT_FOUND | 3000 | 用户 |
+| K_SC_PRODUCER_NOT_FOUND | 3001 | 用户 |
+| K_SC_CONSUMER_NOT_FOUND | 3002 | 用户 |
+| K_SC_END_OF_PAGE | 3003 | KVCache |
 | K_SC_STREAM_IN_RESET_STATE | 3004 | KVCache |
 | K_SC_WORKER_WAS_LOST | 3005 | KVCache |
+| K_SC_STREAM_IN_USE | 3006 | 用户 |
+| K_SC_STREAM_DELETE_IN_PROGRESS | 3007 | KVCache |
 | K_SC_STREAM_RESOURCE_ERROR | 3008 | KVCache |
 | K_SC_ALREADY_CLOSED | 3009 | KVCache |
+| K_SC_STREAM_NOTIFICATION_PENDING | 3010 | KVCache |
+| K_ACL_ERROR | 5000 | 硬件 |
+| K_HCCL_ERROR | 5001 | 硬件 |
 | K_FUTURE_TIMEOUT | 5002 | KVCache |
+| K_CUDA_ERROR | 5003 | 硬件 |
+| K_NCCL_ERROR | 5004 | 硬件 |
 
 入口根故障域用于按 status_code 找责任大类；runtime 故障域用于精确定位物理责任方，两者不要求一致。

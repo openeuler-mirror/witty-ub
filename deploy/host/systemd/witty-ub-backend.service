@@ -9,6 +9,9 @@ Environment=PYTHONPATH=__PROJECT_DIR__/src/plugins
 Environment=WITTY_DIR=__WITTY_DIR__
 Environment=WITTY_INSTALL_PATH=__PROJECT_DIR__/build/src
 Environment=CONFIG=__WITTY_DIR__/config/diagnosis_config.toml
+Environment=WITTY_REPORT_DIR=__WITTY_DIR__/reports
+# RAG 与现象索引的运行时配置；由 deploy/host/deploy_rag.sh 生成，缺失即不启用语义检索。
+EnvironmentFile=-__PROJECT_DIR__/.deploy-run/rag.env
 ExecStart=__PROJECT_DIR__/deploy/host/run_backend.sh
 Restart=always
 RestartSec=5

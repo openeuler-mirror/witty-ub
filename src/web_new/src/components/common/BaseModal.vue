@@ -13,10 +13,11 @@ const props = withDefaults(
     title?: string
     /** 使用 #header 插槽时的无障碍名称 */
     label?: string
-    /** sm=480 md=520 lg=580 xl=详情大弹窗 drawer=右侧抽屉 */
-    size?: 'sm' | 'md' | 'lg' | 'xl' | 'drawer'
+    /** sm=480 md=520 lg=580 form=800 xl=详情大弹窗 doc=文档阅读 drawer=右侧抽屉 */
+    size?: 'sm' | 'md' | 'lg' | 'form' | 'xl' | 'doc' | 'drawer'
     closeOnEsc?: boolean
     closeOnOverlay?: boolean
+    keepMounted?: boolean
   }>(),
   { size: 'md', closeOnEsc: true, closeOnOverlay: true },
 )
@@ -98,7 +99,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <div
-      v-if="open"
+      v-if="open || keepMounted"
+      v-show="open"
       class="modal-overlay"
       :class="{ 'modal-overlay--drawer': size === 'drawer' }"
       @click.self="closeOnOverlay && close()"

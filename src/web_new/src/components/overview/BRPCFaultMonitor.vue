@@ -134,7 +134,7 @@ onMounted(() => {
         </span>
       </div>
       <p class="monitor-card-hint">
-        横坐标会根据时间范围缩放；聚合尺度按后端预聚合桶查询，拖动下方滑块可框选时间范围
+        横坐标随时间范围自动缩放，拖动下方滑块可框选时间范围
       </p>
       <div v-if="brpcFaultTimelineError" class="error-banner">{{ brpcFaultTimelineError }}</div>
       <div v-if="brpcFaultSeriesOptions.length > 0" class="series-toggle">
@@ -229,7 +229,7 @@ onMounted(() => {
       </div>
       <template v-else>
         <p class="monitor-card-hint">
-          聚合口径：时间窗 × 接口命中数（同一窗口内所有 Pod 求和）；点「明细」展开该窗的 Pod
+          按「时间窗 × 接口」统计命中数（同一窗口内所有 Pod 求和）；点「明细」展开该窗的 Pod
           逐行结果
         </p>
         <div class="agg-table">

@@ -20,7 +20,8 @@
 - 每个值只含顺序固定的 `故障现象`、`故障原因`；两者均为一句话；现象以对应 `请求返回K_*，` 开头。
 - K_OK 按 respMsg 非空特例处理。
 - `code=0 + respMsg 非空` 根恰有一个，错误码为 `K_OK(0)`，并包含 `{"status_code": 0, "resp_msg_nonempty": true}` 匹配条件；其他节点不得使用 `K_OK(0)`，也不含 `匹配条件`。
-- access 根数 = runtime 实际出现的非零 K_* 数 + 2；错误码值与 `error_definitions` 一致。
+- 每个 `error_definitions` 条目恰有一个 access 根，包括没有 runtime 节点的预留码或仅用于状态传播的错误码；不得遗漏或增加未知 K_*。
+- access 根数 = `error_definitions` 数量 + 1，其中额外一个是 `错误码=null` 的进程级 FATAL 根；没有 runtime 子节点的 access 根在树中必须为 `[]`。
 - 根名称为自然语言；根现象和原因与错误码信息表逐字一致。
 
 ## Runtime 节点

@@ -170,6 +170,18 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             if dst_match:
                 dst_ip = dst_match.group(1)
         
+        # 模式4: KVCache 业务行，第 4 列本端 Pod IP + 消息内 worker / redirect 对端
+        if not src_ip or not dst_ip:
+            parts = raw_text.split('|')
+            pod_ip = parts[3].strip() if len(parts) > 3 else ""
+            peer = re.search(
+                r'(?:redirect meta address|worker)\s*:?\s*(' + ip_pattern + r'):\d+',
+                raw_text,
+                re.IGNORECASE,
+            )
+            if re.fullmatch(ip_pattern, pod_ip) and peer:
+                src_ip, dst_ip = pod_ip, peer.group(1)
+        
         if not src_ip or not dst_ip:
             return "", ""
         
@@ -279,9 +291,12 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         if timestamp < trace_failure_event["timestamp"]:
             trace_failure_event["timestamp"] = timestamp
 
-        if src_ip:
+        cur_src = trace_failure_event.get("src_ip") or ""
+        cur_dst = trace_failure_event.get("dst_ip") or ""
+        if src_ip and dst_ip and not (
+            cur_src and cur_dst and cur_src != cur_dst and src_ip == dst_ip
+        ):
             trace_failure_event["src_ip"] = src_ip
-        if dst_ip:
             trace_failure_event["dst_ip"] = dst_ip
 
         if operation and not trace_failure_event.get("operation"):

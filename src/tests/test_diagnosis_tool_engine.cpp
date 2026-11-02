@@ -592,6 +592,54 @@ TEST(DiagnosisToolEngineRun, AnalyzeRuntimeLineMatchesKeywords)
     EXPECT_FALSE(engine->pendingKvcacheRecords_.empty());
 }
 
+TEST(DiagnosisToolEngineRun, PreservesLiteralKeywordWhitespace)
+{
+    // Like runtime_057: the last keyword can end at EOF with an empty value.
+    std::string rules = KVCACHE_JSON;
+    const std::string original = "依次匹配`err`、`timeout`";
+    rules.replace(rules.find(original), original.size(),
+                  "依次匹配` Invalid offset read param, object count `、`, params count `");
+    const std::string message = " Invalid offset read param, object count 100, params count ";
+    const std::vector<std::string> messages = {
+        message, message + "2", message + "\t", message + "\r",
+        // No trailing space, reversed keywords, or missing first keyword must not match.
+        message.substr(0, message.size() - 1),
+        ", params count  Invalid offset read param, object count ",
+        ", params count ",
+    };
+    for (bool batched : {false, true}) {
+        SCOPED_TRACE(batched);
+        auto engine = diag::DiagnosisEngine::Create(MakeRuleDir(rules.c_str()));
+        ASSERT_NE(engine, nullptr);
+        engine->BeginDiagnosis();
+        engine->AnalyzeAccessLine(MakeAccessLog("trace1", 1001, "kvc_root.cpp", "RootFunc"));
+        std::vector<std::string> lines;
+        for (const auto &text : messages) {
+            lines.push_back(MakeRuntimeLog("trace1", "E", "kvc_rt.cpp", "RtFunc", text));
+        }
+        if (batched) {
+            std::vector<std::string_view> views(lines.begin(), lines.end());
+            engine->AnalyzeRuntimeLines(views);
+        } else {
+            for (const auto &line : lines) {
+                engine->AnalyzeRuntimeLine(line);
+            }
+        }
+        engine->FinishDiagnosis(1, 1);
+        const auto &logs = engine->GetTraceLogs().at("trace1");
+        ASSERT_EQ(logs.size(), 5u); // One access row and four runtime hits.
+        for (const auto &log : logs) {
+            const auto runtime = std::dynamic_pointer_cast<diag::FailureLogInfoRuntime>(log);
+            if (!runtime) {
+                continue;
+            }
+            EXPECT_EQ(runtime->failureModeIds, std::vector<std::string>{"kvcache_runtime"});
+            EXPECT_EQ(runtime->rawLog,
+                      MakeRuntimeLog("trace1", "E", "kvc_rt.cpp", "RtFunc", runtime->message));
+        }
+    }
+}
+
 TEST(DiagnosisToolEngineRun, AnalyzeRuntimeLineNoMatchingTraceId)
 {
     auto engine = diag::DiagnosisEngine::Create(MakeRuleDir());

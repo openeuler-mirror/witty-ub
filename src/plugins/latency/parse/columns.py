@@ -57,7 +57,10 @@ TRACE_COLUMNS: tuple[str, ...] = (
 )
 
 # 内部辅助列（不进冻结契约，T2 归并时消费；来源 columnar.py:93-94）
-INTERNAL_COLUMNS: tuple[str, ...] = ("_label", "_src_rank")
+# ``epoch_sec``：trace 时间戳的**原始秒级** epoch（不做 10s 对齐），供分桶统计
+# 的 1s 粒度使用 —— ``bucket_epoch`` 是 10s 对齐值，``bucket_epoch // 1`` 会退化
+# 成 10s 窗口，必须保留秒级原始值才能得到真正的秒级桶（2026-10 新增）。
+INTERNAL_COLUMNS: tuple[str, ...] = ("_label", "_src_rank", "epoch_sec")
 
 ALL_COLUMNS: tuple[str, ...] = (*TRACE_COLUMNS, *INTERNAL_COLUMNS)
 
@@ -68,6 +71,13 @@ SCANNER_INTERNAL_COLUMNS: tuple[str, ...] = (
     "_rpc_e2e_us",
     "_rpc_server_exec_us",
     "_rpc_network_us",
+    # URMA 调度时延原始值：扫描侧提取、trace_frame 聚合（每 trace 取 max）。
+    # 与 _rpc_* 同类——聚合层消费的"扫描→归并"传递列，不进 TRACE_COLUMNS 平铺契约。
+    "urma_sched_us",
+    # QueryAndGet（DS_POSIX_QUERY_AND_GET）传输类型原始值：local/remote 判断，
+    # 供 trace_frame 拆分 query_get_local/remote RPC 分段（对齐 kvcache 基准
+    # transportType 语义，同属"扫描→归并"传递列）。
+    "query_get_transport",
 )
 
 # 扫描的最终输出列（40 列，来源 scan_vector.py:53）
@@ -78,6 +88,9 @@ OUTPUT_COLUMNS: tuple[str, ...] = (*ALL_COLUMNS, *SCANNER_INTERNAL_COLUMNS)
 # 聚合只对 total_latency 出 ave/min/max/p95/p99；分桶排序键是 (total_latency, tid)。
 # 其余 30 列只服务明细子集与分桶代表行 → 不必给全量行算（见 p2-40col-consumer-map.md）。
 # 注意 ``worker_total_latency``：归并后 total_ms/total_latency 为空时会退回它，故属轻列。
+# ``query_get_transport``：分桶代表行需要按 QueryAndGet 传输类型（local/remote）
+# 分别选出分位代表（2026-10 新增，见 bucket/representatives.py），而宽列只在
+# 选代表之后才物化 —— 传输类型必须随全量行一起扫描，故从扫描内部列升入轻列。
 LIGHT_COLUMNS: tuple[str, ...] = (
     "tid",
     "total_ms",
@@ -88,8 +101,10 @@ LIGHT_COLUMNS: tuple[str, ...] = (
     "op_key",
     "operation",
     "bucket_epoch",
+    "epoch_sec",
     "log_id",
     "_src_rank",
+    "query_get_transport",
 )
 
 # dtype 表：哪些列是浮点 / 整型（来源 scan_vector.py:54-64）
@@ -100,6 +115,6 @@ FLOAT_COLUMNS = frozenset({
     "remote_worker_cost", "remote_worker_rpc", "master_process",
     "master_rpc_total", "w2w_urma_latency", "create_latency", "publish_latency",
     "inflight_count", "_elapsed_us", "_rpc_e2e_us", "_rpc_server_exec_us",
-    "_rpc_network_us",
+    "_rpc_network_us", "urma_sched_us",
 })
-INT_COLUMNS = frozenset({"bucket_epoch", "status_code", "_src_rank", "__row"})
+INT_COLUMNS = frozenset({"bucket_epoch", "epoch_sec", "status_code", "_src_rank", "__row"})

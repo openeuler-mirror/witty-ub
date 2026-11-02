@@ -83,8 +83,21 @@ fi
 
 LATENCY_DIR="$PROJECT_DIR/src/plugins/latency"
 
+# RAG / 现象索引的运行时配置由 deploy/host/deploy_rag.sh 写到 .deploy-run/rag.env。
+# 文件不存在时后端按「语义检索关闭」启动，不影响结构化功能。
+RAG_ENV_FILE="${WITTY_RAG_ENV_FILE:-$PROJECT_DIR/.deploy-run/rag.env}"
+if [ -r "$RAG_ENV_FILE" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$RAG_ENV_FILE"
+    set +a
+fi
+
 # 直接执行或由 systemd 启动时都需要: import latency 包、定位 C++ 工具产物。
 export PYTHONPATH="$PROJECT_DIR/src/plugins${PYTHONPATH:+:$PYTHONPATH}"
 export WITTY_INSTALL_PATH="${WITTY_INSTALL_PATH:-$PROJECT_DIR/build/src}"
+# 报告正文目录：内置报告导入与后端读盘必须指向同一处。
+export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
+export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-$WITTY_DIR/reports}"
 
 exec "$LATENCY_DIR/.venv/bin/python" -u "$LATENCY_DIR/access/fastapi_server.py"

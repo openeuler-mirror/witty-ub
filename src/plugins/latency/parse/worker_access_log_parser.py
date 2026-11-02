@@ -20,7 +20,7 @@ class WorkerAccessLogParser(AccessLogParser):
         return getattr(self, "_runtime_patterns", WORKER_ACCESS_LOG_PATTERNS)
 
     label = "Worker access parse"
-    _keywords = ("DS_POSIX_GET", "DS_POSIX_CREATE", "DS_POSIX_PUBLISH")
+    _keywords = ("DS_POSIX_GET", "DS_POSIX_QUERY_AND_GET", "DS_POSIX_CREATE", "DS_POSIX_PUBLISH")
 
     def __init__(
         self,

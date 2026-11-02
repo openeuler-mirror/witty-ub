@@ -1,5 +1,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
+import asyncio
 import warnings
+from contextlib import asynccontextmanager
 
 # 过滤 APScheduler 中 pkg_resources 弃用警告
 warnings.filterwarnings(
@@ -43,6 +45,7 @@ from latency.routers import (
     trace,
     case_library,
     similarity_analysis,
+    phenomenon,
 )
 
 from latency.database.engine import PGManager
@@ -51,10 +54,72 @@ from latency.database.init import (
     backfill_trace_failure_event_status_codes,
     init_postgresql_database,
 )
-from latency.exceptions import NotFoundBizException, ConflictBizException, BadRequestBizException
+from latency.exceptions import (
+    NotFoundBizException,
+    ConflictBizException,
+    BadRequestBizException,
+    UnprocessableBizException,
+    UpstreamContractBizException,
+    DependencyUnavailableBizException,
+    FeatureDisabledBizException,
+)
+from latency.config import phenomenon as phenomenon_settings
+from latency.services.phenomenon_index import PhenomenonIndexService
 from pydantic import ValidationError
 
-app = fastapi.FastAPI(docs_url=None, redoc_url=None)
+
+@asynccontextmanager
+async def lifespan(app: fastapi.FastAPI):
+    """应用生命周期：启动时初始化数据库/任务队列/调度器，关闭时停止调度器。
+
+    替代已弃用的 @app.on_event("startup")，逻辑与原 startup_event 完全一致。
+    """
+    await configure()
+    await mk_dirs()
+
+    config = Config().get_config()
+    PGManager.initialize(
+        config.db.pg_dsn_url(),
+        pool_size=config.db.pg_pool_size,
+        max_overflow=config.db.pg_max_overflow,
+    )
+    await PGManager.init_timezone()
+    await init_postgresql_database()
+    logger.info("PostgreSQL backend initialized")
+
+    await FailureModeKnowledge().init_failure_mode_knowledge()
+    await backfill_trace_failure_event_status_codes()
+    # 子进程不会随服务重启恢复。遗留的 RUNNING 任务必须先走 worker.reinit()
+    # 清理上一次尝试的半成品，再由任务调度器从头执行。
+    await TaskHandler.init_task_queue()
+    # 任务状态查询和迁移不是数据库原子抢占；同一轮处理必须串行，避免两个
+    # handle_tasks 实例同时 reinit/启动同一个任务。coalesce 合并执行期间积压的 tick。
+    scheduler.add_job(
+        TaskHandler.handle_tasks,
+        "interval",
+        seconds=1,
+        max_instances=1,
+        coalesce=True,
+    )
+    # 收尸独立成 job：它要 join 子进程，慢的时候不该吃掉派发的节拍。
+    scheduler.add_job(
+        TaskHandler.reap_finished_processes,
+        "interval",
+        seconds=1,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.start()
+
+    if phenomenon_settings.index_enabled():
+        _register_phenomenon_jobs()
+        asyncio.create_task(_bootstrap_phenomenon_index())
+
+    yield
+    scheduler.shutdown(wait=False)
+
+
+app = fastapi.FastAPI(docs_url=None, redoc_url=None, lifespan=lifespan)
 
 DATABASE_UNAVAILABLE_MESSAGE = "数据服务暂时不可用，请稍后重试或联系管理员"
 @app.exception_handler(SQLAlchemyError)
@@ -103,6 +168,68 @@ async def bad_request_exception_handler(request: fastapi.Request, exc: BadReques
     return JSONResponse(
         status_code=400,
         content={"code": 400, "message": exc.message, "result": None, "detail": exc.detail},
+    )
+
+
+@app.exception_handler(UnprocessableBizException)
+async def unprocessable_exception_handler(
+    request: fastapi.Request, exc: UnprocessableBizException
+):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=422,
+        content={"code": 422, "message": exc.message, "result": None, "detail": exc.detail},
+    )
+
+
+@app.exception_handler(UpstreamContractBizException)
+async def upstream_contract_exception_handler(
+    request: fastapi.Request, exc: UpstreamContractBizException
+):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=502,
+        content={
+            "code": 502,
+            "message": exc.message,
+            "result": None,
+            "detail": exc.detail,
+            "retryable": False,
+        },
+    )
+
+
+@app.exception_handler(DependencyUnavailableBizException)
+async def dependency_unavailable_exception_handler(
+    request: fastapi.Request, exc: DependencyUnavailableBizException
+):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=503,
+        content={
+            "code": 503,
+            "message": exc.message,
+            "result": None,
+            "detail": exc.detail,
+            "retryable": True,
+        },
+    )
+
+
+@app.exception_handler(FeatureDisabledBizException)
+async def feature_disabled_exception_handler(
+    request: fastapi.Request, exc: FeatureDisabledBizException
+):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=503,
+        content={
+            "code": 503,
+            "message": exc.message,
+            "result": None,
+            "detail": exc.detail,
+            "retryable": False,
+        },
     )
 
 
@@ -179,6 +306,7 @@ async def configure():
     app.include_router(trace.router)
     app.include_router(case_library.router)
     app.include_router(similarity_analysis.router)
+    app.include_router(phenomenon.router)
 
     web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
     if os.path.isdir(web_dir):
@@ -236,44 +364,45 @@ async def mk_dirs():
             logger.info(f"创建目录: {full_path}")
 
 
-@app.on_event("startup")
-async def startup_event():
-    await configure()
-    await mk_dirs()
+async def _bootstrap_phenomenon_index() -> None:
+    """启动自检跑一次核对：换知识库后旧映射须在本次启动内退役并重发。"""
+    if phenomenon_settings.self_check_enabled():
+        await PhenomenonIndexService.run_self_check()
+    try:
+        stats = await PhenomenonIndexService.reconcile()
+    except Exception as exc:  # noqa: BLE001 - 启动期核对失败不应拖垮服务
+        logger.warning("启动期现象索引核对失败: %s", exc)
+        return
+    if any(stats.values()):
+        logger.info("启动期现象索引核对: %s", stats)
 
-    config = Config().get_config()
-    PGManager.initialize(
-        config.db.pg_dsn_url(),
-        pool_size=config.db.pg_pool_size,
-        max_overflow=config.db.pg_max_overflow,
-    )
-    await PGManager.init_timezone()
-    await init_postgresql_database()
-    logger.info("PostgreSQL backend initialized")
 
-    await FailureModeKnowledge().init_failure_mode_knowledge()
-    await backfill_trace_failure_event_status_codes()
-    # 子进程不会随服务重启恢复。遗留的 RUNNING 任务必须先走 worker.reinit()
-    # 清理上一次尝试的半成品，再由任务调度器从头执行。
-    await TaskHandler.init_task_queue()
-    # 任务状态查询和迁移不是数据库原子抢占；同一轮处理必须串行，避免两个
-    # handle_tasks 实例同时 reinit/启动同一个任务。coalesce 合并执行期间积压的 tick。
-    scheduler.add_job(
-        TaskHandler.handle_tasks,
-        "interval",
-        seconds=1,
-        max_instances=1,
-        coalesce=True,
+def _register_phenomenon_jobs() -> None:
+    """Register workers only when the index switch is on."""
+    interval = phenomenon_settings.rag_index_interval()
+    jobs = (
+        (PhenomenonIndexService.scan_reports, interval),
+        (PhenomenonIndexService.scan_legacy, interval),
+        (PhenomenonIndexService.consume_events, phenomenon_settings.rag_event_interval()),
+        (PhenomenonIndexService.publish_due_cards, phenomenon_settings.rag_event_interval()),
+        (
+            PhenomenonIndexService.resume_parsing_cards,
+            phenomenon_settings.rag_event_interval(),
+        ),
+        (
+            PhenomenonIndexService.cleanup_documents,
+            phenomenon_settings.rag_cleanup_interval(),
+        ),
+        (PhenomenonIndexService.reconcile, phenomenon_settings.rag_reconcile_interval()),
     )
-    # 收尸独立成 job：它要 join 子进程，慢的时候不该吃掉派发的节拍。
-    scheduler.add_job(
-        TaskHandler.reap_finished_processes,
-        "interval",
-        seconds=1,
-        max_instances=1,
-        coalesce=True,
-    )
-    scheduler.start()
+    for func, seconds in jobs:
+        scheduler.add_job(
+            func,
+            "interval",
+            seconds=seconds,
+            max_instances=1,
+            coalesce=True,
+        )
 
 
 def _setup_logging():

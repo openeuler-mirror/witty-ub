@@ -593,6 +593,33 @@ TEST(DiagnosisToolModuleInternals, ProcessExtractedLineFiltersByWindow)
     EXPECT_TRUE(output.str().empty());
 }
 
+TEST(DiagnosisToolModuleInternals, StreamInputPreservesRuntimeContinuations)
+{
+    TempDir witty("diagmod_multiline_stream");
+    WriteRules(witty);
+    diag::DiagnosisToolModule module;
+    module.engine_ = diag::DiagnosisEngine::Create(witty.Path());
+    ASSERT_NE(module.engine_, nullptr);
+    module.engine_->BeginDiagnosis();
+    module.engine_->AnalyzeAccessLine(ACCESS_HIT);
+    const std::string start = "2024-01-15T10:00:00";
+    const std::string end = "2024-01-15T11:00:00";
+    bool inRange = false;
+    std::ostringstream output;
+    std::vector<std::string_view> lines;
+    diag::DiagnosisToolModule::LineProcessContext ctx{
+        start, end, inRange, output, diag::DiagnosisToolModule::LogKind::RUNTIME, false, lines};
+    std::istringstream input(std::string(RUNTIME_HIT) + "\r\nrc: first detail\r\n  second detail");
+    ASSERT_TRUE(module.ProcessStreamInput(input, ctx));
+    const std::string expected = std::string(RUNTIME_HIT) + "\\nrc: first detail\\n  second detail";
+    EXPECT_EQ(output.str(), expected + "\n");
+    module.engine_->FinishDiagnosis(1, 1);
+    const auto &logs = module.engine_->GetTraceLogs().at("trace1");
+    ASSERT_EQ(logs.size(), 2u);
+    EXPECT_EQ(logs.back()->rawLog, expected);
+    EXPECT_EQ(logs.back()->failureModeIds, std::vector<std::string>{"kvcache_runtime"});
+}
+
 TEST(DiagnosisToolModuleInternals, WriteExtractedLineDispatchesByKind)
 {
     TempDir witty("diagmod_wline_witty");

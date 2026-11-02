@@ -192,6 +192,25 @@ PG 连接配置位于 `/etc/witty-ub/deploy.conf`（旧安装的 `pg.conf` 自�
 
 ---
 
+## 语义检索（可选）
+
+RPM 包不部署 openGauss 与 RAG Core。需要现象语义检索时，先按 [RAG 与 MCP 部署](../rag-mcp-deployment.md) 部署 openGauss + RAG Core 并配置 embedding，再把连接信息注入后端服务：
+
+```bash
+sudo mkdir -p /etc/systemd/system/witty-ub-latency.service.d
+sudo tee /etc/systemd/system/witty-ub-latency.service.d/rag.conf >/dev/null <<'EOF'
+[Service]
+Environment=RAG_CORE_URL=http://127.0.0.1:9990
+Environment=RAG_ACCESS_KEY_FILE=/etc/witty-ub/rag-secrets/access-key
+Environment=RAG_PHENOMENON_KB_ID=<知识库 ID>
+EOF
+sudo systemctl daemon-reload && sudo systemctl restart witty-ub-latency
+```
+
+`RAG_CORE_URL` 与 `RAG_ACCESS_KEY_FILE` 按实际部署的地址和密钥路径填写。`RAG_PHENOMENON_KB_ID` 由 `python -m latency.access.phenomenon_cli --init-kb` 创建后回填，命令与自检方式见 [容器化部署 · 现象索引初始化](08-container.md#现象索引初始化)。未配置时索引与语义检索保持关闭。
+
+---
+
 ## 服务管理
 
 `witty-ub manager` 按本机已安装子包探测角色，只操作本机服务；特殊场景可用 `WITTY_ROLE_FORCE=all|backend|frontend` 覆盖探测（见[兼容场景：升级后切换分离部署](#兼容场景升级后切换分离部署)）：

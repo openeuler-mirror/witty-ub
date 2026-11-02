@@ -23,7 +23,7 @@ from latency.services.diagnosis_config import DiagnosisConfigService
 def _runtime_config(
     kv_pattern: str = "kv.log",
     ubsocket_pattern: str = "ubsocket.log",
-    threshold: float = 5.0,
+    threshold: float = 2.0,
 ) -> DiagnosisRuntimeConfig:
     return DiagnosisRuntimeConfig(
         log_filename_pattern={
@@ -62,9 +62,7 @@ def _ubsocket_update() -> UBSocketDiagnosisConfig:
     [
         "total_p99_threshold_ms",
         "c2w_p99_threshold_ms",
-        "w2w_p99_threshold_ms",
         "urma_link_p99_threshold_ms",
-        "query_meta_p99_threshold_ms",
         "total_p9999_threshold_ms",
         "total_pmax_threshold_ms",
         "total_ave_threshold_ms",
@@ -214,7 +212,7 @@ async def test_reset_kvcache_preserves_ubsocket_config(monkeypatch):
     default = _runtime_config(
         kv_pattern="default-kv.log",
         ubsocket_pattern="default-ubsocket.log",
-        threshold=5.0,
+        threshold=2.0,
     )
     upsert = AsyncMock(side_effect=lambda _kb_id, config: config)
     monkeypatch.setattr(LogKnowledgePGManager, "exists", AsyncMock(return_value=True))
@@ -232,7 +230,7 @@ async def test_reset_kvcache_preserves_ubsocket_config(monkeypatch):
 
     saved = upsert.await_args.args[1]
     assert saved.log_filename_pattern.resource_log_file == ["default-kv.log"]
-    assert saved.log_analyzer_params.total_p99_threshold_ms == 5.0
+    assert saved.log_analyzer_params.total_p99_threshold_ms == 2.0
     assert saved.log_filename_pattern.brpc_log_file_patterns == [
         "custom-ubsocket.log"
     ]

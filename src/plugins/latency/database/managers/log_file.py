@@ -29,6 +29,7 @@ class LogFilePGManager:
         "anomalous_event",
         "src_dst_aggregated_event",
         "time_window_aggregated",
+        "latency_bucket_1s",
         "latency_bucket_10s",
         "latency_bucket_1min",
         "latency_bucket_10min",

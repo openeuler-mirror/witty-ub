@@ -98,7 +98,7 @@ FailureLogInfoAccess::FailureLogInfoAccess(const std::vector<std::string> &field
 FailureLogInfoRuntime::FailureLogInfoRuntime(const std::vector<std::string> &fields, const std::string &rawLog)
     : FailureLogInfo(fields, rawLog)
 {
-    message = log_helper::Trim(fields[MESSAGE_IDX]);
+    message = fields[MESSAGE_IDX];
 }
 
 } // namespace diag

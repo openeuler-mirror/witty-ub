@@ -101,6 +101,88 @@ deploy/host/run_backend.sh
 # 监听 0.0.0.0:9772, 需对前端节点可达
 ```
 
+### 导入内置定界报告（可选）
+
+仓库在 `data/builtin-reports/` 内置一份定界报告压缩包。后端健康后执行：
+
+```bash
+bash deploy/host/import_builtin_reports.sh          # 按需导入；压缩包未变化则跳过
+bash deploy/host/import_builtin_reports.sh --force  # 重新导入
+```
+
+生效副本与导入状态放在 `.deploy-run/builtin-reports/`（`reports.zip`、`import-state.json`），
+日志在 `.deploy-logs/builtin_report_import.log`。导入在后台执行，不阻塞部署；
+更换压缩包后重跑该脚本即会重新导入，并被新版本替换的旧报告会自动归档案例、移除文件。
+`deploy.sh` 启动后端后会自动调用该脚本；`WITTY_BUILTIN_REPORTS=0` 可关闭。
+
+#### 字段不完整的报告
+
+导入默认**放行不完整数据**：一线采集的报告常有时间格式、`source`、`error.breakdowns`
+等字段缺失，这些差异不应阻止入库。放行后：
+
+- 渲染校验不通过的报告仍会生成 HTML，缺失的区块按模板默认空白呈现，涉及
+  `error.breakdowns` 的报告会少掉错误码分布表与分页完整性说明。
+- 缺建案字段（如 `evidence_json`、`remediation_json`）的结论仍建案，缺项写进案例的
+  「不适用场景」（`scope_limits`），提示摘要为派生值、关键结论需回看原报告。
+- 渲染期的校验问题落在报告旁注 `{report_id}.import.json`，导入结果的
+  `degraded.reports` / `degraded.cases` 也会逐条列出，便于事后核对哪些报告是降级导入的。
+
+需要恢复严格模式（校验不过即拒绝）时用 `--strict`：
+
+```bash
+python -m latency.access.report_import_cli reports.zip --operator <name> --declared-verified --strict
+```
+
+> 降级导入不等于数据正确：这些报告的结论可用于线索比对，但复现前应回看原始报告，
+> 不要把它当作证据完整的定界结论。
+
+### 启用语义检索与现象索引（RAG）
+
+现象检索依赖 RAG（openGauss + RAG Core）。源码部署用 Podman/Docker 起这两个容器，
+并把后端需要的连接信息写进运行时环境文件：
+
+```bash
+bash deploy/host/deploy_rag.sh              # 部署容器并生成 .deploy-run/rag.env
+bash deploy/host/deploy_rag.sh --env-only   # 只重算环境文件，不动容器
+```
+
+- 容器名 `opengauss-rag` / `witty-rag-core`，RAG Core 暴露 `127.0.0.1:9990`。
+- `.deploy-run/rag-secrets/` 存 openGauss 口令与 RAG 访问密钥，`rag-phenomenon-kb` 存现象检索知识库 id，
+  `rag.env` 存后端环境。
+- 模型 API Key 写入 `.deploy-run/rag-secrets/model-api-key`，embedding 端点与模型名写入同目录的
+  `embedding.conf`，两者均为 `0600`；重跑时未显式传入则复用已落盘取值。
+- 后端通过 `witty-ub-backend.service` 的 `EnvironmentFile` 或 `run_backend.sh` 读取 `rag.env`；
+  文件不存在时后端照常启动，只是语义检索关闭。
+- `deploy.sh` 会在启动后端之前自动调用本脚本；`WITTY_RAG_ENABLE=0` 可跳过。
+- `WITTY_RAG_KEEP=1` 让 `--clean` 保留 RAG 容器与向量库。
+
+embedding 端点支持任何 OpenAI 兼容的 `/v1/embeddings` 服务，通过环境变量或
+`.deploy-run/rag.local.env` 指定（后者不入库，用于机器本地取值）：
+
+```bash
+RAG_EMBEDDING_ENDPOINT="http://127.0.0.1:8000/v1/embeddings"   # 例：宿主机上的 vLLM
+RAG_EMBEDDING_MODEL_NAME="BAAI/bge-m3"
+RAG_EMBEDDING_DIMENSION="1024"
+RAG_EMBEDDING_API_KEY=""
+RAG_RERANK_ENABLED="0"
+```
+
+部署时传入的 `RAG_EMBEDDING_ENDPOINT` / `RAG_EMBEDDING_MODEL_NAME` / `RAG_EMBEDDING_DIMENSION`
+与 `RAG_EMBEDDING_API_KEY` 都会落盘并复用；优先级为环境变量 > `rag.local.env` > 已落盘 > 内置默认。
+
+以非 root 用户运行时，容器内的 UID 映射依赖 subordinate ID，需确保部署用户在
+`/etc/subuid` 与 `/etc/subgid` 中有范围（如 `100000:65536`），否则镜像内 `chown` 会失败，
+报 `potentially insufficient UIDs or GIDs available in user namespace`。
+
+验证：
+
+```bash
+curl -s http://127.0.0.1:9990/health_check        # {"status":"ok"}
+curl -s http://127.0.0.1:9772/phenomenon/status   # index_enabled/search_enabled 均为 true
+```
+
+首次启用后卡片需要数分钟建立索引，`cards.searchable` 逐步收敛到卡片总数。
+
 ### 启动 experience-skill Web 服务（知识库管理 API）
 
 experience-skill Web 服务提供 Skill/Wiki 管理的增删改查 API，监听端口 8082。

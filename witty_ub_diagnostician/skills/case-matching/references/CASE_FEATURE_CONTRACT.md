@@ -117,14 +117,18 @@ type（含 `operation`）。不确定的自定义信号不要指望能匹配，�
 7. `confidence` 必须反映验证程度：仅知识库解释支撑的不得给高置信度。
 8. `source_log_ids` 填写来源日志 ID，便于回溯到原始样本。
 
-**两阶段沉淀链路**（对话确认通道，不引入前端页面与审批流）：
+**两阶段沉淀链路**（报告人工确认是前置闸门）：
 
 1. 报告出稿 → agent 把报告路径与摘要交给用户；
-2. 用户确认"报告 OK"→ `POST /diag_case_library` 建草稿 → `POST /{case_id}/confirm`
-   （`confirmed_by` = 用户标识）→ 案例进入可检索集合；
+2. 用户确认"报告 OK"→ `POST /diagnostic_report/{report_id}/confirm`
+   （`expected_sidecar_hash` = 页面所见哈希，`reviewed_by` = 用户标识）→ 再按故障
+   `POST /diagnostic_report/{report_id}/faults/{fault_id}/case` 建草稿 →
+   `POST /{case_id}/confirm`（`confirmed_by` = 用户标识）→ 案例进入可检索集合；
+   分类快照与故障指纹由服务端从已确认报告复制；
 3. 处置执行 + 复测后 → `PATCH /diag_case_library/{case_id}` 补 `verification_json`
-   （`closed_loop` / `observed_result` / `verified_at`）。此时案例已是 `confirmed`：
-   内容物冻结，该通道**只放行 `verification_json`**，`revision + 1` 留痕。
+   （`closed_loop` / `observed_result` / `verified_by`，带 `expected_revision`）。
+   此时案例已是 `confirmed`：内容物冻结，该通道**只放行验证字段**，`revision + 1` 留痕，
+   历史写入 `verification_history_json`。
 
 > 步骤 2 与 3 之间案例**已可被检索**，但 `closed_loop=false`：检索侧按"待验证处方"处理，
 > `applicability` 上限 `adjust`（见 `case-matching/SKILL.md` 纪律 9）。闭环回填之所以能在

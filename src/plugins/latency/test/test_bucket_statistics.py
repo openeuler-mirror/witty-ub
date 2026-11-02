@@ -557,19 +557,20 @@ def test_bucket_stats_from_frame_matches_numpy_path():
     # polars 路径（P3：直接产出列式 frame，无 materializer 参数）
     frames_pl = compute_bucket_stats_from_frame(df_trace, kb_id="kb", log_id="lg")
 
-    # 300 条 trace（每秒 1 条, GET/SET 交替）→ 10s 桶 30 个 / 60s 桶 5 个 /
-    # 600s 与 1h 各 1 个桶；每 (桶,op) 组 4 个 mode 代表行。
+    # 300 条 trace（每秒 1 条, GET/SET 交替）→ 1s 桶 300 个（每桶 1 trace×4 mode）
+    # / 10s 桶 30 个 / 60s 桶 5 个 / 600s 与 1h 各 1 个桶；每 (桶,op) 组 4 个 mode
+    # 代表行。
     assert {g: frames_pl[g].height for g in GRANULARITY_KEYS} == {
-        10: 240, 60: 40, 600: 8, 3600: 8,
+        1: 1200, 10: 240, 60: 40, 600: 8, 3600: 8,
     }
     for g in GRANULARITY_KEYS:
         # 前 22 列（8 固定键 + 14 legacy 指标）tuple 集合相等
-        # （mode/trace_id/src/dst/bucket_start + 14 值）；yuanrong 26 列只走
+        # （mode/trace_id/src/dst/bucket_start + 14 值）；yuanrong 33 列只走
         # polars 路径，numpy 参考不含，故只比前 22 列。
         legacy_np = {tuple(r[:22]) for r in rows_np[g]}
         got = {tuple(r[:22]) for r in _frame_rows_as_tuples(frames_pl[g])}
         assert got == legacy_np, f"granularity {g} rep-rows 不一致"
-        assert len(frames_pl[g].columns) == len(BUCKET_COLUMNS) == 48
+        assert len(frames_pl[g].columns) == len(BUCKET_COLUMNS) == 55
         # BUCKET_COLUMNS 里的 total_latency_us 由拷贝路径写库，frame 里应非空
         assert frames_pl[g]["total_latency_us"][0] is not None
 
@@ -623,14 +624,14 @@ async def test_bucket_stats_from_frame_db_write_idempotent():
 
 
 def test_bucket_rep_rows_carry_yuanrong():
-    """yuanrong 富化契约：代表行 tuple 带 26 项分段时延（48 列），
+    """yuanrong 富化契约：代表行 tuple 带 33 项分段时延（55 列），
     BUCKET_COLUMNS[22]=total_latency_us 非空、[23]=request_mode 合法。"""
     df_trace = _frame_from_trace_index(_trace_index_fixture(300))
     frames = compute_bucket_stats_from_frame(df_trace, kb_id="kb", log_id="lg")
     for g in GRANULARITY_KEYS:
         frame = frames[g]
         assert frame.height > 0, f"{GRANULARITY_LABELS[g]} 应产生代表行"
-        assert len(frame.columns) == len(BUCKET_COLUMNS) == 48
+        assert len(frame.columns) == len(BUCKET_COLUMNS) == 55
         assert frame["total_latency_us"][0] is not None
         assert frame["request_mode"][0] in ("remote", "local", "unknown")
 
@@ -648,3 +649,149 @@ def test_frame_from_records_survives_float_after_100_int_rows():
     assert df.height == 102
     assert df["total_latency"].dtype == pl.Float64
     assert df["total_latency"].to_list()[100] == 408.0
+
+
+# ---------------------------------------------------------------------------
+# 7. GET 传输类型拆分：local/remote 分位代表合并进单行（2026-10 回归）
+#    分桶表主键 (log_id, bucket, operation, mode) 不允许同桶同分位 GET 两行，
+#    因此整体分位代表保留 legacy 指标与公共分段，local/remote 网络/框架分段
+#    改由各自传输类型的分位代表行补齐（缺失侧为 null → 前端自动过滤）。
+# ---------------------------------------------------------------------------
+
+def _qg_light_frame():
+    """light df_trace 形态帧（列 = _LIGHT_TRACE_COLUMNS）：同 10s 桶 4 条 GET +
+    1 条 SET。整体排序升序 tl-lo(250) < tr-lo(300) < tl-hi(450) < tr-hi(500)；
+    local 组（非 UB）：tl-lo/tl-hi，remote 组（UB）：tr-lo/tr-hi。"""
+    import polars as pl
+
+    bucket = 1778407200  # 2026-05-10 10:00:00 的 10s 对齐 epoch 秒
+    rows = [
+        # tid,      total_latency, transport
+        ("tr-hi",   500.0,         "UB"),
+        ("tr-lo",   300.0,         "UB"),
+        ("tl-hi",   450.0,         "Fabric"),
+        ("tl-lo",   250.0,         "Fabric"),
+        ("s-lo",    100.0,         None),   # SET：无 transportType
+    ]
+    return pl.DataFrame({
+        "tid": [r[0] for r in rows],
+        "total_ms": [r[1] for r in rows],
+        "total_latency": [r[1] for r in rows],
+        "src": ["10.0.0.1"] * len(rows),
+        "dst": ["10.0.0.2"] * len(rows),
+        "op_key": ["GET"] * 4 + ["SET"],
+        "operation": ["GET"] * 4 + ["SET"],
+        "bucket_epoch": [bucket] * len(rows),
+        "log_id": ["lg"] * len(rows),
+        "__qgt": [r[2] for r in rows],
+    })
+
+
+def test_select_bucket_representatives_splits_get_by_transport():
+    """select_bucket_representatives：GET 组按 __qgt 分 local/remote 各选分位代表
+    （tid_local/tid_remote），整体代表不变；SET 组两者恒 null。"""
+    import polars as pl
+
+    from latency.bucket.representatives import select_bucket_representatives
+
+    frame = _qg_light_frame()
+    selected = select_bucket_representatives(frame, granularities=(3600,))[3600]
+    # GET / SET 两组 × 4 mode = 8 行；SET 组代表 tid 恒为 s-lo
+    assert len(selected) == 8
+
+    p99 = selected.filter(
+        (pl.col("mode") == "p99") & (pl.col("tid") != "s-lo")
+    ).to_dicts()[0]
+    # 整体 p99 → tl-hi；local 组 p99 → tl-lo；remote 组 p99 → tr-lo
+    assert p99["tid"] == "tl-hi"
+    assert p99["tid_local"] == "tl-lo"
+    assert p99["tid_remote"] == "tr-lo"
+
+    pmax = selected.filter(
+        (pl.col("mode") == "pmax") & (pl.col("tid") != "s-lo")
+    ).to_dicts()[0]
+    assert pmax["tid"] == "tr-hi"        # 整体 pmax → tr-hi
+    assert pmax["tid_local"] == "tl-hi"  # local 组 pmax → tl-hi
+    assert pmax["tid_remote"] == "tr-hi"  # remote 组 pmax → tr-hi
+
+    # SET 组：tid_local/tid_remote 恒 null
+    s_row = selected.filter(pl.col("tid") == "s-lo").to_dicts()[0]
+    assert s_row["tid_local"] is None
+    assert s_row["tid_remote"] is None
+
+
+def _qg_df_trace():
+    """手工 df_trace 形态帧（TRACE_COLUMNS 子集 + __ 原材料列）：让
+    _yuanrong_from_grouped 能产出 query_get_local/remote 网络/框架分段。
+    每 trace 的 client RPC 三字段（__ce0/__cs0/__cnw0）按 transport 归属：
+    local(fw)=ce0-cs0-cnw0，remote(fw) 同式。"""
+    import polars as pl
+
+    bucket = 1778407200
+    # tid, latency, transport, ce0, cs0, cnw0
+    rows = [
+        ("tr-hi", 500.0, "UB",     500.0, 100.0, 50.0),
+        ("tr-lo", 300.0, "UB",     300.0, 60.0,  30.0),
+        ("tl-hi", 450.0, "Fabric", 450.0, 90.0,  40.0),
+        ("tl-lo", 250.0, "Fabric", 250.0, 50.0,  20.0),
+    ]
+    n = len(rows)
+    # 全 null 列必须带 dtype：全 None 列表会被推断为 null 类型，_yuanrong_from_grouped
+    # 里 (col - col).clip(0) 只接受物理数值类型。
+    nullf = pl.Series([None] * n, dtype=pl.Float64)
+    nulls = pl.Series([None] * n, dtype=pl.Utf8)
+    return pl.DataFrame({
+        "tid": [r[0] for r in rows],
+        "bucket_epoch": [bucket] * n,
+        "total_ms": [r[1] for r in rows],
+        "total_latency": [r[1] for r in rows],
+        "operation": ["GET"] * n,
+        "src": ["10.0.0.1"] * n,
+        "dst": ["10.0.0.2"] * n,
+        "__se": [r[1] * 1000.0 for r in rows],
+        "__sop": nulls, "__wsum": nullf, "__wmax": nullf, "__wn": nullf,
+        "__umax": nullf, "__uimax": nullf, "__usched": nullf, "__cuma": nullf,
+        "__cn": nullf, "__ce1": nullf, "__ce2esum": nullf,
+        "__cs1": nullf, "__cnw1": nullf,
+        "__me": nullf, "__ms": nullf, "__mn": nullf,
+        "__re": nullf, "__rs": nullf, "__rn": nullf,
+        "__qm": nullf,
+        "__qgt": [r[2] for r in rows],
+        "__ce0": [r[3] for r in rows],
+        "__cs0": [r[4] for r in rows],
+        "__cnw0": [r[5] for r in rows],
+    })
+
+
+def test_bucket_rep_rows_merge_local_remote_qg_segments():
+    """compute_bucket_stats_from_frame：GET 代表行把 local/remote 网络/框架分段
+    合并进单行（主键不变）；整体 legacy 指标（total_latency）仍取整体分位代表。"""
+    import polars as pl
+
+    frames = compute_bucket_stats_from_frame(_qg_df_trace(), kb_id="kb", log_id="lg")
+    for g in GRANULARITY_KEYS:
+        by_mode = {
+            row["mode"]: row
+            for row in frames[g].iter_rows(named=True)
+        }
+        assert set(by_mode) == {"median", "p99", "p9999", "pmax"}
+
+        # 整体分位：median=tr-lo(300)、p99/p9999=tl-hi(450)、pmax=tr-hi(500)
+        assert by_mode["median"]["total_latency"] == 300.0
+        assert by_mode["p99"]["total_latency"] == 450.0
+        assert by_mode["pmax"]["total_latency"] == 500.0
+
+        # 传输分段合并：local/remote 网络/框架恒取自各自传输类型代表
+        # median 行：local 代表 tl-lo(20/180)、remote 代表 tr-lo(30/210)
+        for m in ("median", "p99", "p9999"):
+            r = by_mode[m]
+            assert r["query_get_local_rpc_network_us"] == 20.0
+            assert r["query_get_local_rpc_framework_us"] == 180.0
+            assert r["query_get_remote_rpc_network_us"] == 30.0
+            assert r["query_get_remote_rpc_framework_us"] == 210.0
+        # pmax 行：local 代表 tl-hi(40/320)、remote 代表 tr-hi(50/350)
+        r = by_mode["pmax"]
+        assert r["query_get_local_rpc_network_us"] == 40.0
+        assert r["query_get_local_rpc_framework_us"] == 320.0
+        assert r["query_get_remote_rpc_network_us"] == 50.0
+        assert r["query_get_remote_rpc_framework_us"] == 350.0

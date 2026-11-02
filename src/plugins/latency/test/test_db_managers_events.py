@@ -1297,12 +1297,13 @@ async def test_delete_and_update_log_parse_results(monkeypatch):
 async def test_delete_latency_bucket_stats_by_log_id(monkeypatch):
     session = install_session(monkeypatch, FakeSession())
     assert await LogParseResultPGManager.delete_latency_bucket_stats_by_log_id("log-1") is True
-    assert len(session.executed) == 4
+    assert len(session.executed) == 5
     sqls = [str(s) for s, _ in session.executed]
-    assert sqls[0] == "DELETE FROM latency_bucket_10s WHERE log_id = :log_id"
-    assert sqls[1] == "DELETE FROM latency_bucket_1min WHERE log_id = :log_id"
-    assert sqls[2] == "DELETE FROM latency_bucket_10min WHERE log_id = :log_id"
-    assert sqls[3] == "DELETE FROM latency_bucket_1h WHERE log_id = :log_id"
+    assert sqls[0] == "DELETE FROM latency_bucket_1s WHERE log_id = :log_id"
+    assert sqls[1] == "DELETE FROM latency_bucket_10s WHERE log_id = :log_id"
+    assert sqls[2] == "DELETE FROM latency_bucket_1min WHERE log_id = :log_id"
+    assert sqls[3] == "DELETE FROM latency_bucket_10min WHERE log_id = :log_id"
+    assert sqls[4] == "DELETE FROM latency_bucket_1h WHERE log_id = :log_id"
 
 
 async def test_list_anomalous_trace_ids(monkeypatch):
@@ -1830,6 +1831,11 @@ async def test_list_time_window_events_full(monkeypatch):
         for name in YUANRONG_METRIC_FIELDS
         if name != "request_mode"
     }
+    aves = {
+        f"ave_{name}": 2.0
+        for name in YUANRONG_METRIC_FIELDS
+        if name != "request_mode"
+    }
     rows = [
         make_tw_list_row(total_cnt=10, anomaly_cnt=2, ave=5.0, min_lat=1.0, max_lat=9.0, p95=8.0, p99=9.5),
         make_tw_list_row(total_cnt=2, anomaly_cnt=0, ave=None, min_lat=None, max_lat=None, p95=None, p99=None),
@@ -1839,13 +1845,13 @@ async def test_list_time_window_events_full(monkeypatch):
         make_tw_list_row(bucket_epoch=BASE_EPOCH + 600, total_cnt=1, anomaly_cnt=1, ave=4.0),
     ]
     pair_rows = [
-        SimpleNamespace(bucket_epoch=BASE_EPOCH, src_ip="10.0.0.1", dst_ip="10.0.0.2", **p99s),
-        SimpleNamespace(bucket_epoch=BASE_EPOCH, src_ip="9.9.9.9", dst_ip="8.8.8.8", **p99s),
-        SimpleNamespace(bucket_epoch=BASE_EPOCH + 99999, src_ip="10.0.0.1", dst_ip="10.0.0.2", **p99s),
+        SimpleNamespace(bucket_epoch=BASE_EPOCH, src_ip="10.0.0.1", dst_ip="10.0.0.2", **p99s, **aves),
+        SimpleNamespace(bucket_epoch=BASE_EPOCH, src_ip="9.9.9.9", dst_ip="8.8.8.8", **p99s, **aves),
+        SimpleNamespace(bucket_epoch=BASE_EPOCH + 99999, src_ip="10.0.0.1", dst_ip="10.0.0.2", **p99s, **aves),
     ]
     parent_rows = [
-        SimpleNamespace(bucket_epoch=BASE_EPOCH, **p99s),
-        SimpleNamespace(bucket_epoch=BASE_EPOCH + 99999, **p99s),
+        SimpleNamespace(bucket_epoch=BASE_EPOCH, **p99s, **aves),
+        SimpleNamespace(bucket_epoch=BASE_EPOCH + 99999, **p99s, **aves),
     ]
     session = install_session(
         monkeypatch,

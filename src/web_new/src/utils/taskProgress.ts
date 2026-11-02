@@ -9,9 +9,9 @@ type TaskProgressSource = {
   task?: { status?: string | null; task_reports?: TaskReportLike[] } | null
 }
 
-// 内部报告不进「当前在做什么」文案：性能/耗时结构化报告与坏文件跳过告警
-// （跳过告警由任务行的告警块单独渲染，占位给进度文案会被后续进展顶掉）。
-const ignoredReportPrefixes = ['[perf]', '[parse_log]', '[TASK]', '[timing]', '[skip]']
+// 内部报告不进「当前在做什么」文案：性能/耗时结构化报告不是用户可读的进展，
+// 占位会给后续进展顶掉（口径与后端 task/progress.py 的 NON_PROGRESS_REPORT_PREFIXES 一致）。
+const ignoredReportPrefixes = ['[perf]', '[parse_log]', '[TASK]', '[timing]']
 
 const stageLabels: Record<string, string> = {
   scan: '正在扫描日志',

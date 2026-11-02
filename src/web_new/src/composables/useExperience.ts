@@ -1,4 +1,4 @@
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { errorText } from '../utils/format'
 import { useToast } from './useToast'
 import type { ExperienceItem, ExperienceType } from '../api/experience'
@@ -39,6 +39,10 @@ function createExperienceState() {
   const pagedItems = computed(() =>
     filteredItems.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
   )
+
+  watch(searchKey, () => {
+    page.value = 1
+  })
 
   const loadList = async () => {
     loading.value = true

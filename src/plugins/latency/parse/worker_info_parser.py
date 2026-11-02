@@ -31,6 +31,7 @@ from latency.parse.keywords import (
 from latency.parse.keywords import IP_ENDPOINT_RE as _IP_ENDPOINT_RE
 from latency.parse.labels import (
     CLIENT_RPC_LABEL,
+    CLIENT_URMA_LABEL,
     LINK_LABEL,
     LOCAL_WORKER_COST_LABEL,
     LOCAL_WORKER_LOCK_LABEL,
@@ -242,7 +243,7 @@ class WorkerInfoParser(LogParser):
             return self._entry_remote_worker_rpc(line, parsed, ts, pod_ip)
         if "QueryMeta done" in line:
             return self._entry_master_process(line, parsed, ts, pod_ip)
-        if "[ZMQ_RPC_FRAMEWORK_SLOW]" in line:
+        if "[ZMQ_RPC_FRAMEWORK_SLOW]" in line or "[BRPC_RPC_FRAMEWORK_SLOW]" in line:
             return self._entry_master_rpc(line, parsed, ts, pod_ip)
         if "src" in line and "dst" in line:
             return self._entry_src_dst_fallback(line, parsed, ts, pod_ip)
@@ -359,7 +360,7 @@ class WorkerInfoParser(LogParser):
     def _entry_master_rpc(
         self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
     ) -> tuple[str, LogEntry] | None:
-        """`[ZMQ_RPC_FRAMEWORK_SLOW]` 行 → (MASTER_RPC_LABEL, entry)，否则 None。"""
+        """`[ZMQ/BRPC_RPC_FRAMEWORK_SLOW]` 行 → (MASTER_RPC_LABEL, entry)，否则 None。"""
         return self._parse_label(
             MASTER_RPC_LABEL, self._parse_master_rpc, parsed, ts, pod_ip,
             allow_trace_fallback=True, trace_source=line,
@@ -775,10 +776,10 @@ class WorkerInfoParser(LogParser):
 
 
 class ClientInfoParser(WorkerInfoParser):
-    """解析 SDK 客户端 INFO 中的完整 ZMQ RPC 分解字段。"""
+    """解析 SDK 客户端 INFO 中的完整 ZMQ/BRPC RPC 分解字段与客户端侧 URMA 行。"""
 
     label = "Client info parse"
-    _keywords = ("[ZMQ_RPC_FRAMEWORK_SLOW]",)
+    _keywords = ("[ZMQ_RPC_FRAMEWORK_SLOW]", "[BRPC_RPC_FRAMEWORK_SLOW]", "URMA_ELAPSED_TOTAL")
 
     @property
     def patterns(self) -> list[str]:
@@ -787,7 +788,20 @@ class ClientInfoParser(WorkerInfoParser):
     def _parse_first_match(
         self, line: str, parsed: dict[str, str], ts: datetime, pod_ip: str
     ) -> tuple[str, LogEntry] | None:
-        if "[ZMQ_RPC_FRAMEWORK_SLOW]" not in line:
+        if "URMA_ELAPSED_TOTAL" in line:
+            # 客户端侧 URMA 行（与 worker 侧同一 marker，客户端 INFO 日志路径）。
+            # 独立 label 产出，避免混入 worker 侧 __umax 聚合（对齐 kvcache 基准
+            # client_urma_list 语义，供 client_urma_processing_us 聚合）。
+            return self._parse_label(
+                CLIENT_URMA_LABEL,
+                self._parse_urma,
+                parsed,
+                ts,
+                pod_ip,
+                allow_trace_fallback=True,
+                trace_source=line,
+            )
+        if not ("[ZMQ_RPC_FRAMEWORK_SLOW]" in line or "[BRPC_RPC_FRAMEWORK_SLOW]" in line):
             return None
         return self._parse_label(
             CLIENT_RPC_LABEL,

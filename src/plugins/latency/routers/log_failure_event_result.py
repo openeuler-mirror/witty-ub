@@ -18,6 +18,11 @@ from latency.schemas.response import (
 )
 from latency.services.log_failure_event_result import LogFailureEventResultService
 from latency.services.resource_id import ResourceIdService
+from latency.schemas.flow_summary import (
+    ListFlowSummaryRequest,
+    ListFlowSummaryResponse,
+)
+from latency.services.flow_summary import FlowSummaryService
 
 router = APIRouter(prefix="/log_failure_event_result", tags=["log_failure_event_result"])
 
@@ -55,6 +60,27 @@ async def list_trace_failure_event_results(
     await ResourceIdService.validate_request(req)
     msg = await LogFailureEventResultService.list_trace_failure_event_result(req=req)
     return ListTraceFailureEventResultResponse(result=msg)
+
+@router.post(
+    "/list_flow_summary",
+    response_model=ListFlowSummaryResponse,
+    operation_id="list_connectivity_flow_summary",
+    description=(
+        "Aggregate role-interaction latency stages (read flow / write flow) across "
+        "latency or connectivity fault traces. Returns fixed role nodes plus "
+        "per-edge latency rollups and per-trace stage latencies for the frontend "
+        "flow diagrams."
+    ),
+)
+async def list_flow_summary_results(
+    req: Annotated[ListFlowSummaryRequest, Body()],
+) -> ListFlowSummaryResponse:
+    await ResourceIdService.validate_request(req)
+    summary = await FlowSummaryService.summarize(req)
+    from latency.schemas.flow_summary import ListFlowSummaryMsg
+
+    return ListFlowSummaryResponse(result=ListFlowSummaryMsg(result=summary))
+
 
 @router.post(
     "/list_time_aggregated_failure_events",

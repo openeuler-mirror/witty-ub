@@ -10,14 +10,13 @@ import logging
 import time
 from typing import Any
 
-from sqlalchemy import Integer, func, select, text
-
 from latency.database.engine import PGManager
 from latency.database.models import (
-    LatencyBucket10min,
-    LatencyBucket10s,
     LatencyBucket1h,
     LatencyBucket1min,
+    LatencyBucket1s,
+    LatencyBucket10min,
+    LatencyBucket10s,
     LogFile,
     LogParseResult,
 )
@@ -30,12 +29,13 @@ from latency.database.utils import (
 )
 from latency.ENUM.sampling import SampleMode
 from latency.exceptions.biz_exceptions import BadRequestBizException
-from latency.schemas.log import LogParseResultModel, LogParseResultStorage, YUANRONG_METRIC_FIELDS
+from latency.schemas.log import YUANRONG_METRIC_FIELDS, LogParseResultModel, LogParseResultStorage
 from latency.schemas.request import (
     GetLatencyMetricsRequest,
     ListLogParseResultRequest,
     ListTracesByHostRequest,
 )
+from sqlalchemy import Integer, func, or_, select, text
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +86,9 @@ _LATENCY_METRIC_KEYS = [
     *_YUANRONG_LATENCY_METRIC_KEYS,
 ]
 
-# bucket_seconds → 统计表 ORM 模型（仅四档合法粒度有表）。
+# bucket_seconds → 统计表 ORM 模型（仅合法粒度有表：1s / 10s / 1min / 10min / 1h）。
 _BUCKET_SECONDS_TABLES: dict[int, Any] = {
+    1: LatencyBucket1s,
     10: LatencyBucket10s,
     60: LatencyBucket1min,
     600: LatencyBucket10min,
@@ -376,7 +377,7 @@ class LogParseResultPGManager:
         if start_time:
             stmt = stmt.where(LogParseResult.timestamp >= parse_timestamp(start_time))
         if end_time:
-            stmt = stmt.where(LogParseResult.timestamp <= parse_timestamp(end_time))
+            stmt = stmt.where(LogParseResult.timestamp < parse_timestamp(end_time))
 
         stmt = stmt.group_by(
             LogParseResult.log_id,
@@ -424,7 +425,7 @@ class LogParseResultPGManager:
         if start_time:
             stmt = stmt.where(LogParseResult.timestamp >= parse_timestamp(start_time))
         if end_time:
-            stmt = stmt.where(LogParseResult.timestamp <= parse_timestamp(end_time))
+            stmt = stmt.where(LogParseResult.timestamp < parse_timestamp(end_time))
 
         stmt = stmt.group_by(time_bucket).order_by(time_bucket)
 
@@ -456,6 +457,7 @@ class LogParseResultPGManager:
         与写库（同 log_id 先删后插）保持幂等语义一致。
         """
         bucket_tables = (
+            "latency_bucket_1s",
             "latency_bucket_10s",
             "latency_bucket_1min",
             "latency_bucket_10min",
@@ -502,6 +504,12 @@ class LogParseResultPGManager:
                 stmt = stmt.where(
                     func.host(LogParseResult.dst_ip).like(f"%{req.dst_ip}%")
                 )
+        if req.endpoint_ip:
+            endpoint_cond = or_(
+                func.host(LogParseResult.src_ip) == req.endpoint_ip,
+                func.host(LogParseResult.dst_ip) == req.endpoint_ip,
+            )
+            stmt = stmt.where(endpoint_cond)
         if req.pod_ip:
             stmt = stmt.where(LogParseResult.pod_ips.contains([req.pod_ip]))
         if req.host:
@@ -513,7 +521,7 @@ class LogParseResultPGManager:
         if req.start_time:
             stmt = stmt.where(LogParseResult.timestamp >= parse_timestamp(req.start_time))
         if req.end_time:
-            stmt = stmt.where(LogParseResult.timestamp <= parse_timestamp(req.end_time))
+            stmt = stmt.where(LogParseResult.timestamp < parse_timestamp(req.end_time))
         if req.created_at_start:
             stmt = stmt.where(LogParseResult.created_at >= parse_timestamp(req.created_at_start))
         if req.created_at_end:
@@ -709,7 +717,7 @@ class LogParseResultPGManager:
         if req.start_time:
             stmt = stmt.where(LogParseResult.timestamp >= parse_timestamp(req.start_time))
         if req.end_time:
-            stmt = stmt.where(LogParseResult.timestamp <= parse_timestamp(req.end_time))
+            stmt = stmt.where(LogParseResult.timestamp < parse_timestamp(req.end_time))
         if req.operation:
             if req.operation.upper() == "GET":
                 stmt = stmt.where(LogParseResult.operation.ilike("%GET%"))
@@ -762,7 +770,7 @@ class LogParseResultPGManager:
         bucket_table = _BUCKET_SECONDS_TABLES.get(req.bucket_seconds)
         if bucket_table is None:
             raise BadRequestBizException(
-                f"bucket_seconds 仅支持 10/60/600/3600，收到 {req.bucket_seconds}"
+                f"bucket_seconds 仅支持 1/10/60/600/3600，收到 {req.bucket_seconds}"
             )
         stats_mode = _STATS_MODE_MAP.get(req.sample_mode)
         if stats_mode is None:
@@ -802,7 +810,7 @@ class LogParseResultPGManager:
         if req.start_time:
             stmt = stmt.where(table.bucket >= parse_timestamp(req.start_time))
         if req.end_time:
-            stmt = stmt.where(table.bucket <= parse_timestamp(req.end_time))
+            stmt = stmt.where(table.bucket < parse_timestamp(req.end_time))
         stmt = stmt.order_by(table.bucket)
 
         async with PGManager.session() as session:

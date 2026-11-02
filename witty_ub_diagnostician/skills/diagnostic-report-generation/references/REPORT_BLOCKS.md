@@ -27,7 +27,8 @@
   "confidence": 92,
   "category": "mixed",
   "affected_scope": "host-101 / pod-worker-3；67.6% 故障 trace；12:03-12:11",
-  "conclusion": {},
+  "conclusion": {"first_level_label": null, "second_level_label": null},
+  "error": {},
   "latency": {},
   "root_cause": {},
   "propagation": {},
@@ -45,6 +46,19 @@
 - `status`: `confirmed` 已确认 / `suspected` 疑似（候选假设，模板有专门提示条）/ `excluded` 已排除
 - `severity`: `P1` / `P2` / `P3`
 - `category`（故障类型，控制档案头标签）：`error` 错误/通断类（连接失败、错误码突增）/ `latency` 时延类（P99 超阈、慢调用，可无报错）/ `mixed` 时延与错误并存且同源（如丢包既导致慢又导致超时错误）。
+
+### error 块（通断故障分布，错误类/mixed 有证据时填写）
+
+`faults[].error` 与 `latency` 同级，渲染在故障结论之后、时延阶段定位和根因推理链之前。
+结构为 `metrics?[] / breakdowns[] / conclusion`；每套 breakdown 独立携带
+`operation / scope / code_filter / unit / source / coverage / code_distribution / timeline`。
+GET/SET 各一套，展示 Top 错误码构成和时间窗 × 错误码热力表，不关联时延阶段。
+
+使用 `scripts/error_features.py` 从真实时间聚合分页响应提取；完整结构、输入示例、
+计算公式和展示规则见 [ERROR_FEATURES.md](ERROR_FEATURES.md)，紧凑字段清单用 `--spec error`。
+计数口径为**逐码命中次数**，不是去重失败请求数；分页不全时不填比例、未知窗不补零。
+同一故障必须有自己的查询范围/错误码筛选，不能复制事件级统计。
+未取到可靠数据时省略并在结论说明；历史报告缺省不影响渲染。
 
 ### latency 块（时延阶段定位，时延类/mixed 故障必填）
 
@@ -68,6 +82,13 @@
 
 - `stages[].status`：`bottleneck` 瓶颈（红）/ `warn` 异常（琥珀）/ `ok` 正常（绿）；`baseline`/`ratio`/`share` 可缺省显示 "—"。
 - **结论必须回答**：额外耗时集中在哪个阶段、相对基线放大多少、是否已逼近超时预算、Worker/进程内阶段是否正常（用于排除进程内瓶颈）。
+
+每个 `stages[]` 可增加 **`features`**：携带本次 `/stats/stages` 归因桶的数值型特征，
+以及有独立来源的对照窗口、分窗统计和 Top trace 拓扑/错误码。
+完整字段、来源、公式、缺失规则及提取脚本见 [LATENCY_FEATURES.md](LATENCY_FEATURES.md)。
+它是该阶段关联的**归因桶证据**，不表示全体请求经过该物理阶段的统计；
+新特征不会自动填充原有 `p99` / `share`。本接口没有 P99 时原展示列填 `"—"`，
+基线不可获取时在结论中说明，而不补造倍数。
 
 ### evidence_traces 块（证据锚点，可选）
 
@@ -192,8 +213,20 @@
 
 ## 板块 2：分析结论 (conclusion)
 
+`first_level_label`（一级标签）和 `second_level_label`（二级标签）为新报告必填的
+`string | null` 字段，取值与配对以 [log_label.json](log_label.json) 为准。
+每次生成时读取参考文件并按诊断证据做语义匹配，具体选择规则见
+[SKILL.md「故障标签」](../SKILL.md#故障标签)。只确定一级时二级为 `null`，
+无法确定一级时两者均为 `null`。例如确认 Worker 进程退出时，填写
+`"first_level_label": "Worker故障", "second_level_label": "Worker故障-进程退出"`。
+下例只定位到 RPC/网络，尚不能确定参考文件中的具体故障类别，故两级均为 `null`。
+多故障写在各自的 `faults[].conclusion`，扁平单故障写在 `conclusion`；
+这些标签独立于原有诊断类型 `fault_type`、档案 `category` 和自由文本 `fault_domain`。
+
 ```json
 {
+  "first_level_label": null,
+  "second_level_label": null,
   "one_line_conclusion": "pod-worker-3 (host-101) 与 etcd 节点之间网络抖动导致 RPC 连接超时，引发 kvcache GET 请求大面积返回 -1002 错误，影响 67.6% 的故障请求，持续 8 分钟。",
   "fault_domain": "RPC/网络",
   "fault_component": "etcd 连接",
