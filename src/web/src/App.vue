@@ -4953,13 +4953,16 @@ const buildExclusiveBreakdownSegments = (
       unit: 'ms',
     })
   }
-  if (otherLatency > 0) {
+  const otherLatencyMs = otherLatency / 1000
+  // 浮点残差可能大于 0，但按页面的三位小数精度展示仍是 0.000ms。
+  // 此时不渲染“其他”，避免在各 Trace 的时延分解中出现无意义项。
+  if (Number(otherLatencyMs.toFixed(3)) > 0) {
     result.push({
       key: '__other__',
       label: '其他',
       shortLabel: '其他',
       color: '#94a3b8',
-      value: otherLatency / 1000,
+      value: otherLatencyMs,
       width: Math.min(100, (otherLatency / totalLatencyUs) * 100),
       abnormal: false,
       unit: 'ms',
