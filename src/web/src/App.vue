@@ -10992,6 +10992,8 @@ const detectSourceType = (input: string): 'local' | 'remote' | null => {
 }
 
 const remoteArchiveExtensions = ['.tar.gz', '.tgz', '.zip']
+const invalidLogSourceMessage =
+  '请输入有效的服务器路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz），本地路径请使用“上传ZIP文件”'
 
 const isRemoteArchiveUrl = (input: string) => {
   try {
@@ -11839,12 +11841,11 @@ const submitLogSource = async () => {
 
   const sourceType = detectSourceType(input)
   if (!sourceType) {
-    uploadLogError.value =
-      '请输入有效的本地路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）'
+    uploadLogError.value = invalidLogSourceMessage
     return
   }
   if (sourceType === 'remote' && !isRemoteArchiveUrl(input)) {
-    uploadLogError.value = '远程 URL 支持 .zip、.tar.gz、.tgz 压缩包'
+    uploadLogError.value = invalidLogSourceMessage
     return
   }
 
@@ -11867,7 +11868,10 @@ const submitLogSource = async () => {
     })
     logSourceInput.value = ''
   } catch (error) {
-    uploadLogError.value = error instanceof Error ? error.message : '添加日志文件失败'
+    uploadLogError.value =
+      error instanceof Error && error.message !== '请求参数校验失败'
+        ? error.message
+        : invalidLogSourceMessage
   } finally {
     isUploadingLog.value = false
     if (selectedAssetId.value) {
@@ -19863,7 +19867,7 @@ onBeforeUnmount(() => {
               v-model="logSourceInput"
               type="text"
               class="log-source-input"
-              placeholder="添加日志：输入目录路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）"
+              placeholder="添加日志：输入服务器路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）"
               :disabled="isUploadingLog || isWriteRestricted"
               @keydown.enter="submitLogSource"
             />
