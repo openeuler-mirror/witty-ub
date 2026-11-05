@@ -3886,9 +3886,12 @@ const checkFaultTracesForLatency = async (traceIds: string[]) => {
   }
 }
 
-const checkLatencyTracesForFault = async (traceIds: string[]) => {
+const checkLatencyTracesForFault = async (
+  traceIds: string[],
+  shouldApply: () => boolean = () => true,
+) => {
   if (!selectedAssetId.value || traceIds.length === 0) {
-    latencyTraceIdsWithFault.value = new Set()
+    if (shouldApply()) latencyTraceIdsWithFault.value = new Set()
     return
   }
 
@@ -3914,11 +3917,11 @@ const checkLatencyTracesForFault = async (traceIds: string[]) => {
     ;(result.trace_failure_event_results ?? []).forEach((r) => {
       if (r.trace_id) faultTraceIds.add(r.trace_id)
     })
-    if (selectedAssetId.value === assetId) {
+    if (selectedAssetId.value === assetId && shouldApply()) {
       latencyTraceIdsWithFault.value = faultTraceIds
     }
   } catch {
-    if (selectedAssetId.value === assetId) {
+    if (selectedAssetId.value === assetId && shouldApply()) {
       latencyTraceIdsWithFault.value = new Set()
     }
   }
@@ -3949,6 +3952,7 @@ const detailLatencyMetrics = ref<LatencyMetricItem[]>([])
 const detailParseResults = ref<LogParseResultModel[]>([])
 const allDetailParseResults = ref<LogParseResultModel[]>([])
 const isDetailParseResultsLoading = ref(false)
+const isDetailTraceFaultTagsLoading = ref(false)
 const detailParseResultsError = ref('')
 const detailParseResultsPage = ref(1)
 const detailParseResultsTotal = ref(0)
@@ -6152,7 +6156,7 @@ const renderLatencyEchart = () => {
 }
 
 const renderDetailLatencyEchart = () => {
-  if (isDetailParseResultsLoading.value || detailParseResultsError.value) return
+  if (isDetailLatencyChartLoading.value || detailLatencyChartError.value) return
   const element = detailLatencyChartRef.value
   if (!element || detailFaultTraceChartRows.value.length === 0) return
 
@@ -8620,6 +8624,8 @@ const openFaultAggregatedPodIpFilterDialog = (podRow: FaultAggregatedEventPodRow
 
 const openAggregatedEventDetail = (row: LatencyDetailRow) => {
   selectedAggregatedEvent.value = row
+  allDetailParseResults.value = []
+  detailLatencyChartError.value = ''
   detailParseResultsPage.value = 1
   detailParseResultsPageInput.value = ''
   detailParseResultTraceIdInput.value = ''
@@ -8630,6 +8636,8 @@ const openAggregatedEventDetail = (row: LatencyDetailRow) => {
 
 const closeAggregatedEventDetail = () => {
   selectedAggregatedEvent.value = null
+  isDetailLatencyChartLoading.value = false
+  isDetailTraceFaultTagsLoading.value = false
   detailLatencyMetrics.value = []
   detailLatencyChartError.value = ''
   detailParseResults.value = []
@@ -9618,6 +9626,7 @@ const loadDetailParseResults = async (
   if (!selectedAssetId.value) {
     detailParseResults.value = []
     detailParseResultsTotal.value = 0
+    isDetailTraceFaultTagsLoading.value = false
     detailParseResultsError.value = ''
     isDetailParseResultsLoading.value = false
     detailParseResultSort.releaseSortLock()
@@ -9658,14 +9667,23 @@ const loadDetailParseResults = async (
     )
 
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
-      detailParseResults.value = result.log_parse_results ?? []
-      detailParseResultsTotal.value = result.total ?? detailParseResults.value.length
+      const pageResults = result.log_parse_results ?? []
+      detailParseResults.value = pageResults
+      detailParseResultsTotal.value = result.total ?? pageResults.length
       detailParseResultsPage.value = pageNum
 
-      const traceIds = (result.log_parse_results ?? [])
-        .map((r) => r.trace_id)
-        .filter((id): id is string => !!id)
-      await checkLatencyTracesForFault(traceIds)
+      const traceIds = pageResults.map((r) => r.trace_id).filter((id): id is string => !!id)
+      // Fault tags are supplementary information. Do not keep pagination waiting for this
+      // second endpoint, and ignore a late response after another page has won the race.
+      latencyTraceIdsWithFault.value = new Set()
+      const shouldApplyFaultTags = () =>
+        selectedAssetId.value === assetId &&
+        selectedAggregatedEvent.value?.id === row.id &&
+        detailParseResults.value === pageResults
+      isDetailTraceFaultTagsLoading.value = traceIds.length > 0
+      void checkLatencyTracesForFault(traceIds, shouldApplyFaultTags).finally(() => {
+        if (shouldApplyFaultTags()) isDetailTraceFaultTagsLoading.value = false
+      })
     }
   } catch (error) {
     // 忽略取消请求的错误
@@ -9678,6 +9696,7 @@ const loadDetailParseResults = async (
       detailParseResultsPage.value = pageNum
       detailParseResultsError.value = error instanceof Error ? error.message : '加载解析结果失败'
       latencyTraceIdsWithFault.value = new Set()
+      isDetailTraceFaultTagsLoading.value = false
     }
   } finally {
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
@@ -9690,10 +9709,14 @@ const loadDetailParseResults = async (
 const loadAllDetailParseResults = async (row: LatencyDetailRow) => {
   if (!selectedAssetId.value) {
     allDetailParseResults.value = []
+    isDetailLatencyChartLoading.value = false
+    detailLatencyChartError.value = ''
     return
   }
 
   const assetId = selectedAssetId.value
+  isDetailLatencyChartLoading.value = true
+  detailLatencyChartError.value = ''
 
   try {
     const requestBody: Record<string, unknown> = {
@@ -9721,9 +9744,15 @@ const loadAllDetailParseResults = async (row: LatencyDetailRow) => {
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       allDetailParseResults.value = result.log_parse_results ?? []
     }
-  } catch {
+  } catch (error) {
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       allDetailParseResults.value = []
+      detailLatencyChartError.value =
+        error instanceof Error ? error.message : '加载故障 Trace 时序分解失败'
+    }
+  } finally {
+    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
+      isDetailLatencyChartLoading.value = false
     }
   }
 }
@@ -12137,6 +12166,7 @@ const resetAssetScopedMonitorData = () => {
   detailParseResultsTotal.value = 0
   detailParseResultsPage.value = 1
   isDetailParseResultsLoading.value = false
+  isDetailTraceFaultTagsLoading.value = false
   detailParseResultsError.value = ''
   faultDetailTraceRows.value = []
   faultDetailTraceEventsTotal.value = 0
@@ -15054,8 +15084,8 @@ watch(
 watch(
   [
     detailFaultTraceChartRows,
-    isDetailParseResultsLoading,
-    detailParseResultsError,
+    isDetailLatencyChartLoading,
+    detailLatencyChartError,
     selectedAggregatedEvent,
   ],
   () => {
@@ -21237,14 +21267,14 @@ onBeforeUnmount(() => {
           <section class="aggregate-detail-chart">
             <div class="aggregate-detail-chart-title">故障Trace时序分解</div>
             <div class="latency-chart-panel detail-latency-chart-panel">
-              <div v-if="isDetailParseResultsLoading" class="chart-state detail-chart-state">
+              <div v-if="isDetailLatencyChartLoading" class="chart-state detail-chart-state">
                 正在加载故障Trace时序分解...
               </div>
               <div
-                v-else-if="detailParseResultsError"
+                v-else-if="detailLatencyChartError"
                 class="chart-state chart-error detail-chart-state"
               >
-                {{ detailParseResultsError }}
+                {{ detailLatencyChartError }}
               </div>
               <div
                 v-else-if="detailFaultTraceChartRows.length === 0"
@@ -21362,6 +21392,15 @@ onBeforeUnmount(() => {
                             :class="`trace-type-tag-${tag.type}`"
                           >
                             {{ tag.label }}
+                          </span>
+                          <span
+                            v-if="isDetailTraceFaultTagsLoading"
+                            class="trace-type-tag trace-type-tag-loading"
+                            role="status"
+                            aria-label="故障标签加载中"
+                            title="故障标签加载中"
+                          >
+                            <span v-for="dot in 3" :key="dot" aria-hidden="true"></span>
                           </span>
                         </div>
                         <div class="aggregate-cell">{{ row.time }}</div>
