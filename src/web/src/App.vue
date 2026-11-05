@@ -1446,6 +1446,18 @@ const getAgentDisplayParts = (message: AgentChatMessage): AgentChatPart[] => {
   return []
 }
 
+const hasAgentDisplayContent = (message: AgentChatMessage) =>
+  message.role !== 'assistant' ||
+  message.status === 'thinking' ||
+  !!message.questionReply?.length ||
+  !!message.content.trim() ||
+  !!message.reasoning.trim() ||
+  !!message.parts?.some((part) => part.text.trim())
+
+const visibleAgentChatMessages = computed(() =>
+  agentChatMessages.value.filter(hasAgentDisplayContent),
+)
+
 const extractOpenCodeError = (payload: unknown, fallback: string): string => {
   if (typeof payload === 'string' && payload.trim()) return payload.trim()
   if (!payload || typeof payload !== 'object') return fallback
@@ -1730,7 +1742,7 @@ const refreshAgentSession = async (sessionId: string) => {
 const toAgentChatMessages = (messages: OpenCodeMessage[]): AgentChatMessage[] =>
   messages
     .filter((message) => message.info?.role === 'user' || message.info?.role === 'assistant')
-    .map((message) => {
+    .map<AgentChatMessage>((message) => {
       const role = message.info.role as AgentChatMessage['role']
       const parts: AgentChatPart[] = (message.parts || [])
         .filter((part) => part.type === 'reasoning' || part.type === 'text')
@@ -1774,6 +1786,7 @@ const toAgentChatMessages = (messages: OpenCodeMessage[]): AgentChatMessage[] =>
         messageId: message.info.id,
       }
     })
+    .filter(hasAgentDisplayContent)
 
 const openAgentSession = async (session: OpenCodeSession) => {
   if (isAgentSessionCreating.value || isAgentSessionSaving.value || isAgentSubmitting.value) return
@@ -23394,14 +23407,14 @@ onBeforeUnmount(() => {
           </form>
           <div ref="agentChatMessagesRef" class="agent-chat-messages" aria-live="polite">
             <p v-if="isAgentHistoryLoading" class="agent-empty-options">正在加载历史消息…</p>
-            <div v-else-if="agentChatMessages.length === 0" class="agent-chat-welcome">
+            <div v-else-if="visibleAgentChatMessages.length === 0" class="agent-chat-welcome">
               <span class="agent-chat-welcome-icon" aria-hidden="true">✦</span>
               <strong>你好，我是故障诊断助手</strong>
               <p>可以问我当前资产库的时延异常、通断故障或故障码根因。</p>
             </div>
 
             <article
-              v-for="message in agentChatMessages"
+              v-for="message in visibleAgentChatMessages"
               :key="message.id"
               class="agent-chat-message"
               :class="message.role"
