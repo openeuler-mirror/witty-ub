@@ -20,6 +20,8 @@
 from __future__ import annotations
 
 import argparse
+import html as html_lib
+from html.parser import HTMLParser
 import json
 import os
 import re
@@ -556,6 +558,74 @@ def load_report_json(data_path: Path) -> dict:
         raise Fatal(f"无法读取数据文件: {data_path}", str(exc)) from exc
 
 
+_REPORT_HTML_TAGS = {
+    "b", "blockquote", "br", "code", "em", "i", "li", "ol", "p", "pre",
+    "s", "strong", "u", "ul",
+}
+_REPORT_HTML_VOID_TAGS = {"br"}
+_REPORT_HTML_DROP_CONTENT = {
+    "iframe", "math", "noscript", "object", "script", "style", "svg", "template",
+}
+
+
+class _ReportHTMLSanitizer(HTMLParser):
+    """Render safe formatting, strip unsupported tags, and drop active content."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.open_tags: list[str] = []
+        self.drop_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if self.drop_depth:
+            if tag in _REPORT_HTML_DROP_CONTENT:
+                self.drop_depth += 1
+            return
+        if tag in _REPORT_HTML_DROP_CONTENT:
+            self.drop_depth = 1
+        elif tag in _REPORT_HTML_VOID_TAGS:
+            self.parts.append(f"<{tag}>")
+        elif tag in _REPORT_HTML_TAGS:
+            self.parts.append(f"<{tag}>")
+            self.open_tags.append(tag)
+
+    def handle_startendtag(self, tag, attrs):
+        if not self.drop_depth and tag.lower() in _REPORT_HTML_VOID_TAGS:
+            self.parts.append(f"<{tag.lower()}>")
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if self.drop_depth:
+            if tag in _REPORT_HTML_DROP_CONTENT:
+                self.drop_depth -= 1
+            return
+        if tag not in self.open_tags:
+            return
+        while self.open_tags:
+            current = self.open_tags.pop()
+            self.parts.append(f"</{current}>")
+            if current == tag:
+                break
+
+    def handle_data(self, data):
+        if not self.drop_depth:
+            self.parts.append(html_lib.escape(data))
+
+    def result(self) -> str:
+        while self.open_tags:
+            self.parts.append(f"</{self.open_tags.pop()}>")
+        return "".join(self.parts)
+
+
+def _safe_report_html(value) -> str:
+    parser = _ReportHTMLSanitizer()
+    parser.feed(str(value))
+    parser.close()
+    return parser.result()
+
+
 def validate_report_json(data: dict, data_path: Path) -> list[str]:
     """Apply the canonical render contract and return non-blocking warnings."""
     errors, warnings = validate(data)
@@ -574,6 +644,7 @@ def render_report_html(data: dict, template_path: Path, data_path: Path) -> str:
     """Render validated data in memory; this function performs no writes."""
     try:
         from jinja2 import Environment, FileSystemLoader, select_autoescape
+        from markupsafe import Markup
     except ImportError as exc:
         raise Fatal(
             "缺少 jinja2 模块",
@@ -590,6 +661,7 @@ def render_report_html(data: dict, template_path: Path, data_path: Path) -> str:
         trim_blocks=False,
         lstrip_blocks=False,
     )
+    env.filters["safe_report_html"] = lambda value: Markup(_safe_report_html(value))
     try:
         return env.get_template(template_path.name).render(**data)
     except Exception as exc:  # 模板语法/结构问题：给出模板侧定位
