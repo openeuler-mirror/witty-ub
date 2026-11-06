@@ -387,7 +387,7 @@ class TestPipelineIntegration:
         assert len(detail) == 0
         logger.info("[EDGE] empty trace_index handled correctly")
 
-    def test_trace_with_worker_only_label_is_included(self):
+    def test_trace_with_worker_only_label_is_filtered(self):
         from latency.task.worker.kv_cache_log_parse_worker import \
             KVCacheLogParseWorker
 
@@ -406,16 +406,13 @@ class TestPipelineIntegration:
             )
             return agg, tw, anom_tids
 
-        # 新语义：Worker-only trace 不再被跳过（无 SDK 也可聚合）。
-        # Worker access 条目不提供 src/dst（非 URMA/RemotePull 链）→ "" 降级；
-        # total_ms=5.0 >= 默认阈值 5.0 → 计入时延异常。
+        # Worker access 可能包含同 trace 的多个顺序子操作，没有 SDK access 就没有
+        # 可靠的端到端总时延，因此不参与聚合、时间窗口或异常统计。
         agg, tw, anom_tids = _run(_check())
-        assert len(agg) == 1
-        assert agg[0].src_ip == ""
-        assert agg[0].dst_ip == ""
-        assert len(tw) == 1
-        assert "trace_missing_sdk" in anom_tids
-        logger.info("[EDGE] worker-only trace included (src/dst degrade to empty)")
+        assert len(agg) == 0
+        assert len(tw) == 0
+        assert len(anom_tids) == 0
+        logger.info("[EDGE] worker-only trace filtered from latency statistics")
 
     # ── 聚合语义 pin 测试：Fix A（IP 取源：URMA→RemotePull→"" 降级链）。
     #    状态码异常已移交通断故障部分，时延异常集合只看 total_ms 阈值。
