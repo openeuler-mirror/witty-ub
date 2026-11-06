@@ -1,7 +1,7 @@
 {
   "id": "b8a2bfc9-ad70-43f2-9e23-d124b37e5f1e",
   "kb_id": "8503cb76-ee51-4f71-806a-f9abdd88622a",
-  "root_cause_type": "端侧到L1端口故障",
+  "root_cause_type": "ub端口故障-down",
   "description": "",
   "task_ids": [
     "82136505-713c-44fb-9397-5d3839e3ed8a"
@@ -107,5 +107,5 @@
     }
   },
   "created_at": "2026-09-24 06:42:48",
-  "case_category": "UB-端口故障"
+  "case_category": "硬件故障"
 }

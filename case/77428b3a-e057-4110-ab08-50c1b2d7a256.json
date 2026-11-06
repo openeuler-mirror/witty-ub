@@ -1,7 +1,7 @@
 {
   "id": "77428b3a-e057-4110-ab08-50c1b2d7a256",
   "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
-  "root_cause_type": "Worker缩容Client退出",
+  "root_cause_type": "SDK故障-进程异常退出",
   "description": "自动导入: dfx_worker_process_scale_in_client_exit",
   "task_ids": [],
   "task_names": [
@@ -11,7 +11,7 @@
   "log_file_name": "lingqu_kvcache_dfx_worker_process_scale_in_client_exit_001_20260529_21_26_04",
   "attachment_path": null,
   "fault_category": "latency",
-  "case_category": "Worker-缩容/挂死",
+  "case_category": "SDK故障",
   "features": {
     "fault_category": "latency",
     "latency": {

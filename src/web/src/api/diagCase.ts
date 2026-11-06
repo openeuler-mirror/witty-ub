@@ -151,6 +151,7 @@ export type DiagCaseSearchResult = {
     match_score?: number
     score_norm?: number
     source_report?: SourceReport | null
+    rag_index_status?: string
   }>
 }
 

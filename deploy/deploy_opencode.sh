@@ -135,6 +135,9 @@ export OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$(cd "$(dirname "${OPENCODE_C
 # Host deployments normally expose the RAG MCP service on localhost. Users
 # can override this for a remote MCP endpoint.
 export WITTY_RAG_MCP_URL="${WITTY_RAG_MCP_URL:-http://127.0.0.1:12312/sse}"
+# 报告落盘目录：与后端 run_backend.sh 保持一致（agent 写入、后端 /diagnostic_report
+# 列表与下发读取）。未设置时与后端一致回落各自 /tmp/reports。
+export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-${WITTY_DIR}/reports}"
 
 echo "[INFO] Validating OpenCode configuration and diagnosis agent..."
 if ! "${COMMAND_NAME}" debug agent witty-ub-diagnostician >/dev/null 2>&1; then

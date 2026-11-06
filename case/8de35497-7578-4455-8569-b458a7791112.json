@@ -1,7 +1,7 @@
 {
   "id": "8de35497-7578-4455-8569-b458a7791112",
   "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
-  "root_cause_type": "Worker单节点重启",
+  "root_cause_type": "Worker故障-进程反复重启",
   "description": "自动导入: dfx_worker_reboot_single_node",
   "task_ids": [],
   "task_names": [
@@ -11,7 +11,7 @@
   "log_file_name": "lingqu_kvcache_dfx_worker_reboot_single_node_001_20260529_00_18_45",
   "attachment_path": null,
   "fault_category": "mixed",
-  "case_category": "Worker-重启",
+  "case_category": "Worker故障",
   "features": {
     "fault_category": "mixed",
     "latency": {

@@ -1,7 +1,7 @@
 {
   "id": "f012208a-243f-457a-a45c-f164a9c4072f",
   "kb_id": "ed0c987f-a6bd-4f22-84ad-e8364d454c48",
-  "root_cause_type": "UB链路闪断",
+  "root_cause_type": "ub端口故障-闪断",
   "description": "",
   "task_ids": [
     "ee9ed7c4-481d-4877-826f-beb5dc3619fd"
@@ -76,5 +76,5 @@
     }
   },
   "created_at": "2026-09-24 06:41:46",
-  "case_category": "UB-链路故障"
+  "case_category": "硬件故障"
 }

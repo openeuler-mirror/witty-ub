@@ -11,9 +11,13 @@ from typing import Any
 import httpx
 from latency.config import phenomenon as settings
 
-SEARCH_TIMEOUT_SECONDS = 4.5
+# 搜索预算需要覆盖“embedding 新 query 调用 + 向量检索”的完整耗时。
+# RAG search 对未命中 embedding 缓存的 query 实测 0.7s~7s 波动（SiliconFlow
+# 直接调用约 0.6s），后端旧预算 4.5s 会频繁超时，故放宽到 15s；
+# 连接阶段仍保持 1s 快速失败。
+SEARCH_TIMEOUT_SECONDS = 15.0
 CONNECT_TIMEOUT_SECONDS = 1.0
-READ_TIMEOUT_SECONDS = 3.0
+READ_TIMEOUT_SECONDS = 12.0
 
 
 class RAGError(RuntimeError):

@@ -1,7 +1,7 @@
 {
   "id": "119be97e-8102-4bd6-9722-3c596c232343",
   "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
-  "root_cause_type": "Worker进程退出",
+  "root_cause_type": "Worker故障-进程退出",
   "description": "自动导入: dfx_worker_set_exit",
   "task_ids": [],
   "task_names": [
@@ -11,7 +11,7 @@
   "log_file_name": "lingqu_kvcache_dfx_worker_set_exit_002_20260522_07_30_57",
   "attachment_path": null,
   "fault_category": "mixed",
-  "case_category": "Worker-退出/崩溃",
+  "case_category": "Worker故障",
   "features": {
     "fault_category": "mixed",
     "latency": {

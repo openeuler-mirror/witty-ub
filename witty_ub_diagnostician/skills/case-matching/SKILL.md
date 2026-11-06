@@ -1,19 +1,20 @@
 ---
 name: case-matching
 description: >
-  历史案例特征匹配与检索 Skill。从现场证据提取六层特征（身份范围、时间演化、操作阶段、
-  故障语义、组件版本、机理证据），组装结构化检索信号，调用
-  POST /diag_case_library/search 从**已人工确认**的超节点诊断案例库召回案例，
-  按 L1/L2/L3 逐级匹配逻辑与 applicability 判定可迁移性，采纳后回写命中。
-  当需要判断"这个现象以前是否出现过"、"有没有可复用的处置经验"、"这个根因是否有先例"时使用。
+  历史案例特征匹配与检索 Skill。从现场证据提取分布特征（错误码分布、超时时延段、
+  故障模式、时间形态、影响范围、机理关键词），调用
+  POST /diag_case_library/search 从**已人工确认**的超节点诊断案例库宽召回候选，
+  再做分布特征软匹配打分，按 L1/L2/L5 逐级判定与 applicability 判定可迁移性，
+  采纳后回写命中。身份特征（IP/Pod/主机/集群名）不参与匹配。
+  当需要判断"这个现象以前是否发生过"、"有没有可复用的处置经验"、"这个根因是否有先例"时使用。
 license: MIT
 compatibility: >
   Requires HTTP API access to FastAPI backend on port 9772 via bash curl for evidence retrieval.
   scripts/match_cases.py 仅依赖 Python 标准库。
 metadata:
   author: witty-ub-diagnostician
-  version: "2.0"
-  keywords: [案例匹配, 历史案例, 特征提取, 经验复用, 知识库匹配, L1L2L3, diag_case_library, diagnosis_case, 反证检查]
+  version: "2.2"
+  keywords: [案例匹配, 历史案例, 分布特征, 软匹配, 经验复用, 知识库匹配, L1L2L5, diag_case_library, diagnosis_case, 反证检查]
 allowed-tools: >
   Bash(curl:*) Bash(cd:*) Bash(python3:*)
   experience-skill
@@ -22,7 +23,22 @@ allowed-tools: >
 # 案例特征匹配 (Case Matching)
 
 输入：本次现场证据（KVCache `/stats/*`、BRPC `/brpc-diagnosis/*`）或已完成的诊断结论。
-输出：候选案例列表，每条带命中信号、归一化匹配分、L1/L2/L3 逐级判定与 applicability。
+输出：候选案例列表，每条带分布特征软匹配分、L1/L2/L5 逐级判定与 applicability。
+
+**匹配口径（v2，分布特征软匹配）**：不按 IP/Pod/主机/集群**名字**做精确匹配（不同现场
+必然不同，不可迁移），改用分布/语义特征软打分——故障模式（最强 4.0）、主导错误码
+（3.0 ×share）、超时时延段/归因桶（2.0 ×share）、操作域一致性（1.0）、机理关键词
+（1.0）、时间形态（1.0）、影响范围规模（0.5）。相对权重吸收自 Web 前端"相似案例分析"
+模块（`similarity.py` 的 failure_mode 6.0 / status_code 4.0 / 段·操作 3.0 / 超时段·形态
+2.0 / scope 1.0 比例），化用时保留 `share` 加权与宽召回口径。
+权重表与 share 提取见 `references/FEATURE_SPEC.md`。召回为"宽召回"（operation +
+fault_type + kb_id），相似度由 `scripts/match_cases.py` 客户端软打分决定。
+
+**候选排除口径（v2.2+）**：宽召回后，`match_cases.py` 会剔除一级标签为
+`Coordinator故障` / `UB管控面故障` 的候选，不参与软打分与投票（LOO 全量评估实证：
+这两类候选与 Worker/硬件报告在软打分维度高度重叠、吸走 top1，而对应查询报告本身
+判别特征不足，保留只引入干扰；剔除后不含管控 top1 63.4%→68.3%）。候选列表与
+JSON 输出的 `excluded_control_plane` 字段会如实反映剔除条数。
 
 本 Skill **只做检索侧**：不诊断、不写报告、不沉淀案例。案例写入由
 `diagnostic-report-generation` 负责，字段口径见 `references/CASE_FEATURE_CONTRACT.md`。
@@ -74,31 +90,37 @@ POST /phenomenon/search
    引用未经确认的 legacy 案例时必须显式标注其未确认属性。
 3. **反证检查先于结论**：每条拟采用的候选，必须写出一条"若不成立，现场会观察到什么"，
    并回到现场证据核对。案例自带 `counter_evidence_json` 的，优先借用其排除项。
-4. **不许只给笼统匹配分**：每条候选必须给 L1/L2/L3 逐级"命中/不命中"判定，并给出
-   applicability。分数只是排序依据，不是采用依据。
+4. **不许只给笼统匹配分**：每条候选必须给 L1/L2/L5 逐级"命中/不命中"判定（软匹配口径，
+   写明命中哪些分布特征、对应 share 与权重），并给出 applicability。分数只是排序依据，
+   不是采用依据。
 5. **GET / SET 分开检索**：library 通道 `operation` 是纯过滤器（提交即隔离，不计入
    归一化分母）；legacy 通道没有该字段，隔离只能靠"分两次查询、各自只提交本
    operation 的信号"。任何通道都禁止把两种操作的信号合并成一次查询。
    `operation=MIXED` 或未标注操作的案例对两种操作都成立，会同时出现在 GET 与 SET 的
    结果里；`MIXED` 只说明整份报告覆盖该操作，判定故障归属仍须回取报告。
-6. **特征只能来自现场观测**：不得为了凑匹配填入未观测到的 IP / Pod / 错误码；
+6. **特征只能来自现场观测**：不得为了凑匹配填入未观测到的错误码/故障模式/阶段桶；
+   `share` 必须来自 `/stats/stages`、错误码统计的真实占比，不得拍脑袋给权重；
    `log_keywords` 必须是本次现场日志的原文短语，不能套用历史案例里的短语。
+   身份信息（IP/Pod/主机/集群名）即使在场也只作来源标注，不参与匹配。
 7. **命中即回写**：凡被采纳（含部分采纳）为参考的案例，回写对应通道的
    `POST /diag_case_library/{case_id}/hit` 或 `POST /diagnosis_case/{case_id}/hit`。
    检索后一条都没采纳的不回写。
-8. **空结果不等于健康**：`total=0` 只说明库内无同类先例，不说明系统正常，
-   也不能据此否定故障存在。
+8. **空结果不等于健康**：宽召回（operation/fault_type/kb_id）下 `total=0` 只说明库内
+   无同类先例，不说明系统正常，也不能据此否定故障存在；候选非空但软打分为 0 的，
+   说明该 operation 域下有案例但无分布特征命中，要按实际情况说明，不要当成"完全无先例"。
 9. **未闭环案例的上限是 `adjust`**：`verification_json.closed_loop=false` 的案例（含报告阶段
    刚确认、处置尚未执行就入库的"待验证处方"）**不得给 `direct`**，`applicability` 上限为
-   `adjust`，并在输出里标注"未闭环，方案未经验证"。只有 `closed_loop=true` 且 L1/L2/L3
-   都成立时才允许 `direct`。
+   `adjust`，并在输出里标注"未闭环，方案未经验证"。只有 `closed_loop=true` 且 L1/L2
+   都成立时才允许 `direct`（L5 机理命中是加分项，不强制）。
 
 ## 检索流程（5 步）
 
 ### 步骤 1 提取六层特征
 
 按 `references/FEATURE_SPEC.md` 的清单取数，落盘为一份特征 JSON（骨架见该文件末尾）。
-最低要求：`operation`、时间窗、以及至少一个可匹配信号。
+最低要求：`operation`、时间窗，以及至少一类分布特征（错误码/故障模式/超时时延段/
+关键词等）——宽召回不要求"信号精确命中"，但没有任何分布特征时软打分全为 0，只能按
+confidence/hit_count 排序。
 
 - KVCache：`POST /stats/stages`（`operation` 各调一次）、
   `POST /stats/error_codes|pods|links|heatmap`、`/trace/list`、
@@ -110,12 +132,12 @@ POST /phenomenon/search
 ### 步骤 2 结构化检索
 
 ```bash
-cd witty_ub_diagnostician/.opencode/skills/case-matching/scripts
+cd witty_ub_diagnostician/skills/case-matching/scripts
 python3 match_cases.py /tmp/case_match/features.json --top 5 --json /tmp/case_match/result.json
 python3 match_cases.py /tmp/case_match/features.json --source legacy   # 仅在 library 通道确实无结果时才考虑
 ```
 
-脚本组装信号 → 按 `--source` 选通道 → 用查询信号总权重做归一化重排。
+脚本只构建宽召回查询（过滤头）→ 按 `--source` 选通道 → 在客户端做分布特征软匹配打分重排。
 
 - **`--source library`（默认，正解通道）**：打 `POST /diag_case_library/search`，只召回
   `status=confirmed` 的已确认案例。`kb_id` 可省略（留空 = 跨知识库召回，`kb_id` 只作来源标注），
@@ -124,17 +146,19 @@ python3 match_cases.py /tmp/case_match/features.json --source legacy   # 仅在 
   存在性，**不能传空串做跨库检索**；检索范围 = 本次知识库 + 全局案例。该通道案例未经人工确认，
   输出必须标注其来源属性。
 
-### 步骤 3 逐级判定 L1 / L2 / L3
+### 步骤 3 逐级判定 L1 / L2 / L5
 
-对每条候选按三级分别判定，命中级别与不命中级别都要写清：
+对每条候选按三级分别判定，命中级别与不命中级别都要写清（软匹配口径：看分布特征
+是否命中、share 与权重多少，不比较 IP/Pod/主机/集群名字）：
 
 | 级 | 看什么 | 命中判据 | 不命中意味着 |
 |---|---|---|---|
-| L1 错误码 | `status_codes`、`failure_mode_ids` | 至少一个码/模式 ID 相同 | 故障语义不同，方案基本不可迁移 |
-| L2 故障域 | `component`（ubsocket/umq/urma）、`failure_domain`、阶段桶族、GET/SET | 同域或同桶族（10^2 与 10^2_007 属同族，父桶与子桶可算相关） | 只是现象相近，不是同类故障 |
-| L3 拓扑 | 源目 IP、Pod、主机、集群 | 同 Pod 最强，同集群次之，同主机同 IP 再次 | 跨集群时只能借机理，不能借配置结论 |
+| L1 错误码/故障模式 | `status_codes`（×share）、`failure_mode_ids` | 至少一个码/模式 ID 相同 | 故障语义不同，方案基本不可迁移 |
+| L2 故障域 | `latency_components`（超时时延段/归因桶，×share）、`failure_domain`、操作域（GET/SET，MIXED 半权）、时间形态、影响范围规模 | 至少一个归因桶/域相同（父桶与子桶可算相关） | 只是现象相近，不是同类故障 |
+| L5 机理 | `log_keywords`、证据锚点 | 关键词短语/证据同源 | 机理不同，不能借其排除项 |
 
-> 补充证据：`log_keywords` 命中和 `score_norm` 高只说明"文本/信号像"，不能替代 L1/L2 判定。
+> 补充证据：`score_norm` 高只说明"分布特征像"，不能替代 L1/L2 判定；`log_keywords`
+> 命中可作 L5 机理佐证，但同样不能替代 L1/L2 的语义判定。
 
 ### 步骤 4 给出 applicability
 
@@ -142,8 +166,8 @@ python3 match_cases.py /tmp/case_match/features.json --source legacy   # 仅在 
 
 | applicability | 适用条件 | 输出要求 |
 |---|---|---|
-| `direct` | L1+L2 命中，L3 同构（同 Pod/同集群），时间线形态一致，**且案例 `closed_loop=true`** | 可直接采用其处理方案，注明沿用的证据 |
-| `adjust` | L1 或 L2 命中，但 L3 或环境不同（版本、配置、规模）；或案例**未闭环** | 逐条列出"需要调整什么"，调整点必须能在现场验证 |
+| `direct` | L1+L2 命中，环境同构（版本/配置/规模可比），时间线形态一致，**且案例 `closed_loop=true`** | 可直接采用其处理方案，注明沿用的证据 |
+| `adjust` | L1 或 L2 命中，但环境不同（版本、配置、规模）；或案例**未闭环** | 逐条列出"需要调整什么"，调整点必须能在现场验证 |
 | `reference` | 仅 L2 同域、或仅 `log_keywords` 相近 | 只作排查方向，不得直接抄其结论 |
 | `not_recommended` | L1 不命中且 L2 不同域 | 明确不建议采用，并说明否定理由（避免后来者重复踩） |
 

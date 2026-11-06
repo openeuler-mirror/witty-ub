@@ -478,6 +478,31 @@ class DiagCaseLibraryPGManager:
         return case
 
     @staticmethod
+    async def refresh_case_label_hash(
+        case_id: str,
+        source_label_hash: str,
+    ) -> bool:
+        """按当前分类字典重算 ``source_label_hash``（标签未变、仅版本漂移）。
+
+        分类字典（log_label.json）内容变化会让同一标签对的快照 hash 失效，
+        从而把已确认案例与报告解绑、已验证文档重新落入「待验证」。标签对本身
+        校验仍通过的场景允许覆盖该列，保持绑定有效；内容列不动。
+        """
+        async with PGManager.session() as session:
+            result = await session.execute(
+                update(DiagCaseLibrary)
+                .where(
+                    DiagCaseLibrary.id == case_id,
+                    DiagCaseLibrary.existed_status.is_(True),
+                )
+                .values(
+                    source_label_hash=source_label_hash,
+                    updated_at=_now(),
+                )
+            )
+            return bool(result.rowcount or 0)
+
+    @staticmethod
     async def drop_operation_signals() -> int:
         """删除 operation 类型的信号行。"""
         async with PGManager.session() as session:

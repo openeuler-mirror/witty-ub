@@ -9,12 +9,14 @@ from sqlalchemy.exc import IntegrityError
 from latency.ENUM.case_library import DiagCaseSource, DiagCaseStatus
 from latency.common.local_time import WALL_CLOCK_TZ, local_now
 from latency.database.managers.diag_case_library import DiagCaseLibraryPGManager
+from latency.database.managers.phenomenon_index import PhenomenonIndexPGManager
 from latency.exceptions import (
     BadRequestBizException,
     ConflictBizException,
     NotFoundBizException,
     UnprocessableBizException,
 )
+from latency.ENUM.phenomenon import PhenomenonIndexStatus
 from latency.services import label_taxonomy, report_phenomenon
 from latency.services.report_case_draft import CaseDraftPreview
 from latency.services.report_review import (
@@ -37,6 +39,16 @@ from latency.schemas.diag_case_library import (
 )
 
 RESOURCE_NAME = "诊断案例"
+
+# 案例 RAG 状态的最优级排序：数值越大越「好」（已入库 > 解析中 > 待发布 > 失败 > 过期 > 未入库）。
+_RAG_STATUS_RANK = {
+    "indexed": 6,
+    "parsing": 5,
+    "pending": 4,
+    "failed": 3,
+    "stale": 2,
+    "not_indexed": 1,
+}
 
 
 def _local_verification_time(value: str) -> str:
@@ -711,9 +723,55 @@ class DiagCaseLibraryService:
         sources = await ReportReviewService.describe_case_sources(
             [match.case for match in matches]
         )
+        status_by_case = await DiagCaseLibraryService._rag_status_by_case(
+            [match.case.id for match in matches]
+        )
         for match, source in zip(matches, sources, strict=False):
             match.source_report = SourceReportModel.model_validate(source)
+            match.rag_index_status = status_by_case.get(match.case.id, "not_indexed")
         return SearchDiagCasesMsg(total=total, matches=matches)
+
+    @staticmethod
+    async def _rag_status_by_case(
+        case_ids: list[str],
+    ) -> dict[str, str]:
+        """Derive the RAG index status for each case from its phenomenon cards.
+
+        A card is *indexed* only when the RAG document has been parsed and made
+        searchable; uploading alone is not enough (the upstream parse may still
+        be queued or fail).
+        """
+        if not case_ids:
+            return {}
+        cards = await PhenomenonIndexPGManager.get_cards_by_case_ids(case_ids)
+        status_by_case: dict[str, str] = {}
+        for card in cards:
+            if not card.case_id:
+                continue
+            if not card.enabled or card.index_status in {
+                PhenomenonIndexStatus.DELETED.value,
+            }:
+                current = "not_indexed"
+            elif card.searchable and card.index_status == PhenomenonIndexStatus.INDEXED.value:
+                current = "indexed"
+            elif card.index_status == PhenomenonIndexStatus.PARSING.value:
+                current = "parsing"
+            elif card.index_status == PhenomenonIndexStatus.PENDING.value:
+                current = "pending"
+            elif card.index_status == PhenomenonIndexStatus.FAILED.value:
+                current = "failed"
+            elif card.index_status == PhenomenonIndexStatus.STALE.value:
+                current = "stale"
+            else:
+                current = "not_indexed"
+            # 同一案例可能有多张卡片（报告卡片 + 独立案例卡片），
+            # 取最优状态展示：indexed > parsing > pending > failed > stale > not_indexed。
+            previous = status_by_case.get(card.case_id)
+            if previous is None or _RAG_STATUS_RANK.get(current, 0) > _RAG_STATUS_RANK.get(
+                previous, 0
+            ):
+                status_by_case[card.case_id] = current
+        return status_by_case
 
     @staticmethod
     async def mark_hit(case_id: str) -> GetDiagCaseMsg:

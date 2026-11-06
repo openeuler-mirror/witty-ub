@@ -1,7 +1,7 @@
 {
   "id": "23b23c01-8352-4d0d-9855-0e63b2b5bf7a",
   "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
-  "root_cause_type": "Client获取挂死",
+  "root_cause_type": "SDK故障-进程挂死",
   "description": "自动导入: dfx_client_process_get_hangup",
   "task_ids": [],
   "task_names": [
@@ -11,7 +11,7 @@
   "log_file_name": "lingqu_kvcache_dfx_client_process_get_hangup_001_20260528_23_05_37",
   "attachment_path": null,
   "fault_category": "latency",
-  "case_category": "Client-挂死/网络",
+  "case_category": "SDK故障",
   "features": {
     "fault_category": "latency",
     "latency": {

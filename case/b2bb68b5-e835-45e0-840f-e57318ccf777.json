@@ -1,7 +1,7 @@
 {
   "id": "b2bb68b5-e835-45e0-840f-e57318ccf777",
   "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
-  "root_cause_type": "Client Pod重启",
+  "root_cause_type": "容器故障-SDK容器重启",
   "description": "自动导入: dfx_client_pod_reboot",
   "task_ids": [],
   "task_names": [
@@ -11,7 +11,7 @@
   "log_file_name": "lingqu_kvcache_dfx_client_pod_reboot_002_20260522_05_08_55",
   "attachment_path": null,
   "fault_category": "latency",
-  "case_category": "Client-退出",
+  "case_category": "容器故障",
   "features": {
     "fault_category": "latency",
     "latency": {

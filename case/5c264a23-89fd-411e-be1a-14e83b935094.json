@@ -1,7 +1,7 @@
 {
   "id": "5c264a23-89fd-411e-be1a-14e83b935094",
   "kb_id": "783cee3d-5386-4ac2-9b93-bc322d26b3bd",
-  "root_cause_type": "UB端口down",
+  "root_cause_type": "ub端口故障-down",
   "description": "",
   "task_ids": [
     "2a096c71-e590-48bc-a349-a6a01e45790b"
@@ -112,5 +112,5 @@
     }
   },
   "created_at": "2026-09-24 06:42:31",
-  "case_category": "UB-端口故障"
+  "case_category": "硬件故障"
 }

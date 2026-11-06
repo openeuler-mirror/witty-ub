@@ -46,6 +46,7 @@ const createWorkspace = (api, fetchCases = async () => []) => {
       reportPages, reportPage, firstOptions, secondOptions, selection, count, selectFirst, selectSecond,
       pagedCases, filtered, pages, filteredLegacy, pagedLegacy, legacyPages, legacyPage, legacyFaultFilter, legacyFaultCount,
       importDialogOpen, closeImport, resetSearchPages,
+      ragStatusLabels, ragIndexStatus, ragIndexLabel,
     }`)(
     require, {}, () => props, () => () => {},
   )
@@ -188,7 +189,7 @@ test('已知案例两张表不显示恒定状态列，仍保留已验证筛选�
   const headers = [...html.matchAll(/<thead><tr>(.*?)<\/tr><\/thead>/g)]
     .map((match) => [...match[1].matchAll(/<th>(.*?)<\/th>/g)].map((item) => item[1]))
   // 历史案例改为解析后的卡片，不再是第二张表
-  assert.deepEqual(headers, [['案例', '来源', '更新时间']])
+  assert.deepEqual(headers, [['案例', '来源', '更新时间', 'RAG 库']])
   assert.match(html, /有效案例标题/)
   assert.match(html, /故障现象/)
   assert.match(html, /文件案例/)

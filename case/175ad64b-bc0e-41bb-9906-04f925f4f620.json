@@ -1,7 +1,7 @@
 {
   "id": "175ad64b-bc0e-41bb-9906-04f925f4f620",
   "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
-  "root_cause_type": "Client进程跨节点退出",
+  "root_cause_type": "Worker故障-进程退出",
   "description": "自动导入: dfx_client_process_set_exit_cross_node",
   "task_ids": [],
   "task_names": [
@@ -11,7 +11,7 @@
   "log_file_name": "lingqu_kvcache_dfx_client_process_set_exit_cross_node_002_20260519_14_40_17",
   "attachment_path": null,
   "fault_category": "mixed",
-  "case_category": "Client-退出",
+  "case_category": "Worker故障",
   "features": {
     "fault_category": "mixed",
     "latency": {

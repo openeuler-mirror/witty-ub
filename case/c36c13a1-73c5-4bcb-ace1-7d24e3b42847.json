@@ -1,7 +1,7 @@
 {
   "id": "c36c13a1-73c5-4bcb-ace1-7d24e3b42847",
   "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
-  "root_cause_type": "Worker缩容远端UB NFE",
+  "root_cause_type": "ub芯片故障-NFE",
   "description": "自动导入: dfx_worker_process_scale_in_remote_ub_nfe",
   "task_ids": [],
   "task_names": [
@@ -11,7 +11,7 @@
   "log_file_name": "lingqu_kvcache_dfx_worker_process_scale_in_remote_ub_nfe_001_20260522_11_51_20",
   "attachment_path": null,
   "fault_category": "mixed",
-  "case_category": "UB-链路故障",
+  "case_category": "硬件故障",
   "features": {
     "fault_category": "mixed",
     "latency": {
