@@ -683,3 +683,319 @@ test('中止按「用户终止响应」渲染：历史消息、流式消息与 s
     await cleanup()
   }
 })
+
+const chatPart = (id, type, text, extra = {}) => ({ id, type, text, ...extra })
+const chatUser = (id, content) => ({
+  id,
+  role: 'user',
+  parts: [],
+  reasoning: '',
+  content,
+  status: 'done',
+})
+const chatStep = (id, finish, parts, status = 'done') => ({
+  id,
+  messageId: id,
+  role: 'assistant',
+  parts,
+  reasoning: '',
+  content: '',
+  status,
+  finish,
+})
+
+test('多步工具调用归组为一个回合，只有末步文本作为最终回答', async () => {
+  const { state, cleanup } = setup()
+  try {
+    state.messages.value = [
+      chatUser('u1', '生成定界报告'),
+      chatStep('a1', 'tool-calls', [
+        chatPart('p1', 'reasoning', '第一步思考'),
+        chatPart('p2', 'text', '我先查契约'),
+      ]),
+      chatStep('a2', 'tool-calls', []),
+      chatStep('a3', 'tool-calls', [chatPart('p3', 'reasoning', '继续取证')]),
+      chatStep('a4', 'stop', [chatPart('p4', 'text', '最终结论')]),
+    ]
+    const turns = state.displayTurns.value
+    assert.equal(turns.length, 1)
+    assert.equal(turns[0].hasAssistant, true)
+    assert.deepEqual(
+      turns[0].answer.map((item) => item.text),
+      ['最终结论'],
+    )
+    assert.deepEqual(
+      turns[0].process.map((item) => item.text),
+      ['第一步思考', '我先查契约', '继续取证'],
+    )
+    assert.equal(state.hasTurnContent(turns[0]), true)
+  } finally {
+    await cleanup()
+  }
+})
+
+test('空白步骤与空白、synthetic、ignored 文本不参与渲染', async () => {
+  const { state, cleanup } = setup()
+  try {
+    state.messages.value = [
+      chatUser('u1', '检查'),
+      chatStep('a1', 'tool-calls', [
+        chatPart('p1', 'reasoning', '   '),
+        chatPart('p2', 'text', '   '),
+        chatPart('p3', 'text', '系统注入', { synthetic: true }),
+        chatPart('p4', 'text', '忽略文本', { ignored: true }),
+        chatPart('p5', 'text', '可见说明'),
+      ]),
+      chatStep('a2', 'tool-calls', []),
+    ]
+    const turns = state.displayTurns.value
+    assert.deepEqual(
+      turns[0].process.map((item) => item.text),
+      ['可见说明'],
+    )
+    assert.equal(turns[0].answer.length, 0)
+    assert.equal(state.hasTurnContent(turns[0]), true)
+
+    state.messages.value = [chatUser('u2', '空回合'), chatStep('a3', 'tool-calls', [])]
+    assert.equal(state.hasTurnContent(state.displayTurns.value[0]), false)
+  } finally {
+    await cleanup()
+  }
+})
+
+test('思考过程默认折叠，展开状态按回合记忆', async () => {
+  const { state, cleanup } = setup()
+  try {
+    assert.equal(state.isTurnExpanded('u1'), false)
+    state.toggleTurn('u1')
+    assert.equal(state.isTurnExpanded('u1'), true)
+    assert.equal(state.isTurnExpanded('u2'), false)
+    state.toggleTurn('u1')
+    assert.equal(state.isTurnExpanded('u1'), false)
+  } finally {
+    await cleanup()
+  }
+})
+
+test('中止、错误与缺少 finish 的历史消息仍在最终回答区可见', async () => {
+  const { state, cleanup } = setup()
+  try {
+    state.messages.value = [
+      chatUser('u1', '中止'),
+      { ...chatStep('a1', 'tool-calls', [chatPart('p1', 'text', '用户终止响应')]), aborted: true },
+    ]
+    assert.deepEqual(
+      state.displayTurns.value[0].answer.map((item) => item.text),
+      ['用户终止响应'],
+    )
+
+    state.messages.value = [
+      chatUser('u2', '失败'),
+      chatStep('a2', 'tool-calls', [chatPart('p2', 'text', '模型响应失败')], 'error'),
+    ]
+    assert.deepEqual(
+      state.displayTurns.value[0].answer.map((item) => item.text),
+      ['模型响应失败'],
+    )
+
+    state.messages.value = [
+      chatUser('u3', '历史'),
+      chatStep('a3', undefined, [chatPart('p3', 'text', '历史最终回答')]),
+    ]
+    assert.deepEqual(
+      state.displayTurns.value[0].answer.map((item) => item.text),
+      ['历史最终回答'],
+    )
+  } finally {
+    await cleanup()
+  }
+})
+
+test('问询答复把回合切开，答问前后的助手步分属两张卡片', async () => {
+  const { state, cleanup } = setup()
+  try {
+    state.messages.value = [
+      chatUser('u1', '第一个问题'),
+      chatStep('a1', 'stop', [chatPart('p1', 'text', '第一段回答')]),
+      { ...chatUser('u2', '# 问题\n\n选哪个'), questionReply: [{ question: '选哪个', answer: 'A' }] },
+      chatStep('a2', 'stop', [chatPart('p2', 'text', '第二段回答')]),
+    ]
+    const turns = state.displayTurns.value
+    assert.equal(turns.length, 2)
+    assert.equal(turns[0].user.id, 'u1')
+    assert.deepEqual(
+      turns[0].answer.map((item) => item.text),
+      ['第一段回答'],
+    )
+    assert.equal(turns[1].user.id, 'u2')
+    assert.deepEqual(
+      turns[1].answer.map((item) => item.text),
+      ['第二段回答'],
+    )
+  } finally {
+    await cleanup()
+  }
+})
+
+const chatTool = (id, name, status, input = {}, extra = {}) => ({
+  id,
+  type: 'tool',
+  text: '',
+  tool: { name, status, input, ...extra },
+})
+
+test('工具调用进入过程流，并按类型给出动作与结果', async () => {
+  const { state, cleanup } = setup()
+  try {
+    state.messages.value = [
+      chatUser('u1', '查日志'),
+      {
+        ...chatStep('a1', 'tool-calls', [
+          chatTool('t1', 'bash', 'completed', { command: 'tail -n 50 app.log' }),
+          chatTool('t2', 'edit', 'error', { filePath: 'src/App.vue' }, { error: '写回失败' }),
+        ]),
+        time: { created: 1_000 },
+      },
+      {
+        ...chatStep('a2', 'stop', [chatPart('p1', 'text', '结论')]),
+        time: { created: 1_000, completed: 61_000 },
+      },
+    ]
+    const turn = state.displayTurns.value[0]
+    assert.equal(turn.process.filter((item) => item.type === 'tool').length, 2)
+    assert.deepEqual(state.getToolView(turn.process[0]), {
+      verb: '运行命令',
+      detail: 'tail -n 50 app.log',
+      fullDetail: 'tail -n 50 app.log',
+    })
+    assert.deepEqual(state.getToolView(turn.process[1]), {
+      verb: '编辑文件',
+      detail: 'src/App.vue',
+      fullDetail: 'src/App.vue',
+    })
+    assert.equal(state.getToolStatusLabel(turn.process[0]), '完成')
+    assert.equal(state.getToolStatusLabel(turn.process[1]), '失败')
+    assert.equal(
+      state.getTurnSummary(turn),
+      '已完成，用时 1 分，执行了 1 条命令、修改了 1 个文件、失败 1 次。',
+    )
+  } finally {
+    await cleanup()
+  }
+})
+
+test('思考中折叠行刷新为最新过程内容，结束后显示摘要', async () => {
+  const { state, cleanup } = setup()
+  try {
+    const turn = { key: 'u1', hasAssistant: true, process: [], answer: [], status: 'thinking' }
+    assert.equal(state.getTurnSummary(turn), '正在分析问题并查询诊断数据')
+    turn.process = [chatPart('p1', 'reasoning', '第一段\n正在定位时延异常')]
+    assert.equal(state.getTurnSummary(turn), '正在定位时延异常')
+    turn.process = [...turn.process, chatTool('t1', 'bash', 'running', { command: 'date' })]
+    assert.equal(state.getTurnSummary(turn), '运行命令：date')
+    turn.status = 'done'
+    turn.durationMs = 65_000
+    assert.equal(state.getTurnSummary(turn), '已完成，用时 1 分 5 秒，执行了 1 条命令。')
+  } finally {
+    await cleanup()
+  }
+})
+
+test('工具行折叠时截断，展开后保留完整命令与多行', async () => {
+  const { state, cleanup } = setup()
+  try {
+    const command = `set -e\nfor i in $(seq 1 60); do echo "line-$i"; done\n${'x'.repeat(200)}`
+    const view = state.getToolView(chatTool('t1', 'bash', 'completed', { command }))
+    assert.equal(view.verb, '运行命令')
+    assert.equal(view.fullDetail, command)
+    assert.ok(view.detail.length < command.length)
+    assert.ok(view.detail.endsWith('…'))
+
+    assert.equal(state.isToolExpanded('a1:t1'), false)
+    state.toggleTool('a1:t1')
+    assert.equal(state.isToolExpanded('a1:t1'), true)
+    assert.equal(state.isToolExpanded('a1:t2'), false)
+    state.toggleTool('a1:t1')
+    assert.equal(state.isToolExpanded('a1:t1'), false)
+  } finally {
+    await cleanup()
+  }
+})
+
+test('实时流保存消息时间并渲染工具调用', async () => {
+  const { state, emit, cleanup } = setup()
+  try {
+    await state.loginLocalAgent()
+    await state.openConversation('a')
+    await emit('local', 'message.updated', {
+      sessionID: 'a',
+      info: { id: 'live-1', sessionID: 'a', role: 'assistant', time: { created: 1_000 } },
+    })
+    await emit('local', 'message.part.updated', {
+      sessionID: 'a',
+      part: {
+        id: 'pr-1',
+        messageID: 'live-1',
+        sessionID: 'a',
+        type: 'tool',
+        tool: 'bash',
+        state: { status: 'completed', input: { command: 'df -h' }, title: 'df -h' },
+      },
+    })
+    const step = state.messages.value.find((message) => message.messageId === 'live-1')
+    assert.deepEqual(step.time, { created: 1_000 })
+    const toolPart = step.parts.find((part) => part.type === 'tool')
+    assert.equal(toolPart.tool.name, 'bash')
+    assert.equal(toolPart.tool.status, 'completed')
+    assert.deepEqual(toolPart.tool.input, { command: 'df -h' })
+  } finally {
+    await cleanup()
+  }
+})
+
+test('向上滚动后不再强制贴底，回到底部重新固定', async () => {
+  const { state, cleanup } = setup()
+  try {
+    const container = { scrollHeight: 1_000, scrollTop: 600, clientHeight: 400 }
+    state.messagesRef.value = container
+    state.handleMessagesScroll()
+    assert.equal(state.isPinnedToBottom.value, true)
+
+    container.scrollTop = 100
+    state.handleMessagesScroll()
+    assert.equal(state.isPinnedToBottom.value, false)
+    await state.scrollToBottom()
+    assert.equal(container.scrollTop, 100, '非固定状态下的新内容不能把视角拽回底部')
+    assert.equal(state.isPinnedToBottom.value, false)
+
+    await state.scrollToBottom(true)
+    assert.equal(container.scrollTop, 1_000)
+    assert.equal(state.isPinnedToBottom.value, true)
+
+    container.scrollTop = 580
+    state.handleMessagesScroll()
+    assert.equal(state.isPinnedToBottom.value, true, '滚回底部阈值内重新固定')
+  } finally {
+    await cleanup()
+  }
+})
+
+test('自动贴底不会被流式增高误判为用户上滑', async () => {
+  const { state, cleanup } = setup()
+  try {
+    const container = { scrollHeight: 500, scrollTop: 0, clientHeight: 300 }
+    state.messagesRef.value = container
+    await state.scrollToBottom(true)
+    assert.equal(container.scrollTop, 500)
+    // 内容在 scroll 事件到达前继续长高，事件仍上报自动滚动后的位置
+    container.scrollHeight = 900
+    state.handleMessagesScroll()
+    assert.equal(state.isPinnedToBottom.value, true)
+
+    container.scrollTop = 100
+    state.handleMessagesScroll()
+    assert.equal(state.isPinnedToBottom.value, false, '真实上滑仍然退出固定')
+  } finally {
+    await cleanup()
+  }
+})
