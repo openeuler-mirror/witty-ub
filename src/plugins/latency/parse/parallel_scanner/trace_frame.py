@@ -566,19 +566,9 @@ def build_trace_frame(
     # top1000 + anomalous subset (~1k rows), not all 347k traces.
     # Internal __ columns preserved in output for the deferred call.
 
-    # Fallback: when SDK access data is missing (total_ms is null), use
-    # worker_total_latency so traces can still be built from worker-only logs.
-    df_trace = df_trace.with_columns(
-        pl.when(pl.col("total_ms").is_null())
-        .then(pl.col("worker_total_latency"))
-        .otherwise(pl.col("total_ms"))
-        .alias("total_ms"),
-        pl.when(pl.col("total_latency").is_null())
-        .then(pl.col("worker_total_latency"))
-        .otherwise(pl.col("total_latency"))
-        .alias("total_latency"),
-    )
-
+    # 总时延只认 SDK access 的端到端 elapsed。纯 Worker trace 的多条 access
+    # 行可能是顺序子操作，任取一条都不能代表整条请求；缺 SDK 时直接过滤，避免
+    # total_latency 小于 Worker 分段之和并污染聚合、异常检测和分位桶统计。
     df_trace = df_trace.filter(
         pl.col("tid").is_not_null()
         & (pl.col("tid") != "")
@@ -687,9 +677,9 @@ def build_trace_frame_light(frame) -> "pl.DataFrame":
        ``worker_total_latency`` / ``op_key`` / ``operation`` / ``bucket_epoch``
        / ``log_id`` 走 ``drop_nulls().first()``，``src`` / ``dst`` 走
        ``max_rank``（按 ``_src_rank`` 降序取首行）。
-    3. 归并后完全复刻 build_trace_frame 的后续处理：``total_ms`` 为空退回本
-       trace 的 ``worker_total_latency``、``total_latency`` 为空同理、src/dst
-       ``fill_null("")``、filter（tid 非空且 total_ms 非空且 total_ms >= 0）。
+    3. 归并后完全复刻 build_trace_frame 的后续处理：总时延只认 SDK access，
+       缺 SDK（``total_ms`` 为空）的纯 Worker trace 直接过滤；随后 src/dst
+       ``fill_null("")``，并过滤空 tid 与负时延。
     4. ``c2w_urma_latency`` 与 w2w/create/publish 静态 null 列**不产出**
        （它们是宽列，只有明细子集需要）。
 
@@ -719,19 +709,7 @@ def build_trace_frame_light(frame) -> "pl.DataFrame":
         __qgt=pl.col("query_get_transport").first(ignore_nulls=True),
     )
 
-    # Fallback: total_ms / total_latency 为空时退回 worker_total_latency
-    # （与 build_trace_frame 逐字一致，缺 SDK 行时只用 worker 日志也能建 trace）
-    df_trace = df_trace.with_columns(
-        pl.when(pl.col("total_ms").is_null())
-        .then(pl.col("worker_total_latency"))
-        .otherwise(pl.col("total_ms"))
-        .alias("total_ms"),
-        pl.when(pl.col("total_latency").is_null())
-        .then(pl.col("worker_total_latency"))
-        .otherwise(pl.col("total_latency"))
-        .alias("total_latency"),
-    )
-
+    # 与全宽路径一致：总时延必须来自 SDK access，缺 SDK 的 trace 不参与时延统计。
     df_trace = df_trace.filter(
         pl.col("tid").is_not_null()
         & (pl.col("tid") != "")

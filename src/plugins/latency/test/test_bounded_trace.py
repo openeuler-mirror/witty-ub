@@ -8,7 +8,12 @@ from polars.testing import assert_frame_equal
 import pytest
 
 from latency.parse.parallel_scanner import bounded_trace
-from latency.parse.columns import FLOAT_COLUMNS, INT_COLUMNS, OUTPUT_COLUMNS
+from latency.parse.columns import (
+    FLOAT_COLUMNS,
+    INT_COLUMNS,
+    LIGHT_COLUMNS,
+    OUTPUT_COLUMNS,
+)
 from latency.parse.labels import (
     CLIENT_RPC_LABEL,
     MASTER_RPC_LABEL,
@@ -19,7 +24,10 @@ from latency.parse.labels import (
     WORKER_ACCESS_LABEL,
 )
 from latency.parse.parallel_scanner.bounded_trace import build_trace_frame_batched
-from latency.parse.parallel_scanner.trace_frame import build_trace_frame
+from latency.parse.parallel_scanner.trace_frame import (
+    build_trace_frame,
+    build_trace_frame_light,
+)
 
 
 _SCHEMA = {
@@ -198,7 +206,7 @@ def test_nullable_endpoint_rank_preserves_null_first_order():
 
 
 @pytest.mark.parametrize("partition_rows", [1, 100])
-def test_invalid_traces_and_worker_fallback(partition_rows):
+def test_invalid_and_worker_only_traces_are_filtered(partition_rows):
     frame = _frame([
         {"tid": "worker", "_label": WORKER_ACCESS_LABEL, "_src_rank": 0,
          "worker_total_latency": 4., "timestamp": "worker-ts"},
@@ -212,8 +220,40 @@ def test_invalid_traces_and_worker_fallback(partition_rows):
         _batches(frame, 2), frame.height, target_partition_rows=partition_rows,
     )
     assert_frame_equal(actual, build_trace_frame(frame), check_exact=True)
-    assert actual["tid"].to_list() == ["worker"]
-    assert actual["total_ms"].to_list() == [4.]
+    assert actual.is_empty()
+
+
+def test_worker_only_suboperations_do_not_enter_latency_buckets():
+    """53us CREATE + 358us PUBLISH 无 SDK 时，不得伪造 53us 总时延。"""
+    worker_tid = "worker-only"
+    sdk_tid = "with-sdk"
+    frame = _frame([
+        {"tid": worker_tid, "_label": WORKER_ACCESS_LABEL, "_src_rank": 0,
+         "worker_total_latency": .053, "_elapsed_us": 53.,
+         "operation": "DS_POSIX_CREATE", "op_key": "SET",
+         "bucket_epoch": 1_767_236_910, "epoch_sec": 1_767_236_917},
+        {"tid": worker_tid, "_label": WORKER_ACCESS_LABEL, "_src_rank": 0,
+         "worker_total_latency": .358, "_elapsed_us": 358.,
+         "operation": "DS_POSIX_PUBLISH", "op_key": "SET",
+         "bucket_epoch": 1_767_236_910, "epoch_sec": 1_767_236_917},
+        {"tid": sdk_tid, "_label": SDK_LABEL, "_src_rank": 0,
+         "total_ms": 1., "total_latency": 1., "_elapsed_us": 1_000.,
+         "operation": "DS_KV_CLIENT_SET", "op_key": "SET",
+         "bucket_epoch": 1_767_236_910, "epoch_sec": 1_767_236_917},
+    ])
+
+    full = build_trace_frame(frame)
+    light = build_trace_frame_light(frame.select(LIGHT_COLUMNS))
+    assert full["tid"].to_list() == [sdk_tid]
+    assert light["tid"].to_list() == [sdk_tid]
+
+    from latency.bucket.statistics import compute_bucket_stats_from_frame
+
+    buckets = compute_bucket_stats_from_frame(full)
+    assert all(
+        set(bucket["trace_id"].to_list()) == {sdk_tid}
+        for bucket in buckets.values()
+    )
 
 
 def test_small_inputs_skip_compression(monkeypatch):

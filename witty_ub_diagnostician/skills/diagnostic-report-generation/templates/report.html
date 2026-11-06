@@ -1228,7 +1228,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
   </div>
   {% endif %}
   {% if lat.conclusion %}
-  <div class="lat-conclusion">{{ lat.conclusion }}</div>
+  <div class="lat-conclusion">{{ lat.conclusion | safe_report_html }}</div>
   {% endif %}
 {% endif %}
 {% endmacro %}

@@ -5178,6 +5178,55 @@ body.agent-panel-resizing-corner {
   margin-right: 4px;
 }
 
+.trace-type-tag-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 28px;
+  height: 20px;
+  padding: 0 7px;
+  vertical-align: middle;
+  background: #f1f5f9;
+}
+
+.trace-type-tag-loading > span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #64748b;
+  animation: trace-tag-dot-bounce 0.9s ease-in-out infinite;
+}
+
+.trace-type-tag-loading > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.trace-type-tag-loading > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes trace-tag-dot-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trace-type-tag-loading > span {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
 .abnormal-left-grid .aggregate-cell:last-child {
   border-right: 1px solid #eef2f8;
 }

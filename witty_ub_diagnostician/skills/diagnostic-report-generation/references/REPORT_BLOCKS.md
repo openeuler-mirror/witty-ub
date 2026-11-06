@@ -76,9 +76,13 @@ GET/SET 各一套，展示 Top 错误码构成和时间窗 × 错误码热力表
     {"name": "URMA 网络（C2W/W2W）", "p99": "1,150ms", "baseline": "18ms", "ratio": "63.9×", "share": "92.0%", "status": "bottleneck",
      "detail": "C2W 段丢包重传，单跳 RTT 从 0.8ms 升至 120ms+；慢 trace 中 62.3% 卡在该阶段"}
   ],
-  "conclusion": "时延归因结论，可用 <strong> 强调关键数字；须说明慢在哪个阶段、放大倍数、与错误是否同源"
+  "conclusion": "时延归因结论，可用 <strong>...</strong> 强调关键数字；须说明慢在哪个阶段、放大倍数、与错误是否同源"
 }
 ```
+
+`conclusion` 支持 `p/br/strong/b/em/i/u/s/code/pre/blockquote/ul/ol/li` 安全格式标签，
+所有属性都会被移除。其他标签只移除标签并保留正文；`script/style/iframe`
+等主动内容元素连同内容删除，不会以转义标签的形式显示。
 
 - `stages[].status`：`bottleneck` 瓶颈（红）/ `warn` 异常（琥珀）/ `ok` 正常（绿）；`baseline`/`ratio`/`share` 可缺省显示 "—"。
 - **结论必须回答**：额外耗时集中在哪个阶段、相对基线放大多少、是否已逼近超时预算、Worker/进程内阶段是否正常（用于排除进程内瓶颈）。

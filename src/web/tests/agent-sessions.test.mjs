@@ -123,7 +123,7 @@ function setup() {
     agentChatInput, isAgentSending, isAgentHistoryLoading, isAgentHistoryFailed, agentSessionDialogError,
     agentConnectionError,
     agentPendingPermissions, agentPendingQuestions, agentQuestionAnswers,
-    filteredAgentSessions, sendAgentMessage,
+    filteredAgentSessions, visibleAgentChatMessages, sendAgentMessage,
   }`,
   )
   const api = get(
@@ -350,6 +350,60 @@ test('streamed deltas captured during history loading do not duplicate fetched t
       delta: '!',
     })
     assert.equal(api.agentChatMessages.value[0].content, 'Hello world!')
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
+test('tool-only assistant messages do not render empty chat bubbles', async () => {
+  const { api } = setup()
+  try {
+    const messages = api.toAgentChatMessages([
+      {
+        info: { id: 'user', role: 'user' },
+        parts: [{ id: 'user-text', type: 'text', text: '检查日志' }],
+      },
+      {
+        info: { id: 'tool-only', role: 'assistant' },
+        parts: [{ id: 'tool', type: 'tool', text: '' }],
+      },
+      {
+        info: { id: 'answer', role: 'assistant' },
+        parts: [{ id: 'answer-text', type: 'text', text: '检查完成' }],
+      },
+    ])
+
+    assert.deepEqual(
+      messages.map((message) => message.id),
+      ['user', 'answer'],
+    )
+
+    await api.connectAgent('')
+    await api.openAgentSession({ id: 'a' })
+    const emit = (id) =>
+      api.handleOpenCodeEvent(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'message.updated',
+            properties: { sessionID: 'a', info: { id, role: 'assistant', sessionID: 'a' } },
+          }),
+        }),
+      )
+
+    emit('stream-tool-only')
+    emit('stream-answer')
+
+    const hiddenIntermediate = api.agentChatMessages.value.find(
+      (message) => message.messageId === 'stream-tool-only',
+    )
+    assert.equal(hiddenIntermediate.status, 'done')
+    assert.ok(
+      !api.visibleAgentChatMessages.value.some(
+        (message) => message.messageId === 'stream-tool-only',
+      ),
+    )
+    assert.equal(api.visibleAgentChatMessages.value.at(-1).messageId, 'stream-answer')
+    assert.equal(api.visibleAgentChatMessages.value.at(-1).status, 'thinking')
   } finally {
     api.closeAgentEventStream()
   }

@@ -87,7 +87,8 @@ OUTPUT_COLUMNS: tuple[str, ...] = (*ALL_COLUMNS, *SCANNER_INTERNAL_COLUMNS)
 # 只有这些列被"全量消费者"读到：src_dst 聚合按 (src,dst,op_key) 分组；time_window
 # 聚合只对 total_latency 出 ave/min/max/p95/p99；分桶排序键是 (total_latency, tid)。
 # 其余 30 列只服务明细子集与分桶代表行 → 不必给全量行算（见 p2-40col-consumer-map.md）。
-# 注意 ``worker_total_latency``：归并后 total_ms/total_latency 为空时会退回它，故属轻列。
+# ``worker_total_latency`` 仍属轻列：SDK trace 的 c2w/明细与分桶代表行需要该字段；
+# 纯 Worker trace 不再用它回填总时延，而是在归并后直接过滤。
 # ``query_get_transport``：分桶代表行需要按 QueryAndGet 传输类型（local/remote）
 # 分别选出分位代表（2026-10 新增，见 bucket/representatives.py），而宽列只在
 # 选代表之后才物化 —— 传输类型必须随全量行一起扫描，故从扫描内部列升入轻列。

@@ -1446,6 +1446,18 @@ const getAgentDisplayParts = (message: AgentChatMessage): AgentChatPart[] => {
   return []
 }
 
+const hasAgentDisplayContent = (message: AgentChatMessage) =>
+  message.role !== 'assistant' ||
+  message.status === 'thinking' ||
+  !!message.questionReply?.length ||
+  !!message.content.trim() ||
+  !!message.reasoning.trim() ||
+  !!message.parts?.some((part) => part.text.trim())
+
+const visibleAgentChatMessages = computed(() =>
+  agentChatMessages.value.filter(hasAgentDisplayContent),
+)
+
 const extractOpenCodeError = (payload: unknown, fallback: string): string => {
   if (typeof payload === 'string' && payload.trim()) return payload.trim()
   if (!payload || typeof payload !== 'object') return fallback
@@ -1730,7 +1742,7 @@ const refreshAgentSession = async (sessionId: string) => {
 const toAgentChatMessages = (messages: OpenCodeMessage[]): AgentChatMessage[] =>
   messages
     .filter((message) => message.info?.role === 'user' || message.info?.role === 'assistant')
-    .map((message) => {
+    .map<AgentChatMessage>((message) => {
       const role = message.info.role as AgentChatMessage['role']
       const parts: AgentChatPart[] = (message.parts || [])
         .filter((part) => part.type === 'reasoning' || part.type === 'text')
@@ -1774,6 +1786,7 @@ const toAgentChatMessages = (messages: OpenCodeMessage[]): AgentChatMessage[] =>
         messageId: message.info.id,
       }
     })
+    .filter(hasAgentDisplayContent)
 
 const openAgentSession = async (session: OpenCodeSession) => {
   if (isAgentSessionCreating.value || isAgentSessionSaving.value || isAgentSubmitting.value) return
@@ -3873,9 +3886,12 @@ const checkFaultTracesForLatency = async (traceIds: string[]) => {
   }
 }
 
-const checkLatencyTracesForFault = async (traceIds: string[]) => {
+const checkLatencyTracesForFault = async (
+  traceIds: string[],
+  shouldApply: () => boolean = () => true,
+) => {
   if (!selectedAssetId.value || traceIds.length === 0) {
-    latencyTraceIdsWithFault.value = new Set()
+    if (shouldApply()) latencyTraceIdsWithFault.value = new Set()
     return
   }
 
@@ -3901,11 +3917,11 @@ const checkLatencyTracesForFault = async (traceIds: string[]) => {
     ;(result.trace_failure_event_results ?? []).forEach((r) => {
       if (r.trace_id) faultTraceIds.add(r.trace_id)
     })
-    if (selectedAssetId.value === assetId) {
+    if (selectedAssetId.value === assetId && shouldApply()) {
       latencyTraceIdsWithFault.value = faultTraceIds
     }
   } catch {
-    if (selectedAssetId.value === assetId) {
+    if (selectedAssetId.value === assetId && shouldApply()) {
       latencyTraceIdsWithFault.value = new Set()
     }
   }
@@ -3936,6 +3952,7 @@ const detailLatencyMetrics = ref<LatencyMetricItem[]>([])
 const detailParseResults = ref<LogParseResultModel[]>([])
 const allDetailParseResults = ref<LogParseResultModel[]>([])
 const isDetailParseResultsLoading = ref(false)
+const isDetailTraceFaultTagsLoading = ref(false)
 const detailParseResultsError = ref('')
 const detailParseResultsPage = ref(1)
 const detailParseResultsTotal = ref(0)
@@ -4940,13 +4957,16 @@ const buildExclusiveBreakdownSegments = (
       unit: 'ms',
     })
   }
-  if (otherLatency > 0) {
+  const otherLatencyMs = otherLatency / 1000
+  // 浮点残差可能大于 0，但按页面的三位小数精度展示仍是 0.000ms。
+  // 此时不渲染“其他”，避免在各 Trace 的时延分解中出现无意义项。
+  if (Number(otherLatencyMs.toFixed(3)) > 0) {
     result.push({
       key: '__other__',
       label: '其他',
       shortLabel: '其他',
       color: '#94a3b8',
-      value: otherLatency / 1000,
+      value: otherLatencyMs,
       width: Math.min(100, (otherLatency / totalLatencyUs) * 100),
       abnormal: false,
       unit: 'ms',
@@ -6136,7 +6156,7 @@ const renderLatencyEchart = () => {
 }
 
 const renderDetailLatencyEchart = () => {
-  if (isDetailParseResultsLoading.value || detailParseResultsError.value) return
+  if (isDetailLatencyChartLoading.value || detailLatencyChartError.value) return
   const element = detailLatencyChartRef.value
   if (!element || detailFaultTraceChartRows.value.length === 0) return
 
@@ -8604,6 +8624,8 @@ const openFaultAggregatedPodIpFilterDialog = (podRow: FaultAggregatedEventPodRow
 
 const openAggregatedEventDetail = (row: LatencyDetailRow) => {
   selectedAggregatedEvent.value = row
+  allDetailParseResults.value = []
+  detailLatencyChartError.value = ''
   detailParseResultsPage.value = 1
   detailParseResultsPageInput.value = ''
   detailParseResultTraceIdInput.value = ''
@@ -8614,6 +8636,8 @@ const openAggregatedEventDetail = (row: LatencyDetailRow) => {
 
 const closeAggregatedEventDetail = () => {
   selectedAggregatedEvent.value = null
+  isDetailLatencyChartLoading.value = false
+  isDetailTraceFaultTagsLoading.value = false
   detailLatencyMetrics.value = []
   detailLatencyChartError.value = ''
   detailParseResults.value = []
@@ -9602,6 +9626,7 @@ const loadDetailParseResults = async (
   if (!selectedAssetId.value) {
     detailParseResults.value = []
     detailParseResultsTotal.value = 0
+    isDetailTraceFaultTagsLoading.value = false
     detailParseResultsError.value = ''
     isDetailParseResultsLoading.value = false
     detailParseResultSort.releaseSortLock()
@@ -9642,14 +9667,23 @@ const loadDetailParseResults = async (
     )
 
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
-      detailParseResults.value = result.log_parse_results ?? []
-      detailParseResultsTotal.value = result.total ?? detailParseResults.value.length
+      const pageResults = result.log_parse_results ?? []
+      detailParseResults.value = pageResults
+      detailParseResultsTotal.value = result.total ?? pageResults.length
       detailParseResultsPage.value = pageNum
 
-      const traceIds = (result.log_parse_results ?? [])
-        .map((r) => r.trace_id)
-        .filter((id): id is string => !!id)
-      await checkLatencyTracesForFault(traceIds)
+      const traceIds = pageResults.map((r) => r.trace_id).filter((id): id is string => !!id)
+      // Fault tags are supplementary information. Do not keep pagination waiting for this
+      // second endpoint, and ignore a late response after another page has won the race.
+      latencyTraceIdsWithFault.value = new Set()
+      const shouldApplyFaultTags = () =>
+        selectedAssetId.value === assetId &&
+        selectedAggregatedEvent.value?.id === row.id &&
+        detailParseResults.value === pageResults
+      isDetailTraceFaultTagsLoading.value = traceIds.length > 0
+      void checkLatencyTracesForFault(traceIds, shouldApplyFaultTags).finally(() => {
+        if (shouldApplyFaultTags()) isDetailTraceFaultTagsLoading.value = false
+      })
     }
   } catch (error) {
     // 忽略取消请求的错误
@@ -9662,6 +9696,7 @@ const loadDetailParseResults = async (
       detailParseResultsPage.value = pageNum
       detailParseResultsError.value = error instanceof Error ? error.message : '加载解析结果失败'
       latencyTraceIdsWithFault.value = new Set()
+      isDetailTraceFaultTagsLoading.value = false
     }
   } finally {
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
@@ -9674,10 +9709,14 @@ const loadDetailParseResults = async (
 const loadAllDetailParseResults = async (row: LatencyDetailRow) => {
   if (!selectedAssetId.value) {
     allDetailParseResults.value = []
+    isDetailLatencyChartLoading.value = false
+    detailLatencyChartError.value = ''
     return
   }
 
   const assetId = selectedAssetId.value
+  isDetailLatencyChartLoading.value = true
+  detailLatencyChartError.value = ''
 
   try {
     const requestBody: Record<string, unknown> = {
@@ -9705,9 +9744,15 @@ const loadAllDetailParseResults = async (row: LatencyDetailRow) => {
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       allDetailParseResults.value = result.log_parse_results ?? []
     }
-  } catch {
+  } catch (error) {
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       allDetailParseResults.value = []
+      detailLatencyChartError.value =
+        error instanceof Error ? error.message : '加载故障 Trace 时序分解失败'
+    }
+  } finally {
+    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
+      isDetailLatencyChartLoading.value = false
     }
   }
 }
@@ -10979,6 +11024,8 @@ const detectSourceType = (input: string): 'local' | 'remote' | null => {
 }
 
 const remoteArchiveExtensions = ['.tar.gz', '.tgz', '.zip']
+const invalidLogSourceMessage =
+  '请输入有效的服务器路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz），本地路径请使用“上传ZIP文件”'
 
 const isRemoteArchiveUrl = (input: string) => {
   try {
@@ -11826,12 +11873,11 @@ const submitLogSource = async () => {
 
   const sourceType = detectSourceType(input)
   if (!sourceType) {
-    uploadLogError.value =
-      '请输入有效的本地路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）'
+    uploadLogError.value = invalidLogSourceMessage
     return
   }
   if (sourceType === 'remote' && !isRemoteArchiveUrl(input)) {
-    uploadLogError.value = '远程 URL 支持 .zip、.tar.gz、.tgz 压缩包'
+    uploadLogError.value = invalidLogSourceMessage
     return
   }
 
@@ -11854,7 +11900,10 @@ const submitLogSource = async () => {
     })
     logSourceInput.value = ''
   } catch (error) {
-    uploadLogError.value = error instanceof Error ? error.message : '添加日志文件失败'
+    uploadLogError.value =
+      error instanceof Error && error.message !== '请求参数校验失败'
+        ? error.message
+        : invalidLogSourceMessage
   } finally {
     isUploadingLog.value = false
     if (selectedAssetId.value) {
@@ -12117,6 +12166,7 @@ const resetAssetScopedMonitorData = () => {
   detailParseResultsTotal.value = 0
   detailParseResultsPage.value = 1
   isDetailParseResultsLoading.value = false
+  isDetailTraceFaultTagsLoading.value = false
   detailParseResultsError.value = ''
   faultDetailTraceRows.value = []
   faultDetailTraceEventsTotal.value = 0
@@ -15034,8 +15084,8 @@ watch(
 watch(
   [
     detailFaultTraceChartRows,
-    isDetailParseResultsLoading,
-    detailParseResultsError,
+    isDetailLatencyChartLoading,
+    detailLatencyChartError,
     selectedAggregatedEvent,
   ],
   () => {
@@ -19850,7 +19900,7 @@ onBeforeUnmount(() => {
               v-model="logSourceInput"
               type="text"
               class="log-source-input"
-              placeholder="添加日志：输入目录路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）"
+              placeholder="添加日志：输入服务器路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）"
               :disabled="isUploadingLog || isWriteRestricted"
               @keydown.enter="submitLogSource"
             />
@@ -21217,14 +21267,14 @@ onBeforeUnmount(() => {
           <section class="aggregate-detail-chart">
             <div class="aggregate-detail-chart-title">故障Trace时序分解</div>
             <div class="latency-chart-panel detail-latency-chart-panel">
-              <div v-if="isDetailParseResultsLoading" class="chart-state detail-chart-state">
+              <div v-if="isDetailLatencyChartLoading" class="chart-state detail-chart-state">
                 正在加载故障Trace时序分解...
               </div>
               <div
-                v-else-if="detailParseResultsError"
+                v-else-if="detailLatencyChartError"
                 class="chart-state chart-error detail-chart-state"
               >
-                {{ detailParseResultsError }}
+                {{ detailLatencyChartError }}
               </div>
               <div
                 v-else-if="detailFaultTraceChartRows.length === 0"
@@ -21342,6 +21392,15 @@ onBeforeUnmount(() => {
                             :class="`trace-type-tag-${tag.type}`"
                           >
                             {{ tag.label }}
+                          </span>
+                          <span
+                            v-if="isDetailTraceFaultTagsLoading"
+                            class="trace-type-tag trace-type-tag-loading"
+                            role="status"
+                            aria-label="故障标签加载中"
+                            title="故障标签加载中"
+                          >
+                            <span v-for="dot in 3" :key="dot" aria-hidden="true"></span>
                           </span>
                         </div>
                         <div class="aggregate-cell">{{ row.time }}</div>
@@ -23394,14 +23453,14 @@ onBeforeUnmount(() => {
           </form>
           <div ref="agentChatMessagesRef" class="agent-chat-messages" aria-live="polite">
             <p v-if="isAgentHistoryLoading" class="agent-empty-options">正在加载历史消息…</p>
-            <div v-else-if="agentChatMessages.length === 0" class="agent-chat-welcome">
+            <div v-else-if="visibleAgentChatMessages.length === 0" class="agent-chat-welcome">
               <span class="agent-chat-welcome-icon" aria-hidden="true">✦</span>
               <strong>你好，我是故障诊断助手</strong>
               <p>可以问我当前资产库的时延异常、通断故障或故障码根因。</p>
             </div>
 
             <article
-              v-for="message in agentChatMessages"
+              v-for="message in visibleAgentChatMessages"
               :key="message.id"
               class="agent-chat-message"
               :class="message.role"
