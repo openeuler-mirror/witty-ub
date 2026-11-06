@@ -59,8 +59,6 @@ bash manage.sh
     0) Quit
 ```
 
-> 容器部署脚本的用户可见输出（日志 / 菜单 / 提示）统一使用**英文**，与 `build.sh`、`docker/entrypoint.sh`、`scripts/publish_split_release.sh` 等既有脚本保持一致；本仓库文档（`docs/`、README）使用中文。
-
 ### 命令行模式
 
 ```bash
@@ -92,7 +90,7 @@ bash manage.sh uninstall --yes
 
 ---
 
-## 内部调用链
+## 安装顺序
 
 ```text
 manage.sh
@@ -111,8 +109,10 @@ manage.sh
 ```
 
 RAG Core 的模型与数据库段由 `deploy_rag.sh` 在部署时按环境变量或 `deploy.conf` 渲染，
-`deploy/rag-core.toml` 只作模板。默认 embedding 为硅基流动 `BAAI/bge-m3`，可用
-`RAG_EMBEDDING_*` 覆盖；传入的 API Key 写入 `RAG_MODEL_API_KEY_SECRET_FILE`
+`deploy/rag-core.toml` 只作模板。默认使用硅基流动的 `BAAI/bge-m3`（1024 维），端点为
+`https://api.siliconflow.cn/v1/embeddings`，需提供有效的 API Key。可用
+`RAG_EMBEDDING_*` 覆盖端点、模型与鉴权配置；无鉴权服务可不填 API Key。
+传入的 API Key 写入 `RAG_MODEL_API_KEY_SECRET_FILE`
 （默认 `/etc/witty-ub/rag-secrets/model-api-key`），端点与模型名写入同目录的 `embedding.conf`，
 均为 `0600` 并在下次部署时复用。同时准备 `/etc/witty-ub/rag-opengauss.passwd`（权限 `0600`）。
 
@@ -144,13 +144,17 @@ RAG Core 的模型与数据库段由 `deploy_rag.sh` 在部署时按环境变量
 7. **启动容器**：容器名分别为 `<名称>`、`<名称>-backend`、`<名称>-frontend`；backend 暴露 9772，frontend 暴露 32413 并按 `WITTY_BACKEND_URL` 反代后端
 8. **健康检查**：等待应用就绪（最多 180 秒）；all/frontend 除检查后端，还经 Nginx 检查 SKILL/WIKI 两类管理接口
 
+启用现象索引时，`all` 和 `backend` 容器每次启动或重启都会先等待 RAG REST 服务，最多 30 秒。
+RAG 就绪后立即启动应用；超时则记录警告并继续启动，结构化检索、普通诊断和页面服务不受
+RAG 故障影响。现象索引任务会周期性重试，RAG 恢复后继续处理。
+
 ### experience-skill Web 服务
 
 `all` 和 `frontend` 容器自动启动经验库 Web 服务；分离部署时服务和经验库数据都留在前端容器。启动流程参照 host/RPM：使用镜像内已安装的技能 venv，先执行 `python -m experience_skill_cli.cli sync`，再执行 `web --host 127.0.0.1 --port 8082 --no-browser`，启动时不下载依赖。
 
 访问路径为 `http://<部署地址>:<Web端口>/experience_api/experiences`，Nginx 转发到容器内 `8082`，无需发布此端口。经验库通过 `witty-ub-experience-data` 卷持久化，运行日志为 `/var/log/witty-ub/experience_server.log`（同时输出到 `docker logs`）。依赖缺失、同步失败或 SKILL/WIKI 接口未就绪会使启动失败；运行期间接口失败会使容器健康检查失败。
 
-源码镜像和 RPM 容器镜像均在构建时准备技能运行环境；试验性前端 overlay 同时更新入口及健康检查脚本。已有容器需重建镜像并重新创建容器，单纯重启旧镜像不会获得修复。
+源码镜像和 RPM 容器镜像均在构建时准备技能运行环境，容器启动时无需安装依赖。
 
 > 分离部署顺序：先后端（`install-pg` + `install-backend`），后前端（`install-frontend`）。
 > 密钥权限按读取方自动设置：容器化 PG → `0440`，宿主机/远端 PG → `0400`。
@@ -229,6 +233,18 @@ WITTY_NETWORK_FALLBACK="prompt"         # 自检失败回退：prompt（提示�
 | `deploy_pg.sh` | - | 1 | `quay.io/sclorg/postgresql-15-c9s:latest` |
 
 > 脚本优先使用本地已有镜像，本地没有时按顺序拉取，拉取失败自动回退到下一个。
+
+### openGauss RAG 镜像选择
+
+未显式设置 `OPENGAUSS_RAG_IMAGE` 时，`deploy_rag.sh` 按以下规则选择镜像：
+
+- ARM64 无 LSE（`/proc/cpuinfo` 不含 `atomics`）：使用 `OPENGAUSS_RAG_IMAGE_NO_LSE`，
+  默认为 `hub-harbor.oepkgs.net/neocopilot/opengauss:7.0.0-lite-noLSE`。
+- ARM64 有 LSE：优先复用本地 Kunpeng HNSW 镜像；不存在时使用 ARM64 固定摘要。
+- x86_64：使用 x86_64 固定摘要，不自动复用本地 Kunpeng 镜像。
+
+显式设置 `OPENGAUSS_RAG_IMAGE` 可覆盖自动选择。noLSE 镜像基于 openGauss-Lite，
+支持 HNSW，但不包含鲲鹏 SRA Recall 的 PQ 加速。
 
 ### PG 连接自动检测
 
@@ -359,7 +375,7 @@ bash manage.sh
 | 部署失败只提示 `Latency Plugin failed to start` | PG 口令不匹配：查看脚本追加打印的 `/var/log/witty-ub/latency_server.log`，见[常见问题 §10](../../docs/troubleshooting/01-common-issues.md) |
 | 分离前端 unhealthy，但前端页面能打开 | 远端后端不可达：先在 BE 执行 `curl http://<BE>:9772/health_check`，见[常见问题 §11](../../docs/troubleshooting/01-common-issues.md) |
 | Skill/Wiki 管理 502 或容器 unhealthy | 检查 `/var/log/witty-ub/experience_server.log`；在容器内执行 `/healthcheck.sh --experience` 检查 Nginx → experience-skill 链路 |
-| 报 `Cannot access the Docker daemon socket (permission denied)` | 当前用户不在 `docker` 组：`sudo usermod -aG docker $USER && newgrp docker`（脚本已区分该错误与"守护进程未启动"） |
+| 报 `Cannot access the Docker daemon socket (permission denied)` | 当前用户不在 `docker` 组：`sudo usermod -aG docker $USER && newgrp docker` |
 | 端口冲突 | `ss -tlnp \| grep <端口>` 检查占用 |
 | 同网络内 PG 与 witty-ub 互相不可达（PG 自身 healthy） | Docker 网络被服务器视为不可信：加 firewalld 信任域，或设 `WITTY_NETWORK_MODE=host`，见[故障排查 §3](../../docs/troubleshooting/02-container-runtime.md) |
 | host 模式下 `docker port witty-ub` 输出为空 | 正常现象（host 模式无端口映射）：Web UI 直接占用宿主机 8080，`manage.sh status` 显示为 `host net (:8080)` |

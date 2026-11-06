@@ -8,8 +8,6 @@
 - **单机 All-in-One**：前端与后端在同一容器内（菜单 `[1]`/`[3]`），适合快速验证或前后端必须同机的场景。
 
 > 部署失败即中止：PG 或 witty-ub 未健康时脚本会打印容器日志并以非 0 退出；`install-all` 在 PG 阶段失败时不会再继续部署 witty-ub。
->
-> **输出语言**：容器部署脚本（`deploy/docker/*`、`deploy/deploy_pg.sh`）的日志、菜单、提示等用户可见文本统一为**英文**（与 `build.sh`、`docker/entrypoint.sh` 等既有脚本一致）；本文档等中文文档仅作说明。
 
 ---
 
@@ -43,6 +41,7 @@ bash deploy/docker/manage.sh
 
 ```text
   [PG]    拉取镜像 → 创建网络 → 创建数据卷 → 启动容器 → 等待健康
+  [RAG]   配置模型 → 启动 openGauss → 启动 RAG Core → 验证 REST/MCP
   [witty] 拉取镜像 → 验证 → 创建网络/数据卷 → 启动 → 等待健康 → 验证
 ```
 
@@ -132,34 +131,44 @@ PG_HOST_IN_CONTAINER=172.18.0.1 bash deploy/docker/manage.sh
 ## 语义检索与内置案例
 
 `install-all` 会一并部署 openGauss + RAG Core，并启用现象语义检索。embedding 模型由部署时的
-环境变量指定，支持任何兼容 OpenAI 的 `/v1/embeddings` 接口（可以是容器外的服务）：
+环境变量指定，支持任何兼容 OpenAI 的 `/v1/embeddings` 接口（可以是容器外的服务）。
+先将 `RAG_EMBEDDING_ENDPOINT` 设置为容器可达的完整接口地址，再执行：
 
 ```bash
-RAG_EMBEDDING_ENDPOINT="http://172.17.0.1:8000/v1/embeddings" \
+RAG_EMBEDDING_ENDPOINT="${RAG_EMBEDDING_ENDPOINT}" \
 RAG_EMBEDDING_MODEL_NAME="BAAI/bge-m3" \
 RAG_EMBEDDING_DIMENSION="1024" \
   bash deploy/docker/manage.sh install-all
 ```
 
-- 三项留空时使用部署默认值（硅基流动），详见 [RAG 与 MCP 部署](../rag-mcp-deployment.md)。
-- `RAG_EMBEDDING_API_KEY` 可留空；连不上不影响结构化检索，只在 `manage.sh status` 的
-  `RAG health` 段反映为 `unreachable` / `auth-failed`。
+- 未覆盖配置时，默认使用硅基流动的 `BAAI/bge-m3`（1024 维），端点为
+  `https://api.siliconflow.cn/v1/embeddings`，需提供有效的 `RAG_EMBEDDING_API_KEY`。
+  其它服务的配置见 [RAG 与 MCP 部署](../rag-mcp-deployment.md)。
+- 无鉴权的模型服务可不填 `RAG_EMBEDDING_API_KEY`。模型服务不可达或鉴权失败时，语义检索
+  不可用，结构化检索不受影响；可用 `manage.sh status` 查看 `RAG health`。
 - 部署时传入的 Key 与端点、模型名会分别写入 `RAG_MODEL_API_KEY_SECRET_FILE`
   （默认 `/etc/witty-ub/rag-secrets/model-api-key`）和同目录的 `embedding.conf`，均为 `0600`；
   直接运行 `deploy_witty.sh --with-rag` 与 `manage.sh` 行为一致。无法写入时仅保留在本次生成的运行配置中。
 - `RAG_RERANK_ENABLED=0`（默认）不启用 rerank。
 - openGauss 口令在首次部署时自动生成并写入 `/etc/witty-ub/rag-opengauss.passwd`（`0600`）。
+- ARM64 无 LSE（`/proc/cpuinfo` 不含 `atomics`）时自动使用 openGauss-Lite noLSE 镜像，可用
+  `OPENGAUSS_RAG_IMAGE_NO_LSE` 覆盖；该镜像支持 HNSW，但不含鲲鹏 SRA Recall 的 PQ 加速。
 
-镜像内置定界报告压缩包，容器启动后按压缩包哈希自动导入（报告与案例），换新镜像即按新包重载：
+启用现象索引时，`all` 和 `backend` 容器每次启动或重启都会等待 RAG REST 服务，最多 30 秒。
+RAG 就绪后立即启动应用；超时则记录警告并继续启动，结构化功能不受影响。现象索引任务
+会周期性重试，RAG 恢复后继续处理。`frontend` 角色不等待 RAG。
+
+镜像内置定界报告压缩包，容器启动后根据压缩包哈希自动导入报告与案例；升级镜像后，
+压缩包内容变化时会重新导入：
 
 - 导入结果写 `/var/witty-ub/builtin-reports/import-state.json`，日志在
   `/var/log/witty-ub/builtin_report_import.log`。
-- 状态文件与数据卷都在宿主机上，可能比数据库活得久；重新导入前会核对数据库里是否真有这些报告，
-  缺了就重导，因此清库后重启即可自动恢复。
+- 重新导入前会核对数据库中的报告记录；记录缺失时重新导入，因此清空数据库后重启容器
+  可恢复内置报告。
 - `WITTY_BUILTIN_REPORTS=0` 可关闭自动导入。
 
-现象检索使用专用知识库，其 id 落在 `/etc/witty-ub/rag-phenomenon-kb`；重新部署时会校验该知识库
-是否还在，不在就新建并重新发布卡片。观察进度：
+现象检索使用专用知识库，其 ID 保存在 `/etc/witty-ub/rag-phenomenon-kb`。重新部署时会校验
+知识库是否存在；已删除时会创建新知识库并重新发布卡片。可通过以下接口查看进度：
 
 ```bash
 curl -s http://localhost:32412/phenomenon/status   # cards.searchable 逐步收敛到卡片总数
@@ -185,7 +194,7 @@ WITTY_BACKEND_URL=http://<后端机器IP>:9772 bash deploy/docker/manage.sh inst
 提示行会回显当前值（来自环境变量或 `deploy.conf`），直接回车即保留该值：
 
 ```text
-  [2] 后端地址            [http://192.168.1.10:9772]:
+  [2] 后端地址            [http://<后端地址>:9772]:
 ```
 
 与单机部署的差异：
@@ -232,7 +241,7 @@ bash deploy/docker/manage.sh
 ```
 
 **非交互（CI / `ssh host 'cmd'`）必须显式加 `--yes`**，否则提示取默认值 No、脚本会
-"什么都没删"但退出码仍为 0：
+不删除任何资源，退出码仍为 0：
 
 ```bash
 bash deploy/docker/manage.sh uninstall --yes            # 容器 + 数据卷

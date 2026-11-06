@@ -28,6 +28,7 @@ _ENV_RAG_RERANK_MODEL_NAME="${RAG_RERANK_MODEL_NAME:-}"
 _ENV_RAG_RERANK_MODEL_PROVIDER="${RAG_RERANK_MODEL_PROVIDER:-}"
 _ENV_RAG_RERANK_ENDPOINT="${RAG_RERANK_ENDPOINT:-}"
 _ENV_OPENGAUSS_RAG_IMAGE="${OPENGAUSS_RAG_IMAGE:-}"
+_ENV_OPENGAUSS_RAG_IMAGE_NO_LSE="${OPENGAUSS_RAG_IMAGE_NO_LSE:-}"
 _ENV_WITTY_RAG_CORE_IMAGE="${WITTY_RAG_CORE_IMAGE:-}"
 _ENV_WITTY_RAG_MCP_IMAGE="${WITTY_RAG_MCP_IMAGE:-}"
 _ENV_WITTY_NETWORK="${WITTY_NETWORK:-}"
@@ -53,10 +54,11 @@ fi
 [ -n "$_ENV_RAG_RERANK_MODEL_PROVIDER" ] && RAG_RERANK_MODEL_PROVIDER="$_ENV_RAG_RERANK_MODEL_PROVIDER"
 [ -n "$_ENV_RAG_RERANK_ENDPOINT" ] && RAG_RERANK_ENDPOINT="$_ENV_RAG_RERANK_ENDPOINT"
 [ -n "$_ENV_OPENGAUSS_RAG_IMAGE" ] && OPENGAUSS_RAG_IMAGE="$_ENV_OPENGAUSS_RAG_IMAGE"
+[ -n "$_ENV_OPENGAUSS_RAG_IMAGE_NO_LSE" ] && OPENGAUSS_RAG_IMAGE_NO_LSE="$_ENV_OPENGAUSS_RAG_IMAGE_NO_LSE"
 [ -n "$_ENV_WITTY_RAG_CORE_IMAGE" ] && WITTY_RAG_CORE_IMAGE="$_ENV_WITTY_RAG_CORE_IMAGE"
 [ -n "$_ENV_WITTY_RAG_MCP_IMAGE" ] && WITTY_RAG_MCP_IMAGE="$_ENV_WITTY_RAG_MCP_IMAGE"
 [ -n "$_ENV_WITTY_NETWORK" ] && WITTY_NETWORK="$_ENV_WITTY_NETWORK"
-unset _ENV_RAG_CONFIG_FILE _ENV_RAG_RUNTIME_DIR _ENV_RAG_RERANK_MODEL_API_KEY_SECRET_FILE _ENV_RAG_DB_SECRET_FILE _ENV_RAG_ACCESS_KEY_SECRET_FILE _ENV_RAG_MODEL_API_KEY_SECRET_FILE _ENV_OPENGAUSS_RAG_IMAGE \
+unset _ENV_RAG_CONFIG_FILE _ENV_RAG_RUNTIME_DIR _ENV_RAG_RERANK_MODEL_API_KEY_SECRET_FILE _ENV_RAG_DB_SECRET_FILE _ENV_RAG_ACCESS_KEY_SECRET_FILE _ENV_RAG_MODEL_API_KEY_SECRET_FILE _ENV_OPENGAUSS_RAG_IMAGE _ENV_OPENGAUSS_RAG_IMAGE_NO_LSE \
     _ENV_RAG_EMBEDDING_MODEL_NAME _ENV_RAG_EMBEDDING_MODEL_PROVIDER _ENV_RAG_EMBEDDING_ENDPOINT \
     _ENV_RAG_EMBEDDING_API_KEY _ENV_RAG_EMBEDDING_DIMENSION _ENV_RAG_RERANK_ENABLED \
     _ENV_RAG_RERANK_MODEL_NAME _ENV_RAG_RERANK_MODEL_PROVIDER _ENV_RAG_RERANK_ENDPOINT \
@@ -64,25 +66,34 @@ unset _ENV_RAG_CONFIG_FILE _ENV_RAG_RUNTIME_DIR _ENV_RAG_RERANK_MODEL_API_KEY_SE
 
 WITTY_NETWORK="${WITTY_NETWORK:-${PG_NETWORK:-witty-ub-network}}"
 OPENGAUSS_RAG_CONTAINER="${OPENGAUSS_RAG_CONTAINER:-opengauss-rag}"
+OPENGAUSS_RAG_IMAGE_NO_LSE="${OPENGAUSS_RAG_IMAGE_NO_LSE:-hub-harbor.oepkgs.net/neocopilot/opengauss:7.0.0-lite-noLSE}"
+
+cpu_has_lse() {
+    grep -qw atomics "${1:-/proc/cpuinfo}" 2>/dev/null
+}
+
 if [ -z "${OPENGAUSS_RAG_IMAGE:-}" ]; then
     LOCAL_HNSW_IMAGE="swr.cn-north-4.myhuaweicloud.com/kunpeng-ai/opengauss:7.0.0-RC3-hnsw"
-    if command -v docker >/dev/null 2>&1 && docker image inspect "$LOCAL_HNSW_IMAGE" >/dev/null 2>&1; then
-        OPENGAUSS_RAG_IMAGE="$LOCAL_HNSW_IMAGE"
-        log_info "复用本地 openGauss HNSW 镜像: ${OPENGAUSS_RAG_IMAGE}"
-    else
-        case "$(uname -m)" in
-            x86_64|amd64)
-                OPENGAUSS_RAG_IMAGE="hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:4fd44608ca3571d3ceb5bc2bc5cbcde131dde2ed2b8068ff3f58effc8c60d885"
-                ;;
-            aarch64|arm64)
+    case "$(uname -m)" in
+        aarch64|arm64)
+            if ! cpu_has_lse; then
+                OPENGAUSS_RAG_IMAGE="$OPENGAUSS_RAG_IMAGE_NO_LSE"
+                log_info "ARM64 without LSE: using openGauss-Lite noLSE image: ${OPENGAUSS_RAG_IMAGE}"
+            elif command -v docker >/dev/null 2>&1 && docker image inspect "$LOCAL_HNSW_IMAGE" >/dev/null 2>&1; then
+                OPENGAUSS_RAG_IMAGE="$LOCAL_HNSW_IMAGE"
+                log_info "Reusing local openGauss HNSW image: ${OPENGAUSS_RAG_IMAGE}"
+            else
                 OPENGAUSS_RAG_IMAGE="hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:38a63d58b2b41e3668cde9f9588a74cb4e8aee76b301f7feb86d6a49d871f10c"
-                ;;
-            *)
-                log_error "不支持的宿主机架构: $(uname -m)；请在 deploy.conf 中显式设置 OPENGAUSS_RAG_IMAGE"
-                exit 1
-                ;;
-        esac
-    fi
+            fi
+            ;;
+        x86_64|amd64)
+            OPENGAUSS_RAG_IMAGE="hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:4fd44608ca3571d3ceb5bc2bc5cbcde131dde2ed2b8068ff3f58effc8c60d885"
+            ;;
+        *)
+            log_error "Unsupported host architecture: $(uname -m); set OPENGAUSS_RAG_IMAGE explicitly in deploy.conf"
+            exit 1
+            ;;
+    esac
     unset LOCAL_HNSW_IMAGE
 fi
 OPENGAUSS_RAG_HOST_PORT="${OPENGAUSS_RAG_HOST_PORT:-5440}"
