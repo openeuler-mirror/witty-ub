@@ -682,7 +682,6 @@ body.agent-panel-resizing-corner {
   gap: 16px;
   padding: 20px 17px;
   overflow-y: auto;
-  scroll-behavior: smooth;
 }
 
 .agent-chat-welcome {
@@ -796,6 +795,18 @@ body.agent-panel-resizing-corner {
 
 .agent-reasoning {
   color: #64748b;
+}
+
+.agent-reasoning-body > * + * {
+  margin-top: 9px;
+}
+
+.agent-turn-empty {
+  margin: 0;
+  padding-top: 7px;
+  color: #94a3b8;
+  font-size: 0.84rem;
+  line-height: 1.6;
 }
 
 .agent-reasoning + .agent-reasoning,
@@ -947,14 +958,118 @@ body.agent-panel-resizing-corner {
   cursor: pointer;
 }
 
+.agent-reasoning-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: #94a3b8;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-reasoning-toggle .agent-thinking-dots,
 .agent-reasoning-chevron {
-  margin-left: auto;
-  font-size: 0.9rem;
+  flex: none;
+}
+
+.agent-tool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  color: #475569;
+  font-size: 0.78rem;
+}
+
+.agent-tool-toggle {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: baseline;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-tool-toggle:hover .agent-tool-detail {
+  background: #e2e8f0;
+}
+
+.agent-tool-verb {
+  flex: none;
+  color: #334155;
+  font-weight: 600;
+}
+
+.agent-tool-detail {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #eef2f7;
+  color: #475569;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-tool-status {
+  flex: none;
+  color: #94a3b8;
+  font-size: 0.7rem;
+}
+
+.agent-tool-status.error,
+.agent-tool-error {
+  color: #dc2626;
+}
+
+.agent-tool-error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.72rem;
+}
+
+/* 展开后的完整内容：保留换行，长行横向滚动 */
+.agent-tool-code {
+  flex-basis: 100%;
+  max-height: 260px;
+  margin: 2px 0 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.agent-tool-code code {
+  font: inherit;
+}
+
+.agent-reasoning-chevron {
+  width: 16px;
+  height: 16px;
+  color: #64748b;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
   transition: transform 0.2s ease;
 }
 
 .agent-reasoning-toggle[aria-expanded='true'] .agent-reasoning-chevron {
-  transform: rotate(180deg);
+  transform: rotate(0deg);
 }
 
 .agent-final-answer .agent-response-label {

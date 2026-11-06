@@ -60,24 +60,46 @@ type LogKnowledge = {
   updated_at?: string
 }
 
+type AgentToolInfo = {
+  name: string
+  status?: string
+  title?: string
+  input?: Record<string, unknown>
+  error?: string
+}
+
 type AgentChatMessage = {
   id: string
   role: 'user' | 'assistant'
   reasoning: string
   parts?: AgentChatPart[]
-  reasoningCollapsed: boolean
   content: string
   status: 'thinking' | 'done' | 'error'
   messageId?: string
+  finish?: string
+  aborted?: boolean
+  time?: { created?: number; completed?: number }
   questionReply?: Array<{ question: string; answer: string }>
   questionReplyAfterMessageId?: string
 }
 
 type AgentChatPart = {
   id: string
-  type: 'reasoning' | 'text'
+  type: 'reasoning' | 'text' | 'tool'
   text: string
-  collapsed?: boolean
+  synthetic?: boolean
+  ignored?: boolean
+  tool?: AgentToolInfo
+}
+
+type AgentTurn = {
+  key: string
+  user?: AgentChatMessage
+  hasAssistant: boolean
+  process: AgentChatPart[]
+  answer: AgentChatPart[]
+  status: 'thinking' | 'done' | 'error'
+  durationMs?: number
 }
 
 type OpenCodeSession = {
@@ -92,12 +114,24 @@ type OpenCodeMessage = {
     id?: string
     role?: string
     error?: unknown
+    finish?: string
+    time?: { created?: number; completed?: number }
     model?: { providerID: string; modelID: string }
   }
   parts?: Array<{
     id?: string
     type?: string
     text?: string
+    synthetic?: boolean
+    ignored?: boolean
+    tool?: string
+    state?: {
+      status?: string
+      input?: Record<string, unknown>
+      output?: string
+      title?: string
+      error?: string
+    }
   }>
 }
 
@@ -144,8 +178,9 @@ type OpenCodeEvent = {
       sessionID?: string
       role?: string
       title?: string
-      time?: { created?: number; updated?: number }
+      time?: { created?: number; completed?: number }
       error?: unknown
+      finish?: string
     }
     part?: {
       id?: string
@@ -153,6 +188,16 @@ type OpenCodeEvent = {
       messageID?: string
       type?: string
       text?: string
+      synthetic?: boolean
+      ignored?: boolean
+      tool?: string
+      state?: {
+        status?: string
+        input?: Record<string, unknown>
+        output?: string
+        title?: string
+        error?: string
+      }
     }
     status?: {
       type?: string
@@ -1092,6 +1137,27 @@ const agentInteractionSubmitting = ref('')
 const agentInteractionError = ref('')
 const agentChatMessagesRef = ref<HTMLElement | null>(null)
 const agentChatPanelRef = ref<HTMLElement | null>(null)
+const isAgentChatPinnedToBottom = ref(true)
+const agentExpandedTurnKeys = ref<Record<string, boolean>>({})
+const agentExpandedToolKeys = ref<Record<string, boolean>>({})
+const agentTurns = computed(() => buildAgentTurns(agentChatMessages.value))
+const hasAgentPendingInteraction = computed(
+  () => agentPendingPermissions.value.length > 0 || agentPendingQuestions.value.length > 0,
+)
+const isAgentTurnExpanded = (key: string) => !!agentExpandedTurnKeys.value[key]
+const toggleAgentTurn = (key: string) => {
+  agentExpandedTurnKeys.value = {
+    ...agentExpandedTurnKeys.value,
+    [key]: !agentExpandedTurnKeys.value[key],
+  }
+}
+const isAgentToolExpanded = (key: string) => !!agentExpandedToolKeys.value[key]
+const toggleAgentTool = (key: string) => {
+  agentExpandedToolKeys.value = {
+    ...agentExpandedToolKeys.value,
+    [key]: !agentExpandedToolKeys.value[key],
+  }
+}
 const agentPanelSize = reactive<{ width: number | null; height: number | null }>({
   width: null,
   height: null,
@@ -1395,18 +1461,75 @@ const renderAgentMarkdown = (markdown: string) => {
   return blocks.join('')
 }
 
-const scrollAgentChatToBottom = async () => {
+const AGENT_CHAT_BOTTOM_THRESHOLD = 24
+const isAgentScrollNearBottom = (
+  metrics: { scrollHeight: number; scrollTop: number; clientHeight: number },
+  threshold = AGENT_CHAT_BOTTOM_THRESHOLD,
+) => metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight <= threshold
+
+// 自动贴底也会触发 scroll 事件；流式内容在事件到达前继续长高，
+// 按当前高度判断就会把自动滚动误判成用户上滑，这里按位置标记跳过这一次事件
+let agentAutoScrollMark: number | null = null
+
+const scrollAgentChatToBottom = async (force = false) => {
   await nextTick()
   const container = agentChatMessagesRef.value
-  if (container) {
-    container.scrollTop = container.scrollHeight
-  }
+  if (!container) return
+  if (!force && !isAgentChatPinnedToBottom.value) return
+  const before = container.scrollTop
+  container.scrollTop = container.scrollHeight
+  isAgentChatPinnedToBottom.value = true
+  if (container.scrollTop !== before) agentAutoScrollMark = container.scrollTop
+}
+
+const handleAgentChatScroll = () => {
+  const container = agentChatMessagesRef.value
+  if (!container) return
+  const mark = agentAutoScrollMark
+  agentAutoScrollMark = null
+  if (mark !== null && Math.abs(container.scrollTop - mark) <= 1) return
+  isAgentChatPinnedToBottom.value = isAgentScrollNearBottom(container)
 }
 
 const getPendingAssistantMessage = () =>
   [...agentChatMessages.value]
     .reverse()
     .find((message) => message.role === 'assistant' && message.status === 'thinking')
+
+const isVisibleAgentText = (part: AgentChatPart) =>
+  part.type === 'text' && !part.synthetic && !part.ignored && part.text.trim() !== ''
+
+const isVisibleAgentReasoning = (part: AgentChatPart) =>
+  part.type === 'reasoning' && part.text.trim() !== ''
+
+const pickAgentToolInput = (value?: Record<string, unknown>) => {
+  if (!value) return undefined
+  const picked: Record<string, unknown> = {}
+  for (const key of ['command', 'filePath', 'path', 'name', 'pattern', 'url', 'description', 'query']) {
+    if (key in value) picked[key] = value[key]
+  }
+  if (Array.isArray(value.todos)) picked.todos = value.todos.length
+  return picked
+}
+
+const toAgentToolInfo = (part: {
+  tool?: string
+  state?: {
+    status?: string
+    input?: Record<string, unknown>
+    title?: string
+    error?: string
+  }
+}): AgentToolInfo | undefined => {
+  if (!part.tool) return undefined
+  return {
+    name: part.tool,
+    status: part.state?.status,
+    title: part.state?.title,
+    input: pickAgentToolInput(part.state?.input),
+    error: part.state?.error,
+  }
+}
 
 const getAgentMessagePart = (
   message: AgentChatMessage,
@@ -1417,7 +1540,7 @@ const getAgentMessagePart = (
   message.parts ||= []
   let messagePart = message.parts.find((part) => part.id === id)
   if (!messagePart) {
-    messagePart = { id, type, text: '', collapsed: false }
+    messagePart = { id, type, text: '' }
     message.parts.push(messagePart)
   }
   return messagePart
@@ -1426,37 +1549,201 @@ const getAgentMessagePart = (
 const syncAgentMessageText = (message: AgentChatMessage) => {
   const parts = message.parts ?? []
   message.reasoning = parts
-    .filter((part) => part.type === 'reasoning' && part.text)
+    .filter(isVisibleAgentReasoning)
     .map((part) => part.text)
     .join('\n\n')
   message.content = parts
-    .filter((part) => part.type === 'text' && part.text)
+    .filter(isVisibleAgentText)
     .map((part) => part.text)
     .join('\n\n')
 }
 
-const getAgentDisplayParts = (message: AgentChatMessage): AgentChatPart[] => {
-  if (message.role !== 'assistant') return []
-  const parts = (message.parts ?? []).filter((part) => part.text || part.type === 'reasoning')
-  if (parts.length > 0) return parts
-  if (message.content) return [{ id: `${message.id}:content`, type: 'text', text: message.content }]
-  if (message.status === 'thinking') {
-    return [{ id: `${message.id}:reasoning-placeholder`, type: 'reasoning', text: '' }]
+const buildAgentTurns = (messages: AgentChatMessage[]): AgentTurn[] => {
+  const groups: Array<{ key: string; user?: AgentChatMessage; steps: AgentChatMessage[] }> = []
+  for (const message of messages) {
+    if (message.role === 'user') {
+      groups.push({ key: message.id, user: message, steps: [] })
+      continue
+    }
+    const current = groups.at(-1)
+    if (current) current.steps.push(message)
+    else groups.push({ key: message.id, steps: [message] })
   }
-  return []
+  return groups.map((group) => {
+    const last = group.steps.at(-1)
+    const lastIsAnswer =
+      !!last && (last.aborted || last.status === 'error' || last.finish !== 'tool-calls')
+    const process: AgentChatPart[] = []
+    const answer: AgentChatPart[] = []
+    group.steps.forEach((step, index) => {
+      const isLast = index === group.steps.length - 1
+      for (const part of step.parts ?? []) {
+        if (part.type === 'tool') {
+          if (part.tool) process.push({ ...part, id: `${step.id}:${part.id}` })
+        } else if (isVisibleAgentReasoning(part)) {
+          process.push({ ...part, id: `${step.id}:${part.id}` })
+        } else if (isVisibleAgentText(part)) {
+          const displayPart = { ...part, id: `${step.id}:${part.id}` }
+          if (isLast && lastIsAnswer) answer.push(displayPart)
+          else process.push(displayPart)
+        }
+      }
+    })
+    const status: AgentTurn['status'] = group.steps.some((step) => step.status === 'error')
+      ? 'error'
+      : last?.status === 'thinking'
+        ? 'thinking'
+        : 'done'
+    const startedAt = group.steps[0]?.time?.created
+    const endedAt = last?.time?.completed
+    const durationMs =
+      startedAt && endedAt && endedAt >= startedAt ? endedAt - startedAt : undefined
+    return {
+      key: group.key,
+      user: group.user,
+      hasAssistant: group.steps.length > 0,
+      process,
+      answer,
+      status,
+      durationMs,
+    }
+  })
 }
 
-const hasAgentDisplayContent = (message: AgentChatMessage) =>
-  message.role !== 'assistant' ||
-  message.status === 'thinking' ||
-  !!message.questionReply?.length ||
-  !!message.content.trim() ||
-  !!message.reasoning.trim() ||
-  !!message.parts?.some((part) => part.text.trim())
+const truncateAgentText = (value: string, limit = 160) =>
+  value.length > limit ? `${value.slice(0, limit)}…` : value
 
-const visibleAgentChatMessages = computed(() =>
-  agentChatMessages.value.filter(hasAgentDisplayContent),
-)
+const getAgentToolView = (part: AgentChatPart) => {
+  const tool = part.tool
+  if (!tool) return { verb: '调用工具', detail: '', fullDetail: '' }
+  const input = tool.input ?? {}
+  const text = (key: string) =>
+    typeof input[key] === 'string' ? (input[key] as string) : ''
+  const view = (verb: string, value: string) => ({
+    verb,
+    detail: truncateAgentText(value),
+    fullDetail: value,
+  })
+  switch (tool.name) {
+    case 'bash':
+      return view('运行命令', tool.title || text('command'))
+    case 'read':
+      return view('读取文件', text('filePath') || text('path') || tool.title || '')
+    case 'write':
+      return view('写入文件', text('filePath') || text('path') || tool.title || '')
+    case 'edit':
+      return view('编辑文件', text('filePath') || text('path') || tool.title || '')
+    case 'patch':
+      return view('修改文件', tool.title || '')
+    case 'skill':
+      return view('加载 Skill', text('name') || tool.title || '')
+    case 'todowrite':
+      return view('更新任务清单', tool.title || '')
+    case 'grep':
+      return view('搜索内容', text('pattern') || tool.title || '')
+    case 'glob':
+      return view('查找文件', text('pattern') || tool.title || '')
+    case 'webfetch':
+      return view('抓取网页', text('url') || tool.title || '')
+    case 'task':
+      return view('启动子任务', text('description') || tool.title || '')
+    default:
+      return view('调用工具', tool.title || tool.name)
+  }
+}
+
+const getAgentToolStatusLabel = (part: AgentChatPart) => {
+  switch (part.tool?.status) {
+    case 'running':
+      return '执行中'
+    case 'pending':
+      return '等待'
+    case 'error':
+      return '失败'
+    case 'completed':
+      return '完成'
+    default:
+      return ''
+  }
+}
+
+const formatAgentDuration = (durationMs?: number) => {
+  if (!durationMs || durationMs < 0) return ''
+  const seconds = Math.max(1, Math.round(durationMs / 1000))
+  if (seconds < 60) return `${seconds} 秒`
+  const minutes = Math.floor(seconds / 60)
+  const restSeconds = seconds % 60
+  if (minutes < 60) return restSeconds ? `${minutes} 分 ${restSeconds} 秒` : `${minutes} 分`
+  const hours = Math.floor(minutes / 60)
+  const restMinutes = minutes % 60
+  return restMinutes ? `${hours} 小时 ${restMinutes} 分` : `${hours} 小时`
+}
+
+const getAgentToolSummary = (process: AgentChatPart[]) => {
+  const counts = { commands: 0, read: 0, modified: 0, skills: 0, todo: 0, other: 0, failed: 0 }
+  for (const part of process) {
+    if (part.type !== 'tool' || !part.tool) continue
+    if (part.tool.status === 'error') counts.failed += 1
+    switch (part.tool.name) {
+      case 'bash':
+        counts.commands += 1
+        break
+      case 'read':
+        counts.read += 1
+        break
+      case 'write':
+      case 'edit':
+      case 'patch':
+        counts.modified += 1
+        break
+      case 'skill':
+        counts.skills += 1
+        break
+      case 'todowrite':
+        counts.todo += 1
+        break
+      default:
+        counts.other += 1
+    }
+  }
+  const fragments: string[] = []
+  if (counts.commands) fragments.push(`执行了 ${counts.commands} 条命令`)
+  if (counts.read) fragments.push(`读取了 ${counts.read} 个文件`)
+  if (counts.modified) fragments.push(`修改了 ${counts.modified} 个文件`)
+  if (counts.skills) fragments.push(`加载了 ${counts.skills} 个 Skill`)
+  if (counts.todo) fragments.push(`更新了 ${counts.todo} 次任务清单`)
+  if (counts.other) fragments.push(`调用了 ${counts.other} 个工具`)
+  if (counts.failed) fragments.push(`失败 ${counts.failed} 次`)
+  return fragments.join('、')
+}
+
+const getAgentTurnPreview = (turn: AgentTurn) => {
+  const last = turn.process.at(-1)
+  if (!last) return '正在分析问题并查询诊断数据'
+  if (last.type === 'tool') {
+    const view = getAgentToolView(last)
+    return view.detail ? `${view.verb}：${view.detail}` : view.verb
+  }
+  const line =
+    last.text
+      .trim()
+      .split(/\n+/)
+      .filter(Boolean)
+      .at(-1) ?? ''
+  if (!line) return '正在分析问题并查询诊断数据'
+  return truncateAgentText(line, 120)
+}
+
+const getAgentTurnSummary = (turn: AgentTurn) => {
+  if (turn.status === 'thinking') return getAgentTurnPreview(turn)
+  const prefix = turn.status === 'error' ? '处理失败' : '已完成'
+  const duration = formatAgentDuration(turn.durationMs)
+  const actions = getAgentToolSummary(turn.process)
+  return `${[prefix, duration ? `用时 ${duration}` : '', actions].filter(Boolean).join('，')}。`
+}
+
+const hasAgentTurnContent = (turn: AgentTurn) =>
+  turn.process.length > 0 || turn.answer.length > 0 || turn.status === 'thinking'
 
 const extractOpenCodeError = (payload: unknown, fallback: string): string => {
   if (typeof payload === 'string' && payload.trim()) return payload.trim()
@@ -1676,6 +1963,8 @@ const resetAgentConversation = () => {
   agentSessionId.value = ''
   agentChatInput.value = ''
   agentChatMessages.value = []
+  agentExpandedTurnKeys.value = {}
+  isAgentChatPinnedToBottom.value = true
   agentPendingPermissions.value = []
   agentPendingQuestions.value = []
   agentQuestionAnswers.value = {}
@@ -1722,7 +2011,7 @@ const newAgentConversation = async () => {
   if (isAgentSessionCreating.value || isAgentSessionSaving.value || isAgentSubmitting.value) return
   resetAgentConversation()
   saveActiveAgentSession()
-  await scrollAgentChatToBottom()
+  await scrollAgentChatToBottom(true)
 }
 
 const refreshAgentSession = async (sessionId: string) => {
@@ -1745,15 +2034,17 @@ const toAgentChatMessages = (messages: OpenCodeMessage[]): AgentChatMessage[] =>
     .map<AgentChatMessage>((message) => {
       const role = message.info.role as AgentChatMessage['role']
       const parts: AgentChatPart[] = (message.parts || [])
-        .filter((part) => part.type === 'reasoning' || part.type === 'text')
+        .filter((part) => part.type === 'reasoning' || part.type === 'text' || part.type === 'tool')
         .map((part, index) => ({
           id: `${part.type}:${part.id || index}`,
           type: part.type as AgentChatPart['type'],
           text: part.text || '',
-          collapsed: part.type === 'reasoning',
+          synthetic: part.synthetic === true,
+          ignored: part.ignored === true,
+          tool: part.type === 'tool' ? toAgentToolInfo(part) : undefined,
         }))
       let text = parts
-        .filter((part) => part.type === 'text')
+        .filter(isVisibleAgentText)
         .map((part) => part.text)
         .join('\n\n')
       if (role === 'user') {
@@ -1776,17 +2067,18 @@ const toAgentChatMessages = (messages: OpenCodeMessage[]): AgentChatMessage[] =>
         id: message.info.id || nextAgentLocalMessageId(),
         role,
         reasoning: parts
-          .filter((part) => part.type === 'reasoning')
+          .filter(isVisibleAgentReasoning)
           .map((part) => part.text)
           .join('\n\n'),
         parts: role === 'assistant' ? parts : undefined,
-        reasoningCollapsed: true,
         content: text,
         status: message.info.error && !wasAborted ? 'error' : 'done',
         messageId: message.info.id,
+        finish: message.info.finish,
+        aborted: wasAborted,
+        time: message.info.time,
       }
     })
-    .filter(hasAgentDisplayContent)
 
 const openAgentSession = async (session: OpenCodeSession) => {
   if (isAgentSessionCreating.value || isAgentSessionSaving.value || isAgentSubmitting.value) return
@@ -1837,14 +2129,13 @@ const openAgentSession = async (session: OpenCodeSession) => {
           role: 'assistant',
           reasoning: '',
           content: '',
-          reasoningCollapsed: false,
           status: 'thinking',
         })
     }
     await loadAgentPendingInteractions(session.id)
     isAgentHistoryLoading.value = false
     replayAgentHistoryEvents()
-    await scrollAgentChatToBottom()
+    await scrollAgentChatToBottom(true)
   } catch (error) {
     if (sequence !== agentRequestSequence) return
     isAgentHistoryFailed.value = true
@@ -2019,7 +2310,7 @@ const chooseAgentModel = async (provider: OpenCodeProvider, model: OpenCodeModel
   selectedAgentProvider.value = provider
   selectedAgentModel.value = { ...model, id: modelId }
   agentView.value = 'chat'
-  await scrollAgentChatToBottom()
+  await scrollAgentChatToBottom(true)
 }
 
 const authorizeAgentProvider = async (provider: OpenCodeProvider) => {
@@ -2067,7 +2358,7 @@ const markAgentResponseAborted = () => {
   const pending = getPendingAssistantMessage()
   if (pending) {
     pending.status = 'done'
-    pending.reasoningCollapsed = true
+    pending.aborted = true
     pending.parts = [{ id: `${pending.id}:aborted`, type: 'text', text: agentUserAbortMessage }]
     syncAgentMessageText(pending)
   }
@@ -2143,7 +2434,7 @@ const addAgentPermissionRequest = (request: OpenCodePermissionRequest) => {
     request,
   ])
   agentInteractionError.value = ''
-  void scrollAgentChatToBottom()
+  void scrollAgentChatToBottom(true)
 }
 
 const normalizeAgentPermissionRequest = (
@@ -2175,7 +2466,7 @@ const addAgentQuestionRequest = (request: OpenCodeQuestionRequest) => {
   agentQuestionAnswers.value[request.id] ||= request.questions.map(() => [])
   agentQuestionCustomAnswers.value[request.id] ||= request.questions.map(() => '')
   agentInteractionError.value = ''
-  void scrollAgentChatToBottom()
+  void scrollAgentChatToBottom(true)
 }
 
 const loadAgentPendingInteractions = async (sessionId: string) => {
@@ -2291,7 +2582,6 @@ const submitAgentQuestion = async (request: OpenCodeQuestionRequest) => {
       id: `agent-question-reply-${request.id}`,
       role: 'user',
       reasoning: '',
-      reasoningCollapsed: true,
       content: answerText,
       status: 'done',
       questionReply,
@@ -2308,7 +2598,7 @@ const submitAgentQuestion = async (request: OpenCodeQuestionRequest) => {
     agentPendingQuestions.value = agentPendingQuestions.value.filter(
       (item) => item.id !== request.id,
     )
-    void scrollAgentChatToBottom()
+    void scrollAgentChatToBottom(true)
   } catch (error) {
     agentInteractionError.value = error instanceof Error ? error.message : '操作选择提交失败。'
     await loadAgentPendingInteractions(agentSessionId.value)
@@ -2408,12 +2698,14 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
           role: 'assistant',
           content: '',
           reasoning: '',
-          reasoningCollapsed: false,
           status: 'thinking',
         }
         agentChatMessages.value.push(pending)
       }
       if (pending && !pending.messageId) pending.messageId = messageId
+      const target = agentChatMessages.value.find((message) => message.messageId === messageId)
+      if (target && properties.info.finish) target.finish = properties.info.finish
+      if (target && properties.info.time) target.time = properties.info.time
     }
     if (properties.info.error) {
       if (isOpenCodeAbortError(properties.info.error) || shouldIgnoreNextAgentAbortError) {
@@ -2447,14 +2739,21 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
       getPendingAssistantMessage()
     if (!target) return
     target.messageId = part.messageID
-    if (part.type === 'reasoning') {
-      const reasoningPartId = part.id || 'reasoning'
-      getAgentMessagePart(target, 'reasoning', reasoningPartId).text = part.text || ''
+    if (part.type === 'reasoning' || part.type === 'text') {
+      const messagePart = getAgentMessagePart(
+        target,
+        part.type,
+        part.id || (part.type === 'reasoning' ? 'reasoning' : 'text'),
+      )
+      messagePart.synthetic = part.synthetic === true
+      messagePart.ignored = part.ignored === true
+      const nextText = part.text || ''
+      // 流式创建时先推空串，后续 delta 才补齐；已有文本时不让空快照覆盖
+      if (nextText !== '' || messagePart.text === '') messagePart.text = nextText
       syncAgentMessageText(target)
-    } else if (part.type === 'text') {
-      const textPartId = part.id || 'text'
-      getAgentMessagePart(target, 'text', textPartId).text = part.text || ''
-      syncAgentMessageText(target)
+    } else if (part.type === 'tool') {
+      const messagePart = getAgentMessagePart(target, 'tool', part.id || 'tool')
+      messagePart.tool = toAgentToolInfo(part)
     }
     void scrollAgentChatToBottom()
     return
@@ -2467,8 +2766,6 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     const pending = getPendingAssistantMessage()
     if (pending) {
       pending.status = 'done'
-      if (!pending.content) pending.content = 'Agent 已完成处理，但没有返回文本结果。'
-      pending.reasoningCollapsed = true
     }
     isAgentSending.value = false
     agentSessionStatuses.value[eventSessionId] = { type: 'idle' }
@@ -2650,7 +2947,7 @@ const ensureAgentSession = async () => {
 const toggleAgentChat = () => {
   isAgentChatOpen.value = !isAgentChatOpen.value
   if (isAgentChatOpen.value) {
-    void scrollAgentChatToBottom()
+    void scrollAgentChatToBottom(true)
   }
 }
 
@@ -2693,7 +2990,6 @@ const sendAgentMessage = async () => {
     id: nextAgentLocalMessageId(),
     role: 'user',
     reasoning: '',
-    reasoningCollapsed: false,
     content: question,
     status: 'done',
   })
@@ -2702,7 +2998,6 @@ const sendAgentMessage = async () => {
     role: 'assistant',
     reasoning: '',
     parts: [],
-    reasoningCollapsed: false,
     content: '',
     status: 'thinking',
   }
@@ -2710,7 +3005,7 @@ const sendAgentMessage = async () => {
   isAgentSending.value = true
   const requestSequence = ++agentRequestSequence
   isAgentSubmitting.value = true
-  await scrollAgentChatToBottom()
+  await scrollAgentChatToBottom(true)
 
   try {
     await ensureAgentSession()
@@ -23451,76 +23746,130 @@ onBeforeUnmount(() => {
               </button>
             </div>
           </form>
-          <div ref="agentChatMessagesRef" class="agent-chat-messages" aria-live="polite">
+          <div
+            ref="agentChatMessagesRef"
+            class="agent-chat-messages"
+            aria-live="polite"
+            @scroll="handleAgentChatScroll"
+          >
             <p v-if="isAgentHistoryLoading" class="agent-empty-options">正在加载历史消息…</p>
-            <div v-else-if="visibleAgentChatMessages.length === 0" class="agent-chat-welcome">
+            <div v-else-if="agentChatMessages.length === 0" class="agent-chat-welcome">
               <span class="agent-chat-welcome-icon" aria-hidden="true">✦</span>
               <strong>你好，我是故障诊断助手</strong>
               <p>可以问我当前资产库的时延异常、通断故障或故障码根因。</p>
             </div>
 
-            <article
-              v-for="message in visibleAgentChatMessages"
-              :key="message.id"
-              class="agent-chat-message"
-              :class="message.role"
-            >
-              <div v-if="message.role === 'assistant'" class="agent-chat-avatar" aria-hidden="true">
-                AI
-              </div>
-              <div
-                class="agent-chat-bubble"
-                :class="{ 'agent-question-reply-bubble': !!message.questionReply?.length }"
+            <template v-for="turn in agentTurns" :key="turn.key">
+              <article v-if="turn.user" class="agent-chat-message user">
+                <div
+                  class="agent-chat-bubble"
+                  :class="{ 'agent-question-reply-bubble': !!turn.user.questionReply?.length }"
+                >
+                  <template v-if="turn.user.questionReply?.length">
+                    <section
+                      v-for="(reply, replyIndex) in turn.user.questionReply"
+                      :key="replyIndex"
+                      class="agent-user-question-reply"
+                    >
+                      <h4 v-if="replyIndex === 0"># 问题</h4>
+                      <p class="agent-user-question-text">{{ reply.question }}</p>
+                      <p class="agent-user-answer-text">{{ reply.answer }}</p>
+                    </section>
+                  </template>
+                  <p v-else>{{ turn.user.content }}</p>
+                </div>
+              </article>
+
+              <article
+                v-if="turn.hasAssistant && (hasAgentTurnContent(turn) || !hasAgentPendingInteraction)"
+                class="agent-chat-message assistant"
               >
-                <template v-if="message.role === 'assistant'">
+                <div class="agent-chat-avatar" aria-hidden="true">AI</div>
+                <div v-if="hasAgentTurnContent(turn)" class="agent-chat-bubble">
                   <section
-                    v-for="part in getAgentDisplayParts(message)"
-                    :key="part.id"
-                    :class="part.type === 'reasoning' ? 'agent-reasoning' : 'agent-final-answer'"
+                    v-if="turn.process.length || turn.status === 'thinking'"
+                    class="agent-reasoning"
                   >
-                    <template v-if="part.type === 'reasoning'">
-                      <button
-                        type="button"
-                        class="agent-response-label agent-reasoning-toggle"
-                        :aria-expanded="!part.collapsed"
-                        @click="part.collapsed = !part.collapsed"
+                    <button
+                      type="button"
+                      class="agent-response-label agent-reasoning-toggle"
+                      :aria-expanded="isAgentTurnExpanded(turn.key)"
+                      :aria-label="isAgentTurnExpanded(turn.key) ? '收起处理过程' : '展开处理过程'"
+                      @click="toggleAgentTurn(turn.key)"
+                    >
+                      <span class="agent-reasoning-summary">{{ getAgentTurnSummary(turn) }}</span>
+                      <span
+                        v-if="turn.status === 'thinking'"
+                        class="agent-thinking-dots"
+                        aria-label="思考中"
                       >
-                        <span>思考过程</span>
-                        <span
-                          v-if="message.status === 'thinking'"
-                          class="agent-thinking-dots"
-                          aria-label="思考中"
-                        >
-                          <i></i><i></i><i></i>
-                        </span>
-                        <span class="agent-reasoning-chevron" aria-hidden="true">⌄</span>
-                      </button>
-                      <div v-show="!part.collapsed">
-                        <p v-if="part.text">{{ part.text }}</p>
-                        <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
-                      </div>
-                    </template>
+                        <i></i><i></i><i></i>
+                      </span>
+                      <svg
+                        class="agent-reasoning-chevron"
+                        viewBox="0 0 16 16"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M3.5 5.75 8 10.25l4.5-4.5"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </button>
+                    <div v-show="isAgentTurnExpanded(turn.key)" class="agent-reasoning-body">
+                      <template v-for="part in turn.process" :key="part.id">
+                        <p v-if="part.type === 'reasoning'">{{ part.text }}</p>
+                        <div v-else-if="part.type === 'text'" class="agent-markdown" v-html="renderAgentMarkdown(part.text)"></div>
+                        <div v-else class="agent-tool">
+                          <button
+                            type="button"
+                            class="agent-tool-toggle"
+                            :aria-expanded="isAgentToolExpanded(part.id)"
+                            @click="toggleAgentTool(part.id)"
+                          >
+                            <span class="agent-tool-verb">{{ getAgentToolView(part).verb }}</span>
+                            <code
+                              v-if="!isAgentToolExpanded(part.id) && getAgentToolView(part).detail"
+                              class="agent-tool-detail"
+                              :title="getAgentToolView(part).fullDetail"
+                              >{{ getAgentToolView(part).detail }}</code
+                            >
+                          </button>
+                          <span
+                            class="agent-tool-status"
+                            :class="{ error: part.tool?.status === 'error' }"
+                            >{{ getAgentToolStatusLabel(part) }}</span
+                          >
+                          <pre
+                            v-if="isAgentToolExpanded(part.id) && getAgentToolView(part).fullDetail"
+                            class="agent-tool-code"
+                          ><code>{{ getAgentToolView(part).fullDetail }}</code></pre>
+                          <p v-if="part.tool?.status === 'error' && part.tool.error" class="agent-tool-error">
+                            {{ part.tool.error }}
+                          </p>
+                        </div>
+                      </template>
+                      <p v-if="!turn.process.length" class="agent-reasoning-placeholder">
+                        正在分析问题并查询诊断数据
+                      </p>
+                    </div>
+                  </section>
+                  <section v-if="turn.answer.length" class="agent-final-answer">
                     <div
-                      v-else
+                      v-for="part in turn.answer"
+                      :key="part.id"
                       class="agent-markdown"
                       v-html="renderAgentMarkdown(part.text)"
                     ></div>
                   </section>
-                </template>
-                <template v-else-if="message.role === 'user' && message.questionReply?.length">
-                  <section
-                    v-for="(reply, replyIndex) in message.questionReply"
-                    :key="replyIndex"
-                    class="agent-user-question-reply"
-                  >
-                    <h4 v-if="replyIndex === 0"># 问题</h4>
-                    <p class="agent-user-question-text">{{ reply.question }}</p>
-                    <p class="agent-user-answer-text">{{ reply.answer }}</p>
-                  </section>
-                </template>
-                <p v-else-if="message.role === 'user'">{{ message.content }}</p>
-              </div>
-            </article>
+                </div>
+                <p v-else class="agent-turn-empty">Agent 已完成处理，但没有返回文本结果。</p>
+              </article>
+            </template>
 
             <section
               v-for="request in agentPendingPermissions"
