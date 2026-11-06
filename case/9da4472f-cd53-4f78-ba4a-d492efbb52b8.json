@@ -82,5 +82,7 @@
       "total_parse_result_count": 250
     }
   },
-  "created_at": "2026-09-28 18:29:44"
+  "created_at": "2026-09-28 18:29:44",
+  "first_level_label": "硬件故障",
+  "second_level_label": "网卡故障-丢包"
 }

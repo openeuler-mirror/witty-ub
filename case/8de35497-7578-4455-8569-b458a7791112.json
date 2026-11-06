@@ -101,5 +101,7 @@
       "total_parse_result_count": 314
     }
   },
-  "created_at": "2026-09-28 18:29:39"
+  "created_at": "2026-09-28 18:29:39",
+  "first_level_label": "Worker故障",
+  "second_level_label": "Worker故障-进程反复重启"
 }

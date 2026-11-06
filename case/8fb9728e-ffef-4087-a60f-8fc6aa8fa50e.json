@@ -91,5 +91,7 @@
       "total_parse_result_count": 4
     }
   },
-  "created_at": "2026-09-28 17:24:09"
+  "created_at": "2026-09-28 17:24:09",
+  "first_level_label": "Worker故障",
+  "second_level_label": "Worker故障-进程退出"
 }

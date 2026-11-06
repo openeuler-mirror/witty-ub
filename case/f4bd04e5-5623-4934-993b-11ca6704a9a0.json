@@ -102,5 +102,7 @@
       "total_parse_result_count": 2000
     }
   },
-  "created_at": "2026-09-28 17:24:09"
+  "created_at": "2026-09-28 17:24:09",
+  "first_level_label": "硬件故障",
+  "second_level_label": "ub端口故障-down"
 }

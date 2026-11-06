@@ -126,5 +126,7 @@
       "total_parse_result_count": 964
     }
   },
-  "created_at": "2026-09-28 17:24:09"
+  "created_at": "2026-09-28 17:24:09",
+  "first_level_label": "容器故障",
+  "second_level_label": "容器故障-Worker容器重启"
 }
