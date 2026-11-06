@@ -16,16 +16,31 @@ Witty-UB/OpenCode -> http://witty-rag-core:12312/sse
 准备以下文件和变量：
 
 ```bash
+# 手动部署时按架构与 CPU 指令集选择镜像。
 case "$(uname -m)" in
   x86_64|amd64)
-    export OPENGAUSS_RAG_IMAGE="hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:4fd44608ca3571d3ceb5bc2bc5cbcde131dde2ed2b8068ff3f58effc8c60d885" ;;
+    export OPENGAUSS_RAG_IMAGE="${OPENGAUSS_RAG_IMAGE:-hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:4fd44608ca3571d3ceb5bc2bc5cbcde131dde2ed2b8068ff3f58effc8c60d885}"
+    export WITTY_RAG_CORE_IMAGE="${WITTY_RAG_CORE_IMAGE:-hub-harbor.oepkgs.net/neocopilot/witty-rag-core:0.10.2-release-x86}" ;;
   aarch64|arm64)
-    export OPENGAUSS_RAG_IMAGE="hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:38a63d58b2b41e3668cde9f9588a74cb4e8aee76b301f7feb86d6a49d871f10c" ;;
+    if grep -qw atomics /proc/cpuinfo; then
+      export OPENGAUSS_RAG_IMAGE="${OPENGAUSS_RAG_IMAGE:-hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:38a63d58b2b41e3668cde9f9588a74cb4e8aee76b301f7feb86d6a49d871f10c}"
+    else
+      export OPENGAUSS_RAG_IMAGE="${OPENGAUSS_RAG_IMAGE:-${OPENGAUSS_RAG_IMAGE_NO_LSE:-hub-harbor.oepkgs.net/neocopilot/opengauss:7.0.0-lite-noLSE}}"
+    fi
+    export WITTY_RAG_CORE_IMAGE="${WITTY_RAG_CORE_IMAGE:-hub-harbor.oepkgs.net/neocopilot/witty-rag-core:0.10.2-release-arm}" ;;
+  *)
+    echo "不支持的架构，请显式选择兼容镜像。" >&2
+    exit 1 ;;
 esac
-export WITTY_RAG_CORE_IMAGE="hub-harbor.oepkgs.net/neocopilot/witty-rag-core:0.10.2-release-arm"
-export RAG_SOURCE_DIR="/home/euler-copilot-rag"
 export RAG_CONFIG_FILE="$(pwd)/deploy/rag-core.toml"
 ```
+
+使用部署脚本时无需执行上述镜像选择命令。`deploy_rag.sh` 在 ARM64 无 LSE
+（`/proc/cpuinfo` 不含 `atomics`）时使用
+`OPENGAUSS_RAG_IMAGE_NO_LSE`（默认 `hub-harbor.oepkgs.net/neocopilot/opengauss:7.0.0-lite-noLSE`）。
+ARM64 有 LSE 时优先复用本地 Kunpeng HNSW 镜像，不存在时使用 ARM64 固定摘要；
+x86_64 使用 x86_64 固定摘要。显式设置 `OPENGAUSS_RAG_IMAGE` 可覆盖自动选择。
+noLSE 镜像基于 openGauss-Lite，支持 HNSW，但不包含鲲鹏 SRA Recall 的 PQ 加速。
 
 `config.toml` 中标量库和向量库应使用容器 DNS 名：
 
@@ -45,50 +60,44 @@ database_host = "opengauss-rag"
 database_port = 5432
 ```
 
-模型名称、地址、API Key 和数据库密码按实际环境填写，不要提交到 Git。
+模型名称、接口地址、API Key 和数据库密码由部署配置提供。含凭据的配置文件应限制访问权限，
+不要纳入版本控制。
 
 ## 0. 配置 embedding 模型（必填项）
 
 语义检索依赖 embedding。RAG Core 只认 **OpenAI 兼容的 `/v1/embeddings` 接口**，
 因此可以指向任何实现了该协议的服务：公网 SaaS、内网自建 vLLM/TEI，或宿主机上的本地推理服务。
 
-默认使用硅基流动 `BAAI/bge-m3`。要改用其它服务，部署时通过环境变量覆盖：
+默认使用硅基流动的 `BAAI/bge-m3`，端点为
+`https://api.siliconflow.cn/v1/embeddings`。使用该服务需要提供有效的 API Key。
+要改用其它服务，可修改 `deploy.conf` 或在部署时通过环境变量覆盖：
 
 | 变量 | 说明 | 默认 |
 | --- | --- | --- |
 | `RAG_EMBEDDING_ENDPOINT` | 完整的 `/v1/embeddings` 地址 | `https://api.siliconflow.cn/v1/embeddings` |
 | `RAG_EMBEDDING_MODEL_NAME` | 端点上的模型名 | `BAAI/bge-m3` |
 | `RAG_EMBEDDING_DIMENSION` | 向量维度上限，写入 `[service] max_vector_dimension` | `1024` |
-| `RAG_EMBEDDING_API_KEY` | API Key，**可留空** | 空（无鉴权） |
+| `RAG_EMBEDDING_API_KEY` | 服务的 API Key；仅无鉴权服务可留空 | 空（未配置） |
 | `RAG_MODEL_API_KEY_SECRET_FILE` | 需要持久化 Key 时的文件路径 | `/etc/witty-ub/rag-secrets/model-api-key` |
 | `RAG_RERANK_ENABLED` | 是否启用 rerank，`0`/`1` | `0`（关闭） |
 
 ### API Key 与鉴权
 
+- 默认硅基流动服务需要有效的 API Key；配置为空不代表该服务支持无鉴权访问。
 - 本地服务常常**没有鉴权**：不填 `RAG_EMBEDDING_API_KEY` 即可，脚本不会强制生成密钥文件。
-- 有鉴权时 Key 长度不受限制（不校验长度或字符集），但仍以 `Authorization: Bearer <key>` 发送。
+- 有鉴权时，API Key 通过 `Authorization: Bearer <API_KEY>` 请求头发送。
 - Key 会写入 `RAG_MODEL_API_KEY_SECRET_FILE`（权限 `0600`），不会进入容器环境变量或 Git。
 
 ### 服务在宿主机（不在 Docker 网络内）
 
 RAG Core 运行在容器里，要访问宿主机上的模型服务需要一个容器可达的地址：
 
-```bash
-# 宿主机在 Docker 默认网桥上的地址（通常为 172.17.0.1）
-RAG_EMBEDDING_ENDPOINT="http://172.17.0.1:8000/v1/embeddings"
-
-# 或直接填宿主机的局域网 IP
-RAG_EMBEDDING_ENDPOINT="http://<宿主机IP>:8000/v1/embeddings"
-```
-
-示例（openEuler 上用 vLLM 提供 embedding 服务）：
+将 `RAG_EMBEDDING_ENDPOINT` 设置为容器可达的完整 `/v1/embeddings` 地址。可以使用宿主机
+的局域网地址，或根据 Docker 网络配置确定网关地址；不要使用容器内的 `127.0.0.1`。
 
 ```bash
-# 宿主机起服务，模型与端口按实际情况选择；vLLM 会暴露 /v1/embeddings
-vllm serve BAAI/bge-m3 --port 8000
-
-# 部署时指向该端点
-RAG_EMBEDDING_ENDPOINT="http://172.17.0.1:8000/v1/embeddings" \
+# 先设置 RAG_EMBEDDING_ENDPOINT，再部署。
+RAG_EMBEDDING_ENDPOINT="${RAG_EMBEDDING_ENDPOINT}" \
 RAG_EMBEDDING_MODEL_NAME="BAAI/bge-m3" \
 RAG_EMBEDDING_DIMENSION="1024" \
   bash deploy/docker/manage.sh install-rag
@@ -103,16 +112,16 @@ vLLM、TEI、Xinference 等服务的 embedding 接口路径都是 `/v1/embedding
   维度不高于上限的模型可以直接用；3072 维模型（如 `text-embedding-3-large`）需要调大上限。
 - **更换 embedding 模型必须全量重建索引**（不同模型的向量不可比），维度变化还需重建向量集合。
   重建后要重新校准 `RAG_MIN_SCORE`。
-- 换知识库（含知识库被删后重建成新 ID）同理：旧卡片挂在旧知识库上，检索永远命中不到。
-  后端启动时跑一次核对，会把指向旧知识库的映射退役并重新发布；也可以手动触发：
+- 更换知识库（包括删除后重建为新 ID）后，原有映射不能用于新知识库的检索。
+  后端启动时会核对映射，将旧知识库的映射退役并重新发布；也可以手动触发：
 
   ```bash
   docker exec witty-ub /var/witty-ub/latency/.venv/bin/python \
     -m latency.access.phenomenon_cli --reconcile
   ```
 
-  返回里的 `stale_kb` 就是本轮退役的旧知识库映射数量；随后
-  `GET /phenomenon/status` 从 `cards.searchable` 观察重建进度。
+  返回结果中的 `stale_kb` 表示已退役的旧知识库映射数量；可通过
+  `GET /phenomenon/status` 的 `cards.searchable` 查看重建进度。
 
 ### 健康检查
 
@@ -123,7 +132,7 @@ RAG health:
   openGauss   healthy
   RAG REST    ok
   RAG MCP     ok
-  embedding   BAAI/bge-m3 @ http://172.17.0.1:8000/v1/embeddings [ok]
+  embedding   BAAI/bge-m3 @ <配置的 embedding 地址> [ok]
   rerank      disabled
 ```
 
@@ -136,7 +145,7 @@ RAG health:
 
 ### 部署脚本一键启动（推荐）
 
-部署脚本现在可以先创建专用 openGauss 和 RAG Core，再启动 Witty-UB：
+部署脚本先创建专用 openGauss 和 RAG Core，再启动 Witty-UB：
 
 ```bash
 sudo install -d -m 700 /etc/witty-ub
@@ -211,11 +220,12 @@ curl -fsS http://127.0.0.1:9990/health_check
 
 ## 4. 在 RAG Core 中启动 MCP SSE
 
-> 部署脚本（`manage.sh install-rag` / `deploy_rag.sh`）现在**默认拉取预构建的**
+> 部署脚本（`manage.sh install-rag` / `deploy_rag.sh`）默认拉取预构建的
 > `hub-harbor.oepkgs.net/neocopilot/witty-rag-core:mcp`，目标机不需要源码和编译环境。
 > 只有镜像仓库不可达时才需要下面的手工步骤（`WITTY_RAG_MCP_BUILD=1` 可在本地构建）。
 
-当前 RAG MCP 源码使用 MCP Python SDK 1.x 的 `FastMCP` API，因此必须固定 `mcp<2`：
+手动部署所用的 RAG MCP 源码依赖 MCP Python SDK 1.x 的 `FastMCP` API，需安装 `mcp<2`。
+先将 `RAG_SOURCE_DIR` 设置为 RAG MCP 源码目录，再执行：
 
 ```bash
 docker exec witty-rag-core pip install \
@@ -247,11 +257,12 @@ docker exec witty-rag-core sh -lc \
 
 SSE 是长连接，`curl` 在短超时后退出是正常现象；响应头应包含 `200 OK` 和 `text/event-stream`。
 
-> 当前上游实现中，直接重启 `witty-rag-core` 会终止 MCP 进程，需要重新执行本节最后一条启动命令。生产环境建议把 MCP 制作为独立镜像/Compose 服务并配置 `restart: unless-stopped`。
+> 本节手动启动的 MCP 进程不会在容器重启后自动恢复，需要重新执行启动命令。
+> 使用部署脚本和预构建 MCP 镜像时，REST 与 MCP 服务由容器入口启动，无需手动恢复。
 
 ## 5. 启动 Witty-UB
 
-项目默认 MCP 地址已经设置为：
+默认 MCP 地址为：
 
 ```text
 http://witty-rag-core:12312/sse
@@ -270,6 +281,11 @@ docker compose up -d postgres witty-ub
 WITTY_RAG_MCP_URL="http://witty-rag-core:12312/sse" \
   bash deploy/docker/deploy_witty.sh --image witty-ub:latest
 ```
+
+启用现象索引时，`all` 和 `backend` 容器每次启动或重启会先等待 RAG REST 服务，最多
+30 秒。RAG 就绪后立即启动应用；超时则记录警告并继续启动，结构化功能不受影响。
+现象索引任务会周期性重试，RAG 恢复后继续处理。手动 `docker run` 或 Docker Compose
+不包含这一步等待。
 
 如果 RAG 位于另一个已存在的 Docker 网络：
 

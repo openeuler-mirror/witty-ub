@@ -93,7 +93,7 @@ CONFIG_KEYS=(
     OPENCODE_CONFIG_DIR PG_IMAGE PG_HEALTH_INTERVAL PG_HEALTH_TIMEOUT PG_HEALTH_RETRIES
     PG_HEALTH_START_PERIOD
     WITTY_RAG_MCP_URL WITTY_RAG_NETWORK RAG_CONFIG_FILE RAG_DB_SECRET_FILE
-    OPENGAUSS_RAG_IMAGE WITTY_RAG_CORE_IMAGE WITTY_RAG_CORE_HOST_PORT
+    OPENGAUSS_RAG_IMAGE OPENGAUSS_RAG_IMAGE_NO_LSE WITTY_RAG_CORE_IMAGE WITTY_RAG_CORE_HOST_PORT
     RAG_ACCESS_KEY_SECRET_FILE RAG_CORE_URL RAG_ACCESS_KEY_FILE
     RAG_MODEL_API_KEY_SECRET_FILE RAG_EMBEDDING_MODEL_NAME RAG_EMBEDDING_MODEL_PROVIDER
     RAG_EMBEDDING_ENDPOINT RAG_EMBEDDING_API_KEY RAG_EMBEDDING_DIMENSION
@@ -636,6 +636,37 @@ except Exception:
     unset _opt _rag_key_file
 fi
 
+# 等待随容器重启生效；RAG 超时只降级语义功能，不阻止主服务启动。
+RAG_WAIT_ENTRYPOINT_ARGS=()
+RAG_WAIT_COMMAND_ARGS=()
+RAG_WAIT_ENV_ARGS=()
+if [ "$ROLE" != "frontend" ] && [ "${PHENOMENON_INDEX_ENABLED:-false}" = "true" ] &&
+    [ -n "${RAG_CORE_URL:-}" ]; then
+    RAG_WAIT_ENTRYPOINT_ARGS=(--entrypoint /bin/bash)
+    RAG_WAIT_ENV_ARGS=(-e "WITTY_RAG_WAIT_URL=${RAG_CORE_URL}")
+    RAG_WAIT_COMMAND_ARGS=(-c '
+_deadline=$((SECONDS + 30))
+echo "[INFO] Waiting up to 30s for RAG: ${WITTY_RAG_WAIT_URL%/}/health_check"
+while [ "$SECONDS" -lt "$_deadline" ]; do
+    _remaining=$((_deadline - SECONDS))
+    [ "$_remaining" -gt 0 ] || break
+    _probe_timeout=3
+    [ "$_remaining" -ge "$_probe_timeout" ] || _probe_timeout="$_remaining"
+    if curl -fsS --max-time "$_probe_timeout" --noproxy "*" "${WITTY_RAG_WAIT_URL%/}/health_check" >/dev/null 2>&1; then
+        echo "[OK] RAG is ready: ${WITTY_RAG_WAIT_URL%/}/health_check"
+        exec /entrypoint.sh
+    fi
+    _remaining=$((_deadline - SECONDS))
+    [ "$_remaining" -gt 0 ] || break
+    _sleep=2
+    [ "$_remaining" -ge "$_sleep" ] || _sleep="$_remaining"
+    sleep "$_sleep"
+done
+echo "[WARN] RAG is not ready after 30s; starting Witty-UB with semantic features unavailable. Index workers will retry." >&2
+exec /entrypoint.sh
+')
+fi
+
 # ============================================================
 # witty-ub 镜像候选列表（按优先级从高到低，tag 跟随部署角色）
 # ============================================================
@@ -943,6 +974,7 @@ backend)
         -e PG_DATABASE="${PG_DATABASE:-witty-ub}" \
         -e PG_USER="${PG_USER:-witty-ub}" \
         "${PHENOMENON_ENV_ARGS[@]}" \
+        "${RAG_WAIT_ENV_ARGS[@]}" \
         "${REVIEW_ENV_ARGS[@]}" \
         "${REPORT_IMPORT_ENV_ARGS[@]}" \
         "${SSL_ENV_ARGS[@]}" \
@@ -954,7 +986,9 @@ backend)
         --health-start-period=40s \
         "${SECURITY_OPT_ARGS[@]}" \
         "${NETWORK_ARGS[@]}" \
-        "${SELECTED_IMAGE}"
+        "${RAG_WAIT_ENTRYPOINT_ARGS[@]}" \
+        "${SELECTED_IMAGE}" \
+        "${RAG_WAIT_COMMAND_ARGS[@]}"
     ;;
 frontend)
     docker run -d \
@@ -1001,6 +1035,7 @@ frontend)
         -e PG_DATABASE="${PG_DATABASE:-witty-ub}" \
         -e PG_USER="${PG_USER:-witty-ub}" \
         "${PHENOMENON_ENV_ARGS[@]}" \
+        "${RAG_WAIT_ENV_ARGS[@]}" \
         "${REVIEW_ENV_ARGS[@]}" \
         "${REPORT_IMPORT_ENV_ARGS[@]}" \
         "${SSL_ENV_ARGS[@]}" \
@@ -1012,7 +1047,9 @@ frontend)
         --health-start-period=40s \
         "${SECURITY_OPT_ARGS[@]}" \
         "${NETWORK_ARGS[@]}" \
-        "${SELECTED_IMAGE}"
+        "${RAG_WAIT_ENTRYPOINT_ARGS[@]}" \
+        "${SELECTED_IMAGE}" \
+        "${RAG_WAIT_COMMAND_ARGS[@]}"
     ;;
 esac
 

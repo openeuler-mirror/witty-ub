@@ -391,6 +391,14 @@ docker run --rm -v witty-ub-data:/data -v $(pwd):/backup alpine tar czf /backup/
 
 手动 `docker run` 不包含 openGauss 与 RAG Core。需要语义检索时先运行 `bash deploy/docker/deploy_rag.sh`，embedding 与 API Key 配置见 [RAG 与 MCP 部署](../rag-mcp-deployment.md)。
 
+ARM64 无 LSE（`/proc/cpuinfo` 不含 `atomics`）时，`deploy_rag.sh` 自动使用 openGauss-Lite
+noLSE 镜像，可用 `OPENGAUSS_RAG_IMAGE_NO_LSE` 覆盖。显式设置 `OPENGAUSS_RAG_IMAGE`
+时使用指定镜像。
+
+使用 `deploy_witty.sh` 部署并启用现象索引时，`all` 和 `backend` 容器每次启动或重启
+最多等待 RAG REST 服务 30 秒；超时会记录警告并启动应用，现象索引任务会周期性重试。
+手动 `docker run` 或 Docker Compose 不包含这一步等待。
+
 ## 现象索引初始化
 
 启用现象索引前，创建或校验专用知识库并跑闭环自检：
@@ -400,7 +408,9 @@ docker exec witty-ub python -m latency.access.phenomenon_cli --init-kb
 docker exec witty-ub python -m latency.access.phenomenon_cli --self-check
 ```
 
-`--init-kb` 在未配置 `RAG_PHENOMENON_KB_ID` 时创建知识库并输出 ID；将该值写回 `deploy.conf` 后重新部署。灰度阶段保持 `PHENOMENON_SEARCH_ENABLED=false`，卡片收敛到 `indexed` 后再开启检索。
+`--init-kb` 在未配置 `RAG_PHENOMENON_KB_ID` 时创建知识库并输出 ID；将该值写回
+`deploy.conf` 后重新部署。初始化期间可保持 `PHENOMENON_SEARCH_ENABLED=false`，
+待卡片状态收敛到 `indexed` 后再开启检索。
 
 ---
 
