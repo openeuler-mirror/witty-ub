@@ -5505,6 +5505,10 @@ const formatTraceDelayColumnValue = (
   if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
   if (value < 0) return '无效值'
   if (column.unit === 'count') return String(Math.round(value))
+  if (value === 0) return '0'
+  if (value > 0 && Number(value.toFixed(3)) === 0) {
+    return `${formatMetricValue(value * 1000)} ns`
+  }
   return `${formatMetricValue(value)} ${column.unit}`
 }
 
