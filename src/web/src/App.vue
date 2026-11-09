@@ -5498,6 +5498,15 @@ const formatMetricValue = (value?: number | null) =>
 const formatNullableMetricValue = (value?: number | null) =>
   value === null ? 'null' : formatMetricValue(value)
 
+const formatLatencyTooltipValue = (value: number) => {
+  if (value === 0) return '0'
+
+  const valueUs = value * 1000
+  if (Number(value.toFixed(3)) !== 0) return `${formatMetricValue(value)} ms`
+  if (Number(valueUs.toFixed(3)) !== 0) return `${formatMetricValue(valueUs)} us`
+  return `${formatMetricValue(valueUs * 1000)} ns`
+}
+
 const formatTraceDelayColumnValue = (
   value: number | null | undefined,
   column: TraceDelayColumn,
@@ -5899,7 +5908,7 @@ const createLatencyEchartsOption = (
       appendToBody: true,
       order: 'valueDesc',
       valueFormatter: (value) =>
-        typeof value === 'number' ? `${formatMetricValue(value)} ms` : String(value ?? '-'),
+        typeof value === 'number' ? formatLatencyTooltipValue(value) : String(value ?? '-'),
     },
     legend: {
       show: hasLegend,
