@@ -8216,15 +8216,21 @@ const splitRawLogText = (rawText: string) =>
     .map((part) => part.trim())
     .filter((part, index, parts) => part || index < parts.length - 1)
 
+const normalizeTraceLogColumnValue = (label: string, value: string) =>
+  label.toLowerCase() === 'message' ? value.replace(/(?:\\n|\r?\n)$/, '') : value
+
 const normalizeTraceLogColumns = (headers: string[], fields: string[]) => {
   const normalizedHeaders = [...headers]
   while (normalizedHeaders.length < fields.length) {
     normalizedHeaders.push(`extra_${normalizedHeaders.length - headers.length + 1}`)
   }
-  return fields.map((value, index) => ({
-    label: normalizedHeaders[index] || `field_${index + 1}`,
-    value: value || '-',
-  }))
+  return fields.map((value, index) => {
+    const label = normalizedHeaders[index] || `field_${index + 1}`
+    return {
+      label,
+      value: normalizeTraceLogColumnValue(label, value) || '-',
+    }
+  })
 }
 
 const buildTraceRawColumns = (
