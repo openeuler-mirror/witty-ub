@@ -11,8 +11,12 @@ Usage:
 
 import os
 import re
+import shlex
 import subprocess
 import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -41,7 +45,7 @@ class TestDeploySyntax:
 
     @pytest.mark.parametrize(
         "script",
-        ["host/deploy.sh", "deploy_pg.sh", "docker/deploy_witty.sh", "docker/manage.sh"],
+        ["host/deploy.sh", "deploy_pg.sh", "docker/deploy_rag.sh", "docker/deploy_witty.sh", "docker/manage.sh"],
     )
     def test_syntax(self, script):
         r = subprocess.run(["bash", "-n", str(_DEPLOY_DIR / script)], capture_output=True, text=True)
@@ -67,6 +71,85 @@ class TestDeployConf:
         assert parts[2] == "15432"  # Docker 宿主机映射端口
         assert parts[3] == "witty-ub"
         assert parts[4] == "witty-ub"
+
+    def test_cpu_has_lse_detection(self, tmp_path):
+        src = (_DEPLOY_DIR / "docker/deploy_rag.sh").read_text()
+        match = re.search(r"cpu_has_lse\(\) \{\n(.*?)\n\}", src, re.S)
+        assert match, "cpu_has_lse function not found"
+        fn = f"cpu_has_lse() {{\n{match.group(1)}\n}}"
+        cases = {
+            "Features : fp asimd evtstrm aes pmull sha1 sha2 crc32\n": "no",
+            "Features : fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics\n": "yes",
+        }
+        for idx, (content, expected) in enumerate(cases.items()):
+            cpuinfo = tmp_path / f"cpuinfo-{idx}"
+            cpuinfo.write_text(content)
+            r = _bash(f"{fn}; cpu_has_lse {cpuinfo} && echo yes || echo no")
+            assert r.returncode == 0, r.stderr
+            assert r.stdout.strip() == expected
+
+    @pytest.mark.parametrize(
+        "arch,lse,local_image,explicit,no_lse,configured_no_lse,expected",
+        [
+            (
+                "aarch64", False, True, "", "", "",
+                "hub-harbor.oepkgs.net/neocopilot/opengauss:7.0.0-lite-noLSE",
+            ),
+            ("arm64", False, False, "", "custom:no-lse", "configured:no-lse", "custom:no-lse"),
+            ("aarch64", False, True, "", "", "configured:no-lse", "configured:no-lse"),
+            (
+                "aarch64", True, True, "", "", "",
+                "swr.cn-north-4.myhuaweicloud.com/kunpeng-ai/opengauss:7.0.0-RC3-hnsw",
+            ),
+            (
+                "aarch64", True, False, "", "", "",
+                "hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:"
+                "38a63d58b2b41e3668cde9f9588a74cb4e8aee76b301f7feb86d6a49d871f10c",
+            ),
+            (
+                "x86_64", False, True, "", "", "",
+                "hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:"
+                "4fd44608ca3571d3ceb5bc2bc5cbcde131dde2ed2b8068ff3f58effc8c60d885",
+            ),
+            (
+                "amd64", False, False, "", "", "",
+                "hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:"
+                "4fd44608ca3571d3ceb5bc2bc5cbcde131dde2ed2b8068ff3f58effc8c60d885",
+            ),
+            ("aarch64", False, True, "custom:explicit", "custom:no-lse", "", "custom:explicit"),
+        ],
+    )
+    def test_rag_image_selection(
+        self, tmp_path, arch, lse, local_image, explicit, no_lse, configured_no_lse, expected
+    ):
+        conf = tmp_path / "deploy.conf"
+        conf.write_text(
+            f'OPENGAUSS_RAG_IMAGE=""\nOPENGAUSS_RAG_IMAGE_NO_LSE="{configured_no_lse}"\n'
+        )
+        cpuinfo = tmp_path / "cpuinfo"
+        cpuinfo.write_text("Features : fp asimd" + (" atomics" if lse else "") + "\n")
+        src = (_DEPLOY_DIR / "docker/deploy_rag.sh").read_text()
+        prefix = src.split('OPENGAUSS_RAG_HOST_PORT=', 1)[0]
+        prefix = prefix.replace(
+            'CONF_FILE="${SCRIPT_DIR}/../deploy.conf"', f"CONF_FILE={shlex.quote(str(conf))}"
+        )
+        prefix = prefix.replace("${1:-/proc/cpuinfo}", "${1:-" + str(cpuinfo) + "}")
+        r = _bash(
+            f'uname() {{ echo {arch}; }}; docker() {{ return {0 if local_image else 1}; }};\n'
+            + prefix + '\nprintf "SELECTED=%s\\n" "$OPENGAUSS_RAG_IMAGE"',
+            OPENGAUSS_RAG_IMAGE=explicit,
+            OPENGAUSS_RAG_IMAGE_NO_LSE=no_lse,
+        )
+        assert r.returncode == 0, r.stderr
+        selected = r.stdout.split("SELECTED=", 1)[1].strip()
+        assert selected == expected
+
+    def test_rag_rejects_unsupported_architecture(self):
+        src = (_DEPLOY_DIR / "docker/deploy_rag.sh").read_text()
+        prefix = src.split('OPENGAUSS_RAG_HOST_PORT=', 1)[0]
+        r = _bash("uname() { echo riscv64; };\n" + prefix, OPENGAUSS_RAG_IMAGE="")
+        assert r.returncode != 0
+        assert "Unsupported host architecture: riscv64" in r.stderr
 
     @pytest.mark.parametrize(
         "loader",
@@ -135,6 +218,114 @@ class TestDeployConf:
         # backend 与 all 两个角色都要注入，frontend 角色不承载审核逻辑
         assert app_deploy.count('"${REVIEW_ENV_ARGS[@]}"') == 2
         assert '-e "WITTY_REQUIRE_TRUSTED_OPERATOR=true"' in app_deploy
+
+
+class TestRagStartup:
+    @staticmethod
+    def _startup_block():
+        src = (_DEPLOY_DIR / "docker/deploy_witty.sh").read_text()
+        return "RAG_WAIT_ENTRYPOINT_ARGS=()" + src.split(
+            "RAG_WAIT_ENTRYPOINT_ARGS=()", 1
+        )[1].split("\n# ============================================================", 1)[0]
+
+    @pytest.mark.parametrize(
+        "role,index_enabled,url,expected",
+        [
+            ("all", "true", "http://rag", "2 2 2"),
+            ("backend", "true", "http://rag", "2 2 2"),
+            ("frontend", "true", "http://rag", "0 0 0"),
+            ("all", "false", "http://rag", "0 0 0"),
+            ("backend", "true", "", "0 0 0"),
+        ],
+    )
+    def test_wait_is_gated(self, role, index_enabled, url, expected):
+        r = _bash(
+            self._startup_block()
+            + '\nprintf "%s %s %s\\n" "${#RAG_WAIT_ENTRYPOINT_ARGS[@]}" '
+            '"${#RAG_WAIT_ENV_ARGS[@]}" "${#RAG_WAIT_COMMAND_ARGS[@]}"',
+            ROLE=role,
+            PHENOMENON_INDEX_ENABLED=index_enabled,
+            RAG_CORE_URL=url,
+        )
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.strip() == expected
+
+    def test_wait_is_wired_only_to_backend_and_all(self):
+        src = (_DEPLOY_DIR / "docker/deploy_witty.sh").read_text()
+        roles = src.rsplit('case "$ROLE" in\nbackend)', 1)[1].split("\nesac", 1)[0]
+        backend, rest = roles.split("\nfrontend)", 1)
+        frontend, all_role = rest.split("\n*)", 1)
+        for arg in ("RAG_WAIT_ENV_ARGS", "RAG_WAIT_ENTRYPOINT_ARGS", "RAG_WAIT_COMMAND_ARGS"):
+            assert f'"${{{arg}[@]}}"' in backend
+            assert f'"${{{arg}[@]}}"' in all_role
+            assert arg not in frontend
+
+    @pytest.mark.parametrize(
+        "mode,role,entrypoint_status",
+        [
+            ("ready", "all", 0),
+            ("recovering", "backend", 0),
+            ("unavailable", "all", 0),
+            ("slow", "backend", 0),
+            ("ready", "backend", 7),
+        ],
+    )
+    def test_wait_runtime(self, tmp_path, mode, role, entrypoint_status):
+        paths = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                paths.append(self.path)
+                if mode == "slow":
+                    time.sleep(5)
+                    return
+                status = 503 if mode == "unavailable" or (
+                    mode == "recovering" and len(paths) < 3
+                ) else 200
+                self.send_response(status)
+                self.end_headers()
+                self.wfile.write(b'{"status":"ok"}')
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        entrypoint = tmp_path / "entrypoint.sh"
+        entrypoint.write_text(f'#!/bin/bash\necho "ENTRYPOINT_STARTED"\nexit {entrypoint_status}\n')
+        entrypoint.chmod(0o700)
+        startup = self._startup_block().replace("/entrypoint.sh", shlex.quote(str(entrypoint)))
+        url = f"http://127.0.0.1:{server.server_port}/"
+        env = {
+            **os.environ,
+            "ROLE": role,
+            "PHENOMENON_INDEX_ENABLED": "true",
+            "RAG_CORE_URL": url,
+            "WITTY_RAG_WAIT_URL": url,
+        }
+        started = time.monotonic()
+        try:
+            r = subprocess.run(
+                ["bash", "-c", startup + '\nexec /bin/bash "${RAG_WAIT_COMMAND_ARGS[@]}"'],
+                capture_output=True, text=True, timeout=35, env=env,
+            )
+            elapsed = time.monotonic() - started
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+        assert r.returncode == entrypoint_status, r.stderr
+        assert r.stdout.count("ENTRYPOINT_STARTED") == 1
+        assert paths and set(paths) == {"/health_check"}
+        if mode in {"unavailable", "slow"}:
+            assert 29 <= elapsed <= 32, f"deadline exceeded: {elapsed:.2f}s"
+            assert "[WARN] RAG is not ready after 30s" in r.stderr
+            assert "Index workers will retry." in r.stderr
+        else:
+            assert "[OK] RAG is ready" in r.stdout
+            assert "[WARN]" not in r.stderr
+            assert elapsed < 8
 
 
 class TestDeployPgSh:

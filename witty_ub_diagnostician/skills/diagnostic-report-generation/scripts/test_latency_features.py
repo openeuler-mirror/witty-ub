@@ -203,6 +203,14 @@ class LatencyFeaturesTest(unittest.TestCase):
 
     def test_actual_render_sidecar_flat_compatibility_and_escaping(self):
         data = self.report_data()
+        data["faults"][0]["latency"]["conclusion"] = (
+            '正常 <strong>关键结论</strong> '
+            '<script>script-payload</script> '
+            '<strong onclick="unsafe">带属性</strong> '
+            '<div>普通容器</div> '
+            '未成对<strong> '
+            '<img src="x" onerror="image-payload">'
+        )
         current = snapshot(p50=0, p90=0)
         traces = trace_snapshot(current, [{"trace_id": "synthetic-A", "operation": "GET", "host": "<script>unsafe</script>",
                                            "failure_codes": []}])
@@ -217,9 +225,17 @@ class LatencyFeaturesTest(unittest.TestCase):
             output = next((Path(temp) / "test-kb").glob("*.html"))
             html = output.read_text(encoding="utf-8")
             self.assertIn("0ms", html)
+            self.assertIn("正常 <strong>关键结论</strong>", html)
             self.assertIn("&lt;script&gt;unsafe&lt;/script&gt;", html)
+            self.assertIn("<strong>带属性</strong>", html)
+            self.assertIn("普通容器", html)
+            self.assertIn("未成对<strong> </strong>", html)
             self.assertIn("相对对照窗口", html)
             self.assertNotIn("<script>unsafe</script>", html)
+            self.assertNotIn("script-payload", html)
+            self.assertNotIn("image-payload", html)
+            self.assertNotIn("&lt;div&gt;普通容器&lt;/div&gt;", html)
+            self.assertNotIn('<strong onclick="unsafe">', html)
             sidecar = json.loads(output.with_suffix(".json").read_text(encoding="utf-8"))
             self.assertEqual(sidecar["faults"][0]["latency"]["stages"][0]["features"], f)
             flat = {k: v for k, v in data.items() if k != "faults"}

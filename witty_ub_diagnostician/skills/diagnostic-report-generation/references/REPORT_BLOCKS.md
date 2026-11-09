@@ -13,6 +13,17 @@
 > （统计分析在故障档案**之前**）；其中板块 2~5、7、9 渲染在**单条故障档案内部**，
 > 随该故障对象一起传入。
 
+> **字段口径（硬约束）**：各板块字段名以本文档各小节与
+> `python3 render_report.py --spec <板块>` 为准，**Agent 新产出报告必须直接使用
+> 契约字段名**（如 `root_cause.reasoning_chain[]`、`propagation.chain[]{label,detail}`、
+> `solution.short_term[]`、`knowledge_matches[].match_logic/symptom/root_cause`、
+> `latency.stages[].p99`）。渲染器 `scripts/render_report.py` 在**校验与渲染之前**
+> 会执行 `normalize_compat` 兼容转换，把存量报告的历史旧结构（如
+> `root_cause.primary/hypotheses`、`propagation.chain{component,action,result}`、
+> `solution.steps[]`、`knowledge_matches{title,summary}`、`latency.stages{p90,max}`）
+> 自动映射到契约字段，作为**兜底输入**，不改变新报告的生产口径。旧结构写法的字段
+> 未命中契约时，扁平单故障路径与 `faults[]` 多故障路径都会按契约校验拦截。
+
 ---
 
 ## 故障档案数据结构（faults[]）
@@ -76,9 +87,13 @@ GET/SET 各一套，展示 Top 错误码构成和时间窗 × 错误码热力表
     {"name": "URMA 网络（C2W/W2W）", "p99": "1,150ms", "baseline": "18ms", "ratio": "63.9×", "share": "92.0%", "status": "bottleneck",
      "detail": "C2W 段丢包重传，单跳 RTT 从 0.8ms 升至 120ms+；慢 trace 中 62.3% 卡在该阶段"}
   ],
-  "conclusion": "时延归因结论，可用 <strong> 强调关键数字；须说明慢在哪个阶段、放大倍数、与错误是否同源"
+  "conclusion": "时延归因结论，可用 <strong>...</strong> 强调关键数字；须说明慢在哪个阶段、放大倍数、与错误是否同源"
 }
 ```
+
+`conclusion` 支持 `p/br/strong/b/em/i/u/s/code/pre/blockquote/ul/ol/li` 安全格式标签，
+所有属性都会被移除。其他标签只移除标签并保留正文；`script/style/iframe`
+等主动内容元素连同内容删除，不会以转义标签的形式显示。
 
 - `stages[].status`：`bottleneck` 瓶颈（红）/ `warn` 异常（琥珀）/ `ok` 正常（绿）；`baseline`/`ratio`/`share` 可缺省显示 "—"。
 - **结论必须回答**：额外耗时集中在哪个阶段、相对基线放大多少、是否已逼近超时预算、Worker/进程内阶段是否正常（用于排除进程内瓶颈）。
@@ -219,16 +234,20 @@ GET/SET 各一套，展示 Top 错误码构成和时间窗 × 错误码热力表
 [SKILL.md「故障标签」](../SKILL.md#故障标签)。只确定一级时二级为 `null`，
 无法确定一级时两者均为 `null`。例如确认 Worker 进程退出时，填写
 `"first_level_label": "Worker故障", "second_level_label": "Worker故障-进程退出"`。
-下例只定位到 RPC/网络，尚不能确定参考文件中的具体故障类别，故两级均为 `null`。
+下例只定位到 RPC/网络，尚不能确定参考文件中的具体故障类别，故两级均为 `null`，
+`fault_domain` 同步写 `null`。
 多故障写在各自的 `faults[].conclusion`，扁平单故障写在 `conclusion`；
-这些标签独立于原有诊断类型 `fault_type`、档案 `category` 和自由文本 `fault_domain`。
+`conclusion.fault_domain` 必须与两级标签一致：逐字填写
+`first_level_label/second_level_label`（斜杠拼接，如 `硬件故障/网卡故障-时延高`），
+不得自由填写「RPC/网络」等域文本；两级标签均为 `null` 时 `fault_domain` 也写 `null`。
+标签本身独立于原有诊断类型 `fault_type`、档案 `category`。
 
 ```json
 {
   "first_level_label": null,
   "second_level_label": null,
   "one_line_conclusion": "pod-worker-3 (host-101) 与 etcd 节点之间网络抖动导致 RPC 连接超时，引发 kvcache GET 请求大面积返回 -1002 错误，影响 67.6% 的故障请求，持续 8 分钟。",
-  "fault_domain": "RPC/网络",
+  "fault_domain": null,
   "fault_component": "etcd 连接",
   "fault_function": "TcpConnector::connect()",
   "fault_function_loc": "src/transport/tcp_connector.cpp:161",
@@ -704,7 +723,7 @@ SET 走 CREATE/PUBLISH 写路径，**可用字段与 GET 不同**，阶段表按
 
 **撰写原则**
 - 1~3 条匹配结果，按匹配度降序；`stars` 表示匹配度（5 星=完美，3 星=中等）
-- `match_logic`: 说明 L1(错误码)/L2(故障域)/L3(拓扑) 三级匹配逻辑
+- `match_logic`: 说明 L1(错误码)/L2(故障域，即一级/二级标签)/L3(拓扑) 三级匹配逻辑
 - `adoption_class`: `adoption-adopted` / `adoption-reference` / `adoption-not-adopted`
 - 必须同时包含 failure_mode_knowledge 的 curated 知识与 experience-skill 的经验知识
 

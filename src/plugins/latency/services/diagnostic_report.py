@@ -16,12 +16,18 @@ import re
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 
 from latency.ENUM.phenomenon import BindingStatus, VerificationLevel
 from latency.database.engine import PGManager
 from latency.database.managers.phenomenon_index import PhenomenonIndexPGManager
-from latency.database.models import DiagCaseLibrary
+from latency.database.models import (
+    DiagCaseLibrary,
+    DiagCaseLibrarySignal,
+    DiagnosticReportIndex,
+    PhenomenonIndex,
+    ReportImportItem,
+)
 from latency.exceptions import (
     BadRequestBizException,
     NotFoundBizException,
@@ -32,6 +38,7 @@ from latency.schemas.diagnostic_report import (
     DiagnosticCaseRefModel,
     DiagnosticReportDetailItem,
     DiagnosticReportItem,
+    DeleteDiagnosticReportMsg,
     FaultSummaryModel,
     GetDiagnosticReportFaultMsg,
     GetDiagnosticReportMsg,
@@ -597,3 +604,88 @@ class DiagnosticReportService:
     async def resolve_html(report_id: str) -> Path:
         _kb_dir, html = DiagnosticReportService._locate(report_root(), report_id)
         return html
+
+    # ---------------------------------------------------------------- 删除
+    @staticmethod
+    async def delete_report(report_id: str, operator: str) -> DeleteDiagnosticReportMsg:
+        """硬删除一份定界文档及其全部关联数据，不可恢复。
+
+        文件：报告 HTML 与侧车 JSON。数据库：关联案例（diag_case_library
+        及其 signal）、现象索引卡片（phenomenon_index，含报告派生与案例派生）、
+        报告索引（diagnostic_report_index）、导入明细（report_import_item）。
+        已发布/待发布的 RAG 文档通过 cleanup 任务异步删除。
+        """
+        _kb_dir, html = DiagnosticReportService._locate(report_root(), report_id)
+        sidecar = html.with_suffix(".json")
+
+        # 收集并硬删数据库关联（同事务）
+        async with PGManager.session() as session:
+            case_ids = list(
+                (
+                    await session.execute(
+                        select(DiagCaseLibrary.id).where(
+                            DiagCaseLibrary.report_id == report_id
+                        )
+                    )
+                ).scalars().all()
+            )
+            card_scope = or_(
+                PhenomenonIndex.report_id == report_id,
+                PhenomenonIndex.case_id.in_(case_ids),
+            )
+            cards = list(
+                (
+                    await session.execute(
+                        select(PhenomenonIndex).where(card_scope)
+                    )
+                ).scalars().all()
+            )
+
+            await session.execute(delete(PhenomenonIndex).where(card_scope))
+            if case_ids:
+                await session.execute(
+                    delete(DiagCaseLibrarySignal).where(
+                        DiagCaseLibrarySignal.case_id.in_(case_ids)
+                    )
+                )
+                await session.execute(
+                    delete(DiagCaseLibrary).where(DiagCaseLibrary.id.in_(case_ids))
+                )
+            await session.execute(
+                delete(DiagnosticReportIndex).where(
+                    DiagnosticReportIndex.report_id == report_id
+                )
+            )
+            await session.execute(
+                delete(ReportImportItem).where(ReportImportItem.report_id == report_id)
+            )
+
+        # 事务外：被删卡片若已发布/待发布 RAG 文档，入队异步清理
+        for card in cards:
+            for kb_id, doc_id in (
+                (card.rag_kb_id, card.rag_doc_id),
+                (card.pending_rag_kb_id, card.pending_rag_doc_id),
+            ):
+                if kb_id and doc_id:
+                    await PhenomenonIndexPGManager.enqueue_cleanup(
+                        kb_id, doc_id, "deleted", card.doc_id
+                    )
+
+        # 删除文件（列表来自目录扫描，文件删除后条目自然消失）
+        try:
+            html.unlink(missing_ok=True)
+            sidecar.unlink(missing_ok=True)
+        except OSError as exc:
+            raise BadRequestBizException(
+                message="报告文件删除失败", detail=str(exc)
+            ) from exc
+
+        logger.info(
+            "删除定界文档 report_id=%s operator=%s cases=%d cards=%d",
+            report_id, operator, len(case_ids), len(cards),
+        )
+        return DeleteDiagnosticReportMsg(
+            report_id=report_id,
+            deleted_cases=len(case_ids),
+            deleted_cards=len(cards),
+        )

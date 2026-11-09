@@ -5,6 +5,7 @@ import BaseModal from '../common/BaseModal.vue'
 import { caseAttachmentUrl, fetchCases, type CaseRecord } from '../../api/caseLibrary'
 import { searchDiagCases, type DiagCaseMatch } from '../../api/diagCaseLibrary'
 import {
+  deleteDiagnosticReport,
   fetchDiagnosticReports, fetchImportOptions, fetchReportLabelTaxonomy, importCases, importReportPath,
   type DiagnosticReportItem, type ReportLabelTaxonomy,
 } from '../../api/diagnosticReport'
@@ -107,6 +108,13 @@ const outcomeLabels: Record<string, string> = {
 }
 const outcomeLabel = (status: string) => outcomeLabels[status] ?? status
 
+const ragStatusLabels: Record<string, string> = {
+  indexed: '已入库', parsing: '解析中', pending: '待发布',
+  failed: '入库失败', stale: '已过期', not_indexed: '未入库',
+}
+const ragIndexStatus = (status?: string) => ragStatusLabels[status ?? ''] ? status ?? 'not_indexed' : 'not_indexed'
+const ragIndexLabel = (status?: string) => ragStatusLabels[ragIndexStatus(status)] ?? '未入库'
+
 const loadCases = (scope: 'library' | 'all' = 'library') => collectPages(async (pageNum, pageCnt) => {
   const result = await searchDiagCases({
     scope, includeStatus: scope === 'all' ? ['draft', 'confirmed', 'archived'] : ['confirmed'],
@@ -150,6 +158,21 @@ const loadImportOptions = async () => {
   optionsError.value = ''
   try { importOptions.value = await fetchImportOptions() }
   catch { importOptions.value = null; optionsError.value = '无法读取服务器路径导入配置，文件上传仍可使用' }
+}
+const deleteReport = async (report: DiagnosticReportItem) => {
+  const title = report.title || '未命名定界文档'
+  const cases = report.case_count || 0
+  const message = cases > 0
+    ? `确认删除定界文档「${title}」？将同时硬删除关联的 ${cases} 个案例，不可恢复。`
+    : `确认删除定界文档「${title}」？不可恢复。`
+  if (!window.confirm(message)) return
+  try {
+    const result = await deleteDiagnosticReport(report.report_id, operator.value.trim())
+    window.alert(`已删除定界文档，连带硬删除 ${result.deleted_cases} 个案例。`)
+    void load()
+  } catch (err) {
+    window.alert(err instanceof Error ? err.message : '删除失败')
+  }
 }
 const closeImport = () => { if (!importing.value) importOpen.value = false }
 const toggleImport = () => {
@@ -290,7 +313,7 @@ watch(caseVersion, () => void load())
             <td>{{ formatReportTime(report.generated_at) }}</td>
             <td>{{ report.fault_count ?? '—' }}</td>
             <td>{{ documentProgress(report) }}</td>
-            <td><button class="btn btn-text" type="button" :disabled="report.report_available === false" @click="openReport(report.report_id)">{{ report.report_available === false ? '文档不可用' : '查看文档' }}</button></td>
+            <td><button class="btn btn-text" type="button" :disabled="report.report_available === false" @click="openReport(report.report_id)">{{ report.report_available === false ? '文档不可用' : '查看文档' }}</button><button class="btn btn-text btn-text-danger" type="button" @click="deleteReport(report)">删除</button></td>
           </tr></tbody>
         </table></div>
         <PageNav v-if="reportPages > 1" v-model:page="reportPage" :pages="reportPages" />
@@ -307,12 +330,13 @@ watch(caseVersion, () => void load())
         <p class="hint">共 {{ filtered.length }} 条</p>
         <div v-if="!pagedCases.length" class="empty">{{ query ? '没有匹配的文档案例' : '暂无文档案例。检验定界文档或导入已验证案例后，将在这里沉淀。' }}</div>
         <div v-else class="table-wrap"><table class="task-table case-table">
-          <colgroup><col /><col class="case-meta-column" /><col class="case-meta-column" /></colgroup>
-          <thead><tr><th>案例</th><th>来源</th><th>更新时间</th></tr></thead>
+          <colgroup><col /><col class="case-meta-column" /><col class="case-meta-column" /><col class="case-meta-column case-rag-column" /></colgroup>
+          <thead><tr><th>案例</th><th>来源</th><th>更新时间</th><th>RAG 库</th></tr></thead>
           <tbody><tr v-for="match in pagedCases" :key="materialKey('diagnosis', match.case.id)">
             <td><button class="btn btn-text case-title" type="button" @click="openCase(match.case.id)">{{ match.case.title || '未命名案例' }}</button><p class="case-summary" :title="match.case.symptom_summary">{{ match.case.case_no || match.case.id }} · {{ match.case.symptom_summary }}</p></td>
             <td class="case-source"><span class="case-origin">{{ caseOrigin(match.case) }}</span><button v-if="match.case.report_id && match.source_report?.status === 'valid'" class="btn btn-text case-source-link" type="button" @click="openReport(match.case.report_id, match.case.source_fault_id ?? '')">查看来源定界文档</button><span v-else-if="match.case.report_id" class="hint case-source-status">{{ sourceReportLabel(match.source_report?.status) }}</span></td>
             <td>{{ match.case.updated_at || '—' }}</td>
+            <td><span class="rag-badge" :class="`rag-badge-${ragIndexStatus(match.rag_index_status)}`">{{ ragIndexLabel(match.rag_index_status) }}</span></td>
           </tr></tbody>
         </table></div>
         <PageNav v-if="pages > 1" v-model:page="selection.page" :pages="pages" />
@@ -399,6 +423,14 @@ watch(caseVersion, () => void load())
 .historical-material { border-top: 1px solid var(--border); padding-top: 20px; }
 .workspace-section > .hint { margin: 12px 0; }
 summary { cursor: pointer; }
+.case-rag-column { width: 96px; }
+.rag-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; line-height: 20px; white-space: nowrap; }
+.rag-badge-indexed { background: #e7f6ec; color: #15803d; font-weight: 600; }
+.rag-badge-parsing { background: #fff4e5; color: #b45309; }
+.rag-badge-pending { background: #eaf2ff; color: #1d4ed8; }
+.rag-badge-failed { background: #fee2e2; color: #b91c1c; }
+.rag-badge-stale { background: #f1f5f9; color: #64748b; }
+.rag-badge-not_indexed { background: #f1f5f9; color: #94a3b8; }
 @media (max-width: 1050px) {
   .workspace-header { flex-wrap: wrap; }
   .workspace-actions { width: 100%; flex-wrap: wrap; }

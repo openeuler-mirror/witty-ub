@@ -119,6 +119,11 @@ function setup() {
     showAgentSessionDialog, submitAgentSessionDialog, toAgentChatMessages, handleOpenCodeEvent,
     answerAgentPermission, submitAgentQuestion,
     abortAgentSession,
+    buildAgentTurns, isVisibleAgentText, isVisibleAgentReasoning, hasAgentTurnContent,
+    isAgentTurnExpanded, toggleAgentTurn,
+    getAgentTurnSummary, getAgentToolView, getAgentToolStatusLabel,
+    isAgentToolExpanded, toggleAgentTool,
+    agentChatMessagesRef, isAgentChatPinnedToBottom, handleAgentChatScroll, scrollAgentChatToBottom,
     agentSessionId, agentSessions, agentChatMessages, agentSessionAssetIndex, agentSessionTitleInput,
     agentChatInput, isAgentSending, isAgentHistoryLoading, isAgentHistoryFailed, agentSessionDialogError,
     agentConnectionError,
@@ -355,6 +360,64 @@ test('streamed deltas captured during history loading do not duplicate fetched t
   }
 })
 
+test('只含工具调用的 assistant 消息归入回合过程，不产生空白气泡', async () => {
+  const { api } = setup()
+  try {
+    const messages = api.toAgentChatMessages([
+      {
+        info: { id: 'user', role: 'user' },
+        parts: [{ id: 'user-text', type: 'text', text: '检查日志' }],
+      },
+      {
+        info: { id: 'tool-only', role: 'assistant' },
+        parts: [
+          {
+            id: 'tool',
+            type: 'tool',
+            tool: 'bash',
+            state: { status: 'completed', input: { command: 'date' } },
+          },
+        ],
+      },
+      {
+        info: { id: 'answer', role: 'assistant' },
+        parts: [{ id: 'answer-text', type: 'text', text: '检查完成' }],
+      },
+    ])
+
+    const turns = api.buildAgentTurns(messages)
+    assert.equal(turns.length, 1)
+    assert.ok(turns[0].process.some((part) => part.type === 'tool'))
+    assert.deepEqual(
+      turns[0].answer.map((part) => part.text),
+      ['检查完成'],
+    )
+
+    await api.connectAgent('')
+    await api.openAgentSession({ id: 'a' })
+    const emit = (id) =>
+      api.handleOpenCodeEvent(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'message.updated',
+            properties: { sessionID: 'a', info: { id, role: 'assistant', sessionID: 'a' } },
+          }),
+        }),
+      )
+
+    emit('stream-tool-only')
+    emit('stream-answer')
+
+    const ids = api.agentChatMessages.value.map((message) => message.messageId)
+    assert.ok(ids.includes('stream-tool-only'))
+    assert.equal(ids.at(-1), 'stream-answer')
+    const streamedTurns = api.buildAgentTurns(api.agentChatMessages.value)
+    assert.equal(streamedTurns.at(-1)?.hasAssistant, true)
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
 test('permission and structured question events can be answered without aborting the session', async () => {
   const { api, histories, requests } = setup()
   try {
@@ -533,4 +596,248 @@ test('an active abort is rendered as a user stop instead of a session error', as
   } finally {
     api.closeAgentEventStream()
   }
+})
+
+const agentPart = (id, type, text, extra = {}) => ({ id, type, text, ...extra })
+const agentUser = (id, content) => ({
+  id,
+  role: 'user',
+  reasoning: '',
+  content,
+  status: 'done',
+})
+const agentStep = (id, finish, parts, status = 'done') => ({
+  id,
+  messageId: id,
+  role: 'assistant',
+  reasoning: '',
+  content: '',
+  status,
+  parts,
+  finish,
+})
+
+test('多步工具调用归组为一个回合，只有末步文本作为最终回答', () => {
+  const { api } = setup()
+  const turns = api.buildAgentTurns([
+    agentUser('u1', '生成定界报告'),
+    agentStep('a1', 'tool-calls', [
+      agentPart('p1', 'reasoning', '第一步思考'),
+      agentPart('p2', 'text', '我先查契约'),
+    ]),
+    agentStep('a2', 'tool-calls', []),
+    agentStep('a3', 'tool-calls', [agentPart('p3', 'reasoning', '继续取证')]),
+    agentStep('a4', 'stop', [agentPart('p4', 'text', '最终结论')]),
+  ])
+  assert.equal(turns.length, 1)
+  assert.equal(turns[0].hasAssistant, true)
+  assert.deepEqual(
+    turns[0].answer.map((item) => item.text),
+    ['最终结论'],
+  )
+  assert.deepEqual(
+    turns[0].process.map((item) => item.text),
+    ['第一步思考', '我先查契约', '继续取证'],
+  )
+  assert.equal(api.hasAgentTurnContent(turns[0]), true)
+})
+
+test('空白步骤与空白、synthetic、ignored 文本不参与渲染', () => {
+  const { api } = setup()
+  const turns = api.buildAgentTurns([
+    agentUser('u1', '检查'),
+    agentStep('a1', 'tool-calls', [
+      agentPart('p1', 'reasoning', '   '),
+      agentPart('p2', 'text', '   '),
+      agentPart('p3', 'text', '系统注入', { synthetic: true }),
+      agentPart('p4', 'text', '忽略文本', { ignored: true }),
+      agentPart('p5', 'text', '可见说明'),
+    ]),
+    agentStep('a2', 'tool-calls', []),
+  ])
+  assert.deepEqual(
+    turns[0].process.map((item) => item.text),
+    ['可见说明'],
+  )
+  assert.equal(turns[0].answer.length, 0)
+  assert.equal(api.hasAgentTurnContent(turns[0]), true)
+
+  const emptyTurns = api.buildAgentTurns([
+    agentUser('u2', '空回合'),
+    agentStep('a3', 'tool-calls', []),
+  ])
+  assert.equal(api.hasAgentTurnContent(emptyTurns[0]), false)
+})
+
+test('思考过程默认折叠，展开状态按回合记忆', () => {
+  const { api } = setup()
+  assert.equal(api.isAgentTurnExpanded('u1'), false)
+  api.toggleAgentTurn('u1')
+  assert.equal(api.isAgentTurnExpanded('u1'), true)
+  assert.equal(api.isAgentTurnExpanded('u2'), false)
+  api.toggleAgentTurn('u1')
+  assert.equal(api.isAgentTurnExpanded('u1'), false)
+})
+
+test('中止、错误与缺少 finish 的历史消息仍在最终回答区可见', () => {
+  const { api } = setup()
+  const aborted = api.buildAgentTurns([
+    agentUser('u1', '中止'),
+    { ...agentStep('a1', 'tool-calls', [agentPart('p1', 'text', '用户终止响应')]), aborted: true },
+  ])
+  assert.deepEqual(
+    aborted[0].answer.map((item) => item.text),
+    ['用户终止响应'],
+  )
+
+  const failed = api.buildAgentTurns([
+    agentUser('u2', '失败'),
+    agentStep('a2', 'tool-calls', [agentPart('p2', 'text', '模型响应失败。')], 'error'),
+  ])
+  assert.deepEqual(
+    failed[0].answer.map((item) => item.text),
+    ['模型响应失败。'],
+  )
+
+  const legacy = api.buildAgentTurns([
+    agentUser('u3', '历史'),
+    agentStep('a3', undefined, [agentPart('p3', 'text', '历史最终回答')]),
+  ])
+  assert.deepEqual(
+    legacy[0].answer.map((item) => item.text),
+    ['历史最终回答'],
+  )
+})
+
+test('问询答复把回合切开，答问前后的助手步分属两张卡片', () => {
+  const { api } = setup()
+  const turns = api.buildAgentTurns([
+    agentUser('u1', '第一个问题'),
+    agentStep('a1', 'stop', [agentPart('p1', 'text', '第一段回答')]),
+    { ...agentUser('u2', '# 问题\n\n选哪个'), questionReply: [{ question: '选哪个', answer: 'A' }] },
+    agentStep('a2', 'stop', [agentPart('p2', 'text', '第二段回答')]),
+  ])
+  assert.equal(turns.length, 2)
+  assert.equal(turns[0].user.id, 'u1')
+  assert.deepEqual(
+    turns[0].answer.map((item) => item.text),
+    ['第一段回答'],
+  )
+  assert.equal(turns[1].user.id, 'u2')
+  assert.deepEqual(
+    turns[1].answer.map((item) => item.text),
+    ['第二段回答'],
+  )
+})
+
+const agentTool = (id, name, status, input = {}, extra = {}) => ({
+  id,
+  type: 'tool',
+  text: '',
+  tool: { name, status, input, ...extra },
+})
+
+test('工具调用进入过程流，并按类型给出动作与结果', () => {
+  const { api } = setup()
+  const turns = api.buildAgentTurns([
+    agentUser('u1', '查日志'),
+    {
+      ...agentStep('a1', 'tool-calls', [
+        agentTool('t1', 'bash', 'completed', { command: 'tail -n 50 app.log' }),
+        agentTool('t2', 'edit', 'error', { filePath: 'src/App.vue' }, { error: '写回失败' }),
+      ]),
+      time: { created: 1_000 },
+    },
+    {
+      ...agentStep('a2', 'stop', [agentPart('p1', 'text', '结论')]),
+      time: { created: 1_000, completed: 61_000 },
+    },
+  ])
+  const turn = turns[0]
+  assert.equal(turn.process.filter((item) => item.type === 'tool').length, 2)
+  assert.deepEqual(api.getAgentToolView(turn.process[0]), {
+    verb: '运行命令',
+    detail: 'tail -n 50 app.log',
+    fullDetail: 'tail -n 50 app.log',
+  })
+  assert.deepEqual(api.getAgentToolView(turn.process[1]), {
+    verb: '编辑文件',
+    detail: 'src/App.vue',
+    fullDetail: 'src/App.vue',
+  })
+  assert.equal(api.getAgentToolStatusLabel(turn.process[0]), '完成')
+  assert.equal(api.getAgentToolStatusLabel(turn.process[1]), '失败')
+  assert.equal(
+    api.getAgentTurnSummary(turn),
+    '已完成，用时 1 分，执行了 1 条命令、修改了 1 个文件、失败 1 次。',
+  )
+})
+
+test('思考中折叠行刷新为最新过程内容，结束后显示摘要', () => {
+  const { api } = setup()
+  const turn = { key: 'u1', hasAssistant: true, process: [], answer: [], status: 'thinking' }
+  assert.equal(api.getAgentTurnSummary(turn), '正在分析问题并查询诊断数据')
+  turn.process = [agentPart('p1', 'reasoning', '第一段\n正在定位时延异常')]
+  assert.equal(api.getAgentTurnSummary(turn), '正在定位时延异常')
+  turn.process = [...turn.process, agentTool('t1', 'bash', 'running', { command: 'date' })]
+  assert.equal(api.getAgentTurnSummary(turn), '运行命令：date')
+  turn.status = 'done'
+  turn.durationMs = 65_000
+  assert.equal(api.getAgentTurnSummary(turn), '已完成，用时 1 分 5 秒，执行了 1 条命令。')
+})
+
+test('工具行折叠时截断，展开后保留完整命令与多行', () => {
+  const { api } = setup()
+  const command = `set -e\nfor i in $(seq 1 60); do echo "line-$i"; done\n${'x'.repeat(200)}`
+  const view = api.getAgentToolView(agentTool('t1', 'bash', 'completed', { command }))
+  assert.equal(view.verb, '运行命令')
+  assert.equal(view.fullDetail, command)
+  assert.ok(view.detail.length < command.length)
+  assert.ok(view.detail.endsWith('…'))
+
+  assert.equal(api.isAgentToolExpanded('a1:t1'), false)
+  api.toggleAgentTool('a1:t1')
+  assert.equal(api.isAgentToolExpanded('a1:t1'), true)
+  assert.equal(api.isAgentToolExpanded('a1:t2'), false)
+  api.toggleAgentTool('a1:t1')
+  assert.equal(api.isAgentToolExpanded('a1:t1'), false)
+})
+
+test('向上滚动后不再强制贴底，回到底部重新固定', async () => {
+  const { api } = setup()
+  const container = { scrollHeight: 1_000, scrollTop: 600, clientHeight: 400 }
+  api.agentChatMessagesRef.value = container
+  api.handleAgentChatScroll()
+  assert.equal(api.isAgentChatPinnedToBottom.value, true)
+
+  container.scrollTop = 100
+  api.handleAgentChatScroll()
+  assert.equal(api.isAgentChatPinnedToBottom.value, false)
+  await api.scrollAgentChatToBottom()
+  assert.equal(container.scrollTop, 100, '非固定状态下的新内容不能把视角拽回底部')
+  assert.equal(api.isAgentChatPinnedToBottom.value, false)
+
+  await api.scrollAgentChatToBottom(true)
+  assert.equal(container.scrollTop, 1_000)
+  assert.equal(api.isAgentChatPinnedToBottom.value, true)
+
+  container.scrollTop = 580
+  api.handleAgentChatScroll()
+  assert.equal(api.isAgentChatPinnedToBottom.value, true, '滚回底部阈值内重新固定')
+})
+
+test('自动贴底不会被流式增高误判为用户上滑', async () => {
+  const { api } = setup()
+  const container = { scrollHeight: 500, scrollTop: 0, clientHeight: 300 }
+  api.agentChatMessagesRef.value = container
+  await api.scrollAgentChatToBottom(true)
+  assert.equal(container.scrollTop, 500)
+  // 内容在 scroll 事件到达前继续长高，事件仍上报自动滚动后的位置
+  container.scrollHeight = 900
+  api.handleAgentChatScroll()
+  assert.equal(api.isAgentChatPinnedToBottom.value, true)
+
+  container.scrollTop = 100
+  api.handleAgentChatScroll()
+  assert.equal(api.isAgentChatPinnedToBottom.value, false, '真实上滑仍然退出固定')
 })

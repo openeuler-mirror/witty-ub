@@ -45,6 +45,7 @@ class DiagnosisConfigService:
                     resource_log_file=patterns.resource_log_file,
                 ),
                 log_analyzer_params=config.log_analyzer_params,
+                enable_local_cache=config.enable_local_cache,
             )
         return UBSocketDiagnosisConfig(
             log_filename_pattern=UBSocketLogFilenamePatternConfig(
@@ -66,6 +67,7 @@ class DiagnosisConfigService:
         merged["log_analyzer_params"] = update.log_analyzer_params.model_dump(
             mode="python"
         )
+        merged["enable_local_cache"] = update.enable_local_cache
         return DiagnosisRuntimeConfig.model_validate(merged)
 
     @staticmethod

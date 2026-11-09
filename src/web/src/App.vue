@@ -60,24 +60,46 @@ type LogKnowledge = {
   updated_at?: string
 }
 
+type AgentToolInfo = {
+  name: string
+  status?: string
+  title?: string
+  input?: Record<string, unknown>
+  error?: string
+}
+
 type AgentChatMessage = {
   id: string
   role: 'user' | 'assistant'
   reasoning: string
   parts?: AgentChatPart[]
-  reasoningCollapsed: boolean
   content: string
   status: 'thinking' | 'done' | 'error'
   messageId?: string
+  finish?: string
+  aborted?: boolean
+  time?: { created?: number; completed?: number }
   questionReply?: Array<{ question: string; answer: string }>
   questionReplyAfterMessageId?: string
 }
 
 type AgentChatPart = {
   id: string
-  type: 'reasoning' | 'text'
+  type: 'reasoning' | 'text' | 'tool'
   text: string
-  collapsed?: boolean
+  synthetic?: boolean
+  ignored?: boolean
+  tool?: AgentToolInfo
+}
+
+type AgentTurn = {
+  key: string
+  user?: AgentChatMessage
+  hasAssistant: boolean
+  process: AgentChatPart[]
+  answer: AgentChatPart[]
+  status: 'thinking' | 'done' | 'error'
+  durationMs?: number
 }
 
 type OpenCodeSession = {
@@ -92,12 +114,24 @@ type OpenCodeMessage = {
     id?: string
     role?: string
     error?: unknown
+    finish?: string
+    time?: { created?: number; completed?: number }
     model?: { providerID: string; modelID: string }
   }
   parts?: Array<{
     id?: string
     type?: string
     text?: string
+    synthetic?: boolean
+    ignored?: boolean
+    tool?: string
+    state?: {
+      status?: string
+      input?: Record<string, unknown>
+      output?: string
+      title?: string
+      error?: string
+    }
   }>
 }
 
@@ -144,8 +178,9 @@ type OpenCodeEvent = {
       sessionID?: string
       role?: string
       title?: string
-      time?: { created?: number; updated?: number }
+      time?: { created?: number; completed?: number }
       error?: unknown
+      finish?: string
     }
     part?: {
       id?: string
@@ -153,6 +188,16 @@ type OpenCodeEvent = {
       messageID?: string
       type?: string
       text?: string
+      synthetic?: boolean
+      ignored?: boolean
+      tool?: string
+      state?: {
+        status?: string
+        input?: Record<string, unknown>
+        output?: string
+        title?: string
+        error?: string
+      }
     }
     status?: {
       type?: string
@@ -236,6 +281,7 @@ type DiagnosisConfigToml = {
   log_analyzer_params: Record<LogAnalyzerThresholdKey, number> & {
     zone_anomaly_density_threshold: number
   }
+  enable_local_cache: boolean
 }
 
 const diagnosisConfig = rawDiagnosisConfig as DiagnosisConfigToml
@@ -245,6 +291,7 @@ type DiagnosisConfigForm = {
   logAnalyzerParams: Record<LogAnalyzerThresholdKey, number> & {
     zone_anomaly_density_threshold: number
   }
+  enableLocalCache: boolean
 }
 
 type DiagnosisConfigInputValue = number | string
@@ -254,6 +301,7 @@ type DiagnosisConfigDraft = {
   logAnalyzerParams: Record<LogAnalyzerThresholdKey, DiagnosisConfigInputValue> & {
     zone_anomaly_density_threshold: DiagnosisConfigInputValue
   }
+  enableLocalCache: boolean
 }
 
 type DiagnosisConfigApiModel = {
@@ -261,6 +309,7 @@ type DiagnosisConfigApiModel = {
   log_analyzer_params: Record<LogAnalyzerThresholdKey, number> & {
     zone_anomaly_density_threshold: number
   }
+  enable_local_cache: boolean
 }
 
 type DiagnosisConfigApiResult = {
@@ -902,6 +951,7 @@ type FlowSummaryModel = {
   write: FlowGraphModel
   per_trace: TraceFlowStageModel[]
   decomposition: FlowDecompositionModel[]
+  enable_local_cache: boolean
 }
 
 type TraceFailureEventResultModel = {
@@ -958,6 +1008,7 @@ type ParseResultTableRow = {
   createLatency: number | null
   publishLatency: number | null
   workerTotalLatency: number | null
+  podRole?: TracePodRoleModel
   raw: LogParseResultModel
 }
 
@@ -1092,6 +1143,27 @@ const agentInteractionSubmitting = ref('')
 const agentInteractionError = ref('')
 const agentChatMessagesRef = ref<HTMLElement | null>(null)
 const agentChatPanelRef = ref<HTMLElement | null>(null)
+const isAgentChatPinnedToBottom = ref(true)
+const agentExpandedTurnKeys = ref<Record<string, boolean>>({})
+const agentExpandedToolKeys = ref<Record<string, boolean>>({})
+const agentTurns = computed(() => buildAgentTurns(agentChatMessages.value))
+const hasAgentPendingInteraction = computed(
+  () => agentPendingPermissions.value.length > 0 || agentPendingQuestions.value.length > 0,
+)
+const isAgentTurnExpanded = (key: string) => !!agentExpandedTurnKeys.value[key]
+const toggleAgentTurn = (key: string) => {
+  agentExpandedTurnKeys.value = {
+    ...agentExpandedTurnKeys.value,
+    [key]: !agentExpandedTurnKeys.value[key],
+  }
+}
+const isAgentToolExpanded = (key: string) => !!agentExpandedToolKeys.value[key]
+const toggleAgentTool = (key: string) => {
+  agentExpandedToolKeys.value = {
+    ...agentExpandedToolKeys.value,
+    [key]: !agentExpandedToolKeys.value[key],
+  }
+}
 const agentPanelSize = reactive<{ width: number | null; height: number | null }>({
   width: null,
   height: null,
@@ -1395,18 +1467,75 @@ const renderAgentMarkdown = (markdown: string) => {
   return blocks.join('')
 }
 
-const scrollAgentChatToBottom = async () => {
+const AGENT_CHAT_BOTTOM_THRESHOLD = 24
+const isAgentScrollNearBottom = (
+  metrics: { scrollHeight: number; scrollTop: number; clientHeight: number },
+  threshold = AGENT_CHAT_BOTTOM_THRESHOLD,
+) => metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight <= threshold
+
+// 自动贴底也会触发 scroll 事件；流式内容在事件到达前继续长高，
+// 按当前高度判断就会把自动滚动误判成用户上滑，这里按位置标记跳过这一次事件
+let agentAutoScrollMark: number | null = null
+
+const scrollAgentChatToBottom = async (force = false) => {
   await nextTick()
   const container = agentChatMessagesRef.value
-  if (container) {
-    container.scrollTop = container.scrollHeight
-  }
+  if (!container) return
+  if (!force && !isAgentChatPinnedToBottom.value) return
+  const before = container.scrollTop
+  container.scrollTop = container.scrollHeight
+  isAgentChatPinnedToBottom.value = true
+  if (container.scrollTop !== before) agentAutoScrollMark = container.scrollTop
+}
+
+const handleAgentChatScroll = () => {
+  const container = agentChatMessagesRef.value
+  if (!container) return
+  const mark = agentAutoScrollMark
+  agentAutoScrollMark = null
+  if (mark !== null && Math.abs(container.scrollTop - mark) <= 1) return
+  isAgentChatPinnedToBottom.value = isAgentScrollNearBottom(container)
 }
 
 const getPendingAssistantMessage = () =>
   [...agentChatMessages.value]
     .reverse()
     .find((message) => message.role === 'assistant' && message.status === 'thinking')
+
+const isVisibleAgentText = (part: AgentChatPart) =>
+  part.type === 'text' && !part.synthetic && !part.ignored && part.text.trim() !== ''
+
+const isVisibleAgentReasoning = (part: AgentChatPart) =>
+  part.type === 'reasoning' && part.text.trim() !== ''
+
+const pickAgentToolInput = (value?: Record<string, unknown>) => {
+  if (!value) return undefined
+  const picked: Record<string, unknown> = {}
+  for (const key of ['command', 'filePath', 'path', 'name', 'pattern', 'url', 'description', 'query']) {
+    if (key in value) picked[key] = value[key]
+  }
+  if (Array.isArray(value.todos)) picked.todos = value.todos.length
+  return picked
+}
+
+const toAgentToolInfo = (part: {
+  tool?: string
+  state?: {
+    status?: string
+    input?: Record<string, unknown>
+    title?: string
+    error?: string
+  }
+}): AgentToolInfo | undefined => {
+  if (!part.tool) return undefined
+  return {
+    name: part.tool,
+    status: part.state?.status,
+    title: part.state?.title,
+    input: pickAgentToolInput(part.state?.input),
+    error: part.state?.error,
+  }
+}
 
 const getAgentMessagePart = (
   message: AgentChatMessage,
@@ -1417,7 +1546,7 @@ const getAgentMessagePart = (
   message.parts ||= []
   let messagePart = message.parts.find((part) => part.id === id)
   if (!messagePart) {
-    messagePart = { id, type, text: '', collapsed: false }
+    messagePart = { id, type, text: '' }
     message.parts.push(messagePart)
   }
   return messagePart
@@ -1426,25 +1555,201 @@ const getAgentMessagePart = (
 const syncAgentMessageText = (message: AgentChatMessage) => {
   const parts = message.parts ?? []
   message.reasoning = parts
-    .filter((part) => part.type === 'reasoning' && part.text)
+    .filter(isVisibleAgentReasoning)
     .map((part) => part.text)
     .join('\n\n')
   message.content = parts
-    .filter((part) => part.type === 'text' && part.text)
+    .filter(isVisibleAgentText)
     .map((part) => part.text)
     .join('\n\n')
 }
 
-const getAgentDisplayParts = (message: AgentChatMessage): AgentChatPart[] => {
-  if (message.role !== 'assistant') return []
-  const parts = (message.parts ?? []).filter((part) => part.text || part.type === 'reasoning')
-  if (parts.length > 0) return parts
-  if (message.content) return [{ id: `${message.id}:content`, type: 'text', text: message.content }]
-  if (message.status === 'thinking') {
-    return [{ id: `${message.id}:reasoning-placeholder`, type: 'reasoning', text: '' }]
+const buildAgentTurns = (messages: AgentChatMessage[]): AgentTurn[] => {
+  const groups: Array<{ key: string; user?: AgentChatMessage; steps: AgentChatMessage[] }> = []
+  for (const message of messages) {
+    if (message.role === 'user') {
+      groups.push({ key: message.id, user: message, steps: [] })
+      continue
+    }
+    const current = groups.at(-1)
+    if (current) current.steps.push(message)
+    else groups.push({ key: message.id, steps: [message] })
   }
-  return []
+  return groups.map((group) => {
+    const last = group.steps.at(-1)
+    const lastIsAnswer =
+      !!last && (last.aborted || last.status === 'error' || last.finish !== 'tool-calls')
+    const process: AgentChatPart[] = []
+    const answer: AgentChatPart[] = []
+    group.steps.forEach((step, index) => {
+      const isLast = index === group.steps.length - 1
+      for (const part of step.parts ?? []) {
+        if (part.type === 'tool') {
+          if (part.tool) process.push({ ...part, id: `${step.id}:${part.id}` })
+        } else if (isVisibleAgentReasoning(part)) {
+          process.push({ ...part, id: `${step.id}:${part.id}` })
+        } else if (isVisibleAgentText(part)) {
+          const displayPart = { ...part, id: `${step.id}:${part.id}` }
+          if (isLast && lastIsAnswer) answer.push(displayPart)
+          else process.push(displayPart)
+        }
+      }
+    })
+    const status: AgentTurn['status'] = group.steps.some((step) => step.status === 'error')
+      ? 'error'
+      : last?.status === 'thinking'
+        ? 'thinking'
+        : 'done'
+    const startedAt = group.steps[0]?.time?.created
+    const endedAt = last?.time?.completed
+    const durationMs =
+      startedAt && endedAt && endedAt >= startedAt ? endedAt - startedAt : undefined
+    return {
+      key: group.key,
+      user: group.user,
+      hasAssistant: group.steps.length > 0,
+      process,
+      answer,
+      status,
+      durationMs,
+    }
+  })
 }
+
+const truncateAgentText = (value: string, limit = 160) =>
+  value.length > limit ? `${value.slice(0, limit)}…` : value
+
+const getAgentToolView = (part: AgentChatPart) => {
+  const tool = part.tool
+  if (!tool) return { verb: '调用工具', detail: '', fullDetail: '' }
+  const input = tool.input ?? {}
+  const text = (key: string) =>
+    typeof input[key] === 'string' ? (input[key] as string) : ''
+  const view = (verb: string, value: string) => ({
+    verb,
+    detail: truncateAgentText(value),
+    fullDetail: value,
+  })
+  switch (tool.name) {
+    case 'bash':
+      return view('运行命令', tool.title || text('command'))
+    case 'read':
+      return view('读取文件', text('filePath') || text('path') || tool.title || '')
+    case 'write':
+      return view('写入文件', text('filePath') || text('path') || tool.title || '')
+    case 'edit':
+      return view('编辑文件', text('filePath') || text('path') || tool.title || '')
+    case 'patch':
+      return view('修改文件', tool.title || '')
+    case 'skill':
+      return view('加载 Skill', text('name') || tool.title || '')
+    case 'todowrite':
+      return view('更新任务清单', tool.title || '')
+    case 'grep':
+      return view('搜索内容', text('pattern') || tool.title || '')
+    case 'glob':
+      return view('查找文件', text('pattern') || tool.title || '')
+    case 'webfetch':
+      return view('抓取网页', text('url') || tool.title || '')
+    case 'task':
+      return view('启动子任务', text('description') || tool.title || '')
+    default:
+      return view('调用工具', tool.title || tool.name)
+  }
+}
+
+const getAgentToolStatusLabel = (part: AgentChatPart) => {
+  switch (part.tool?.status) {
+    case 'running':
+      return '执行中'
+    case 'pending':
+      return '等待'
+    case 'error':
+      return '失败'
+    case 'completed':
+      return '完成'
+    default:
+      return ''
+  }
+}
+
+const formatAgentDuration = (durationMs?: number) => {
+  if (!durationMs || durationMs < 0) return ''
+  const seconds = Math.max(1, Math.round(durationMs / 1000))
+  if (seconds < 60) return `${seconds} 秒`
+  const minutes = Math.floor(seconds / 60)
+  const restSeconds = seconds % 60
+  if (minutes < 60) return restSeconds ? `${minutes} 分 ${restSeconds} 秒` : `${minutes} 分`
+  const hours = Math.floor(minutes / 60)
+  const restMinutes = minutes % 60
+  return restMinutes ? `${hours} 小时 ${restMinutes} 分` : `${hours} 小时`
+}
+
+const getAgentToolSummary = (process: AgentChatPart[]) => {
+  const counts = { commands: 0, read: 0, modified: 0, skills: 0, todo: 0, other: 0, failed: 0 }
+  for (const part of process) {
+    if (part.type !== 'tool' || !part.tool) continue
+    if (part.tool.status === 'error') counts.failed += 1
+    switch (part.tool.name) {
+      case 'bash':
+        counts.commands += 1
+        break
+      case 'read':
+        counts.read += 1
+        break
+      case 'write':
+      case 'edit':
+      case 'patch':
+        counts.modified += 1
+        break
+      case 'skill':
+        counts.skills += 1
+        break
+      case 'todowrite':
+        counts.todo += 1
+        break
+      default:
+        counts.other += 1
+    }
+  }
+  const fragments: string[] = []
+  if (counts.commands) fragments.push(`执行了 ${counts.commands} 条命令`)
+  if (counts.read) fragments.push(`读取了 ${counts.read} 个文件`)
+  if (counts.modified) fragments.push(`修改了 ${counts.modified} 个文件`)
+  if (counts.skills) fragments.push(`加载了 ${counts.skills} 个 Skill`)
+  if (counts.todo) fragments.push(`更新了 ${counts.todo} 次任务清单`)
+  if (counts.other) fragments.push(`调用了 ${counts.other} 个工具`)
+  if (counts.failed) fragments.push(`失败 ${counts.failed} 次`)
+  return fragments.join('、')
+}
+
+const getAgentTurnPreview = (turn: AgentTurn) => {
+  const last = turn.process.at(-1)
+  if (!last) return '正在分析问题并查询诊断数据'
+  if (last.type === 'tool') {
+    const view = getAgentToolView(last)
+    return view.detail ? `${view.verb}：${view.detail}` : view.verb
+  }
+  const line =
+    last.text
+      .trim()
+      .split(/\n+/)
+      .filter(Boolean)
+      .at(-1) ?? ''
+  if (!line) return '正在分析问题并查询诊断数据'
+  return truncateAgentText(line, 120)
+}
+
+const getAgentTurnSummary = (turn: AgentTurn) => {
+  if (turn.status === 'thinking') return getAgentTurnPreview(turn)
+  const prefix = turn.status === 'error' ? '处理失败' : '已完成'
+  const duration = formatAgentDuration(turn.durationMs)
+  const actions = getAgentToolSummary(turn.process)
+  return `${[prefix, duration ? `用时 ${duration}` : '', actions].filter(Boolean).join('，')}。`
+}
+
+const hasAgentTurnContent = (turn: AgentTurn) =>
+  turn.process.length > 0 || turn.answer.length > 0 || turn.status === 'thinking'
 
 const extractOpenCodeError = (payload: unknown, fallback: string): string => {
   if (typeof payload === 'string' && payload.trim()) return payload.trim()
@@ -1664,6 +1969,8 @@ const resetAgentConversation = () => {
   agentSessionId.value = ''
   agentChatInput.value = ''
   agentChatMessages.value = []
+  agentExpandedTurnKeys.value = {}
+  isAgentChatPinnedToBottom.value = true
   agentPendingPermissions.value = []
   agentPendingQuestions.value = []
   agentQuestionAnswers.value = {}
@@ -1710,7 +2017,7 @@ const newAgentConversation = async () => {
   if (isAgentSessionCreating.value || isAgentSessionSaving.value || isAgentSubmitting.value) return
   resetAgentConversation()
   saveActiveAgentSession()
-  await scrollAgentChatToBottom()
+  await scrollAgentChatToBottom(true)
 }
 
 const refreshAgentSession = async (sessionId: string) => {
@@ -1730,18 +2037,20 @@ const refreshAgentSession = async (sessionId: string) => {
 const toAgentChatMessages = (messages: OpenCodeMessage[]): AgentChatMessage[] =>
   messages
     .filter((message) => message.info?.role === 'user' || message.info?.role === 'assistant')
-    .map((message) => {
+    .map<AgentChatMessage>((message) => {
       const role = message.info.role as AgentChatMessage['role']
       const parts: AgentChatPart[] = (message.parts || [])
-        .filter((part) => part.type === 'reasoning' || part.type === 'text')
+        .filter((part) => part.type === 'reasoning' || part.type === 'text' || part.type === 'tool')
         .map((part, index) => ({
           id: `${part.type}:${part.id || index}`,
           type: part.type as AgentChatPart['type'],
           text: part.text || '',
-          collapsed: part.type === 'reasoning',
+          synthetic: part.synthetic === true,
+          ignored: part.ignored === true,
+          tool: part.type === 'tool' ? toAgentToolInfo(part) : undefined,
         }))
       let text = parts
-        .filter((part) => part.type === 'text')
+        .filter(isVisibleAgentText)
         .map((part) => part.text)
         .join('\n\n')
       if (role === 'user') {
@@ -1764,14 +2073,16 @@ const toAgentChatMessages = (messages: OpenCodeMessage[]): AgentChatMessage[] =>
         id: message.info.id || nextAgentLocalMessageId(),
         role,
         reasoning: parts
-          .filter((part) => part.type === 'reasoning')
+          .filter(isVisibleAgentReasoning)
           .map((part) => part.text)
           .join('\n\n'),
         parts: role === 'assistant' ? parts : undefined,
-        reasoningCollapsed: true,
         content: text,
         status: message.info.error && !wasAborted ? 'error' : 'done',
         messageId: message.info.id,
+        finish: message.info.finish,
+        aborted: wasAborted,
+        time: message.info.time,
       }
     })
 
@@ -1824,14 +2135,13 @@ const openAgentSession = async (session: OpenCodeSession) => {
           role: 'assistant',
           reasoning: '',
           content: '',
-          reasoningCollapsed: false,
           status: 'thinking',
         })
     }
     await loadAgentPendingInteractions(session.id)
     isAgentHistoryLoading.value = false
     replayAgentHistoryEvents()
-    await scrollAgentChatToBottom()
+    await scrollAgentChatToBottom(true)
   } catch (error) {
     if (sequence !== agentRequestSequence) return
     isAgentHistoryFailed.value = true
@@ -2006,7 +2316,7 @@ const chooseAgentModel = async (provider: OpenCodeProvider, model: OpenCodeModel
   selectedAgentProvider.value = provider
   selectedAgentModel.value = { ...model, id: modelId }
   agentView.value = 'chat'
-  await scrollAgentChatToBottom()
+  await scrollAgentChatToBottom(true)
 }
 
 const authorizeAgentProvider = async (provider: OpenCodeProvider) => {
@@ -2054,7 +2364,7 @@ const markAgentResponseAborted = () => {
   const pending = getPendingAssistantMessage()
   if (pending) {
     pending.status = 'done'
-    pending.reasoningCollapsed = true
+    pending.aborted = true
     pending.parts = [{ id: `${pending.id}:aborted`, type: 'text', text: agentUserAbortMessage }]
     syncAgentMessageText(pending)
   }
@@ -2130,7 +2440,7 @@ const addAgentPermissionRequest = (request: OpenCodePermissionRequest) => {
     request,
   ])
   agentInteractionError.value = ''
-  void scrollAgentChatToBottom()
+  void scrollAgentChatToBottom(true)
 }
 
 const normalizeAgentPermissionRequest = (
@@ -2162,7 +2472,7 @@ const addAgentQuestionRequest = (request: OpenCodeQuestionRequest) => {
   agentQuestionAnswers.value[request.id] ||= request.questions.map(() => [])
   agentQuestionCustomAnswers.value[request.id] ||= request.questions.map(() => '')
   agentInteractionError.value = ''
-  void scrollAgentChatToBottom()
+  void scrollAgentChatToBottom(true)
 }
 
 const loadAgentPendingInteractions = async (sessionId: string) => {
@@ -2278,7 +2588,6 @@ const submitAgentQuestion = async (request: OpenCodeQuestionRequest) => {
       id: `agent-question-reply-${request.id}`,
       role: 'user',
       reasoning: '',
-      reasoningCollapsed: true,
       content: answerText,
       status: 'done',
       questionReply,
@@ -2295,7 +2604,7 @@ const submitAgentQuestion = async (request: OpenCodeQuestionRequest) => {
     agentPendingQuestions.value = agentPendingQuestions.value.filter(
       (item) => item.id !== request.id,
     )
-    void scrollAgentChatToBottom()
+    void scrollAgentChatToBottom(true)
   } catch (error) {
     agentInteractionError.value = error instanceof Error ? error.message : '操作选择提交失败。'
     await loadAgentPendingInteractions(agentSessionId.value)
@@ -2395,12 +2704,14 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
           role: 'assistant',
           content: '',
           reasoning: '',
-          reasoningCollapsed: false,
           status: 'thinking',
         }
         agentChatMessages.value.push(pending)
       }
       if (pending && !pending.messageId) pending.messageId = messageId
+      const target = agentChatMessages.value.find((message) => message.messageId === messageId)
+      if (target && properties.info.finish) target.finish = properties.info.finish
+      if (target && properties.info.time) target.time = properties.info.time
     }
     if (properties.info.error) {
       if (isOpenCodeAbortError(properties.info.error) || shouldIgnoreNextAgentAbortError) {
@@ -2434,14 +2745,21 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
       getPendingAssistantMessage()
     if (!target) return
     target.messageId = part.messageID
-    if (part.type === 'reasoning') {
-      const reasoningPartId = part.id || 'reasoning'
-      getAgentMessagePart(target, 'reasoning', reasoningPartId).text = part.text || ''
+    if (part.type === 'reasoning' || part.type === 'text') {
+      const messagePart = getAgentMessagePart(
+        target,
+        part.type,
+        part.id || (part.type === 'reasoning' ? 'reasoning' : 'text'),
+      )
+      messagePart.synthetic = part.synthetic === true
+      messagePart.ignored = part.ignored === true
+      const nextText = part.text || ''
+      // 流式创建时先推空串，后续 delta 才补齐；已有文本时不让空快照覆盖
+      if (nextText !== '' || messagePart.text === '') messagePart.text = nextText
       syncAgentMessageText(target)
-    } else if (part.type === 'text') {
-      const textPartId = part.id || 'text'
-      getAgentMessagePart(target, 'text', textPartId).text = part.text || ''
-      syncAgentMessageText(target)
+    } else if (part.type === 'tool') {
+      const messagePart = getAgentMessagePart(target, 'tool', part.id || 'tool')
+      messagePart.tool = toAgentToolInfo(part)
     }
     void scrollAgentChatToBottom()
     return
@@ -2454,8 +2772,6 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     const pending = getPendingAssistantMessage()
     if (pending) {
       pending.status = 'done'
-      if (!pending.content) pending.content = 'Agent 已完成处理，但没有返回文本结果。'
-      pending.reasoningCollapsed = true
     }
     isAgentSending.value = false
     agentSessionStatuses.value[eventSessionId] = { type: 'idle' }
@@ -2637,7 +2953,7 @@ const ensureAgentSession = async () => {
 const toggleAgentChat = () => {
   isAgentChatOpen.value = !isAgentChatOpen.value
   if (isAgentChatOpen.value) {
-    void scrollAgentChatToBottom()
+    void scrollAgentChatToBottom(true)
   }
 }
 
@@ -2680,7 +2996,6 @@ const sendAgentMessage = async () => {
     id: nextAgentLocalMessageId(),
     role: 'user',
     reasoning: '',
-    reasoningCollapsed: false,
     content: question,
     status: 'done',
   })
@@ -2689,7 +3004,6 @@ const sendAgentMessage = async () => {
     role: 'assistant',
     reasoning: '',
     parts: [],
-    reasoningCollapsed: false,
     content: '',
     status: 'thinking',
   }
@@ -2697,7 +3011,7 @@ const sendAgentMessage = async () => {
   isAgentSending.value = true
   const requestSequence = ++agentRequestSequence
   isAgentSubmitting.value = true
-  await scrollAgentChatToBottom()
+  await scrollAgentChatToBottom(true)
 
   try {
     await ensureAgentSession()
@@ -3086,6 +3400,7 @@ const topSlowRequestsTotal = ref(0)
 const topSlowTraceRows = computed<AbnormalTraceRow[]>(() =>
   topSlowRequests.value.map((result) => toAbnormalTraceRow(result)),
 )
+const topSlowTraceTableRef = ref<HTMLDivElement | null>(null)
 const hoveredSlowTraceRowKey = ref('')
 // Top500 时延 Trace 列表：客户端分页展示（数据一次性取回，翻页而非滚动）
 const topSlowTracePageSize = 10
@@ -3139,6 +3454,7 @@ const createDefaultDiagnosisConfig = (): DiagnosisConfigForm => ({
     zone_anomaly_density_threshold:
       diagnosisConfig.log_analyzer_params.zone_anomaly_density_threshold,
   },
+  enableLocalCache: diagnosisConfig.enable_local_cache,
 })
 
 const cloneDiagnosisConfig = <T extends DiagnosisConfigForm | DiagnosisConfigDraft>(config: T): T =>
@@ -3161,6 +3477,7 @@ const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfi
     total_ave_threshold_ms: config.log_analyzer_params.total_ave_threshold_ms,
     zone_anomaly_density_threshold: config.log_analyzer_params.zone_anomaly_density_threshold,
   },
+  enableLocalCache: config.enable_local_cache,
 })
 
 const toDiagnosisConfigApi = (config: DiagnosisConfigDraft): DiagnosisConfigApiModel => ({
@@ -3174,6 +3491,7 @@ const toDiagnosisConfigApi = (config: DiagnosisConfigDraft): DiagnosisConfigApiM
     total_ave_threshold_ms: Number(config.logAnalyzerParams.total_ave_threshold_ms),
     zone_anomaly_density_threshold: Number(config.logAnalyzerParams.zone_anomaly_density_threshold),
   },
+  enable_local_cache: config.enableLocalCache,
 })
 
 const diagnosisConfigDraft = reactive<DiagnosisConfigDraft>(createDefaultDiagnosisConfig())
@@ -3421,13 +3739,13 @@ type ColumnWidthMap = {
 }
 
 const traceListColumnWidths = reactive<ColumnWidthMap>({
-  latencyLeft: [150, 185, 220, 170, 95, 90, 75],
+  latencyLeft: [150, 185, 220, 170, 90, 75],
   faultLeft: [110, 185, 300, 130, 110, 110, 80, 110],
   latencyData: [100, 400],
   faultData: [110, 180, 165, 170, 175, 175],
   faultTraceLeft: [110, 185, 315],
   faultTraceActions: [150],
-  slowTraceLeft: [185, 220, 170, 95, 90, 75],
+  slowTraceLeft: [185, 220, 170, 90, 75],
   slowTraceData: [100, 400],
 })
 
@@ -3561,7 +3879,7 @@ const DETAIL_TRACE_TIME_COLUMN_WIDTH = 160
 const DETAIL_TRACE_POD_COLUMN_MIN_WIDTH = 170
 
 const getDetailLatencyLeftGridStyle = () => {
-  const [, , traceIdWidth, , , clusterWidth, hostWidth] = traceListColumnWidths.latencyLeft
+  const [, , traceIdWidth, , clusterWidth, hostWidth] = traceListColumnWidths.latencyLeft
   const widths = [
     DETAIL_TRACE_LABEL_COLUMN_WIDTH,
     DETAIL_TRACE_TIME_COLUMN_WIDTH,
@@ -3873,9 +4191,12 @@ const checkFaultTracesForLatency = async (traceIds: string[]) => {
   }
 }
 
-const checkLatencyTracesForFault = async (traceIds: string[]) => {
+const checkLatencyTracesForFault = async (
+  traceIds: string[],
+  shouldApply: () => boolean = () => true,
+) => {
   if (!selectedAssetId.value || traceIds.length === 0) {
-    latencyTraceIdsWithFault.value = new Set()
+    if (shouldApply()) latencyTraceIdsWithFault.value = new Set()
     return
   }
 
@@ -3901,11 +4222,11 @@ const checkLatencyTracesForFault = async (traceIds: string[]) => {
     ;(result.trace_failure_event_results ?? []).forEach((r) => {
       if (r.trace_id) faultTraceIds.add(r.trace_id)
     })
-    if (selectedAssetId.value === assetId) {
+    if (selectedAssetId.value === assetId && shouldApply()) {
       latencyTraceIdsWithFault.value = faultTraceIds
     }
   } catch {
-    if (selectedAssetId.value === assetId) {
+    if (selectedAssetId.value === assetId && shouldApply()) {
       latencyTraceIdsWithFault.value = new Set()
     }
   }
@@ -3936,6 +4257,7 @@ const detailLatencyMetrics = ref<LatencyMetricItem[]>([])
 const detailParseResults = ref<LogParseResultModel[]>([])
 const allDetailParseResults = ref<LogParseResultModel[]>([])
 const isDetailParseResultsLoading = ref(false)
+const isDetailTraceFaultTagsLoading = ref(false)
 const detailParseResultsError = ref('')
 const detailParseResultsPage = ref(1)
 const detailParseResultsTotal = ref(0)
@@ -4180,6 +4502,15 @@ const syncLatencyTraceRowHeights = () => {
     syncSplitTableRowHeights(
       latencyTraceTableRef.value,
       '.abnormal-latency-grid.aggregate-body-row',
+    )
+  })
+}
+
+const syncTopSlowTraceRowHeights = () => {
+  nextTick(() => {
+    syncSplitTableRowHeights(
+      topSlowTraceTableRef.value,
+      '.fault-trace-scroll-grid.aggregate-body-row',
     )
   })
 }
@@ -4940,13 +5271,16 @@ const buildExclusiveBreakdownSegments = (
       unit: 'ms',
     })
   }
-  if (otherLatency > 0) {
+  const otherLatencyMs = otherLatency / 1000
+  // 浮点残差可能大于 0，但按页面的三位小数精度展示仍是 0.000ms。
+  // 此时不渲染“其他”，避免在各 Trace 的时延分解中出现无意义项。
+  if (Number(otherLatencyMs.toFixed(3)) > 0) {
     result.push({
       key: '__other__',
       label: '其他',
       shortLabel: '其他',
       color: '#94a3b8',
-      value: otherLatency / 1000,
+      value: otherLatencyMs,
       width: Math.min(100, (otherLatency / totalLatencyUs) * 100),
       abnormal: false,
       unit: 'ms',
@@ -5087,7 +5421,7 @@ const traceDelayColumns = getLatencySeriesConfig.map(({ key, label }) => ({
   label,
   threshold: traceDelayThresholdsUs[key],
   unit: key === 'urma_inflight_max' ? ('count' as const) : ('us' as const),
-})) as const satisfies readonly {
+})) satisfies readonly {
   key: TraceDelayKey
   label: string
   threshold: number
@@ -5175,6 +5509,15 @@ const formatMetricValue = (value?: number | null) =>
 const formatNullableMetricValue = (value?: number | null) =>
   value === null ? 'null' : formatMetricValue(value)
 
+const formatLatencyTooltipValue = (value: number) => {
+  if (value === 0) return '0'
+
+  const valueUs = value * 1000
+  if (Number(value.toFixed(3)) !== 0) return `${formatMetricValue(value)} ms`
+  if (Number(valueUs.toFixed(3)) !== 0) return `${formatMetricValue(valueUs)} us`
+  return `${formatMetricValue(valueUs * 1000)} ns`
+}
+
 const formatTraceDelayColumnValue = (
   value: number | null | undefined,
   column: TraceDelayColumn,
@@ -5182,6 +5525,10 @@ const formatTraceDelayColumnValue = (
   if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
   if (value < 0) return '无效值'
   if (column.unit === 'count') return String(Math.round(value))
+  if (value === 0) return '0'
+  if (value > 0 && Number(value.toFixed(3)) === 0) {
+    return `${formatMetricValue(value * 1000)} ns`
+  }
   return `${formatMetricValue(value)} ${column.unit}`
 }
 
@@ -5572,7 +5919,7 @@ const createLatencyEchartsOption = (
       appendToBody: true,
       order: 'valueDesc',
       valueFormatter: (value) =>
-        typeof value === 'number' ? `${formatMetricValue(value)} ms` : String(value ?? '-'),
+        typeof value === 'number' ? formatLatencyTooltipValue(value) : String(value ?? '-'),
     },
     legend: {
       show: hasLegend,
@@ -6136,7 +6483,7 @@ const renderLatencyEchart = () => {
 }
 
 const renderDetailLatencyEchart = () => {
-  if (isDetailParseResultsLoading.value || detailParseResultsError.value) return
+  if (isDetailLatencyChartLoading.value || detailLatencyChartError.value) return
   const element = detailLatencyChartRef.value
   if (!element || detailFaultTraceChartRows.value.length === 0) return
 
@@ -6267,22 +6614,83 @@ const FLOW_ROLE_STYLE: Record<string, { color: string; bg: string }> = {
   meta: { color: '#b45309', bg: '#fef3c7' },
   data: { color: '#be185d', bg: '#fce7f3' },
 }
+// 图布局：节点坐标为容器宽高比例（线性映射为像素），inset 为视图内边距（占画布比例）。
+// ECharts graph 系列默认按节点包围盒做等比缩放（preserveAspect=true），节点越集中放大倍数越大，
+// 会把节点及其下方标注直接推出画布（路由模式 GET 的 Data Worker 标注因此不可见）；
+// 故显式关闭 preserveAspect，并用 inset 预留节点下方标注（bottom）与顶部边时延（top）空间，
+// 使节点坐标线性映射为画布像素，位置与标注完全可预期。
+interface FlowLayoutDef {
+  nodes: Record<string, { x: number; y: number }>
+  inset: { left: number; right: number; top: number; bottom: number }
+}
 // GET：Client 最左、Entry Worker 正右侧，Meta Worker 右上 / Data Worker 右下。
-// 比例坐标预留上下边距，节点下方标注文字完整露出不被截断。
-const FLOW_NODE_LAYOUT_GET: Record<string, { x: number; y: number }> = {
-  client: { x: 0.12, y: 0.42 },
-  entry: { x: 0.4, y: 0.42 },
-  meta: { x: 0.72, y: 0.16 },
-  data: { x: 0.72, y: 0.66 },
+// 绑定模式（enableLocalCache=true）经 entry 中继；路由模式（false）客户端直连 Worker（无 entry）。
+const FLOW_LAYOUT_GET: FlowLayoutDef = {
+  nodes: {
+    client: { x: 0.14, y: 0.5 },
+    entry: { x: 0.46, y: 0.5 },
+    meta: { x: 0.82, y: 0.16 },
+    data: { x: 0.82, y: 0.76 },
+  },
+  // 左右预留 Client/Meta+Data 标注宽度（l+r=0.32 → 视图宽=数据宽，scaleX=1）；
+  // 上预留 Client→Meta 曲线边上沿标签与标题不重叠、下预留 Data Worker 标注高度，
+  // top+bottom=0.40 → 视图高=数据包围盒高（yspan=0.60），scaleY=1，与 scaleX 一致，
+  // 避免 ECharts 边标签缩放补偿只取 scaleX 导致纵向非等比压扁
+  inset: { left: 0.14, right: 0.18, top: 0.16, bottom: 0.24 },
 }
-// SET：Client / Entry Worker / Meta Worker 从左到右一排（无 Data Worker）
-const FLOW_NODE_LAYOUT_SET: Record<string, { x: number; y: number }> = {
-  client: { x: 0.2, y: 0.5 },
-  entry: { x: 0.5, y: 0.5 },
-  meta: { x: 0.8, y: 0.5 },
+// SET：Client / Entry Worker / Meta Worker 从左到右一排（绑定模式无 Data Worker）。
+// 行布局节点同 y：graph 系列对零高包围盒自动外扩 ±1（dataRect 高=2），
+// 构建时把视图高固定为 2px（top/bottom=(H-2)/2），使 scaleY=1、行居中于画布纵向中央。
+const FLOW_LAYOUT_SET: FlowLayoutDef = {
+  nodes: {
+    client: { x: 0.18, y: 0.25 },
+    entry: { x: 0.5, y: 0.25 },
+    meta: { x: 0.82, y: 0.25 },
+  },
+  inset: { left: 0.18, right: 0.18, top: 0.32, bottom: 0.32 },
 }
-const flowNodeLayout = (flow: 'GET' | 'SET'): Record<string, { x: number; y: number }> =>
-  flow === 'GET' ? FLOW_NODE_LAYOUT_GET : FLOW_NODE_LAYOUT_SET
+// 路由模式（enableLocalCache=false）：GET = Client 左侧直连 Meta（右上）/Data（右下），无 entry；
+// SET = Client 直连 Data Worker，两节点居中水平排列（无 entry、无 Meta Worker）。
+const FLOW_LAYOUT_GET_ROUTED: FlowLayoutDef = {
+  nodes: {
+    client: { x: 0.14, y: 0.5 },
+    meta: { x: 0.82, y: 0.16 },
+    data: { x: 0.82, y: 0.76 },
+  },
+  // 与 FLOW_LAYOUT_GET 相同的 top+bottom=0.40：视图高=数据高，scaleY=1，避免边标签纵向压扁
+  inset: { left: 0.14, right: 0.18, top: 0.16, bottom: 0.24 },
+}
+const FLOW_LAYOUT_SET_ROUTED: FlowLayoutDef = {
+  nodes: {
+    client: { x: 0.3, y: 0.25 },
+    data: { x: 0.7, y: 0.25 },
+  },
+  inset: { left: 0.3, right: 0.3, top: 0.32, bottom: 0.32 },
+}
+// 行布局（SET）视图内边距：节点同 y → dataRect 高为 2（自动外扩 ±1），
+// 视图高固定 2px 使 scaleY=1 且行居中；GET 用 inset 比例预留标注空间。
+const flowSeriesInsets = (
+  flow: 'GET' | 'SET',
+  flowCfg: FlowLayoutDef,
+  width: number,
+  height: number,
+) => {
+  const left = flowCfg.inset.left * width
+  const right = flowCfg.inset.right * width
+  if (flow === 'SET') {
+    return { left, right, top: (height - 2) / 2, bottom: (height - 2) / 2 }
+  }
+  return { left, right, top: flowCfg.inset.top * height, bottom: flowCfg.inset.bottom * height }
+}
+const flowLayout = (
+  flow: 'GET' | 'SET',
+  enableLocalCache: boolean = true,
+): FlowLayoutDef => {
+  if (enableLocalCache) {
+    return flow === 'GET' ? FLOW_LAYOUT_GET : FLOW_LAYOUT_SET
+  }
+  return flow === 'GET' ? FLOW_LAYOUT_GET_ROUTED : FLOW_LAYOUT_SET_ROUTED
+}
 // 兜底样式：索引访问在 noUncheckedIndexedAccess 下会判为可选，故单独抽出非可选常量。
 const DEFAULT_FLOW_EDGE_STYLE = { color: '#3b82f6', width: 2.5, lineType: 'solid' as const }
 const FLOW_EDGE_STYLE: Record<string, { color: string; width: number; lineType: 'solid' | 'dashed' }> = {
@@ -6291,18 +6699,55 @@ const FLOW_EDGE_STYLE: Record<string, { color: string; width: number; lineType: 
   present: DEFAULT_FLOW_EDGE_STYLE,
   missing: { color: '#9ca3af', width: 2, lineType: 'dashed' },
 }
-// 交互段 stage_key -> 角色边（与后端 READ_STAGES / WRITE_STAGES 对齐）。
+// 交互段定义：绑定模式（enableLocalCache=true）经 entry 中继，与后端
+// READ_STAGES/WRITE_STAGES 对齐；路由模式（false）客户端直连 Worker，
+// 与后端 _ROUTED_READ_STAGES/_ROUTED_WRITE_STAGES 对齐（stage_key 一致）。
 // "点归点线归线"：只保留真正的跨角色交互窗口；client/worker 自身处理改由正交分解标注在节点上。
-const TRACE_FLOW_STAGES: Record<
-  string,
-  { source: string; target: string; operation: string; flow: 'read' | 'write' | 'both' }
-> = {
-  client_to_entry: { source: 'client', target: 'entry', operation: 'Client UB 通信', flow: 'both' },
-  entry_to_meta: { source: 'entry', target: 'meta', operation: 'QueryGet RPC 网络/框架', flow: 'read' },
-  entry_to_data: { source: 'entry', target: 'data', operation: 'Entry→Data 远端供数', flow: 'read' },
-  data_to_entry_ub: { source: 'data', target: 'entry', operation: 'Worker UB 通信(URMA 回传)', flow: 'read' },
-  entry_to_meta_publish: { source: 'entry', target: 'meta', operation: 'Entry→Meta Publish', flow: 'write' },
+const traceFlowStageDefs = (
+  flow: 'read' | 'write',
+  enableLocalCache: boolean,
+): Array<{ stageKey: string; source: string; target: string; operation: string }> => {
+  if (enableLocalCache) {
+    return flow === 'read'
+      ? [
+          { stageKey: 'client_to_entry', source: 'client', target: 'entry', operation: 'Client UB 通信' },
+          { stageKey: 'entry_to_meta', source: 'entry', target: 'meta', operation: 'QueryGet RPC 网络/框架' },
+          { stageKey: 'entry_to_data', source: 'entry', target: 'data', operation: 'Entry→Data 远端供数' },
+          { stageKey: 'data_to_entry_ub', source: 'data', target: 'entry', operation: 'Worker UB 通信(URMA 回传)' },
+        ]
+      : [
+          { stageKey: 'client_to_entry', source: 'client', target: 'entry', operation: 'Client UB 通信' },
+          { stageKey: 'entry_to_meta_publish', source: 'entry', target: 'meta', operation: 'Entry→Meta Publish' },
+        ]
+  }
+  // 路由模式：GET = client→meta(QueryAndGet RPC) → client→data(远端供数) → data→client(URMA 回传)；
+  // SET = client→data(Create/URMA 写/Publish) → data→client(回执)。
+  return flow === 'read'
+    ? [
+        { stageKey: 'client_to_meta', source: 'client', target: 'meta', operation: 'Client→Meta QueryAndGet RPC 网络/框架' },
+        { stageKey: 'client_to_data', source: 'client', target: 'data', operation: 'Client→Data 远端供数' },
+        { stageKey: 'data_to_client_ub', source: 'data', target: 'client', operation: 'Worker UB 通信(URMA 回传)' },
+      ]
+    : [
+        { stageKey: 'client_to_data', source: 'client', target: 'data', operation: 'Client UB 通信/数据写入' },
+        { stageKey: 'data_to_client_ack', source: 'data', target: 'client', operation: 'Worker UB 通信(回执)' },
+      ]
 }
+// 节点可见性过滤：绑定模式 SET 无 Data Worker；路由模式（enableLocalCache=false）
+// 无 entry 节点，且 SET 无 Meta Worker（客户端直连数据 Worker）。
+const filterFlowNodes = (
+  node: FlowNodeModel,
+  isWrite: boolean,
+  enableLocalCache: boolean,
+): boolean => {
+  if (!enableLocalCache && node.id === 'entry') return false
+  if (isWrite && !enableLocalCache && node.id === 'meta') return false
+  if (isWrite && enableLocalCache && node.id === 'data') return false
+  return true
+}
+// 路由模式下无 entry 节点：原归 entry 的段（Worker/Meta 内部）改归 data worker
+const decompNodeFor = (node: string, enableLocalCache: boolean): string =>
+  enableLocalCache || node !== 'entry' ? node : 'data'
 // 正交分解段（与后端 _GET/_SET_DECOMP_SEGMENTS 对齐）：key -> 展示名/颜色/归属节点
 // GET 9 段互斥分解（与瀑布图 buildExclusiveSegments 完全一致）；
 // SET 与 GET 普通分支完全一致（SDK处理 + Worker/Meta内部 + Worker UB + Client UB + 其他）。
@@ -6354,28 +6799,32 @@ const buildFlowGraphOption = (
   size: { width: number; height: number },
   title: string,
   decomposition?: FlowDecompositionModel | null,
+  enableLocalCache: boolean = true,
 ): EChartsOption => {
   const width = Math.max(size.width || 600, 600)
-  const height = Math.max(size.height || 340, 300)
+  const height = Math.max(size.height || 400, 240)
   // 自适应分位阈值（后端下发），缺省回退固定 10/50ms
   const warnMs = graph.warn_ms ?? FLOW_WARN_MS
   const criticalMs = graph.critical_ms ?? FLOW_CRITICAL_MS
+  // 布局：节点坐标 + 视图内边距（关闭 preserveAspect 后线性映射为画布像素）
+  const flowCfg = flowLayout(flow, enableLocalCache)
   // 节点自身处理统计：优先用后端下发的 own_rollup（avg/p50/p99/max），缺失时回退
   // 由正交分解段中"点归点"段（node 匹配）的 avg 求和。
   const nodeOwn = (node: FlowNodeModel): FlowEdgeRollupModel | null => {
     if (node.own_rollup && node.own_rollup.avg_ms != null) return node.own_rollup
     const sum = (decomposition?.segments ?? [])
-      .filter((seg) => seg.node === node.id && seg.key !== 'residual')
+      .filter((seg) => seg.node && decompNodeFor(seg.node, enableLocalCache) === node.id)
       .reduce((acc, seg) => acc + (seg.rollup?.avg_ms ?? 0), 0)
     return sum > 0.001
       ? { trace_count: 0, avg_ms: sum, top_workers: [] }
       : null
   }
   const nodes = (graph.nodes?.length ? graph.nodes : [])
-    // SET 写入流无 Data Worker，仅渲染 Client/Entry/Meta
-    .filter((node) => flow !== 'SET' || node.id !== 'data')
+    // 绑定模式 SET 无 Data Worker；路由模式无 entry（SET 亦无 Meta Worker）
+    .filter((node) => filterFlowNodes(node, flow === 'SET', enableLocalCache))
     .map((node) => {
-      const layout = flowNodeLayout(flow)[node.id] ?? { x: 0.5, y: 0.5 }
+      const layout =
+        flowCfg.nodes[node.id] ?? { x: 0.5, y: 0.5 }
       const roleStyle = FLOW_ROLE_STYLE[node.id] ?? { color: '#6b7280', bg: '#f3f4f6' }
       const own = nodeOwn(node)
       const baseLabel = node.label || FLOW_ROLE_LABELS[node.id] || node.id
@@ -6390,8 +6839,8 @@ const buildFlowGraphOption = (
         show: true,
         position: 'bottom' as const,
         distance: 8,
-        fontSize: 11,
-        lineHeight: 14,
+        fontSize: 12,
+        lineHeight: 18,
         fontWeight: 700,
         color: roleStyle.color,
         formatter: () => {
@@ -6446,8 +6895,8 @@ const buildFlowGraphOption = (
       label: {
         show: true,
         formatter: `${edge.operation}\n${flowEdgeLatencyText(edge)}`,
-        fontSize: 10,
-        lineHeight: 13,
+        fontSize: 11,
+        lineHeight: 17,
         color: style.color,
         fontWeight: 600,
       },
@@ -6482,6 +6931,9 @@ const buildFlowGraphOption = (
       text: title,
       left: 'center',
       top: 2,
+      z: 10,
+      backgroundColor: '#ffffff',
+      padding: [4, 8],
       textStyle: { fontSize: 13, fontWeight: 600, color: '#374151' },
     },
     tooltip: { trigger: 'item' },
@@ -6490,8 +6942,13 @@ const buildFlowGraphOption = (
       {
         type: 'graph',
         layout: 'none',
-        roam: false,
+        // 允许按住鼠标拖动画布；仅启用平移，避免滚轮误缩放图形。
+        roam: 'move',
+        roamTrigger: 'global',
         draggable: false,
+        // 关闭包围盒等比缩放：节点坐标按 inset 视图线性映射为画布像素，标注完整可见
+        preserveAspect: false,
+        ...flowSeriesInsets(flow, flowCfg, width, height),
         data: nodes,
         links,
         emphasis: { focus: 'adjacency', lineStyle: { width: 7 } },
@@ -6502,7 +6959,7 @@ const buildFlowGraphOption = (
 
 // 单个 trace 的 flow 图：从 per_trace 还原各交互段时延并按阈值着色
 // 从 trace 行级 pod_role 聚合中取某角色节点下的全部容器（含双重身份 pod）
-const getFlowNodePods = (trace: TraceDetailRow | null, nodeId: string): string[] => {
+const getFlowNodePods = (trace: TraceDetailRow | null | undefined, nodeId: string): string[] => {
   const pr = trace?.podRole
   if (!pr) return []
   if (nodeId === 'client') return pr.client_pod ? [pr.client_pod] : []
@@ -6513,7 +6970,7 @@ const getFlowNodePods = (trace: TraceDetailRow | null, nodeId: string): string[]
 }
 
 // pod 所属的全部角色（按 pod_role 聚合），用于时延流图的双重身份标注
-const getTracePodRoleIds = (trace: TraceDetailRow | null, pod: string): string[] => {
+const getTracePodRoleIds = (trace: TraceDetailRow | null | undefined, pod: string): string[] => {
   const pr = trace?.podRole
   if (!pr) return []
   const roles: string[] = []
@@ -6537,7 +6994,9 @@ const buildSingleTraceFlowOption = (
 ): EChartsOption => {
   const stage = summary.per_trace?.find((item) => item.trace_id === traceId)
   const width = Math.max(size.width || 600, 600)
-  const height = Math.max(size.height || 340, 300)
+  const height = Math.max(size.height || 400, 240)
+  // 资产库模式：路由模式（enableLocalCache=false）无 entry 节点，客户端直连 Worker
+  const enableLocalCache = summary.enable_local_cache ?? true
   // 时延未识别的 Trace（log_parse_result 无对应行）也渲染角色布局图：
   // 操作类型取 per_trace 的 operation，缺失时回退到 trace 行的 operation，再兜底 GET。
   const rawOperation = stage?.operation || fallbackOperation || ''
@@ -6552,11 +7011,13 @@ const buildSingleTraceFlowOption = (
   const hasData = Boolean(
     stage && (stage.total_ms != null || Object.keys(stage.stages ?? {}).length > 0),
   )
+  // 布局：节点坐标 + 视图内边距（关闭 preserveAspect 后线性映射为画布像素）
+  const flowCfg = flowLayout(isWrite ? 'SET' : 'GET', enableLocalCache)
   const nodes = (summary.nodes?.length ? summary.nodes : [])
-    // SET 写入流无 Data Worker，仅渲染 Client/Entry/Meta
-    .filter((node) => !isWrite || node.id !== 'data')
+    // 绑定模式 SET 无 Data Worker；路由模式无 entry（SET 亦无 Meta Worker）
+    .filter((node) => filterFlowNodes(node, isWrite, enableLocalCache))
     .map((node) => {
-      const layout = flowNodeLayout(isWrite ? 'SET' : 'GET')[node.id] ?? { x: 0.5, y: 0.5 }
+      const layout = flowCfg.nodes[node.id] ?? { x: 0.5, y: 0.5 }
       const roleStyle = FLOW_ROLE_STYLE[node.id] ?? { color: '#6b7280', bg: '#f3f4f6' }
       const rolePod = stage?.roles?.[node.id]
       // 节点容器列表：优先用 trace 行级 pod_role 聚合的全部容器（能体现双重身份 pod），
@@ -6565,9 +7026,10 @@ const buildSingleTraceFlowOption = (
         const pods = getFlowNodePods(trace, node.id)
         return pods.length ? pods : rolePod ? [rolePod] : []
       })()
-      // 节点自身处理 = 正交分解中归属该节点的段之和（点归点），不含残差
+      // 节点自身处理 = 正交分解中归属该节点的段之和（点归点），不含残差；
+      // 路由模式下原归 entry 的段（Worker/Meta 内部）改归 data worker
       const own = Object.entries(DECOMP_SEGMENT_META)
-        .filter(([, meta]) => meta.node === node.id && node.id !== '')
+        .filter(([, meta]) => meta.node && decompNodeFor(meta.node, enableLocalCache) === node.id)
         .reduce((acc, [key]) => acc + (stage?.stages?.[key] ?? 0), 0)
       const ownMs = own > 0.001 ? own : null
       const podLine = (pod: string) => {
@@ -6587,8 +7049,8 @@ const buildSingleTraceFlowOption = (
           show: true,
           position: 'bottom' as const,
           distance: 8,
-          fontSize: 11,
-          lineHeight: 14,
+          fontSize: 12,
+          lineHeight: 18,
           fontWeight: 700,
           color: roleStyle.color,
           formatter: (params: { name: string }) => {
@@ -6618,38 +7080,36 @@ const buildSingleTraceFlowOption = (
         },
       }
     })
-  const links = Object.entries(TRACE_FLOW_STAGES)
-    .filter(([, def]) => (isWrite ? def.flow !== 'read' : def.flow !== 'write'))
-    .map(([stageKey, def]) => {
-      const ms = stage?.stages?.[stageKey]
-      const status = flowStageStatus(ms, warnMs, criticalMs)
-      const style = FLOW_EDGE_STYLE[status] ?? DEFAULT_FLOW_EDGE_STYLE
-      return {
-        source: def.source,
-        target: def.target,
-        label: {
-          show: true,
-          formatter: ms != null ? `${def.operation}\n${ms.toFixed(1)}ms` : `${def.operation}\n无数据`,
-          fontSize: 10,
-          lineHeight: 13,
-          color: style.color,
-          fontWeight: 600,
-        },
-        lineStyle: {
-          color: style.color,
-          width: style.width,
-          type: style.lineType,
-          curveness: 0.1,
-          opacity: status === 'missing' ? 0.5 : 0.95,
-        },
-        tooltip: {
-          formatter: () =>
-            `${def.operation}（${FLOW_ROLE_LABELS[def.source]} → ${FLOW_ROLE_LABELS[def.target]}）：${
-              ms != null ? `${ms.toFixed(1)}ms（${status}）` : '无该段时延数据'
-            }`,
-        },
-      }
-    })
+  const links = traceFlowStageDefs(isWrite ? 'write' : 'read', enableLocalCache).map((def) => {
+    const ms = stage?.stages?.[def.stageKey]
+    const status = flowStageStatus(ms, warnMs, criticalMs)
+    const style = FLOW_EDGE_STYLE[status] ?? DEFAULT_FLOW_EDGE_STYLE
+    return {
+      source: def.source,
+      target: def.target,
+      label: {
+        show: true,
+        formatter: ms != null ? `${def.operation}\n${ms.toFixed(1)}ms` : `${def.operation}\n无数据`,
+        fontSize: 11,
+        lineHeight: 17,
+        color: style.color,
+        fontWeight: 600,
+      },
+      lineStyle: {
+        color: style.color,
+        width: style.width,
+        type: style.lineType,
+        curveness: 0.1,
+        opacity: status === 'missing' ? 0.5 : 0.95,
+      },
+      tooltip: {
+        formatter: () =>
+          `${def.operation}（${FLOW_ROLE_LABELS[def.source]} → ${FLOW_ROLE_LABELS[def.target]}）：${
+            ms != null ? `${ms.toFixed(1)}ms（${status}）` : '无该段时延数据'
+          }`,
+      },
+    }
+  })
   const residualMs = stage?.stages?.residual
   return {
     title: {
@@ -6663,6 +7123,9 @@ const buildSingleTraceFlowOption = (
         : '未识别到该 Trace 的时延分解数据',
       left: 'center',
       top: 2,
+      z: 10,
+      backgroundColor: '#ffffff',
+      padding: [4, 8],
       textStyle: { fontSize: 13, fontWeight: 600, color: '#374151' },
       subtextStyle: { fontSize: 10, color: '#6b7280' },
     },
@@ -6672,8 +7135,13 @@ const buildSingleTraceFlowOption = (
       {
         type: 'graph',
         layout: 'none',
-        roam: false,
+        // 允许按住鼠标拖动画布；仅启用平移，避免滚轮误缩放图形。
+        roam: 'move',
+        roamTrigger: 'global',
         draggable: false,
+        // 关闭包围盒等比缩放：节点坐标按 inset 视图线性映射为画布像素，标注完整可见
+        preserveAspect: false,
+        ...flowSeriesInsets(isWrite ? 'SET' : 'GET', flowCfg, width, height),
         data: nodes,
         links,
         emphasis: { focus: 'adjacency', lineStyle: { width: 7 } },
@@ -6690,6 +7158,7 @@ const renderFlowChart = (
   flow: 'GET' | 'SET',
   title: string,
   decomposition?: FlowDecompositionModel | null,
+  enableLocalCache: boolean = true,
 ): ECharts | null => {
   if (!element || !graph) return instance
   if (instance && instance.getDom() !== element) {
@@ -6704,6 +7173,7 @@ const renderFlowChart = (
       { width: element.clientWidth, height: element.clientHeight },
       title,
       decomposition,
+      enableLocalCache,
     ),
     true,
   )
@@ -6740,6 +7210,7 @@ const renderLatencyFlowCharts = () => {
   if (!isAbnormalMonitorPage.value || isLatencyFlowLoading.value || latencyFlowError.value) return
   const summary = latencyFlowSummary.value
   if (!summary) return
+  const enableLocalCache = summary.enable_local_cache ?? true
   const readDecomp = summary.decomposition?.find((item) => item.operation === 'GET')
   const writeDecomp = summary.decomposition?.find((item) => item.operation === 'SET')
   latencyReadFlowChartInstance = renderFlowChart(
@@ -6749,6 +7220,7 @@ const renderLatencyFlowCharts = () => {
     'GET',
     'Read Flow',
     readDecomp,
+    enableLocalCache,
   )
   latencyWriteFlowChartInstance = renderFlowChart(
     latencyWriteFlowRef.value,
@@ -6757,6 +7229,7 @@ const renderLatencyFlowCharts = () => {
     'SET',
     'Write Flow',
     writeDecomp,
+    enableLocalCache,
   )
 }
 
@@ -6788,12 +7261,14 @@ const showFlowEdgeDetail = (edge: FlowEdgeModel) => {
 const showFlowNodeDetail = (nodeId: string) => {
   const summary = latencyFlowSummary.value
   const operation = activeFlowTab.value
-  // 节点自身处理 = 正交分解中归属该节点的段之和（不含残差/交互边）
+  const enableLocalCache = summary?.enable_local_cache ?? true
+  // 节点自身处理 = 正交分解中归属该节点的段之和（不含残差/交互边）；
+  // 路由模式下原归 entry 的段（Worker/Meta 内部）改归 data worker
   const traceItems: FlowNodeTraceItem[] = (summary?.per_trace ?? [])
     .filter((item) => item.operation === operation)
     .map((item) => {
       const own = Object.entries(DECOMP_SEGMENT_META)
-        .filter(([, meta]) => meta.node === nodeId && nodeId !== '')
+        .filter(([, meta]) => meta.node && decompNodeFor(meta.node, enableLocalCache) === nodeId)
         .reduce((acc, [key]) => acc + (item.stages?.[key] ?? 0), 0)
       return {
         trace_id: item.trace_id,
@@ -6964,6 +7439,7 @@ const resizeLatencyCharts = () => {
   resizeBrpcFaultTimelineChart()
   resizeBrpcEventDetailTimelineChart()
   brpcThreadFailureGraphInstance?.resize()
+  syncTopSlowTraceRowHeights()
   syncLatencyTraceRowHeights()
   syncDetailLatencyTraceRowHeights()
   syncFaultTraceRowHeights()
@@ -7530,6 +8006,11 @@ const ROLE_CHIP_PRIORITY = ['client', 'entry_worker', 'meta_worker', 'data_worke
 
 const getRoleChipLabel = (role: string) => ROLE_CHIP_LABELS[role] ?? role
 
+const getRoleChipTooltip = (roles: string[]) => {
+  const labels = roles.map(getRoleChipLabel)
+  return labels.length > 1 ? `角色：\n${labels.join('\n')}` : `角色：${labels[0]}`
+}
+
 const getRoleChipClass = (chip: { roles: string[] }) =>
   chip.roles.length > 1 ? 'role-chip-multi' : `role-chip-${chip.roles[0]}`
 
@@ -7538,7 +8019,7 @@ const getRoleChipStyle = (chip: { roles: string[] }) => {
   if (chip.roles.length <= 1) return {}
   const bgs = chip.roles.map((r) => ROLE_CHIP_BG[r] ?? '#f3f4f6')
   const stops = bgs.map((bg, i) => `${bg} ${(i / bgs.length) * 100}% ${((i + 1) / bgs.length) * 100}%`)
-  const primary = chip.roles[0]
+  const primary = chip.roles[0] ?? 'other'
   return {
     background: `linear-gradient(90deg, ${stops.join(', ')})`,
     borderColor: ROLE_CHIP_BORDER[primary] ?? '#e5e7eb',
@@ -7664,6 +8145,7 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       createLatency: getRecordNullableNumber(record, ['create_latency']),
       publishLatency: getRecordNullableNumber(record, ['publish_latency']),
       workerTotalLatency: getRecordNullableNumber(record, ['worker_total_latency']),
+      podRole: record.pod_role as TracePodRoleModel | undefined,
       raw: result,
     }
   }),
@@ -7762,15 +8244,21 @@ const splitRawLogText = (rawText: string) =>
     .map((part) => part.trim())
     .filter((part, index, parts) => part || index < parts.length - 1)
 
+const normalizeTraceLogColumnValue = (label: string, value: string) =>
+  label.toLowerCase() === 'message' ? value.replace(/(?:\\n|\r?\n)$/, '') : value
+
 const normalizeTraceLogColumns = (headers: string[], fields: string[]) => {
   const normalizedHeaders = [...headers]
   while (normalizedHeaders.length < fields.length) {
     normalizedHeaders.push(`extra_${normalizedHeaders.length - headers.length + 1}`)
   }
-  return fields.map((value, index) => ({
-    label: normalizedHeaders[index] || `field_${index + 1}`,
-    value: value || '-',
-  }))
+  return fields.map((value, index) => {
+    const label = normalizedHeaders[index] || `field_${index + 1}`
+    return {
+      label,
+      value: normalizeTraceLogColumnValue(label, value) || '-',
+    }
+  })
 }
 
 const buildTraceRawColumns = (
@@ -8016,12 +8504,10 @@ const getTraceLogGroups = (trace?: TraceDetailRow | null) => {
       }
     })
     .sort((a, b) => {
-      const ai = rolesByPod.has(a.podName)
-        ? roleOrder.indexOf(rolesByPod.get(a.podName)![0])
-        : roleOrder.length
-      const bi = rolesByPod.has(b.podName)
-        ? roleOrder.indexOf(rolesByPod.get(b.podName)![0])
-        : roleOrder.length
+      const aRole = rolesByPod.get(a.podName)?.[0]
+      const bRole = rolesByPod.get(b.podName)?.[0]
+      const ai = aRole ? roleOrder.indexOf(aRole) : roleOrder.length
+      const bi = bRole ? roleOrder.indexOf(bRole) : roleOrder.length
       return ai - bi || a.podName.localeCompare(b.podName)
     })
 }
@@ -8237,6 +8723,19 @@ watch(
   () => {
     if (activeAggregateTab.value === 'trace') syncLatencyTraceRowHeights()
   },
+  { immediate: true },
+)
+
+watch(
+  () => [
+    topSlowTracePage.value,
+    ...paginatedTopSlowTraceRows.value.map(
+      (row) => `${row.id}:${row.time}:${row.traceId}:${row.clusterName}:${row.host}`,
+    ),
+    ...traceListColumnWidths.slowTraceLeft,
+    ...traceListColumnWidths.slowTraceData,
+  ],
+  syncTopSlowTraceRowHeights,
   { immediate: true },
 )
 
@@ -8604,6 +9103,8 @@ const openFaultAggregatedPodIpFilterDialog = (podRow: FaultAggregatedEventPodRow
 
 const openAggregatedEventDetail = (row: LatencyDetailRow) => {
   selectedAggregatedEvent.value = row
+  allDetailParseResults.value = []
+  detailLatencyChartError.value = ''
   detailParseResultsPage.value = 1
   detailParseResultsPageInput.value = ''
   detailParseResultTraceIdInput.value = ''
@@ -8614,6 +9115,8 @@ const openAggregatedEventDetail = (row: LatencyDetailRow) => {
 
 const closeAggregatedEventDetail = () => {
   selectedAggregatedEvent.value = null
+  isDetailLatencyChartLoading.value = false
+  isDetailTraceFaultTagsLoading.value = false
   detailLatencyMetrics.value = []
   detailLatencyChartError.value = ''
   detailParseResults.value = []
@@ -9602,6 +10105,7 @@ const loadDetailParseResults = async (
   if (!selectedAssetId.value) {
     detailParseResults.value = []
     detailParseResultsTotal.value = 0
+    isDetailTraceFaultTagsLoading.value = false
     detailParseResultsError.value = ''
     isDetailParseResultsLoading.value = false
     detailParseResultSort.releaseSortLock()
@@ -9642,14 +10146,23 @@ const loadDetailParseResults = async (
     )
 
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
-      detailParseResults.value = result.log_parse_results ?? []
-      detailParseResultsTotal.value = result.total ?? detailParseResults.value.length
+      const pageResults = result.log_parse_results ?? []
+      detailParseResults.value = pageResults
+      detailParseResultsTotal.value = result.total ?? pageResults.length
       detailParseResultsPage.value = pageNum
 
-      const traceIds = (result.log_parse_results ?? [])
-        .map((r) => r.trace_id)
-        .filter((id): id is string => !!id)
-      await checkLatencyTracesForFault(traceIds)
+      const traceIds = pageResults.map((r) => r.trace_id).filter((id): id is string => !!id)
+      // Fault tags are supplementary information. Do not keep pagination waiting for this
+      // second endpoint, and ignore a late response after another page has won the race.
+      latencyTraceIdsWithFault.value = new Set()
+      const shouldApplyFaultTags = () =>
+        selectedAssetId.value === assetId &&
+        selectedAggregatedEvent.value?.id === row.id &&
+        detailParseResults.value === pageResults
+      isDetailTraceFaultTagsLoading.value = traceIds.length > 0
+      void checkLatencyTracesForFault(traceIds, shouldApplyFaultTags).finally(() => {
+        if (shouldApplyFaultTags()) isDetailTraceFaultTagsLoading.value = false
+      })
     }
   } catch (error) {
     // 忽略取消请求的错误
@@ -9662,6 +10175,7 @@ const loadDetailParseResults = async (
       detailParseResultsPage.value = pageNum
       detailParseResultsError.value = error instanceof Error ? error.message : '加载解析结果失败'
       latencyTraceIdsWithFault.value = new Set()
+      isDetailTraceFaultTagsLoading.value = false
     }
   } finally {
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
@@ -9674,10 +10188,14 @@ const loadDetailParseResults = async (
 const loadAllDetailParseResults = async (row: LatencyDetailRow) => {
   if (!selectedAssetId.value) {
     allDetailParseResults.value = []
+    isDetailLatencyChartLoading.value = false
+    detailLatencyChartError.value = ''
     return
   }
 
   const assetId = selectedAssetId.value
+  isDetailLatencyChartLoading.value = true
+  detailLatencyChartError.value = ''
 
   try {
     const requestBody: Record<string, unknown> = {
@@ -9705,9 +10223,15 @@ const loadAllDetailParseResults = async (row: LatencyDetailRow) => {
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       allDetailParseResults.value = result.log_parse_results ?? []
     }
-  } catch {
+  } catch (error) {
     if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
       allDetailParseResults.value = []
+      detailLatencyChartError.value =
+        error instanceof Error ? error.message : '加载故障 Trace 时序分解失败'
+    }
+  } finally {
+    if (selectedAssetId.value === assetId && selectedAggregatedEvent.value?.id === row.id) {
+      isDetailLatencyChartLoading.value = false
     }
   }
 }
@@ -10979,6 +11503,8 @@ const detectSourceType = (input: string): 'local' | 'remote' | null => {
 }
 
 const remoteArchiveExtensions = ['.tar.gz', '.tgz', '.zip']
+const invalidLogSourceMessage =
+  '请输入有效的服务器路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz），本地路径请使用“上传ZIP文件”'
 
 const isRemoteArchiveUrl = (input: string) => {
   try {
@@ -11826,12 +12352,11 @@ const submitLogSource = async () => {
 
   const sourceType = detectSourceType(input)
   if (!sourceType) {
-    uploadLogError.value =
-      '请输入有效的本地路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）'
+    uploadLogError.value = invalidLogSourceMessage
     return
   }
   if (sourceType === 'remote' && !isRemoteArchiveUrl(input)) {
-    uploadLogError.value = '远程 URL 支持 .zip、.tar.gz、.tgz 压缩包'
+    uploadLogError.value = invalidLogSourceMessage
     return
   }
 
@@ -11854,7 +12379,10 @@ const submitLogSource = async () => {
     })
     logSourceInput.value = ''
   } catch (error) {
-    uploadLogError.value = error instanceof Error ? error.message : '添加日志文件失败'
+    uploadLogError.value =
+      error instanceof Error && error.message !== '请求参数校验失败'
+        ? error.message
+        : invalidLogSourceMessage
   } finally {
     isUploadingLog.value = false
     if (selectedAssetId.value) {
@@ -12117,6 +12645,7 @@ const resetAssetScopedMonitorData = () => {
   detailParseResultsTotal.value = 0
   detailParseResultsPage.value = 1
   isDetailParseResultsLoading.value = false
+  isDetailTraceFaultTagsLoading.value = false
   detailParseResultsError.value = ''
   faultDetailTraceRows.value = []
   faultDetailTraceEventsTotal.value = 0
@@ -15034,8 +15563,8 @@ watch(
 watch(
   [
     detailFaultTraceChartRows,
-    isDetailParseResultsLoading,
-    detailParseResultsError,
+    isDetailLatencyChartLoading,
+    detailLatencyChartError,
     selectedAggregatedEvent,
   ],
   () => {
@@ -15958,20 +16487,23 @@ onBeforeUnmount(() => {
                 class="aggregate-table top-slow-trace-table"
                 :class="{ 'aggregate-table-state-mode': topSlowTraceRows.length === 0 }"
               >
-                <div class="aggregate-table-frame abnormal-trace-frame fault-trace-list top-slow-trace-frame">
+                <div
+                  ref="topSlowTraceTableRef"
+                  class="aggregate-table-frame abnormal-trace-frame fault-trace-list top-slow-trace-frame"
+                >
                   <div class="aggregate-fixed-left">
                     <div
                       class="abnormal-left-grid slow-trace-left-grid aggregate-table-header"
                       :style="{ gridTemplateColumns: getSlowTraceLeftGridColumnWidths() }"
                     >
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         时间
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'slowTraceLeft', 0)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         Trace ID
                         <div
                           class="column-resize-handle"
@@ -15985,21 +16517,14 @@ onBeforeUnmount(() => {
                           @mousedown="(e) => handleColumnResizeStart(e, 'slowTraceLeft', 2)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
-                        操作类型
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
+                        集群
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'slowTraceLeft', 3)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
-                        集群
-                        <div
-                          class="column-resize-handle"
-                          @mousedown="(e) => handleColumnResizeStart(e, 'slowTraceLeft', 4)"
-                        ></div>
-                      </div>
-                      <div class="aggregate-cell">主机</div>
+                      <div class="aggregate-cell monitor-wrap-cell">主机</div>
                     </div>
                     <template v-if="topSlowTraceRows.length > 0">
                       <div
@@ -16017,8 +16542,8 @@ onBeforeUnmount(() => {
                         @mouseenter="hoveredSlowTraceRowKey = `${row.id}:${row.traceId}`"
                         @mouseleave="hoveredSlowTraceRowKey = ''"
                       >
-                        <div class="aggregate-cell">{{ row.time }}</div>
-                        <div class="aggregate-cell trace-id">
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.time }}</div>
+                        <div class="aggregate-cell trace-id monitor-wrap-cell">
                           <span class="trace-id-text">{{ row.traceId }}</span>
                         </div>
                         <div class="aggregate-cell pod-role-tags-cell">
@@ -16029,15 +16554,14 @@ onBeforeUnmount(() => {
                               class="role-chip"
                               :class="getRoleChipClass(chip)"
                               :style="getRoleChipStyle(chip)"
-                              :data-roles="`角色：${chip.roles.map(getRoleChipLabel).join('、')}`"
+                              :data-roles="getRoleChipTooltip(chip.roles)"
                             >
                               {{ chip.ip }}
                             </span>
                           </span>
                         </div>
-                        <div class="aggregate-cell">{{ row.operation }}</div>
-                        <div class="aggregate-cell">{{ row.clusterName }}</div>
-                        <div class="aggregate-cell">{{ row.host }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.clusterName }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.host }}</div>
                       </div>
                     </template>
                   </div>
@@ -16289,7 +16813,7 @@ onBeforeUnmount(() => {
                       <div class="aggregate-left-grid aggregate-table-header">
                         <div class="aggregate-cell fault-expand-cell"></div>
                         <div
-                          class="aggregate-cell aggregate-sortable-cell"
+                          class="aggregate-cell monitor-wrap-cell aggregate-sortable-cell"
                           @click="handleTimeWindowStartTimeSort"
                         >
                           <span class="sort-header-content">
@@ -16316,7 +16840,7 @@ onBeforeUnmount(() => {
                             </span>
                           </span>
                         </div>
-                        <div class="aggregate-cell">结束时间</div>
+                        <div class="aggregate-cell monitor-wrap-cell">结束时间</div>
                         <div
                           class="aggregate-cell count-cell aggregate-sortable-cell"
                           @click="handleTimeWindowSort('total_cnt')"
@@ -16440,8 +16964,8 @@ onBeforeUnmount(() => {
                                 {{ isTimeWindowExpanded(twIdx) ? '🔽' : '▶️' }}
                               </span>
                             </div>
-                            <div class="aggregate-cell">{{ twEvent.start_time }}</div>
-                            <div class="aggregate-cell">{{ twEvent.end_time }}</div>
+                            <div class="aggregate-cell monitor-wrap-cell">{{ twEvent.start_time }}</div>
+                            <div class="aggregate-cell monitor-wrap-cell">{{ twEvent.end_time }}</div>
                             <div class="aggregate-cell count-cell">
                               {{ twEvent.total_cnt }}
                             </div>
@@ -16920,21 +17444,21 @@ onBeforeUnmount(() => {
                       class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
                       :style="{ gridTemplateColumns: getLatencyLeftGridColumnWidths() }"
                     >
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         故障类型
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 0)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         时间
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 1)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         Trace ID
                         <div
                           class="column-resize-handle"
@@ -16948,21 +17472,14 @@ onBeforeUnmount(() => {
                           @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 3)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
-                        操作类型
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
+                        集群
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 4)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
-                        集群
-                        <div
-                          class="column-resize-handle"
-                          @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 5)"
-                        ></div>
-                      </div>
-                      <div class="aggregate-cell">主机</div>
+                      <div class="aggregate-cell monitor-wrap-cell">主机</div>
                     </div>
                     <template
                       v-if="
@@ -16986,7 +17503,7 @@ onBeforeUnmount(() => {
                         @mouseenter="hoveredLatencyTraceRowKey = `${row.id}:${row.traceId}`"
                         @mouseleave="hoveredLatencyTraceRowKey = ''"
                       >
-                        <div class="aggregate-cell">
+                        <div class="aggregate-cell monitor-wrap-cell">
                           <span
                             v-for="tag in getTraceTags(row.traceId, 'latency')"
                             :key="tag.type"
@@ -16996,8 +17513,8 @@ onBeforeUnmount(() => {
                             {{ tag.label }}
                           </span>
                         </div>
-                        <div class="aggregate-cell">{{ row.time }}</div>
-                        <div class="aggregate-cell trace-id">
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.time }}</div>
+                        <div class="aggregate-cell trace-id monitor-wrap-cell">
                           <span class="trace-id-text">{{ row.traceId }}</span>
                         </div>
                         <div class="aggregate-cell pod-role-tags-cell">
@@ -17008,15 +17525,14 @@ onBeforeUnmount(() => {
                               class="role-chip"
                               :class="getRoleChipClass(chip)"
                               :style="getRoleChipStyle(chip)"
-                              :data-roles="`角色：${chip.roles.map(getRoleChipLabel).join('、')}`"
+                              :data-roles="getRoleChipTooltip(chip.roles)"
                             >
                               {{ chip.ip }}
                             </span>
                           </span>
                         </div>
-                        <div class="aggregate-cell">{{ row.operation }}</div>
-                        <div class="aggregate-cell">{{ row.clusterName }}</div>
-                        <div class="aggregate-cell">{{ row.host }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.clusterName }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.host }}</div>
                       </div>
                     </template>
                   </div>
@@ -17570,7 +18086,7 @@ onBeforeUnmount(() => {
                       <div class="fault-aggregate-time-grid aggregate-table-header">
                         <div class="aggregate-cell fault-expand-cell"></div>
                         <div
-                          class="aggregate-cell aggregate-sortable-cell"
+                          class="aggregate-cell monitor-wrap-cell aggregate-sortable-cell"
                           @click="handleFaultAggregatedEventStartTimeSort"
                         >
                           <span class="sort-header-content">
@@ -17601,7 +18117,7 @@ onBeforeUnmount(() => {
                             </span>
                           </span>
                         </div>
-                        <div class="aggregate-cell">结束时间</div>
+                        <div class="aggregate-cell monitor-wrap-cell">结束时间</div>
                       </div>
                       <template
                         v-if="
@@ -17629,8 +18145,8 @@ onBeforeUnmount(() => {
                                 {{ isFaultAggregatedEventExpanded(row) ? '🔽' : '▶️' }}
                               </span>
                             </div>
-                            <div class="aggregate-cell">{{ row.startTime }}</div>
-                            <div class="aggregate-cell">{{ row.endTime }}</div>
+                            <div class="aggregate-cell monitor-wrap-cell">{{ row.startTime }}</div>
+                            <div class="aggregate-cell monitor-wrap-cell">{{ row.endTime }}</div>
                           </div>
                           <div
                             v-if="isFaultAggregatedEventExpanded(row)"
@@ -18206,21 +18722,21 @@ onBeforeUnmount(() => {
                       class="abnormal-left-grid fault-trace-left-grid aggregate-table-header"
                       :style="{ gridTemplateColumns: getFaultTraceLeftGridColumnWidths() }"
                     >
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         故障类型
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'faultTraceLeft', 0)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         时间
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'faultTraceLeft', 1)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell">Trace ID</div>
+                      <div class="aggregate-cell monitor-wrap-cell">Trace ID</div>
                     </div>
                     <template
                       v-if="
@@ -18241,7 +18757,7 @@ onBeforeUnmount(() => {
                         @mouseenter="hoveredFaultTraceRowKey = `${trace.id}:${trace.traceId}`"
                         @mouseleave="hoveredFaultTraceRowKey = ''"
                       >
-                        <div class="aggregate-cell">
+                        <div class="aggregate-cell monitor-wrap-cell">
                           <span
                             v-for="tag in getTraceTags(trace.traceId, 'fault')"
                             :key="tag.type"
@@ -18251,8 +18767,8 @@ onBeforeUnmount(() => {
                             {{ tag.label }}
                           </span>
                         </div>
-                        <div class="aggregate-cell">{{ trace.time }}</div>
-                        <div class="aggregate-cell trace-id">{{ trace.traceId }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ trace.time }}</div>
+                        <div class="aggregate-cell trace-id monitor-wrap-cell">{{ trace.traceId }}</div>
                       </div>
                     </template>
                   </div>
@@ -18278,14 +18794,14 @@ onBeforeUnmount(() => {
                             @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 0)"
                           ></div>
                         </div>
-                        <div class="aggregate-cell column-resizable">
+                        <div class="aggregate-cell monitor-wrap-cell column-resizable">
                           集群
                           <div
                             class="column-resize-handle"
                             @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 1)"
                           ></div>
                         </div>
-                        <div class="aggregate-cell column-resizable">
+                        <div class="aggregate-cell monitor-wrap-cell column-resizable">
                           主机IP
                           <div
                             class="column-resize-handle"
@@ -18348,13 +18864,13 @@ onBeforeUnmount(() => {
                                 class="role-chip"
                                 :class="getRoleChipClass(chip)"
                                 :style="getRoleChipStyle(chip)"
-                                :data-roles="`角色：${chip.roles.map(getRoleChipLabel).join('、')}`"
+                                :data-roles="getRoleChipTooltip(chip.roles)"
                               >
                                 {{ chip.ip }}
                               </span>
                             </span>
                           </div>
-                          <div class="aggregate-cell fault-trace-cluster-cell">
+                          <div class="aggregate-cell fault-trace-cluster-cell monitor-wrap-cell">
                             <span
                               v-for="clusterName in trace.clusterNames"
                               :key="`${trace.id}-cluster-${clusterName}`"
@@ -18363,7 +18879,7 @@ onBeforeUnmount(() => {
                               {{ clusterName }}
                             </span>
                           </div>
-                          <div class="aggregate-cell fault-trace-host-cell">
+                          <div class="aggregate-cell fault-trace-host-cell monitor-wrap-cell">
                             <span
                               v-for="hostName in trace.hostNames"
                               :key="`${trace.id}-host-${hostName}`"
@@ -19084,7 +19600,7 @@ onBeforeUnmount(() => {
                     <div class="brpc-event-primary-left-grid brpc-event-table-header">
                       <div class="aggregate-cell fault-expand-cell"></div>
                       <div
-                        class="aggregate-cell aggregate-sortable-cell"
+                        class="aggregate-cell monitor-wrap-cell aggregate-sortable-cell"
                         @click="toggleBrpcAggregatedEventStartTimeSort"
                       >
                         <span class="sort-header-content">
@@ -19112,7 +19628,7 @@ onBeforeUnmount(() => {
                           </span>
                         </span>
                       </div>
-                      <div class="aggregate-cell">结束时间</div>
+                      <div class="aggregate-cell monitor-wrap-cell">结束时间</div>
                       <div
                         class="aggregate-cell aggregate-sortable-cell"
                         @click="
@@ -19166,8 +19682,8 @@ onBeforeUnmount(() => {
                             {{ isBrpcEventWindowExpanded(window.key) ? '🔽' : '▶️' }}
                           </span>
                         </div>
-                        <div class="aggregate-cell">{{ window.startTime }}</div>
-                        <div class="aggregate-cell">{{ window.endTime }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ window.startTime }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ window.endTime }}</div>
                         <div class="aggregate-cell count-cell brpc-event-fault-total">
                           {{ getBrpcEventWindowFaultTotal(window) }}
                         </div>
@@ -19850,7 +20366,7 @@ onBeforeUnmount(() => {
               v-model="logSourceInput"
               type="text"
               class="log-source-input"
-              placeholder="添加日志：输入目录路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）"
+              placeholder="添加日志：输入服务器路径（如 /var/log/）或远程压缩包 URL（支持 .zip、.tar.gz、.tgz）"
               :disabled="isUploadingLog || isWriteRestricted"
               @keydown.enter="submitLogSource"
             />
@@ -21217,14 +21733,14 @@ onBeforeUnmount(() => {
           <section class="aggregate-detail-chart">
             <div class="aggregate-detail-chart-title">故障Trace时序分解</div>
             <div class="latency-chart-panel detail-latency-chart-panel">
-              <div v-if="isDetailParseResultsLoading" class="chart-state detail-chart-state">
+              <div v-if="isDetailLatencyChartLoading" class="chart-state detail-chart-state">
                 正在加载故障Trace时序分解...
               </div>
               <div
-                v-else-if="detailParseResultsError"
+                v-else-if="detailLatencyChartError"
                 class="chart-state chart-error detail-chart-state"
               >
-                {{ detailParseResultsError }}
+                {{ detailLatencyChartError }}
               </div>
               <div
                 v-else-if="detailFaultTraceChartRows.length === 0"
@@ -21296,12 +21812,12 @@ onBeforeUnmount(() => {
                       class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
                       :style="getDetailLatencyLeftGridStyle()"
                     >
-                      <div class="aggregate-cell">标签</div>
-                      <div class="aggregate-cell">时间</div>
-                      <div class="aggregate-cell">Trace ID</div>
+                      <div class="aggregate-cell monitor-wrap-cell">标签</div>
+                      <div class="aggregate-cell monitor-wrap-cell">时间</div>
+                      <div class="aggregate-cell monitor-wrap-cell">Trace ID</div>
                       <div class="aggregate-cell">Pod IP</div>
-                      <div class="aggregate-cell">集群</div>
-                      <div class="aggregate-cell">主机 IP</div>
+                      <div class="aggregate-cell monitor-wrap-cell">集群</div>
+                      <div class="aggregate-cell monitor-wrap-cell">主机 IP</div>
                     </div>
                   </div>
                   <div
@@ -21334,7 +21850,7 @@ onBeforeUnmount(() => {
                           height: getTraceRowHeight(row.podIp),
                         }"
                       >
-                        <div class="aggregate-cell">
+                        <div class="aggregate-cell monitor-wrap-cell">
                           <span
                             v-for="tag in getTraceTags(row.traceId, 'latency')"
                             :key="tag.type"
@@ -21343,19 +21859,28 @@ onBeforeUnmount(() => {
                           >
                             {{ tag.label }}
                           </span>
+                          <span
+                            v-if="isDetailTraceFaultTagsLoading"
+                            class="trace-type-tag trace-type-tag-loading"
+                            role="status"
+                            aria-label="故障标签加载中"
+                            title="故障标签加载中"
+                          >
+                            <span v-for="dot in 3" :key="dot" aria-hidden="true"></span>
+                          </span>
                         </div>
-                        <div class="aggregate-cell">{{ row.time }}</div>
-                        <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.time }}</div>
+                        <div class="aggregate-cell trace-id monitor-wrap-cell">{{ row.traceId }}</div>
                         <div
                           class="aggregate-cell multi-line-pod-cell"
                           :title="getMultiLineCellTitle(row.podIp)"
                         >
                           <span v-html="row.podIp"></span>
                         </div>
-                        <div class="aggregate-cell" :title="row.clusterName">
+                        <div class="aggregate-cell monitor-wrap-cell" :title="row.clusterName">
                           {{ row.clusterName }}
                         </div>
-                        <div class="aggregate-cell" :title="row.host">{{ row.host }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell" :title="row.host">{{ row.host }}</div>
                       </div>
                     </template>
                   </div>
@@ -21679,9 +22204,9 @@ onBeforeUnmount(() => {
                     class="abnormal-left-grid fault-trace-left-grid aggregate-table-header"
                     :style="{ gridTemplateColumns: getFaultTraceLeftGridColumnWidths() }"
                   >
-                    <div class="aggregate-cell">故障类型</div>
-                    <div class="aggregate-cell">时间</div>
-                    <div class="aggregate-cell">Trace ID</div>
+                    <div class="aggregate-cell monitor-wrap-cell">故障类型</div>
+                    <div class="aggregate-cell monitor-wrap-cell">时间</div>
+                    <div class="aggregate-cell monitor-wrap-cell">Trace ID</div>
                   </div>
                   <template
                     v-if="
@@ -21696,7 +22221,7 @@ onBeforeUnmount(() => {
                       class="abnormal-left-grid fault-trace-left-grid aggregate-body-row"
                       :style="{ gridTemplateColumns: getFaultTraceLeftGridColumnWidths() }"
                     >
-                      <div class="aggregate-cell">
+                      <div class="aggregate-cell monitor-wrap-cell">
                         <span
                           v-for="tag in getTraceTags(trace.traceId, 'fault')"
                           :key="tag.type"
@@ -21706,8 +22231,8 @@ onBeforeUnmount(() => {
                           {{ tag.label }}
                         </span>
                       </div>
-                      <div class="aggregate-cell">{{ trace.time }}</div>
-                      <div class="aggregate-cell trace-id">{{ trace.traceId }}</div>
+                      <div class="aggregate-cell monitor-wrap-cell">{{ trace.time }}</div>
+                      <div class="aggregate-cell trace-id monitor-wrap-cell">{{ trace.traceId }}</div>
                     </div>
                   </template>
                 </div>
@@ -21726,8 +22251,8 @@ onBeforeUnmount(() => {
                       class="fault-trace-scroll-grid aggregate-table-header"
                       :style="faultDetailTraceScrollGridStyle"
                     >
-                      <div class="aggregate-cell">集群</div>
-                      <div class="aggregate-cell">主机IP</div>
+                      <div class="aggregate-cell monitor-wrap-cell">集群</div>
+                      <div class="aggregate-cell monitor-wrap-cell">主机IP</div>
                       <div class="aggregate-cell">故障码</div>
                       <div class="aggregate-cell">故障名称</div>
                     </div>
@@ -21758,7 +22283,7 @@ onBeforeUnmount(() => {
                         class="fault-trace-scroll-grid aggregate-body-row"
                         :style="faultDetailTraceScrollGridStyle"
                       >
-                        <div class="aggregate-cell fault-trace-cluster-cell">
+                        <div class="aggregate-cell fault-trace-cluster-cell monitor-wrap-cell">
                           <span
                             v-for="clusterName in trace.clusterNames"
                             :key="`${trace.id}-cluster-${clusterName}`"
@@ -21767,7 +22292,7 @@ onBeforeUnmount(() => {
                             {{ clusterName }}
                           </span>
                         </div>
-                        <div class="aggregate-cell fault-trace-host-cell">
+                        <div class="aggregate-cell fault-trace-host-cell monitor-wrap-cell">
                           <span
                             v-for="hostName in trace.hostNames"
                             :key="`${trace.id}-host-${hostName}`"
@@ -22872,6 +23397,27 @@ onBeforeUnmount(() => {
 
             <section
               v-show="!isDiagnosisConfigLoading"
+              class="parse-config-section client-mode-config-section"
+            >
+              <div class="parse-config-section-heading">
+                <div>
+                  <h3>客户端模式</h3>
+                  <p>选择客户端的访问模式，决定日志解析时是否产生 entry worker 角色。</p>
+                </div>
+              </div>
+              <label class="client-mode-toggle">
+                <input type="checkbox" v-model="diagnosisConfigDraft.enableLocalCache" />
+                <span class="client-mode-toggle-label">启用本地缓存（enableLocalWorker=True）</span>
+              </label>
+              <p class="client-mode-desc">
+                关闭（默认，路由模式）：客户端直连 meta/data worker，日志解析不再产生 entry
+                worker 角色；开启（绑定模式）：客户端绑定固定 Worker 作为 entry worker 中转请求。
+                仅对后续添加的日志解析任务生效。
+              </p>
+            </section>
+
+            <section
+              v-show="!isDiagnosisConfigLoading"
               class="parse-config-section pattern-config-section"
             >
               <div class="parse-config-section-heading">
@@ -23392,7 +23938,12 @@ onBeforeUnmount(() => {
               </button>
             </div>
           </form>
-          <div ref="agentChatMessagesRef" class="agent-chat-messages" aria-live="polite">
+          <div
+            ref="agentChatMessagesRef"
+            class="agent-chat-messages"
+            aria-live="polite"
+            @scroll="handleAgentChatScroll"
+          >
             <p v-if="isAgentHistoryLoading" class="agent-empty-options">正在加载历史消息…</p>
             <div v-else-if="agentChatMessages.length === 0" class="agent-chat-welcome">
               <span class="agent-chat-welcome-icon" aria-hidden="true">✦</span>
@@ -23400,68 +23951,117 @@ onBeforeUnmount(() => {
               <p>可以问我当前资产库的时延异常、通断故障或故障码根因。</p>
             </div>
 
-            <article
-              v-for="message in agentChatMessages"
-              :key="message.id"
-              class="agent-chat-message"
-              :class="message.role"
-            >
-              <div v-if="message.role === 'assistant'" class="agent-chat-avatar" aria-hidden="true">
-                AI
-              </div>
-              <div
-                class="agent-chat-bubble"
-                :class="{ 'agent-question-reply-bubble': !!message.questionReply?.length }"
+            <template v-for="turn in agentTurns" :key="turn.key">
+              <article v-if="turn.user" class="agent-chat-message user">
+                <div
+                  class="agent-chat-bubble"
+                  :class="{ 'agent-question-reply-bubble': !!turn.user.questionReply?.length }"
+                >
+                  <template v-if="turn.user.questionReply?.length">
+                    <section
+                      v-for="(reply, replyIndex) in turn.user.questionReply"
+                      :key="replyIndex"
+                      class="agent-user-question-reply"
+                    >
+                      <h4 v-if="replyIndex === 0"># 问题</h4>
+                      <p class="agent-user-question-text">{{ reply.question }}</p>
+                      <p class="agent-user-answer-text">{{ reply.answer }}</p>
+                    </section>
+                  </template>
+                  <p v-else>{{ turn.user.content }}</p>
+                </div>
+              </article>
+
+              <article
+                v-if="turn.hasAssistant && (hasAgentTurnContent(turn) || !hasAgentPendingInteraction)"
+                class="agent-chat-message assistant"
               >
-                <template v-if="message.role === 'assistant'">
+                <div class="agent-chat-avatar" aria-hidden="true">AI</div>
+                <div v-if="hasAgentTurnContent(turn)" class="agent-chat-bubble">
                   <section
-                    v-for="part in getAgentDisplayParts(message)"
-                    :key="part.id"
-                    :class="part.type === 'reasoning' ? 'agent-reasoning' : 'agent-final-answer'"
+                    v-if="turn.process.length || turn.status === 'thinking'"
+                    class="agent-reasoning"
                   >
-                    <template v-if="part.type === 'reasoning'">
-                      <button
-                        type="button"
-                        class="agent-response-label agent-reasoning-toggle"
-                        :aria-expanded="!part.collapsed"
-                        @click="part.collapsed = !part.collapsed"
+                    <button
+                      type="button"
+                      class="agent-response-label agent-reasoning-toggle"
+                      :aria-expanded="isAgentTurnExpanded(turn.key)"
+                      :aria-label="isAgentTurnExpanded(turn.key) ? '收起处理过程' : '展开处理过程'"
+                      @click="toggleAgentTurn(turn.key)"
+                    >
+                      <span class="agent-reasoning-summary">{{ getAgentTurnSummary(turn) }}</span>
+                      <span
+                        v-if="turn.status === 'thinking'"
+                        class="agent-thinking-dots"
+                        aria-label="思考中"
                       >
-                        <span>思考过程</span>
-                        <span
-                          v-if="message.status === 'thinking'"
-                          class="agent-thinking-dots"
-                          aria-label="思考中"
-                        >
-                          <i></i><i></i><i></i>
-                        </span>
-                        <span class="agent-reasoning-chevron" aria-hidden="true">⌄</span>
-                      </button>
-                      <div v-show="!part.collapsed">
-                        <p v-if="part.text">{{ part.text }}</p>
-                        <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
-                      </div>
-                    </template>
+                        <i></i><i></i><i></i>
+                      </span>
+                      <svg
+                        class="agent-reasoning-chevron"
+                        viewBox="0 0 16 16"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M3.5 5.75 8 10.25l4.5-4.5"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </button>
+                    <div v-show="isAgentTurnExpanded(turn.key)" class="agent-reasoning-body">
+                      <template v-for="part in turn.process" :key="part.id">
+                        <p v-if="part.type === 'reasoning'">{{ part.text }}</p>
+                        <div v-else-if="part.type === 'text'" class="agent-markdown" v-html="renderAgentMarkdown(part.text)"></div>
+                        <div v-else class="agent-tool">
+                          <button
+                            type="button"
+                            class="agent-tool-toggle"
+                            :aria-expanded="isAgentToolExpanded(part.id)"
+                            @click="toggleAgentTool(part.id)"
+                          >
+                            <span class="agent-tool-verb">{{ getAgentToolView(part).verb }}</span>
+                            <code
+                              v-if="!isAgentToolExpanded(part.id) && getAgentToolView(part).detail"
+                              class="agent-tool-detail"
+                              :title="getAgentToolView(part).fullDetail"
+                              >{{ getAgentToolView(part).detail }}</code
+                            >
+                          </button>
+                          <span
+                            class="agent-tool-status"
+                            :class="{ error: part.tool?.status === 'error' }"
+                            >{{ getAgentToolStatusLabel(part) }}</span
+                          >
+                          <pre
+                            v-if="isAgentToolExpanded(part.id) && getAgentToolView(part).fullDetail"
+                            class="agent-tool-code"
+                          ><code>{{ getAgentToolView(part).fullDetail }}</code></pre>
+                          <p v-if="part.tool?.status === 'error' && part.tool.error" class="agent-tool-error">
+                            {{ part.tool.error }}
+                          </p>
+                        </div>
+                      </template>
+                      <p v-if="!turn.process.length" class="agent-reasoning-placeholder">
+                        正在分析问题并查询诊断数据
+                      </p>
+                    </div>
+                  </section>
+                  <section v-if="turn.answer.length" class="agent-final-answer">
                     <div
-                      v-else
+                      v-for="part in turn.answer"
+                      :key="part.id"
                       class="agent-markdown"
                       v-html="renderAgentMarkdown(part.text)"
                     ></div>
                   </section>
-                </template>
-                <template v-else-if="message.role === 'user' && message.questionReply?.length">
-                  <section
-                    v-for="(reply, replyIndex) in message.questionReply"
-                    :key="replyIndex"
-                    class="agent-user-question-reply"
-                  >
-                    <h4 v-if="replyIndex === 0"># 问题</h4>
-                    <p class="agent-user-question-text">{{ reply.question }}</p>
-                    <p class="agent-user-answer-text">{{ reply.answer }}</p>
-                  </section>
-                </template>
-                <p v-else-if="message.role === 'user'">{{ message.content }}</p>
-              </div>
-            </article>
+                </div>
+                <p v-else class="agent-turn-empty">Agent 已完成处理，但没有返回文本结果。</p>
+              </article>
+            </template>
 
             <section
               v-for="request in agentPendingPermissions"

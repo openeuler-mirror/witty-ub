@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>KVCache Coordinator 故障定界功能设计</title>
+<style>
+  body{ margin:0; padding:28px 48px; background:#ffffff; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; color:#1f2937; }
+
+  .src-row{ display:flex; gap:24px; margin-bottom:10px; }
+  .src{ flex:1; position:relative; text-align:center; padding:14px 12px; border:1.5px dashed #9ca3af; border-radius:10px; background:#f9fafb; }
+  .src b{ display:block; font-size:15px; color:#374151; margin-bottom:5px; }
+  .src span{ font-size:12.5px; color:#6b7280; }
+  .src-new{ border:2px solid #1f6feb; background:#eef4ff; }
+  .src-new b{ color:#0b3b8c; }
+  .src-new span{ color:#3b5a9c; }
+
+  .arrow-down{ text-align:center; color:#9ca3af; font-size:22px; margin:2px 0; line-height:1; }
+
+  .chain{ display:flex; align-items:stretch; gap:10px; margin-bottom:10px; }
+  .node{ flex:1; position:relative; padding:16px 10px 12px; border:2px solid #1f6feb; border-radius:12px; background:#eef4ff; text-align:center; }
+  .node .idx, .agent .idx, .src-new .idx{ position:absolute; top:-11px; left:10px; background:#1f6feb; color:#fff; font-size:11px; font-weight:700; border-radius:8px; padding:1px 7px; }
+  .node .name{ font-size:15px; font-weight:700; color:#0b3b8c; margin-bottom:6px; }
+  .node .pts{ font-size:12px; color:#3b5a9c; line-height:1.55; }
+  .arrow{ align-self:center; color:#1f6feb; font-size:22px; font-weight:700; }
+
+  .agent-row{ display:flex; justify-content:center; margin-bottom:14px; }
+  .agent{ position:relative; width:360px; padding:14px 12px; border:2px solid #1f6feb; border-radius:12px; background:#dbe8ff; text-align:center; }
+  .agent .name{ font-size:15px; font-weight:700; color:#0b3b8c; margin-bottom:6px; }
+  .agent .pts{ font-size:12px; color:#3b5a9c; }
+
+  .exist-row{ display:flex; justify-content:flex-end; gap:12px; align-items:center; margin-top:4px; }
+  .exist{ padding:10px 18px; border:1.5px dashed #9ca3af; border-radius:10px; background:#f3f4f6; color:#6b7280; font-size:13px; text-align:center; }
+  .exist b{ color:#4b5563; }
+  .dash-arrow{ color:#9ca3af; font-size:14px; }
+</style>
+</head>
+<body>
+  <div class="src-row">
+    <div class="src src-new"><span class="idx">NEW</span><b>coordinator 节点三类日志</b><span>kvcache_coordinator.INFO · _operation · kv_metrics</span></div>
+    <div class="src"><b>worker 数据面日志</b><span>kvcache.INFO · access.log（故障前佐证）</span></div>
+  </div>
+  <div class="arrow-down">▼</div>
+
+  <div class="chain">
+    <div class="node"><span class="idx">NEW</span><div class="name">① 日志路径配置</div><div class="pts">路径/文件名 · 节点角色识别<br>终态正则模板库</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><span class="idx">NEW</span><div class="name">② 日志解析组件</div><div class="pts">INFO 终态事件 · operation 进程操作<br>kv_metrics JSON（cycle · total/delta）</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><span class="idx">NEW</span><div class="name">③ 上下游日志关联</div><div class="pts">probe_id · batch_epoch · version · watchId<br>跨节点对齐 · cont-trace_id 合并</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><span class="idx">NEW</span><div class="name">④ 故障事件计数与时序</div><div class="pts">入口识别 → 前置链还原<br>delta 同步跳变验证 · [T-60s,T] 窗口</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><span class="idx">NEW</span><div class="name">⑤ 上下文视图</div><div class="pts">事件链视图<br>故障上下文（关联键/证据）</div></div>
+  </div>
+  <div class="arrow-down">▼</div>
+
+  <div class="agent-row">
+    <div class="agent"><span class="idx">NEW</span><div class="name">⑥ agent 模块</div><div class="pts">coordinator 故障定界 skill · wiki 文档 · 案例库解析增强</div></div>
+  </div>
+
+  <div class="exist-row">
+    <span class="dash-arrow">◄──── 平行参考 ────</span>
+    <div class="exist"><b>现有监控</b><br>通断故障监控 · get/set 请求监控</div>
+  </div>
+</body>
+</html>

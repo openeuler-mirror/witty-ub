@@ -6,6 +6,13 @@ KVCache 集群中同一 Worker 会在不同请求路径扮演不同功能角色�
 判定基于日志行字段（pod_name / cluster_name / filename / message /
 log_file），规则为按优先级命中（client > meta > data > entry）。
 
+entry worker 仅存在于绑定模式（enable_local_cache=true）：此时客户端把所有
+请求发给绑定 Worker，由它作为入口路由到 meta/data worker，其 WorkerOC 访问
+行（``DS_POSIX_*``）即 entry worker 信号。路由模式（enable_local_cache=false，
+默认）下客户端直连元数据 owner 与数据 Worker，``DS_POSIX_*`` 不再是 entry
+信号，而是被直接访问的 Worker 自身角色：``DS_POSIX_QUERY_AND_GET`` 归为
+meta worker，其余 ``DS_POSIX_*`` 归为 data worker。
+
 - ``identify_log_role``：Python 逐行实现（legacy 扫描 / 回填 / 单测）。
 - ``role_expr``：Polars 向量化实现（生产主路径，原生且不物化逐行对象）。
 """
@@ -46,8 +53,10 @@ _DATA_MSG_HINTS = (
     "target address", "src address",
 )
 _DATA_FILE_HINTS = ("urma", "remote_pull", "link")
-# entry worker：worker 侧访问操作（DS_POSIX_*）
+# entry worker：绑定模式下 Worker 侧访问操作（DS_POSIX_*）；路由模式下
+# DS_POSIX_QUERY_AND_GET 是元数据 owner 被直连访问，其余 DS_POSIX_* 是数据 Worker 被直连访问
 _ENTRY_MSG_HINTS = ("ds_posix",)
+_QUERY_AND_GET_MSG_HINTS = ("ds_posix_query_and_get",)
 
 
 def _contains_any(text: str, hints: tuple[str, ...]) -> bool:
@@ -61,10 +70,14 @@ def identify_log_role(
     filename: str = "",
     message: str = "",
     log_file: str = "",
+    enable_local_cache: bool = False,
 ) -> str:
     """逐行识别日志所属容器角色，返回 :class:`LogRole` 的值。
 
     优先级：client > meta worker > data worker > entry worker > unknown。
+    ``enable_local_cache=true`` 时 ``DS_POSIX_*`` 视为 entry worker（绑定模式）；
+    ``false``（默认）时客户端直连 Worker，``DS_POSIX_QUERY_AND_GET`` 归为
+    meta worker，其余 ``DS_POSIX_*`` 归为 data worker，不再产生 entry worker。
     """
     pod_cluster = f"{pod_name} {cluster_name}".lower()
     file_text = f"{log_file}".lower()
@@ -78,13 +91,13 @@ def identify_log_role(
         return LogRole.CLIENT.value
     if _contains_any(content, _META_MSG_HINTS) or _contains_any(
         filename_lower, _META_FILE_HINTS
-    ):
+    ) or (not enable_local_cache and _contains_any(msg, _QUERY_AND_GET_MSG_HINTS)):
         return LogRole.META_WORKER.value
     if _contains_any(content, _DATA_MSG_HINTS) or _contains_any(
         file_text, _DATA_FILE_HINTS
-    ):
+    ) or (not enable_local_cache and _contains_any(msg, _ENTRY_MSG_HINTS)):
         return LogRole.DATA_WORKER.value
-    if _contains_any(msg, _ENTRY_MSG_HINTS):
+    if enable_local_cache and _contains_any(msg, _ENTRY_MSG_HINTS):
         return LogRole.ENTRY_WORKER.value
     return LogRole.UNKNOWN.value
 
@@ -96,11 +109,15 @@ def role_expr(
     filename: pl.Expr | None = None,
     message: pl.Expr | None = None,
     log_file: pl.Expr | None = None,
+    enable_local_cache: bool = False,
 ) -> pl.Expr:
     """Polars 向量化角色识别表达式（生产主路径）。
 
     默认引用同名输入列（log_file / pod_name / cluster_name / filename /
     message），也可显式传入列表达式（如投影中基于原始分隔字段的 strip）。
+    ``enable_local_cache`` 语义与 :func:`identify_log_role` 一致：true 时
+    ``DS_POSIX_*`` 归为 entry worker（绑定模式）；false（默认）时视为路由
+    模式，客户端直连 Worker，不产生 entry worker 角色。
     """
     has = lambda column, hints: pl.any_horizontal(  # noqa: E731
         column.str.to_lowercase().str.contains(hint, literal=True) for hint in hints
@@ -113,15 +130,20 @@ def role_expr(
 
     pod_cluster = pl.concat_str([pod_name, cluster_name], separator=" ")
     content = pl.concat_str([message, filename, log_file], separator=" ")
+    routed = pl.lit(not enable_local_cache)
+    posix = has(message, _ENTRY_MSG_HINTS)
+    query_and_get = has(message, _QUERY_AND_GET_MSG_HINTS)
 
     return (
         pl.when(has(pod_cluster, _CLIENT_POD_HINTS) | has(content, _CLIENT_MSG_HINTS))
         .then(pl.lit(LogRole.CLIENT.value))
-        .when(has(content, _META_MSG_HINTS) | has(filename, _META_FILE_HINTS))
+        .when(has(content, _META_MSG_HINTS) | has(filename, _META_FILE_HINTS)
+              | (routed & query_and_get))
         .then(pl.lit(LogRole.META_WORKER.value))
-        .when(has(content, _DATA_MSG_HINTS) | has(log_file, _DATA_FILE_HINTS))
+        .when(has(content, _DATA_MSG_HINTS) | has(log_file, _DATA_FILE_HINTS)
+              | (routed & posix))
         .then(pl.lit(LogRole.DATA_WORKER.value))
-        .when(has(message, _ENTRY_MSG_HINTS))
+        .when(pl.lit(enable_local_cache) & posix)
         .then(pl.lit(LogRole.ENTRY_WORKER.value))
         .otherwise(pl.lit(LogRole.UNKNOWN.value))
     )

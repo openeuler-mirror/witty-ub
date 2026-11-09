@@ -336,8 +336,11 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
             if kb_id:
                 config = await DiagnosisConfigPGManager.get_or_create(kb_id)
                 args = config.log_filename_pattern.model_dump()
+                args["enable_local_cache"] = config.enable_local_cache
             else:
-                args = Config().get_config().log_filename_pattern.model_dump()
+                config = Config().get_diagnosis_config()
+                args = config.log_filename_pattern.model_dump()
+                args["enable_local_cache"] = config.enable_local_cache
             logger.info("读取日志文件名参数: %s", args)
             return args
         except Exception as e:
@@ -361,6 +364,7 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
                     "*_split_runtime.log",
                 ],
                 "resource_log_file": ["resource.log"],
+                "enable_local_cache": False,
             }
     
     @staticmethod

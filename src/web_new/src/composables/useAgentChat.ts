@@ -27,11 +27,31 @@ import { useToast } from './useToast'
 
 export type AgentView = 'login' | 'models' | 'providers' | 'chat'
 
+export type AgentToolInfo = {
+  name: string
+  status?: string
+  title?: string
+  input?: Record<string, unknown>
+  error?: string
+}
+
 export type AgentChatPart = {
   id: string
-  type: 'reasoning' | 'text'
+  type: 'reasoning' | 'text' | 'tool'
   text: string
-  collapsed?: boolean
+  synthetic?: boolean
+  ignored?: boolean
+  tool?: AgentToolInfo
+}
+
+export type AgentTurn = {
+  key: string
+  user?: AgentChatMessage
+  hasAssistant: boolean
+  process: AgentChatPart[]
+  answer: AgentChatPart[]
+  status: 'thinking' | 'done' | 'error'
+  durationMs?: number
 }
 
 export type AgentChatMessage = {
@@ -42,6 +62,9 @@ export type AgentChatMessage = {
   reasoning: string
   status: 'thinking' | 'done' | 'error'
   messageId?: string
+  finish?: string
+  aborted?: boolean
+  time?: { created?: number; completed?: number }
   /** 结构化问询的答复：有值时按「问题 / 答案」成对渲染，而不是普通文本气泡。 */
   questionReply?: Array<{ question: string; answer: string }>
   /** 这条答复插在哪个历史消息之后（重载历史后按锚点归位）。 */
@@ -112,6 +135,9 @@ export function createAgentChatState() {
   const isSubmitting = ref(false)
   const sessionSearch = ref('')
   const messages = ref<AgentChatMessage[]>([])
+  const expandedTurnKeys = ref<Record<string, boolean>>({})
+  const expandedToolKeys = ref<Record<string, boolean>>({})
+  const isPinnedToBottom = ref(true)
   const input = ref('')
   const isSending = ref(false)
   // Agent 挂起的受限操作与问询：答复前不会继续，必须显式处理
@@ -248,10 +274,34 @@ export function createAgentChatState() {
 
   // ---------- 连接 ----------
 
-  const scrollToBottom = async () => {
+  const AGENT_CHAT_BOTTOM_THRESHOLD = 24
+  const isScrollNearBottom = (
+    metrics: { scrollHeight: number; scrollTop: number; clientHeight: number },
+    threshold = AGENT_CHAT_BOTTOM_THRESHOLD,
+  ) => metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight <= threshold
+
+  // 自动贴底也会触发 scroll 事件；流式内容在事件到达前继续长高，
+  // 按当前高度判断就会把自动滚动误判成用户上滑，这里按位置标记跳过这一次事件
+  let autoScrollMark: number | null = null
+
+  const scrollToBottom = async (force = false) => {
     await nextTick()
     const container = messagesRef.value
-    if (container) container.scrollTop = container.scrollHeight
+    if (!container) return
+    if (!force && !isPinnedToBottom.value) return
+    const before = container.scrollTop
+    container.scrollTop = container.scrollHeight
+    isPinnedToBottom.value = true
+    if (container.scrollTop !== before) autoScrollMark = container.scrollTop
+  }
+
+  const handleMessagesScroll = () => {
+    const container = messagesRef.value
+    if (!container) return
+    const mark = autoScrollMark
+    autoScrollMark = null
+    if (mark !== null && Math.abs(container.scrollTop - mark) <= 1) return
+    isPinnedToBottom.value = isScrollNearBottom(container)
   }
 
   const refreshSessions = async () => {
@@ -434,7 +484,7 @@ export function createAgentChatState() {
 
   const getOrCreatePart = (
     message: AgentChatMessage,
-    type: 'reasoning' | 'text',
+    type: AgentChatPart['type'],
     partId: string,
   ) => {
     const key = `${type}:${partId}`
@@ -446,22 +496,256 @@ export function createAgentChatState() {
     return part
   }
 
+  const isVisibleTextPart = (part: AgentChatPart) =>
+    part.type === 'text' && !part.synthetic && !part.ignored && part.text.trim() !== ''
+
+  const isVisibleReasoningPart = (part: AgentChatPart) =>
+    part.type === 'reasoning' && part.text.trim() !== ''
+
   const syncMessageText = (message: AgentChatMessage) => {
     message.reasoning = message.parts
-      .filter((part) => part.type === 'reasoning')
+      .filter(isVisibleReasoningPart)
       .map((part) => part.text)
-      .filter(Boolean)
       .join('\n\n')
     message.content = message.parts
-      .filter((part) => part.type === 'text')
+      .filter(isVisibleTextPart)
       .map((part) => part.text)
-      .filter(Boolean)
       .join('\n\n')
   }
 
-  const finishPending = (fallback: string) => {
+  const pickToolInput = (value?: Record<string, unknown>) => {
+    if (!value) return undefined
+    const picked: Record<string, unknown> = {}
+    for (const key of ['command', 'filePath', 'path', 'name', 'pattern', 'url', 'description', 'query']) {
+      if (key in value) picked[key] = value[key]
+    }
+    if (Array.isArray(value.todos)) picked.todos = value.todos.length
+    return picked
+  }
+
+  const toToolInfo = (part: {
+    tool?: string
+    state?: {
+      status?: string
+      input?: Record<string, unknown>
+      title?: string
+      error?: string
+    }
+  }): AgentToolInfo | undefined => {
+    if (!part.tool) return undefined
+    return {
+      name: part.tool,
+      status: part.state?.status,
+      title: part.state?.title,
+      input: pickToolInput(part.state?.input),
+      error: part.state?.error,
+    }
+  }
+
+  const buildTurns = (list: AgentChatMessage[]): AgentTurn[] => {
+    const groups: Array<{ key: string; user?: AgentChatMessage; steps: AgentChatMessage[] }> = []
+    for (const message of list) {
+      if (message.role === 'user') {
+        groups.push({ key: message.id, user: message, steps: [] })
+        continue
+      }
+      const current = groups.at(-1)
+      if (current) current.steps.push(message)
+      else groups.push({ key: message.id, steps: [message] })
+    }
+    return groups.map((group) => {
+      const last = group.steps.at(-1)
+      const lastIsAnswer =
+        !!last && (last.aborted || last.status === 'error' || last.finish !== 'tool-calls')
+      const process: AgentChatPart[] = []
+      const answer: AgentChatPart[] = []
+      group.steps.forEach((step, index) => {
+        const isLast = index === group.steps.length - 1
+        for (const part of step.parts) {
+          if (part.type === 'tool') {
+            if (part.tool) process.push({ ...part, id: `${step.id}:${part.id}` })
+          } else if (isVisibleReasoningPart(part)) {
+            process.push({ ...part, id: `${step.id}:${part.id}` })
+          } else if (isVisibleTextPart(part)) {
+            const displayPart = { ...part, id: `${step.id}:${part.id}` }
+            if (isLast && lastIsAnswer) answer.push(displayPart)
+            else process.push(displayPart)
+          }
+        }
+      })
+      const status: AgentTurn['status'] = group.steps.some((step) => step.status === 'error')
+        ? 'error'
+        : last?.status === 'thinking'
+          ? 'thinking'
+          : 'done'
+      const startedAt = group.steps[0]?.time?.created
+      const endedAt = last?.time?.completed
+      const durationMs =
+        startedAt && endedAt && endedAt >= startedAt ? endedAt - startedAt : undefined
+      return {
+        key: group.key,
+        user: group.user,
+        hasAssistant: group.steps.length > 0,
+        process,
+        answer,
+        status,
+        durationMs,
+      }
+    })
+  }
+
+  const truncateText = (value: string, limit = 160) =>
+    value.length > limit ? `${value.slice(0, limit)}…` : value
+
+  const getToolView = (part: AgentChatPart) => {
+    const tool = part.tool
+    if (!tool) return { verb: '调用工具', detail: '', fullDetail: '' }
+    const input = tool.input ?? {}
+    const text = (key: string) =>
+      typeof input[key] === 'string' ? (input[key] as string) : ''
+    const view = (verb: string, value: string) => ({
+      verb,
+      detail: truncateText(value),
+      fullDetail: value,
+    })
+    switch (tool.name) {
+      case 'bash':
+        return view('运行命令', tool.title || text('command'))
+      case 'read':
+        return view('读取文件', text('filePath') || text('path') || tool.title || '')
+      case 'write':
+        return view('写入文件', text('filePath') || text('path') || tool.title || '')
+      case 'edit':
+        return view('编辑文件', text('filePath') || text('path') || tool.title || '')
+      case 'patch':
+        return view('修改文件', tool.title || '')
+      case 'skill':
+        return view('加载 Skill', text('name') || tool.title || '')
+      case 'todowrite':
+        return view('更新任务清单', tool.title || '')
+      case 'grep':
+        return view('搜索内容', text('pattern') || tool.title || '')
+      case 'glob':
+        return view('查找文件', text('pattern') || tool.title || '')
+      case 'webfetch':
+        return view('抓取网页', text('url') || tool.title || '')
+      case 'task':
+        return view('启动子任务', text('description') || tool.title || '')
+      default:
+        return view('调用工具', tool.title || tool.name)
+    }
+  }
+
+  const getToolStatusLabel = (part: AgentChatPart) => {
+    switch (part.tool?.status) {
+      case 'running':
+        return '执行中'
+      case 'pending':
+        return '等待'
+      case 'error':
+        return '失败'
+      case 'completed':
+        return '完成'
+      default:
+        return ''
+    }
+  }
+
+  const formatDuration = (durationMs?: number) => {
+    if (!durationMs || durationMs < 0) return ''
+    const seconds = Math.max(1, Math.round(durationMs / 1000))
+    if (seconds < 60) return `${seconds} 秒`
+    const minutes = Math.floor(seconds / 60)
+    const restSeconds = seconds % 60
+    if (minutes < 60) return restSeconds ? `${minutes} 分 ${restSeconds} 秒` : `${minutes} 分`
+    const hours = Math.floor(minutes / 60)
+    const restMinutes = minutes % 60
+    return restMinutes ? `${hours} 小时 ${restMinutes} 分` : `${hours} 小时`
+  }
+
+  const getToolSummary = (process: AgentChatPart[]) => {
+    const counts = { commands: 0, read: 0, modified: 0, skills: 0, todo: 0, other: 0, failed: 0 }
+    for (const part of process) {
+      if (part.type !== 'tool' || !part.tool) continue
+      if (part.tool.status === 'error') counts.failed += 1
+      switch (part.tool.name) {
+        case 'bash':
+          counts.commands += 1
+          break
+        case 'read':
+          counts.read += 1
+          break
+        case 'write':
+        case 'edit':
+        case 'patch':
+          counts.modified += 1
+          break
+        case 'skill':
+          counts.skills += 1
+          break
+        case 'todowrite':
+          counts.todo += 1
+          break
+        default:
+          counts.other += 1
+      }
+    }
+    const fragments: string[] = []
+    if (counts.commands) fragments.push(`执行了 ${counts.commands} 条命令`)
+    if (counts.read) fragments.push(`读取了 ${counts.read} 个文件`)
+    if (counts.modified) fragments.push(`修改了 ${counts.modified} 个文件`)
+    if (counts.skills) fragments.push(`加载了 ${counts.skills} 个 Skill`)
+    if (counts.todo) fragments.push(`更新了 ${counts.todo} 次任务清单`)
+    if (counts.other) fragments.push(`调用了 ${counts.other} 个工具`)
+    if (counts.failed) fragments.push(`失败 ${counts.failed} 次`)
+    return fragments.join('、')
+  }
+
+  const getTurnPreview = (turn: AgentTurn) => {
+    const last = turn.process.at(-1)
+    if (!last) return '正在分析问题并查询诊断数据'
+    if (last.type === 'tool') {
+      const view = getToolView(last)
+      return view.detail ? `${view.verb}：${view.detail}` : view.verb
+    }
+    const line =
+      last.text
+        .trim()
+        .split(/\n+/)
+        .filter(Boolean)
+        .at(-1) ?? ''
+    if (!line) return '正在分析问题并查询诊断数据'
+    return truncateText(line, 120)
+  }
+
+  const getTurnSummary = (turn: AgentTurn) => {
+    if (turn.status === 'thinking') return getTurnPreview(turn)
+    const prefix = turn.status === 'error' ? '处理失败' : '已完成'
+    const duration = formatDuration(turn.durationMs)
+    const actions = getToolSummary(turn.process)
+    return `${[prefix, duration ? `用时 ${duration}` : '', actions].filter(Boolean).join('，')}。`
+  }
+
+  const displayTurns = computed(() => buildTurns(messages.value))
+  const hasTurnContent = (turn: AgentTurn) =>
+    turn.process.length > 0 || turn.answer.length > 0 || turn.status === 'thinking'
+  const isTurnExpanded = (key: string) => !!expandedTurnKeys.value[key]
+  const toggleTurn = (key: string) => {
+    expandedTurnKeys.value = {
+      ...expandedTurnKeys.value,
+      [key]: !expandedTurnKeys.value[key],
+    }
+  }
+  const isToolExpanded = (key: string) => !!expandedToolKeys.value[key]
+  const toggleTool = (key: string) => {
+    expandedToolKeys.value = {
+      ...expandedToolKeys.value,
+      [key]: !expandedToolKeys.value[key],
+    }
+  }
+
+  const finishPending = () => {
     const pending = messages.value.find((message) => message.status === 'thinking')
-    if (pending && !pending.content) pending.content = fallback
     if (pending) pending.status = 'done'
     isSending.value = false
     if (sessionId.value) sessionStatuses.value[sessionId.value] = { type: 'idle' }
@@ -508,6 +792,7 @@ export function createAgentChatState() {
     const pending = messages.value.find((message) => message.status === 'thinking')
     if (pending) {
       pending.parts = [{ id: `${pending.id}:aborted`, type: 'text', text: USER_ABORT_TEXT }]
+      pending.aborted = true
       syncMessageText(pending)
       pending.status = 'done'
     }
@@ -857,6 +1142,9 @@ export function createAgentChatState() {
         messages.value.push(pending)
       }
       if (pending && !pending.messageId) pending.messageId = props.info.id
+      const target = messages.value.find((message) => message.messageId === props.info?.id)
+      if (target && props.info.finish) target.finish = props.info.finish
+      if (target && props.info.time) target.time = props.info.time
       if (props.info.error) {
         markResponseFailed(extractAgentError(props.info.error) || '模型响应失败')
       }
@@ -870,10 +1158,19 @@ export function createAgentChatState() {
         messages.value.find((message) => message.messageId === messageID) ??
         messages.value.find((message) => message.status === 'thinking')
       if (!target) return
-      const type = props.part.type === 'reasoning' ? 'reasoning' : 'text'
-      const part = getOrCreatePart(target, type, props.part.id || type)
-      // 服务端推送全量 part.text，按 part.id 覆盖写
-      part.text = props.part.text ?? ''
+      if (props.part.type === 'tool') {
+        const toolPart = getOrCreatePart(target, 'tool', props.part.id || 'tool')
+        toolPart.tool = toToolInfo(props.part)
+        void scrollToBottom()
+        return
+      }
+      if (props.part.type !== 'reasoning' && props.part.type !== 'text') return
+      const part = getOrCreatePart(target, props.part.type, props.part.id || props.part.type)
+      part.synthetic = props.part.synthetic === true
+      part.ignored = props.part.ignored === true
+      const nextText = props.part.text ?? ''
+      // 流式创建时先推空串，后续 delta 才补齐；已有文本时不让空快照覆盖
+      if (nextText !== '' || part.text === '') part.text = nextText
       syncMessageText(target)
       void scrollToBottom()
       return
@@ -894,7 +1191,7 @@ export function createAgentChatState() {
       event.type === 'session.idle' ||
       (event.type === 'session.status' && props.status?.type === 'idle')
     ) {
-      finishPending('Agent 已完成处理，但没有返回文本结果。')
+      finishPending()
       return
     }
 
@@ -1008,7 +1305,7 @@ export function createAgentChatState() {
     isHistoryFailed.value = false
     isSubmitting.value = false
     connectionError.value = ''
-    await scrollToBottom()
+    await scrollToBottom(true)
   }
 
   const toChatMessages = (list: OpenCodeMessage[]): AgentChatMessage[] => {
@@ -1017,13 +1314,14 @@ export function createAgentChatState() {
       const role = item.info?.role as AgentChatMessage['role'] | undefined
       if (role !== 'user' && role !== 'assistant') continue
       const parts: AgentChatPart[] = (item.parts ?? [])
-        .filter((part) => part.type === 'reasoning' || part.type === 'text')
+        .filter((part) => part.type === 'reasoning' || part.type === 'text' || part.type === 'tool')
         .map((part, index) => ({
           id: `${part.type}:${part.id ?? index}`,
-          type: part.type as 'reasoning' | 'text',
+          type: part.type as AgentChatPart['type'],
           text: part.text ?? '',
-          // 历史思考过程默认收起
-          collapsed: part.type === 'reasoning',
+          synthetic: part.synthetic === true,
+          ignored: part.ignored === true,
+          tool: part.type === 'tool' ? toToolInfo(part) : undefined,
         }))
       const aborted = isAgentAbortError(item.info?.error)
       const message: AgentChatMessage = {
@@ -1034,6 +1332,9 @@ export function createAgentChatState() {
         content: '',
         status: item.info?.error && !aborted ? 'error' : 'done',
         messageId: item.info?.id,
+        finish: item.info?.finish,
+        aborted,
+        time: item.info?.time,
       }
       if (aborted) {
         // 被中止的历史消息：服务端记的是 Aborted 错误，按用户主动停止渲染
@@ -1118,7 +1419,7 @@ export function createAgentChatState() {
     } finally {
       if (sequence === requestSequence) isHistoryLoading.value = false
     }
-    await scrollToBottom()
+    await scrollToBottom(true)
   }
 
   const newConversation = async () => {
@@ -1251,7 +1552,7 @@ export function createAgentChatState() {
     const sequence = ++requestSequence
     ignoredAbortError = null
     isSubmitting.value = true
-    void scrollToBottom()
+    void scrollToBottom(true)
     try {
       const sid = await ensureSession()
       if (sequence !== requestSequence) return
@@ -1319,24 +1620,6 @@ export function createAgentChatState() {
     )
   })
 
-  const displayPartsOf = (message: AgentChatMessage): AgentChatPart[] => {
-    // 用户消息只有 content（无 parts），必须回退，否则气泡为空
-    if (message.role === 'user') {
-      return message.content
-        ? [{ id: `${message.id}:user-text`, type: 'text', text: message.content }]
-        : []
-    }
-    const parts = message.parts.filter(
-      (part) => part.text || (part.type === 'reasoning' && message.status === 'thinking'),
-    )
-    if (parts.length > 0) return parts
-    if (message.content) return [{ id: 'text:fallback', type: 'text', text: message.content }]
-    if (message.status === 'thinking') {
-      return [{ id: 'reasoning:placeholder', type: 'reasoning', text: '' }]
-    }
-    return []
-  }
-
   const setAsset = (asset: { id: string; name: string } | null) => {
     const nextId = asset?.id ?? ''
     if (currentAsset.id === nextId) return
@@ -1400,7 +1683,16 @@ export function createAgentChatState() {
     activeSessionTitle,
     filteredModels,
     filteredProviders,
-    displayPartsOf,
+    displayTurns,
+    hasTurnContent,
+    isTurnExpanded,
+    toggleTurn,
+    isToolExpanded,
+    toggleTool,
+    getTurnSummary,
+    getToolView,
+    getToolStatusLabel,
+    isPinnedToBottom,
     // 动作
     setAsset,
     restore,
@@ -1422,6 +1714,7 @@ export function createAgentChatState() {
     suspend,
     sendMessage,
     scrollToBottom,
+    handleMessagesScroll,
     sessionAssetName,
     selectModel: (providerID: string, modelID: string) => {
       selectedModel.value = { providerID, modelID }

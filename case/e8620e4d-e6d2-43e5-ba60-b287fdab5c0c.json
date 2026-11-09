@@ -1,7 +1,7 @@
 {
   "id": "e8620e4d-e6d2-43e5-ba60-b287fdab5c0c",
   "kb_id": "bc10b5c3-bca4-46ca-8629-5bf3494a50b6",
-  "root_cause_type": "UB交换机L1的上行端口闪断",
+  "root_cause_type": "ub端口故障-闪断",
   "description": "",
   "task_ids": [
     "3e81b204-5026-420b-ae45-2612110e6511"
@@ -157,5 +157,5 @@
     }
   },
   "created_at": "2026-09-24 06:42:21",
-  "case_category": "UB-端口故障"
+  "case_category": "硬件故障"
 }

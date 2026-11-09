@@ -48,7 +48,15 @@ const {
   activeSessionTitle,
   filteredModels,
   filteredProviders,
-  displayPartsOf,
+  displayTurns,
+  hasTurnContent,
+  isTurnExpanded,
+  toggleTurn,
+  isToolExpanded,
+  toggleTool,
+  getTurnSummary,
+  getToolView,
+  getToolStatusLabel,
   setAsset,
   restore,
   loginLocalAgent,
@@ -68,10 +76,15 @@ const {
   suspend,
   sendMessage,
   scrollToBottom,
+  handleMessagesScroll,
   sessionAssetName,
   selectModel,
   goBack,
 } = useAgentChat()
+
+const hasPendingInteraction = computed(
+  () => pendingPermissions.value.length > 0 || pendingQuestions.value.length > 0,
+)
 
 const open = ref(false)
 const fabRef = ref<HTMLButtonElement | null>(null)
@@ -248,7 +261,7 @@ const openPanel = () => {
   restoreOnce()
   open.value = true
   fabHidden.value = true
-  void scrollToBottom()
+  void scrollToBottom(true)
   void nextTick(() => {
     panelRef.value?.focus()
     const collapsed = prefersReducedMotion() ? null : collapseFrame()
@@ -745,7 +758,12 @@ const onInputKeydown = (event: KeyboardEvent) => {
             </button>
           </div>
         </form>
-        <div ref="messagesRef" class="agent-chat-messages" aria-live="polite">
+        <div
+          ref="messagesRef"
+          class="agent-chat-messages"
+          aria-live="polite"
+          @scroll.passive="handleMessagesScroll"
+        >
           <p v-if="isHistoryLoading" class="agent-empty-options">正在加载历史消息…</p>
           <div v-else-if="messages.length === 0" class="agent-chat-welcome">
             <span class="agent-chat-welcome-icon" aria-hidden="true">✦</span>
@@ -753,66 +771,125 @@ const onInputKeydown = (event: KeyboardEvent) => {
             <p>可以问我当前资产库的时延异常、通断故障或故障码根因。</p>
           </div>
           <template v-else>
-            <article
-              v-for="message in messages"
-              :key="message.id"
-              class="agent-chat-message"
-              :class="message.role"
-            >
-              <div v-if="message.role === 'assistant'" class="agent-chat-avatar" aria-hidden="true">
-                AI
-              </div>
-              <div
-                class="agent-chat-bubble"
-                :class="{ 'agent-question-reply-bubble': !!message.questionReply?.length }"
-              >
-                <!-- 用户消息为纯文本，继承气泡白字 -->
-                <template v-if="message.role === 'user' && message.questionReply?.length">
-                  <section
-                    v-for="(reply, replyIndex) in message.questionReply"
-                    :key="replyIndex"
-                    class="agent-user-question-reply"
-                  >
-                    <h4 v-if="replyIndex === 0"># 问题</h4>
-                    <p class="agent-user-question-text">{{ reply.question }}</p>
-                    <p class="agent-user-answer-text">{{ reply.answer }}</p>
-                  </section>
-                </template>
-                <template v-else-if="message.role === 'user'">
-                  <p v-for="part in displayPartsOf(message)" :key="part.id">{{ part.text }}</p>
-                </template>
-                <template v-else>
-                  <template v-for="part in displayPartsOf(message)" :key="part.id">
-                    <section v-if="part.type === 'reasoning'" class="agent-reasoning">
-                      <button
-                        type="button"
-                        class="agent-response-label agent-reasoning-toggle"
-                        :aria-expanded="!part.collapsed"
-                        @click="part.collapsed = !part.collapsed"
-                      >
-                        <span>思考过程</span>
-                        <span
-                          v-if="message.status === 'thinking'"
-                          class="agent-thinking-dots"
-                          aria-label="思考中"
-                        >
-                          <i></i><i></i><i></i>
-                        </span>
-                        <span class="agent-reasoning-chevron" aria-hidden="true">⌄</span>
-                      </button>
-                      <div v-show="!part.collapsed">
-                        <p v-if="part.text">{{ part.text }}</p>
-                        <p v-else class="agent-reasoning-placeholder">正在分析问题并查询诊断数据</p>
-                      </div>
-                    </section>
-                    <section v-else class="agent-final-answer">
-                      <div class="agent-markdown" v-html="renderAgentMarkdown(part.text)"></div>
+            <template v-for="turn in displayTurns" :key="turn.key">
+              <article v-if="turn.user" class="agent-chat-message user">
+                <div
+                  class="agent-chat-bubble"
+                  :class="{ 'agent-question-reply-bubble': !!turn.user.questionReply?.length }"
+                >
+                  <template v-if="turn.user.questionReply?.length">
+                    <section
+                      v-for="(reply, replyIndex) in turn.user.questionReply"
+                      :key="replyIndex"
+                      class="agent-user-question-reply"
+                    >
+                      <h4 v-if="replyIndex === 0"># 问题</h4>
+                      <p class="agent-user-question-text">{{ reply.question }}</p>
+                      <p class="agent-user-answer-text">{{ reply.answer }}</p>
                     </section>
                   </template>
-                </template>
-                <p v-if="message.status === 'error'" class="agent-message-error">响应失败</p>
-              </div>
-            </article>
+                  <p v-else>{{ turn.user.content }}</p>
+                </div>
+              </article>
+
+              <article
+                v-if="turn.hasAssistant && (hasTurnContent(turn) || !hasPendingInteraction)"
+                class="agent-chat-message assistant"
+              >
+                <div class="agent-chat-avatar" aria-hidden="true">AI</div>
+                <div v-if="hasTurnContent(turn)" class="agent-chat-bubble">
+                  <section
+                    v-if="turn.process.length || turn.status === 'thinking'"
+                    class="agent-reasoning"
+                  >
+                    <button
+                      type="button"
+                      class="agent-response-label agent-reasoning-toggle"
+                      :aria-expanded="isTurnExpanded(turn.key)"
+                      :aria-label="isTurnExpanded(turn.key) ? '收起处理过程' : '展开处理过程'"
+                      @click="toggleTurn(turn.key)"
+                    >
+                      <span class="agent-reasoning-summary">{{ getTurnSummary(turn) }}</span>
+                      <span
+                        v-if="turn.status === 'thinking'"
+                        class="agent-thinking-dots"
+                        aria-label="思考中"
+                      >
+                        <i></i><i></i><i></i>
+                      </span>
+                      <svg
+                        class="agent-reasoning-chevron"
+                        viewBox="0 0 16 16"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M3.5 5.75 8 10.25l4.5-4.5"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </button>
+                    <div v-show="isTurnExpanded(turn.key)" class="agent-reasoning-body">
+                      <template v-for="part in turn.process" :key="part.id">
+                        <div v-if="part.type === 'tool'" class="agent-tool">
+                          <button
+                            type="button"
+                            class="agent-tool-toggle"
+                            :aria-expanded="isToolExpanded(part.id)"
+                            @click="toggleTool(part.id)"
+                          >
+                            <span class="agent-tool-verb">{{ getToolView(part).verb }}</span>
+                            <code
+                              v-if="!isToolExpanded(part.id) && getToolView(part).detail"
+                              class="agent-tool-detail"
+                              :title="getToolView(part).fullDetail"
+                              >{{ getToolView(part).detail }}</code
+                            >
+                          </button>
+                          <span
+                            class="agent-tool-status"
+                            :class="{ error: part.tool?.status === 'error' }"
+                            >{{ getToolStatusLabel(part) }}</span
+                          >
+                          <pre
+                            v-if="isToolExpanded(part.id) && getToolView(part).fullDetail"
+                            class="agent-tool-code"
+                          ><code>{{ getToolView(part).fullDetail }}</code></pre>
+                          <p
+                            v-if="part.tool?.status === 'error' && part.tool.error"
+                            class="agent-tool-error"
+                          >
+                            {{ part.tool.error }}
+                          </p>
+                        </div>
+                        <p v-else-if="part.type === 'reasoning'">{{ part.text }}</p>
+                        <div
+                          v-else
+                          class="agent-markdown"
+                          v-html="renderAgentMarkdown(part.text)"
+                        ></div>
+                      </template>
+                      <p v-if="!turn.process.length" class="agent-reasoning-placeholder">
+                        正在分析问题并查询诊断数据
+                      </p>
+                    </div>
+                  </section>
+                  <section v-if="turn.answer.length" class="agent-final-answer">
+                    <div
+                      v-for="part in turn.answer"
+                      :key="part.id"
+                      class="agent-markdown"
+                      v-html="renderAgentMarkdown(part.text)"
+                    ></div>
+                  </section>
+                  <p v-if="turn.status === 'error'" class="agent-message-error">响应失败</p>
+                </div>
+                <p v-else class="agent-turn-empty">Agent 已完成处理，但没有返回文本结果。</p>
+              </article>
+            </template>
           </template>
 
           <section
@@ -1657,7 +1734,6 @@ const onInputKeydown = (event: KeyboardEvent) => {
   padding: 20px 17px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scroll-behavior: smooth;
 }
 .agent-chat-welcome {
   display: flex;
@@ -1727,6 +1803,16 @@ const onInputKeydown = (event: KeyboardEvent) => {
 }
 .agent-reasoning {
   color: #64748b;
+}
+.agent-reasoning-body > * + * {
+  margin-top: 9px;
+}
+.agent-turn-empty {
+  margin: 0;
+  padding-top: 7px;
+  color: #94a3b8;
+  font-size: 0.84rem;
+  line-height: 1.6;
 }
 .agent-reasoning + .agent-reasoning,
 .agent-final-answer + .agent-reasoning {
@@ -1857,19 +1943,110 @@ const onInputKeydown = (event: KeyboardEvent) => {
   text-align: left;
   cursor: pointer;
 }
+/* 折叠时这一行就是唯一可见的过程信息：思考中刷新为最新动作，结束后是摘要 */
+.agent-reasoning-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .agent-reasoning-chevron {
-  margin-left: auto;
-  font-size: 0.9rem;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: #64748b;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
   transition: transform 0.2s ease;
 }
 .agent-reasoning-toggle[aria-expanded='true'] .agent-reasoning-chevron {
-  transform: rotate(180deg);
+  transform: rotate(0deg);
 }
 .agent-final-answer .agent-response-label {
   color: #3730a3;
 }
 .agent-reasoning-placeholder {
   color: #94a3b8;
+}
+.agent-tool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  color: #475569;
+  font-size: 0.78rem;
+}
+.agent-tool-toggle {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: baseline;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-tool-toggle:hover .agent-tool-detail {
+  background: #e2e8f0;
+}
+.agent-tool-verb {
+  flex: none;
+  color: #334155;
+  font-weight: 600;
+}
+.agent-tool-detail {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #eef2f7;
+  color: #475569;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-tool-status {
+  flex: none;
+  color: #94a3b8;
+  font-size: 0.7rem;
+}
+.agent-tool-status.error,
+.agent-tool-error {
+  color: #dc2626;
+}
+.agent-tool-error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.72rem;
+}
+/* 展开后的完整内容：保留换行，长行横向滚动 */
+.agent-tool-code {
+  flex-basis: 100%;
+  max-height: 260px;
+  margin: 2px 0 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  line-height: 1.55;
+  white-space: pre;
+}
+.agent-tool-code code {
+  font: inherit;
 }
 .agent-thinking-dots {
   display: inline-flex;

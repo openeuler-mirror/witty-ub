@@ -23,7 +23,21 @@ export type OpenCodeProviderList = {
   default?: Record<string, string>
 }
 
-export type OpenCodeMessagePart = { id?: string; type?: string; text?: string }
+export type OpenCodeMessagePart = {
+  id?: string
+  type?: string
+  text?: string
+  synthetic?: boolean
+  ignored?: boolean
+  tool?: string
+  state?: {
+    status?: string
+    input?: Record<string, unknown>
+    output?: string
+    title?: string
+    error?: string
+  }
+}
 
 export type OpenCodeMessage = {
   info: {
@@ -31,6 +45,8 @@ export type OpenCodeMessage = {
     role?: string
     sessionID?: string
     error?: unknown
+    finish?: string
+    time?: { created?: number; completed?: number }
     model?: { providerID?: string; modelID?: string }
   }
   parts?: OpenCodeMessagePart[]
@@ -75,9 +91,26 @@ export type AgentStreamEvent = {
       sessionID?: string
       title?: string
       error?: unknown
-      time?: { created?: number; updated?: number }
+      finish?: string
+      time?: { created?: number; completed?: number }
     }
-    part?: { id?: string; type?: string; text?: string; sessionID?: string; messageID?: string }
+    part?: {
+      id?: string
+      type?: string
+      text?: string
+      sessionID?: string
+      messageID?: string
+      synthetic?: boolean
+      ignored?: boolean
+      tool?: string
+      state?: {
+        status?: string
+        input?: Record<string, unknown>
+        output?: string
+        title?: string
+        error?: string
+      }
+    }
     status?: { type?: string }
     error?: unknown
     messageID?: string

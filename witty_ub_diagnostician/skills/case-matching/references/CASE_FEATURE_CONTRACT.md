@@ -24,11 +24,11 @@ diag_case_library
 ├── 结构化头（可过滤、可打分）
 │   ├── log_type / source / source_url / kb_id（仅作来源标注，可空）/ kb_name
 │   ├── operation（GET / SET / N/A，服务端过滤字段）/ fault_type / confidence
-│   ├── status_codes[]              ← L1，权重 3.0
+│   ├── status_codes[]              ← L1，权重 3.0（×share）
 │   ├── failure_mode_ids[]          ← L1，权重 3.0
-│   └── 信号列（写入时同步进 diag_case_library_signal）
-│       ├── hosts / pods / src_ips / dst_ips / cluster_name   ← L3，权重 1.5
-│       ├── latency_components[]                              ← L2，权重 1.5
+│   └── 信号列（写入时同步进 diag_case_library_signal；IP/Pod/主机/集群只作来源标注，不参与匹配打分）
+│       ├── hosts / pods / src_ips / dst_ips / cluster_name   ← 仅 provenance，不参与打分
+│       ├── latency_components[]                              ← L2，权重 2.0（×share，时延故障核心特征）
 │       └── log_keywords[]                                    ← L5，权重 1.0
 ├── 正文（不可过滤，供语义通道与人工阅读）
 │   ├── title / symptom_summary / root_cause_summary / root_cause_detail
@@ -50,19 +50,21 @@ legacy 把上述信号与正文压缩进 `fingerprint_json` + `symptom_summary` 
 | 特征 | 存放位置（library / legacy） | 为什么放这里 |
 |---|---|---|
 | 状态码、故障模式 ID | 同名顶层列 `status_codes` / `failure_mode_ids` | 服务端信号表直接建索引，权重最高（3.0） |
-| IP / Pod / 主机 / 集群 | library：独立列 `src_ips` / `dst_ips` / `pods` / `hosts` / `cluster_name`；legacy：`fingerprint_json` 对应数组 | 两者都进信号表（`SIGNAL_FIELD_MAP`），权重 1.5 |
+| IP / Pod / 主机 / 集群 | library：独立列 `src_ips` / `dst_ips` / `pods` / `hosts` / `cluster_name`；legacy：`fingerprint_json` 对应数组 | **仅作来源标注（provenance）**，v2 检索侧不提交身份信号、不参与打分（不同现场必然不同，不可迁移） |
 | 阶段桶 | library：`latency_components` 列（+ `stage_features_json` 快照）；legacy：`fingerprint_json.latency_components` | 值域 = `/stats/stages` 桶 key（见 FEATURE_SPEC.md） |
 | 日志关键词 | library：`log_keywords` 列；legacy：`fingerprint_json.log_keywords` | 权重 1.0；须是现场观测到的原文短语 |
-| `operation`（GET/SET） | library：`operation` 列 —— **服务端过滤字段**，同时是 1.5 权重的信号；legacy：`fingerprint_json.operation` | library 一提交即隔离 GET/SET；legacy 查询侧不构造该信号类型，写了也匹配不上，只能靠"分两次查询" |
-| 时间形状 | `fault_shape`（library 列 / legacy `fingerprint_json.fault_shape`） | 无对应查询信号，只作正文标注 |
+| `operation`（GET/SET） | library：`operation` 列 —— **服务端过滤字段，不计分**；legacy：`fingerprint_json.operation` | library 一提交即隔离 GET/SET；legacy 查询侧不构造该信号类型，写了也匹配不上，只能靠"分两次查询" |
+| 时间形状 | `fault_shape`（library 列 / legacy `fingerprint_json.fault_shape`） | 参与软匹配弱加分（0.5，相等即加），无服务端查询信号 |
 | 组件与版本 | library：`version_json`（kernel/os/urma/umq/ubsocket）+ `node_type`；legacy：`fingerprint_json.components` / `versions` | 无对应查询信号；作为可迁移性判据进正文 |
 | 反证 | `counter_evidence_json`（两库同名） | 检索结果会带条数，便于"借力排除" |
 | 准入与留痕 | library 独有：`status` / `revision` / `confirmed_by` / `confirmed_at` / `archive_reason` | 决定"这条经验是否被认可过"；检索默认只召回 `confirmed` |
 
 **允许的扩展位置**：library 的信号由固定列派生（写入时同步进 `diag_case_library_signal`），
 没有自由 signals 扩展位；legacy 的 `fingerprint_json.signals[]`（`{type, value, weight}`）
-可承载自定义信号，但**只有查询侧也构造同名 type 时才会命中**，当前查询侧只支持上表的 9 种
-type（含 `operation`）。不确定的自定义信号不要指望能匹配，写进正文更实在。
+可承载自定义信号，但 **v2 检索侧（`match_cases.py`）不再构造查询信号**——只做宽召回 +
+客户端分布特征软打分（`status_code` / `failure_mode_id` / `latency_component` /
+`log_keyword` / `time_shape` / `affected_scope`）。身份型自定义信号（IP/Pod/主机）不参与
+匹配，不确定的自定义信号写进正文更实在。
 
 ## 三、取值规范（两侧必须一致）
 
@@ -96,8 +98,9 @@ type（含 `operation`）。不确定的自定义信号不要指望能匹配，�
 1. 案例处于 `draft` 态。
 2. `evidence_json` 至少一条可复现锚点（`kind` + `ref`）。
 3. `remediation_json` 至少一步分步处置（`step` + `action`）。
-4. **至少一个可匹配信号**（`status_codes` / `failure_mode_ids` / IP / Pod / 主机 / 集群 /
-   `latency_components` / `log_keywords`）；一条都没有的案例永远检索不到，`operation` 不计入。
+4. **至少一个分布特征**（`status_codes` / `failure_mode_ids` / `latency_components` /
+   `log_keywords` / `fault_shape`）；一条都没有的案例在宽召回下虽然会被捞回，但软打分恒为
+   0、进不了候选前列，`operation` 不计入。
 5. `confirmed_by` 非空——这一条就是"人工点头"的留痕。
 
 > **闸门不要求 `verification_json.observed_result`。** 报告出稿时处置尚未执行，此时拿不到实测结果；

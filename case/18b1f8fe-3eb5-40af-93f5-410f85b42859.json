@@ -1,7 +1,7 @@
 {
   "id": "18b1f8fe-3eb5-40af-93f5-410f85b42859",
   "kb_id": "e3729f5c-12a6-4a1c-bba2-85f03f445d21",
-  "root_cause_type": "CPU挂死",
+  "root_cause_type": "OS故障-CPU满",
   "description": "CPU挂死",
   "task_ids": [
     "9f82d214-d748-4a74-8819-f96d667bf3f8"
@@ -148,5 +148,5 @@
     }
   },
   "created_at": "2026-09-24 03:30:53",
-  "case_category": "Worker-缩容/挂死"
+  "case_category": "OS故障"
 }

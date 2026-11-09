@@ -109,8 +109,32 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 （单故障为 `01→05`）。**统计分析放在故障档案之前**：先给事件级横向定位，
 再逐个档案纵向深挖。
 
-**单故障兼容**：可直接传旧的扁平变量（`conclusion` / `error` / `latency` / `solution` / `root_cause` /
-`propagation` / `knowledge_matches` / `source_code`），模板自动包装成 F01 档案。
+**单故障兼容（仅存量/历史报告）**：渲染器仍可接收旧的扁平变量（`conclusion` / `error` / `latency` /
+`solution` / `root_cause` / `propagation` / `knowledge_matches` / `source_code`）并自动包装成
+F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障也必须显式写出 `faults[0]`
+（至少含 `id` / `role` / `status` / `severity` / `title` / `conclusion`）。扁平结构没有稳定
+故障 ID，后端「确认报告 → 生成案例」链路无法定位故障，报告确认后无法入案例库；只有
+`faults[].id` 为稳定 ID（非 `auto:`）的故障才能从报告派生案例。
+
+### 字段口径对齐（渲染器契约字段）
+
+**新报告必须直接使用渲染契约字段名产出数据**，不允许沿用历史旧字段结构；旧结构只是
+渲染器 `normalize_compat` 兼容转换的兜底输入（针对存量报告自动映射，不改变 Agent 生成口径）：
+
+| 板块 | 渲染契约字段（必须产出） | 旧结构（仅兜底，禁止新报告使用） |
+|------|------------------------|----------------------------------|
+| 根因分析 | `root_cause.reasoning_chain[]{step_label,title,description,evidence}`、`root_cause.confirmed_root_cause`、`root_cause.supporting_knowledge` | `root_cause{primary, hypotheses[]{cause,evidence}, reasoning}` |
+| 故障传播链 | `propagation.chain[]{label,detail}`、`propagation.impact_scope[]` | `propagation.chain[]{step,component,action,result}`、`propagation.conclusion` |
+| 解决方案 | `solution.short_term[]`、`solution.long_term[]`、`solution.verification[]`（每项为渲染文本） | `solution.steps[]{step,action,expected,risk}`、`solution.conclusion` |
+| 知识库匹配 | `knowledge_matches[]{id,rank,stars,match_logic,symptom,root_cause,solution}` | `knowledge_matches[]{title,summary,confidence}` |
+| 时延阶段 | `latency.stages[]{name,p50,p90,p99,baseline,ratio,share,status,detail}` | `latency.stages[]{p50,p90,max,share_pct}`（p99 自动从 max/p90 兜底） |
+| 结论 | `conclusion{first_level_label,second_level_label,fault_domain,affected_scope_pct,affected_scope_desc,confidence,key_findings}` | 缺省字段由渲染器补 `null`/`[]` |
+
+> 关键纪律：`root_cause` 提供对象时 `reasoning_chain[]{step_label,title,...}` 或
+> `confirmed_root_cause` 至少一项有效；`propagation` 提供对象时 `chain[]` 每节点至少
+> 有 `label`；`solution` 提供对象时 `short_term/long_term/verification` 至少一项非空；
+> `knowledge_matches[]` 每项至少含 `id` 与 `match_logic/symptom/root_cause` 之一。
+> 校验与渲染前都会执行 `normalize_compat` 就地转换，保证两者对同一份数据口径一致。
 
 ### 故障标签
 
@@ -119,7 +143,9 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 `first_level_label` 为一级标签，`second_level_label` 为二级标签。
 
 - 新报告的每个 `faults[].conclusion` 必须包含 `first_level_label`、`second_level_label`；
-  扁平单故障写在顶层 `conclusion` 内。两者类型均为 `string | null`，侧车 JSON 原样保留。
+  **新报告必须始终产出 `faults[]`，单故障也不允许把 `conclusion` 等故障字段写在顶层**（扁平
+  结构仅限存量/历史报告导入兜底，见「单故障兼容」）。两者类型均为 `string | null`，
+  侧车 JSON 原样保留。
 - 仅根据本次诊断的根因、故障组件、异常表现和现场证据，与两级标签做语义匹配，
   尽可能选择最具体且有依据的标签。不得利用日志文件名、训练样例名称或样例到标签的映射
   推断标签，也不能只看到超时就推断为网卡故障。
@@ -129,6 +155,10 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
   一级为 `null` 时二级也必须为 `null`，不要用空字符串、`"null"` 或 `"未知"` 代替。
 - 多故障逐条选择，不把主故障标签复制给所有故障；同一故障有多个候选时依据证据选择，
   无法区分则只保留能确定的层级。标签不能提高原诊断的确认程度。
+- `conclusion.fault_domain` 必须逐字填写 `first_level_label/second_level_label`
+  组合（斜杠拼接，如 `硬件故障/网卡故障-时延高`），以 references/log_label.json
+  为准，**不得自由填写**「RPC/网络」「URMA」等域文本；两级标签均为 `null` 时
+  `fault_domain` 也写 `null`。报告页面「故障域」与「故障标签」因此始终一致。
 
 ### 多故障分诊（先分诊，再分配诊断深度）
 
@@ -137,7 +167,7 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 | 信号 | 归并为同一故障 | 拆为独立故障 |
 |------|--------------|-------------|
 | 时间窗 | 同一尖峰窗，或 A 稳定领先 B 1~3 分钟（级联时序） | 时间窗互不重叠 |
-| 故障域/组件 | 域相同或存在上下游调用关系 | 域不同且无调用关系 |
+| 故障域(一级/二级标签)/组件 | 域相同或存在上下游调用关系 | 域不同且无调用关系 |
 | 影响面 | 故障 pod/host 集合为包含关系 | 影响集合互不相交 |
 
 - 同一根因引起的多个异常 → **归并为一个故障**，多表现用传播链 `branches` 展示，不拆开
@@ -175,7 +205,8 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 ### 通断故障分布（faults[].error）
 
 `error` / `mixed` 类故障有时间聚合证据时，填 `faults[].error`：错误码构成、
-随时间的分布及结论；扁平单故障同样支持顶层 `error`。不关联时延阶段。
+随时间的分布及结论；「扁平单故障同样支持顶层 `error`」仅为渲染器对存量扁平结构的兼容
+能力，**新报告不适用**（新报告必须产出 `faults[]`，见「报告契约」）。不关联时延阶段。
 从本次已保存的 `/log_failure_event_result/list_time_aggregated_failure_events`
 分页请求/响应，**必须用** `scripts/error_features.py` 离线提取；不得让模型手工拼装该块。
 字段查 `--spec error`，
@@ -205,7 +236,7 @@ grep -c -e 'lat-name' -e 'chain-step-title' -e 'pnode-label' -e 'kb-match-id' \
 ### 知识库匹配纪律
 
 - 1~3 条、按匹配度降序；`match_logic` 必须写明 **L1(错误码)/L2(故障域)/L3(拓扑)**
-  三级匹配逻辑（哪级命中、哪级不命中）
+  三级匹配逻辑（哪级命中、哪级不命中）；L2 故障域即 `first_level_label/second_level_label`
 - 每条必须给 `applicability`：`direct` 可直接采用 / `adjust` 调整后采用 /
   `reference` 仅供参考 / `not_recommended` 不建议采用——**不允许只给笼统匹配分**
 - 必须同时覆盖 curated 知识（failure_mode_knowledge）与 experience-skill 经验

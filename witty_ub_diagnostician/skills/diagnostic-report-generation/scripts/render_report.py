@@ -20,6 +20,8 @@
 from __future__ import annotations
 
 import argparse
+import html as html_lib
+from html.parser import HTMLParser
 import json
 import os
 import re
@@ -100,9 +102,6 @@ def _check_fault_labels(path, conclusion, errors, warnings):
     if not isinstance(conclusion, dict):
         return
     fields = ("first_level_label", "second_level_label")
-    if not any(field in conclusion for field in fields):
-        warnings.append(f"{path}: 新报告须填写 first_level_label / second_level_label（无法匹配填 null）")
-        return  # 兼容未包含标签的历史报告。
     for field in fields:
         if field not in conclusion:
             errors.append(f"{path}.{field}: 必填，无法匹配时填 null")
@@ -124,6 +123,15 @@ def _check_fault_labels(path, conclusion, errors, warnings):
         errors.append(f"{path}.first_level_label: 必须取自 references/log_label.json；一级为 null 时二级也须为 null")
     elif second is not None and (first, second) not in pairs:
         errors.append(f"{path}.second_level_label: 必须与一级标签组成 references/log_label.json 中已有的标签对")
+    fault_domain = conclusion.get("fault_domain")
+    if fault_domain is not None:
+        if first is None and second is None:
+            warnings.append(f"{path}.fault_domain: 两级标签均为 null 时故障域应同步为 null")
+        elif fault_domain != f"{first}/{second}":
+            errors.append(
+                f"{path}.fault_domain: 必须与一级/二级标签一致"
+                f"（应为 {first!r}/{second!r}），不得自由填写域文本"
+            )
 
 
 def _check_evidence_traces(path, traces, errors, warnings):
@@ -226,6 +234,180 @@ def _check_latency(path, latency, errors):
             errors.extend(f"{p}.features: {error}" for error in validate_features(stage["features"]))
 
 
+# --------------------------------------------------------------------------- #
+# 兼容转换（旧字段结构 → 渲染契约结构）
+#
+# 目的：Agent/老流程产出的报告数据可能沿用旧字段结构（root_cause.primary/
+# hypotheses、propagation.chain{step,component,action,result}、solution.steps、
+# knowledge_matches{title,summary}、latency.stages{p50,p90,max}）。渲染前把它们
+# 就地映射到模板契约字段（reasoning_chain / chain{label,detail} / short_term… /
+# symptom,solution / p99），避免契约字段读不到导致关键区块留白。
+# ---------------------------------------------------------------------------
+def _compat_num(value):
+    """数字兜底：None/空串保持 None，其余原样。"""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return value
+
+
+def _compat_conclusion(c):
+    """conclusion 缺省字段兜底：渲染器需要 affected_scope_pct / confidence 等。"""
+    if not isinstance(c, dict):
+        return c
+    for field in ("affected_scope_pct", "affected_scope_desc",
+                  "fault_function_loc", "confidence"):
+        c.setdefault(field, None)
+    c.setdefault("key_findings", [])
+    return c
+
+
+def _compat_root_cause(rc):
+    """旧结构 {primary, hypotheses[], reasoning} → 契约结构
+    {reasoning_chain[], confirmed_root_cause, supporting_knowledge}。"""
+    if not isinstance(rc, dict) or not rc:
+        return rc
+    if not (
+        any(isinstance(s, dict) and s.get("step_label") and s.get("title")
+            for s in rc.get("reasoning_chain") or [])
+        or rc.get("confirmed_root_cause")
+    ):
+        hypotheses = rc.get("hypotheses") or []
+        steps = []
+        for i, h in enumerate(hypotheses, 1):
+            if not isinstance(h, dict):
+                continue
+            cause = h.get("cause")
+            if not cause:
+                continue
+            steps.append({
+                "step_label": f"H{i}",
+                "title": str(cause),
+                "description": str(h.get("evidence") or cause),
+                "evidence": h.get("evidence"),
+            })
+        if steps:
+            rc["reasoning_chain"] = steps
+        if rc.get("primary") and not rc.get("confirmed_root_cause"):
+            rc["confirmed_root_cause"] = rc["primary"]
+        if rc.get("reasoning") and not rc.get("supporting_knowledge"):
+            rc["supporting_knowledge"] = rc["reasoning"]
+    return rc
+
+
+def _compat_propagation(p):
+    """旧结构 {chain[{step,component,action,result}], conclusion} →
+    契约结构 {chain[{label,detail}], impact_scope[]}。"""
+    if not isinstance(p, dict) or not p:
+        return p
+    chain = p.get("chain") or []
+    if not any(isinstance(n, dict) and n.get("label") for n in chain):
+        nodes = []
+        for n in chain:
+            if not isinstance(n, dict):
+                continue
+            component = n.get("component") or n.get("label")
+            action = n.get("action")
+            result = n.get("result")
+            if not component and not action:
+                continue
+            if component and action and str(action) != str(component):
+                label = f"{component}：{action}"
+            else:
+                label = str(component) if component else str(action)
+            nodes.append({"label": label, "detail": result})
+        if nodes:
+            p["chain"] = nodes
+        if p.get("conclusion") and not p.get("impact_scope"):
+            p["impact_scope"] = [p["conclusion"]]
+    return p
+
+
+def _compat_solution(s):
+    """旧结构 {steps[{step,action,expected,risk}], conclusion} →
+    契约结构 {short_term[], long_term[], verification[]}（每项为渲染文本）。"""
+    if not isinstance(s, dict) or not s:
+        return s
+    if not (s.get("short_term") or s.get("long_term") or s.get("verification")):
+        texts = []
+        for st in s.get("steps") or []:
+            if not isinstance(st, dict):
+                continue
+            action = st.get("action")
+            if not action:
+                continue
+            expected = st.get("expected")
+            texts.append(f"{action}（预期：{expected}）" if expected else str(action))
+        if texts:
+            s["short_term"] = texts
+        if s.get("conclusion") and not s.get("verification"):
+            s["verification"] = [s["conclusion"]]
+    return s
+
+
+def _compat_knowledge_matches(kms):
+    """旧结构 {id,title,source,match_logic,applicability,summary,confidence} →
+    契约补充 symptom(现象)/solution(方案)，避免现象/原因行空白。"""
+    if not isinstance(kms, list):
+        return kms
+    for km in kms:
+        if not isinstance(km, dict):
+            continue
+        if not km.get("symptom") and km.get("title"):
+            km["symptom"] = km["title"]
+        if not km.get("solution") and km.get("summary"):
+            km["solution"] = km["summary"]
+        km.setdefault("stars", "")
+    return kms
+
+
+def _compat_latency(lat):
+    """旧结构 stages{p50,p90,max,share_pct} → 契约补充 p99/baseline/ratio/share。"""
+    if not isinstance(lat, dict) or not lat:
+        return lat
+    for st in lat.get("stages") or []:
+        if not isinstance(st, dict):
+            continue
+        if "p99" not in st:
+            p99 = st.get("max")
+            if p99 is None:
+                p99 = st.get("p90")
+            st["p99"] = _compat_num(p99)
+        st.setdefault("baseline", None)
+        st.setdefault("ratio", None)
+        if "share" not in st and st.get("share_pct") is not None:
+            share = st["share_pct"]
+            st["share"] = f"{share}%" if isinstance(share, (int, float)) else share
+    return lat
+
+
+def normalize_compat(data):
+    """渲染前兼容转换：把旧字段结构映射到渲染契约结构（就地修改）。
+
+    同时覆盖顶层扁平单故障与 faults[] 多故障两种布局；转换在校验之前执行，
+    保证校验与渲染对同一份数据口径一致。
+    """
+    if not isinstance(data, dict):
+        return data
+    targets = [data]
+    faults = data.get("faults")
+    if isinstance(faults, list):
+        targets.extend(f for f in faults if isinstance(f, dict))
+    for target in targets:
+        if isinstance(target.get("conclusion"), dict):
+            _compat_conclusion(target["conclusion"])
+        if isinstance(target.get("root_cause"), dict):
+            _compat_root_cause(target["root_cause"])
+        if isinstance(target.get("propagation"), dict):
+            _compat_propagation(target["propagation"])
+        if isinstance(target.get("solution"), dict):
+            _compat_solution(target["solution"])
+        if isinstance(target.get("latency"), dict):
+            _compat_latency(target["latency"])
+        if isinstance(target.get("knowledge_matches"), list):
+            _compat_knowledge_matches(target["knowledge_matches"])
+    return data
+
+
 def validate(data) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -258,6 +440,58 @@ def validate(data) -> tuple[list[str], list[str]]:
             _check_evidence_traces("evidence_traces", data.get("evidence_traces"), errors, warnings)
         _check_latency("latency", data.get("latency"), errors)
         errors.extend(f"error: {message}" for message in validate_error(data.get("error")))
+        # 扁平单故障路径与 faults[] 分支同等校验根因/传播链/方案/知识库契约，
+        # 避免字段结构错误时渲染出空白区块（兼容结构由 normalize_compat 兜底转换）。
+        rc = data.get("root_cause")
+        if isinstance(rc, dict) and rc:
+            if not (
+                any(isinstance(s, dict) and s.get("step_label") and s.get("title")
+                    for s in rc.get("reasoning_chain") or [])
+                or rc.get("confirmed_root_cause")
+                or rc.get("primary")
+                or any(isinstance(h, dict) and h.get("cause")
+                       for h in rc.get("hypotheses") or [])
+            ):
+                errors.append(
+                    "root_cause: 提供了对象但未命中契约字段"
+                    "（需 reasoning_chain[]{step_label,title,...} / confirmed_root_cause"
+                    " / 旧字段 primary|hypotheses 至少一项有效）"
+                )
+        prop = data.get("propagation")
+        if isinstance(prop, dict) and prop:
+            if not any(
+                (isinstance(n, dict) and (n.get("label") or n.get("component") or n.get("action")))
+                for n in prop.get("chain") or []
+            ):
+                errors.append(
+                    "propagation: 提供了对象但未命中契约字段"
+                    "（需 chain[]{label,detail,...} / 旧字段 chain[]{component,action,result} 至少一项有效）"
+                )
+        sol = data.get("solution")
+        if isinstance(sol, dict) and sol:
+            if not (
+                sol.get("short_term") or sol.get("long_term") or sol.get("verification")
+                or any(isinstance(st, dict) and st.get("action")
+                       for st in sol.get("steps") or [])
+            ):
+                errors.append(
+                    "solution: 提供了对象但未命中契约字段"
+                    "（需 short_term[]/long_term[]/verification[] / 旧字段 steps[]{action,...} 至少一项有效）"
+                )
+        kms = data.get("knowledge_matches")
+        if isinstance(kms, list):
+            for j, km in enumerate(kms):
+                if not isinstance(km, dict):
+                    errors.append(f"knowledge_matches[{j}]: 必须是对象")
+                    continue
+                if not km.get("id"):
+                    errors.append(f"knowledge_matches[{j}].id: 缺少知识库匹配 ID")
+                if not (km.get("match_logic") or km.get("symptom") or km.get("root_cause")
+                        or km.get("title") or km.get("summary")):
+                    errors.append(
+                        f"knowledge_matches[{j}]: 缺少可渲染内容"
+                        "（需 match_logic / symptom / root_cause / 旧字段 title|summary 至少一项）"
+                    )
     elif not isinstance(faults, list) or not faults:
         errors.append("faults: 必须是至少含 1 个故障的数组")
     else:
@@ -461,7 +695,7 @@ workflow{session_id,total_steps,api_calls,duration,steps[]}
 示例与逐字段说明：references/REPORT_BLOCKS.md""",
     "basic_info": "kb_id,kb_name,log_file,operation,time_range_start,time_range_end,total_trace_cnt,fault_trace_cnt,fault_ratio,parse_ok,diagnosis_ok",
     "conclusion": """first_level_label,second_level_label,one_line_conclusion,fault_domain,fault_component,fault_function,fault_function_loc,affected_scope_pct,affected_scope_desc,confidence,key_findings[]
-first_level_label / second_level_label：一级/二级标签，新报告必填 string|null，取值及配对见 references/log_label.json；按诊断证据语义匹配，未知层级填 null，一级 null 时二级也须 null""",
+first_level_label / second_level_label：一级/二级标签，新报告必填 string|null，取值及配对见 references/log_label.json；按诊断证据语义匹配，未知层级填 null，一级 null 时二级也须 null；fault_domain 必须与两级标签一致（填写 一级/二级，两级均 null 时同步 null），不得自由填写域文本""",
     "latency": """metrics[]{label,value,sub,tone},stages[]{name,p99,baseline,ratio,share,status,detail,features?},conclusion
 features：从已有 /stats/stages 响应提取的互斥归因桶快照，不等同于物理阶段；旧字段保留
 features{operation,bucket_key,metric_name,source{endpoint,request,response_path},sample_cnt,truncated,sample_note,
@@ -556,6 +790,74 @@ def load_report_json(data_path: Path) -> dict:
         raise Fatal(f"无法读取数据文件: {data_path}", str(exc)) from exc
 
 
+_REPORT_HTML_TAGS = {
+    "b", "blockquote", "br", "code", "em", "i", "li", "ol", "p", "pre",
+    "s", "strong", "u", "ul",
+}
+_REPORT_HTML_VOID_TAGS = {"br"}
+_REPORT_HTML_DROP_CONTENT = {
+    "iframe", "math", "noscript", "object", "script", "style", "svg", "template",
+}
+
+
+class _ReportHTMLSanitizer(HTMLParser):
+    """Render safe formatting, strip unsupported tags, and drop active content."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.open_tags: list[str] = []
+        self.drop_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if self.drop_depth:
+            if tag in _REPORT_HTML_DROP_CONTENT:
+                self.drop_depth += 1
+            return
+        if tag in _REPORT_HTML_DROP_CONTENT:
+            self.drop_depth = 1
+        elif tag in _REPORT_HTML_VOID_TAGS:
+            self.parts.append(f"<{tag}>")
+        elif tag in _REPORT_HTML_TAGS:
+            self.parts.append(f"<{tag}>")
+            self.open_tags.append(tag)
+
+    def handle_startendtag(self, tag, attrs):
+        if not self.drop_depth and tag.lower() in _REPORT_HTML_VOID_TAGS:
+            self.parts.append(f"<{tag.lower()}>")
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if self.drop_depth:
+            if tag in _REPORT_HTML_DROP_CONTENT:
+                self.drop_depth -= 1
+            return
+        if tag not in self.open_tags:
+            return
+        while self.open_tags:
+            current = self.open_tags.pop()
+            self.parts.append(f"</{current}>")
+            if current == tag:
+                break
+
+    def handle_data(self, data):
+        if not self.drop_depth:
+            self.parts.append(html_lib.escape(data))
+
+    def result(self) -> str:
+        while self.open_tags:
+            self.parts.append(f"</{self.open_tags.pop()}>")
+        return "".join(self.parts)
+
+
+def _safe_report_html(value) -> str:
+    parser = _ReportHTMLSanitizer()
+    parser.feed(str(value))
+    parser.close()
+    return parser.result()
+
+
 def validate_report_json(data: dict, data_path: Path) -> list[str]:
     """Apply the canonical render contract and return non-blocking warnings."""
     errors, warnings = validate(data)
@@ -574,6 +876,7 @@ def render_report_html(data: dict, template_path: Path, data_path: Path) -> str:
     """Render validated data in memory; this function performs no writes."""
     try:
         from jinja2 import Environment, FileSystemLoader, select_autoescape
+        from markupsafe import Markup
     except ImportError as exc:
         raise Fatal(
             "缺少 jinja2 模块",
@@ -590,6 +893,7 @@ def render_report_html(data: dict, template_path: Path, data_path: Path) -> str:
         trim_blocks=False,
         lstrip_blocks=False,
     )
+    env.filters["safe_report_html"] = lambda value: Markup(_safe_report_html(value))
     try:
         return env.get_template(template_path.name).render(**data)
     except Exception as exc:  # 模板语法/结构问题：给出模板侧定位
@@ -791,6 +1095,10 @@ def main(argv=None) -> int:
     data_path = Path(args.data)
     try:
         data = load_report_json(data_path)
+        # 旧字段结构（primary/hypotheses、chain{step,component}、solution.steps、
+        # knowledge_matches{title,summary}、stages{p50,p90,max}）→ 契约结构，
+        # 转换后再校验与渲染，保证关键区块不因字段名不一致而留白。
+        normalize_compat(data)
         if args.allow_incomplete:
             # 一线数据允许字段不全：契约问题降级为提示，缺失区块按模板默认呈现。
             errors, warnings = validate(data)

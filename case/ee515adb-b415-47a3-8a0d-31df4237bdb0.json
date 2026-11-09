@@ -1,7 +1,7 @@
 {
   "id": "ee515adb-b415-47a3-8a0d-31df4237bdb0",
   "kb_id": "88bd5363-dacf-4ea2-9853-f849e4ecc0a8",
-  "root_cause_type": "worker进程异常退出",
+  "root_cause_type": "Worker故障-进程退出",
   "description": "",
   "task_ids": [
     "d09eeaa4-66ff-477d-a899-3a341842d7b4"
@@ -80,5 +80,5 @@
     }
   },
   "created_at": "2026-09-24 06:42:39",
-  "case_category": "Worker-退出/崩溃"
+  "case_category": "Worker故障"
 }
