@@ -506,3 +506,98 @@ class TestDiagnosticReportRouters:
     async def test_html_invalid_report_id_is_422(self, client):
         response = await client.get("/diagnostic_report/..%2E/html")
         assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# 服务层 / 路由层：删除（文档与关联数据硬删除）
+# 数据库交互在单测里用 fake_db 隔离：无案例、无卡片、无 RAG 清理。
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def fake_db(monkeypatch):
+    from contextlib import asynccontextmanager
+    from unittest.mock import MagicMock
+
+    from latency.database.engine import PGManager
+    from latency.database.managers.phenomenon_index import PhenomenonIndexPGManager
+
+    class _ScalarResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
+    @asynccontextmanager
+    async def _session():
+        async def _execute(*_args, **_kwargs):
+            return _ScalarResult()
+
+        session = MagicMock()
+        session.execute = _execute
+        yield session
+
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(PGManager, "session", staticmethod(_session))
+    monkeypatch.setattr(PhenomenonIndexPGManager, "enqueue_cleanup", staticmethod(_noop))
+
+
+class TestDeleteReportService:
+    async def test_delete_removes_files_and_empties_list(self, report_dir, fake_db):
+        report_id = "report_3533f5b6_20260922_144100"
+        html = _write_report(
+            report_dir, KB_ALPHA, report_id, sidecar=_sidecar(report_id, KB_ALPHA)
+        )
+        sidecar = html.with_suffix(".json")
+        assert html.exists() and sidecar.exists()
+
+        msg = await DiagnosticReportService.delete_report(report_id, "tester")
+        assert msg.report_id == report_id
+        assert msg.deleted_cases == 0
+        assert msg.deleted_cards == 0
+        assert not html.exists() and not sidecar.exists()
+
+        listed = await DiagnosticReportService.list_reports(
+            ListDiagnosticReportsRequest()
+        )
+        assert listed.total == 0
+
+    async def test_delete_missing_report_raises_not_found(self, fake_db):
+        with pytest.raises(NotFoundBizException):
+            await DiagnosticReportService.delete_report(
+                "report_absent_20260922_100000", "tester"
+            )
+
+
+class TestDeleteReportRouter:
+    async def test_delete_envelope(self, client, report_dir, fake_db):
+        report_id = "report_3533f5b6_20260922_144100"
+        _write_report(
+            report_dir, KB_ALPHA, report_id, sidecar=_sidecar(report_id, KB_ALPHA)
+        )
+        response = await client.post(
+            f"/diagnostic_report/{report_id}/delete", json={"operator": "tester"}
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["code"] == 200
+        assert body["result"]["report_id"] == report_id
+
+    async def test_delete_missing_report_is_404(self, client, fake_db):
+        response = await client.post(
+            "/diagnostic_report/report_absent_20260922_100000/delete",
+            json={"operator": "tester"},
+        )
+        assert response.status_code == 404
+
+    async def test_delete_without_operator_succeeds(self, client, report_dir, fake_db):
+        """删除不强制操作人：未填写时降级为 unknown，报告仍被删除。"""
+        report_id = "report_3533f5b6_20260922_144100"
+        _write_report(
+            report_dir, KB_ALPHA, report_id, sidecar=_sidecar(report_id, KB_ALPHA)
+        )
+        response = await client.post(f"/diagnostic_report/{report_id}/delete", json={})
+        assert response.status_code == 200
+        assert response.json()["code"] == 200
+        assert not (report_dir / KB_ALPHA / f"{report_id}.html").exists()

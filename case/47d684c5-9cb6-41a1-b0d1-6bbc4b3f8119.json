@@ -1,7 +1,7 @@
 {
   "id": "47d684c5-9cb6-41a1-b0d1-6bbc4b3f8119",
   "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
-  "root_cause_type": "Client进程退出启动",
+  "root_cause_type": "SDK故障-进程异常退出",
   "description": "自动导入: dfx_client_process_set_exit_start",
   "task_ids": [],
   "task_names": [
@@ -11,7 +11,7 @@
   "log_file_name": "lingqu_kvcache_dfx_client_process_set_exit_start_001_20260529_18_40_34",
   "attachment_path": null,
   "fault_category": "latency",
-  "case_category": "Client-退出",
+  "case_category": "SDK故障",
   "features": {
     "fault_category": "latency",
     "latency": {
@@ -72,5 +72,7 @@
       "total_parse_result_count": 6
     }
   },
-  "created_at": "2026-09-28 17:24:08"
+  "created_at": "2026-09-28 17:24:08",
+  "first_level_label": "SDK故障",
+  "second_level_label": "SDK故障-进程异常退出"
 }

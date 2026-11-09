@@ -2,8 +2,9 @@
 
 ## 适用范围
 
-新增可选对象 `faults[].latency.stages[].features`；扁平单故障同样支持
-`latency.stages[].features`。旧字段继续使用，旧报告无需迁移。
+新增可选对象 `faults[].latency.stages[].features`；「扁平单故障同样支持
+`latency.stages[].features`」仅为渲染器对存量扁平结构的兼容能力，**新报告不适用**
+（新报告必须产出 `faults[]`）。旧字段继续使用，旧报告无需迁移。
 
 这些新特征是 **`/stats/stages` 互斥归因桶的证据画像**。同一实际阶段可能覆盖多个桶，
 桶内统计也只针对归入该桶的请求。Agent 根据本次归因把正确桶附到对应阶段；

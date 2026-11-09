@@ -32,6 +32,7 @@ export const defaultDiagnosisConfig = (): DiagnosisConfigForm => ({
     total_ave_threshold_ms: toml.log_analyzer_params.total_ave_threshold_ms,
     zone_anomaly_density_threshold: toml.log_analyzer_params.zone_anomaly_density_threshold,
   },
+  enableLocalCache: toml.enable_local_cache,
 })
 
 type DiagnosisConfigApiModel = {
@@ -39,6 +40,7 @@ type DiagnosisConfigApiModel = {
   log_analyzer_params: Record<DiagnosisThresholdKey, number> & {
     zone_anomaly_density_threshold: number
   }
+  enable_local_cache: boolean
 }
 
 export const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfigForm => ({
@@ -58,6 +60,7 @@ export const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): Diagnos
     total_ave_threshold_ms: config.log_analyzer_params.total_ave_threshold_ms,
     zone_anomaly_density_threshold: config.log_analyzer_params.zone_anomaly_density_threshold,
   },
+  enableLocalCache: config.enable_local_cache,
 })
 
 export const toDiagnosisConfigApi = (form: DiagnosisConfigForm): DiagnosisConfigApiModel => ({
@@ -77,6 +80,7 @@ export const toDiagnosisConfigApi = (form: DiagnosisConfigForm): DiagnosisConfig
     total_ave_threshold_ms: Number(form.logAnalyzerParams.total_ave_threshold_ms),
     zone_anomaly_density_threshold: Number(form.logAnalyzerParams.zone_anomaly_density_threshold),
   },
+  enable_local_cache: form.enableLocalCache,
 })
 
 const configPath = (assetId: string) =>

@@ -125,6 +125,10 @@ class FlowSummaryModel(BaseModel):
     write: FlowGraphModel = Field(default_factory=FlowGraphModel)
     per_trace: list[TraceFlowStageModel] = Field(default_factory=list)
     decomposition: list[FlowDecompositionModel] = Field(default_factory=list, description="GET/SET 各一份正交分解（总时延/残差标注用）")
+    enable_local_cache: bool = Field(
+        default=True,
+        description="绑定模式（true，有 entry worker 中转）| 路由模式（false，客户端直连，图不渲染 entry 节点）",
+    )
 
 
 class ListFlowSummaryRequest(StrictRequestModel):

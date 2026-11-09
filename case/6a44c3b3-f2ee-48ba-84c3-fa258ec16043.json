@@ -1,7 +1,7 @@
 {
   "id": "6a44c3b3-f2ee-48ba-84c3-fa258ec16043",
   "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
-  "root_cause_type": "SDK安装TCP网络down",
+  "root_cause_type": "网卡故障-单网卡down",
   "description": "自动导入: dfx_sdk_install_tcp_net_down",
   "task_ids": [],
   "task_names": [
@@ -11,7 +11,7 @@
   "log_file_name": "lingqu_kvcache_dfx_sdk_install_tcp_net_down_001_20260529_06_52_47",
   "attachment_path": null,
   "fault_category": "latency",
-  "case_category": "网络/TCP故障",
+  "case_category": "硬件故障",
   "features": {
     "fault_category": "latency",
     "latency": {
@@ -86,5 +86,7 @@
       "total_parse_result_count": 16
     }
   },
-  "created_at": "2026-09-28 18:29:39"
+  "created_at": "2026-09-28 18:29:39",
+  "first_level_label": "硬件故障",
+  "second_level_label": "网卡故障-单网卡down"
 }

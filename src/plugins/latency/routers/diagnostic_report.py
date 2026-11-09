@@ -23,6 +23,8 @@ from latency.schemas.diagnostic_report import (
     CreateCaseFromReportMsg,
     CreateCaseFromReportRequest,
     CreateCaseFromReportResponse,
+    DeleteDiagnosticReportRequest,
+    DeleteDiagnosticReportResponse,
     GetDiagnosticReportFaultResponse,
     GetDiagnosticReportResponse,
     LabelPairModel,
@@ -416,3 +418,25 @@ async def reindex_diagnostic_report(
             index_status=result.get("index_status"),
         )
     )
+
+
+@router.post(
+    "/{report_id}/delete",
+    response_model=DeleteDiagnosticReportResponse,
+    operation_id="delete_diagnostic_report",
+    description=(
+        "Hard-delete one diagnostic report: the HTML, its sidecar JSON, and all "
+        "associated data (diag case library entries, phenomenon index cards, "
+        "report index and import items). This is not recoverable; the report "
+        "disappears from the library immediately."
+    ),
+)
+async def delete_diagnostic_report(
+    report_id: DiagnosticReportIdPath,
+    req: Annotated[DeleteDiagnosticReportRequest, Body()],
+    operator_header: Annotated[str | None, Header(alias="X-Witty-Operator")] = None,
+) -> DeleteDiagnosticReportResponse:
+    # 删除为管理操作，不强制要求操作人：未填写时降级为 unknown 仅用于审计日志
+    operator = (operator_header or req.operator or "").strip() or "unknown"
+    msg = await DiagnosticReportService.delete_report(report_id, operator)
+    return DeleteDiagnosticReportResponse(result=msg)

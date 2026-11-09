@@ -378,7 +378,10 @@ class StoreTraceContextLogsWorker(BaseWorker):
         return trace_id_set, _FailureModeFrame(frame).to_lookup()
 
     @staticmethod
-    def _context_projection(source: Any, trace_ids: Any, access_names: list[str]) -> Any:
+    def _context_projection(
+        source: Any, trace_ids: Any, access_names: list[str],
+        enable_local_cache: bool = False,
+    ) -> Any:
         """Build the shared projection without collecting or retaining source text."""
         import polars as pl
         from latency.parse.keywords import (
@@ -466,6 +469,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                     filename=strip(pl.col("_f2")),
                     message=strip(pl.col("_f7").fill_null("")),
                     log_file=pl.col("log_file"),
+                    enable_local_cache=enable_local_cache,
                 ).alias("role"),
             ])
         )
@@ -531,6 +535,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
         worker_access_patterns: list[str],
         client_access_patterns: list[str],
         utf8_flag: list[bool] | None = None,
+        enable_local_cache: bool = False,
     ) -> Iterator[Any]:
         """Overlap one bounded native scan with row conversion and COPY.
 
@@ -567,7 +572,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                         sanitized = block.decode("utf-8", errors="replace").encode("utf-8")
                         src = pl.scan_lines(sanitized).with_columns(pl.lit(path).alias("_path"))
                         plan = StoreTraceContextLogsWorker._context_projection(
-                            src, trace_ids, access_names
+                            src, trace_ids, access_names, enable_local_cache
                         )
                         frame = plan.collect(engine="streaming")
                         if frame.height > 0:
@@ -583,7 +588,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                 return None
             source, paths, block = item
             plan = StoreTraceContextLogsWorker._context_projection(
-                source, trace_ids, access_names
+                source, trace_ids, access_names, enable_local_cache
             )
             try:
                 return plan.collect(engine="streaming")
@@ -605,7 +610,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                         pl.lit(paths[0]).alias("_path")
                     )
                     new_plan = StoreTraceContextLogsWorker._context_projection(
-                        src, trace_ids, access_names
+                        src, trace_ids, access_names, enable_local_cache
                     )
                     return new_plan.collect(engine="streaming")
                 # Small-files batch path: no single block held, re-read files.
@@ -634,12 +639,14 @@ class StoreTraceContextLogsWorker(BaseWorker):
         trace_id_set: set,
         worker_access_patterns: list[str],
         client_access_patterns: list[str],
+        enable_local_cache: bool = False,
     ) -> Any:
         """Compatibility helper for small callers; production consumes batches."""
         import polars as pl
 
         parts = list(StoreTraceContextLogsWorker._context_scan_batches(
-            log_files, trace_id_set, worker_access_patterns, client_access_patterns
+            log_files, trace_id_set, worker_access_patterns, client_access_patterns,
+            enable_local_cache=enable_local_cache,
         ))
         return pl.concat(parts) if parts else pl.DataFrame({name: [] for name in _CONTEXT_COLUMNS})
 
@@ -649,6 +656,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
         trace_id_set: set,
         worker_access_patterns: list[str],
         client_access_patterns: list[str],
+        enable_local_cache: bool = False,
     ) -> Iterator[list[dict]]:
         """旧的逐行扫描（WITTY_STORE_POLARS=0 回退用），固定批大小。"""
         for log_file_name, log_file_path in log_files:
@@ -717,6 +725,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                                     filename=parts[2].strip(),
                                     message=message.strip(),
                                     log_file=log_file_name,
+                                    enable_local_cache=enable_local_cache,
                                 ),
                             })
                             if len(rows) >= _CONTEXT_BATCH_ROWS:

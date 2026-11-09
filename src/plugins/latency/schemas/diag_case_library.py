@@ -248,6 +248,14 @@ class DiagCaseLibraryMatchModel(BaseModel):
     source_report: Optional[SourceReportModel] = Field(
         default=None, description="来源报告导航；链接仅在来源有效时提供"
     )
+    rag_index_status: str = Field(
+        default="not_indexed",
+        description=(
+            "案例对应现象卡片在 RAG 库中的状态："
+            "indexed（已入库可检索）/ parsing（解析中）/ pending（待发布）/ "
+            "failed（入库失败）/ stale（已过期）/ not_indexed（未入库）"
+        ),
+    )
 
 
 # ============================================================

@@ -1,7 +1,7 @@
 {
   "id": "89670f35-b161-4bd5-8ff3-e6403a512b5e",
   "kb_id": "fb3749dc-3264-4509-89fb-c34680865271",
-  "root_cause_type": "Worker Pod重启",
+  "root_cause_type": "容器故障-Worker容器重启",
   "description": "自动导入: dfx_worker_pod_reboot",
   "task_ids": [],
   "task_names": [
@@ -11,7 +11,7 @@
   "log_file_name": "lingqu_kvcache_dfx_worker_pod_reboot_001_20260525_02_09_21",
   "attachment_path": null,
   "fault_category": "mixed",
-  "case_category": "Worker-重启",
+  "case_category": "容器故障",
   "features": {
     "fault_category": "mixed",
     "latency": {
@@ -102,5 +102,7 @@
       "total_parse_result_count": 966
     }
   },
-  "created_at": "2026-09-28 17:24:00"
+  "created_at": "2026-09-28 17:24:00",
+  "first_level_label": "容器故障",
+  "second_level_label": "容器故障-Worker容器重启"
 }

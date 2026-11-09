@@ -1205,6 +1205,7 @@ class PhenomenonIndexService:
             "stale_kb": 0,
             "superseded_reports": 0,
             "case_repaired": 0,
+            "label_repaired": 0,
             "signals_dropped": 0,
         }
         await Mgr.promote_observing(600)
@@ -1214,6 +1215,8 @@ class PhenomenonIndexService:
         derived = await PhenomenonIndexService._repair_case_derived()
         stats["case_repaired"] = derived["repaired"]
         stats["signals_dropped"] = derived["signals_dropped"]
+        label_repaired = await PhenomenonIndexService._repair_case_label_hash()
+        stats["label_repaired"] = label_repaired["repaired"]
 
         for card in await Mgr.cards_with_source_drift():
             await Mgr.set_searchable(card.doc_id, False)
@@ -1329,6 +1332,64 @@ class PhenomenonIndexService:
                 )
                 is not None
             ):
+                stats["repaired"] += 1
+        return stats
+
+    @staticmethod
+    async def _repair_case_label_hash() -> dict[str, int]:
+        """分类字典版本漂移时重算案例的 ``source_label_hash``。
+
+        分类字典（log_label.json）内容变化会让 ``label_snapshot_hash`` 随版本
+        变化，同一标签对的案例与报告解绑，已确认文档重新落入「待验证」。
+        仅在标签对仍在当前字典中校验通过时覆盖快照 hash；标签真正变化则
+        保持解绑状态，等待人工复核。
+        """
+        stats = {"repaired": 0}
+        for case in (await CaseMgr.cases_with_report_binding())[
+            :MAX_CASE_REPAIR_PER_ROUND
+        ]:
+            if not case.source_label_hash:
+                continue
+            payload, _kb_dir, error = _load_report_payload(case.report_id)
+            if error or payload is None:
+                continue
+            faults = extractor.normalise_faults(payload)
+            fault = next(
+                (
+                    item
+                    for item in faults
+                    if extractor._text(item.get("id")) == case.source_fault_id
+                ),
+                None,
+            )
+            if fault is None:
+                continue
+            conclusion = extractor.fault_conclusion(fault)
+            try:
+                validation = label_taxonomy.validate_labels(
+                    conclusion.get("first_level_label"),
+                    conclusion.get("second_level_label"),
+                )
+            except label_taxonomy.TaxonomyError:
+                continue
+            if not validation.taxonomy_version:
+                # 侧车结论缺标签时回退案例自带标签。
+                try:
+                    validation = label_taxonomy.validate_labels(
+                        case.first_level_label, case.second_level_label
+                    )
+                except label_taxonomy.TaxonomyError:
+                    continue
+            if not validation.taxonomy_version:
+                continue
+            current_hash = label_taxonomy.label_snapshot_hash(
+                validation.first_level_label,
+                validation.second_level_label,
+                validation.taxonomy_version,
+            )
+            if current_hash == case.source_label_hash:
+                continue
+            if await CaseMgr.refresh_case_label_hash(case.id, current_hash):
                 stats["repaired"] += 1
         return stats
 

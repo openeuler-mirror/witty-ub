@@ -289,3 +289,21 @@ class CreateCaseFromReportMsg(BaseModel):
 
 class CreateCaseFromReportResponse(ResponseBase):
     result: CreateCaseFromReportMsg = Field(..., description="报告派生案例草稿")
+
+
+class DeleteDiagnosticReportRequest(StrictRequestModel):
+    """删除定界文档请求：文档与关联案例一律硬删除，不可恢复。"""
+
+    operator: Optional[str] = Field(
+        default=None, max_length=64, description="操作人；未填时读取 X-Witty-Operator"
+    )
+
+
+class DeleteDiagnosticReportMsg(BaseModel):
+    report_id: str = Field(..., description="已删除的报告ID")
+    deleted_cases: int = Field(..., description="连带硬删除的案例数")
+    deleted_cards: int = Field(..., description="连带硬删除的现象索引卡片数")
+
+
+class DeleteDiagnosticReportResponse(ResponseBase):
+    result: DeleteDiagnosticReportMsg = Field(..., description="删除结果")

@@ -224,6 +224,19 @@ const save = async () => {
         </section>
 
         <section class="parse-section">
+          <h3>客户端模式</h3>
+          <label class="mode-row">
+            <input type="checkbox" v-model="draft.enableLocalCache" />
+            <span class="mode-label">启用本地缓存（enableLocalWorker=True）</span>
+          </label>
+          <p class="mode-desc">
+            关闭（默认，路由模式）：客户端直连 meta/data worker，日志解析不再产生 entry
+            worker 角色；开启（绑定模式）：客户端绑定固定 Worker 作为 entry worker 中转请求。
+            仅对后续添加的日志解析任务生效。
+          </p>
+        </section>
+
+        <section class="parse-section">
           <h3>日志文件名 Pattern</h3>
           <div v-for="type in PATTERN_TYPES" :key="type.key" class="pattern-block">
             <div class="pattern-label">{{ type.label }}</div>
@@ -291,6 +304,30 @@ const save = async () => {
 </template>
 
 <style scoped>
+.mode-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 8px;
+  cursor: pointer;
+}
+.mode-row input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary, #2563eb);
+  cursor: pointer;
+}
+.mode-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text1, #1e293b);
+}
+.mode-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text2, #64748b);
+}
 .parse-summary {
   font-size: 12px;
   color: var(--text2);

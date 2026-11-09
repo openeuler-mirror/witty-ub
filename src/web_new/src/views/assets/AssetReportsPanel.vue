@@ -3,12 +3,18 @@ import { watch } from 'vue'
 import { useAssets } from '../../composables/useAssets'
 import { useReports } from '../../composables/useReports'
 import { useReportWorkbench } from '../../composables/useReportWorkbench'
-import { diagnosticReportHtmlUrl, type DiagnosticReportItem } from '../../api/diagnosticReport'
+import { useOperator } from '../../composables/useOperator'
+import {
+  deleteDiagnosticReport,
+  diagnosticReportHtmlUrl,
+  type DiagnosticReportItem,
+} from '../../api/diagnosticReport'
 import { formatReportTime } from '../../utils/caseWorkflow'
 
 // 资产工作区仅展示当前资产的定界文档，跨资产文档由知识库统一展示。
 const { selectedAsset } = useAssets()
 const { openReport: openWorkbench } = useReportWorkbench()
+const { operator } = useOperator()
 const {
   assetReports,
   assetReportsTotal,
@@ -23,6 +29,22 @@ const openReport = (report: DiagnosticReportItem) => {
 
 const openReportHtml = (report: DiagnosticReportItem) => {
   window.open(diagnosticReportHtmlUrl(report.report_id), '_blank', 'noopener')
+}
+
+const deleteReport = async (report: DiagnosticReportItem) => {
+  const title = report.title || report.file_name
+  const cases = report.case_count || 0
+  const message = cases > 0
+    ? `确认删除定界文档「${title}」？将同时硬删除关联的 ${cases} 个案例，不可恢复。`
+    : `确认删除定界文档「${title}」？不可恢复。`
+  if (!window.confirm(message)) return
+  try {
+    const result = await deleteDiagnosticReport(report.report_id, operator.value.trim())
+    window.alert(`已删除定界文档，连带硬删除 ${result.deleted_cases} 个案例。`)
+    reload()
+  } catch (err) {
+    window.alert(err instanceof Error ? err.message : '删除失败')
+  }
 }
 
 const displayText = (value: string | number | null | undefined, fallback = '—') => {
@@ -158,6 +180,9 @@ watch(
             </button>
             <button class="btn btn-sm btn-default" type="button" @click="openReportHtml(report)">
               阅读原文
+            </button>
+            <button class="btn btn-sm btn-danger" type="button" @click="deleteReport(report)">
+              删除
             </button>
           </td>
         </tr>

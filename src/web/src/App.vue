@@ -281,6 +281,7 @@ type DiagnosisConfigToml = {
   log_analyzer_params: Record<LogAnalyzerThresholdKey, number> & {
     zone_anomaly_density_threshold: number
   }
+  enable_local_cache: boolean
 }
 
 const diagnosisConfig = rawDiagnosisConfig as DiagnosisConfigToml
@@ -290,6 +291,7 @@ type DiagnosisConfigForm = {
   logAnalyzerParams: Record<LogAnalyzerThresholdKey, number> & {
     zone_anomaly_density_threshold: number
   }
+  enableLocalCache: boolean
 }
 
 type DiagnosisConfigInputValue = number | string
@@ -299,6 +301,7 @@ type DiagnosisConfigDraft = {
   logAnalyzerParams: Record<LogAnalyzerThresholdKey, DiagnosisConfigInputValue> & {
     zone_anomaly_density_threshold: DiagnosisConfigInputValue
   }
+  enableLocalCache: boolean
 }
 
 type DiagnosisConfigApiModel = {
@@ -306,6 +309,7 @@ type DiagnosisConfigApiModel = {
   log_analyzer_params: Record<LogAnalyzerThresholdKey, number> & {
     zone_anomaly_density_threshold: number
   }
+  enable_local_cache: boolean
 }
 
 type DiagnosisConfigApiResult = {
@@ -947,6 +951,7 @@ type FlowSummaryModel = {
   write: FlowGraphModel
   per_trace: TraceFlowStageModel[]
   decomposition: FlowDecompositionModel[]
+  enable_local_cache: boolean
 }
 
 type TraceFailureEventResultModel = {
@@ -3447,6 +3452,7 @@ const createDefaultDiagnosisConfig = (): DiagnosisConfigForm => ({
     zone_anomaly_density_threshold:
       diagnosisConfig.log_analyzer_params.zone_anomaly_density_threshold,
   },
+  enableLocalCache: diagnosisConfig.enable_local_cache,
 })
 
 const cloneDiagnosisConfig = <T extends DiagnosisConfigForm | DiagnosisConfigDraft>(config: T): T =>
@@ -3469,6 +3475,7 @@ const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfi
     total_ave_threshold_ms: config.log_analyzer_params.total_ave_threshold_ms,
     zone_anomaly_density_threshold: config.log_analyzer_params.zone_anomaly_density_threshold,
   },
+  enableLocalCache: config.enable_local_cache,
 })
 
 const toDiagnosisConfigApi = (config: DiagnosisConfigDraft): DiagnosisConfigApiModel => ({
@@ -3482,6 +3489,7 @@ const toDiagnosisConfigApi = (config: DiagnosisConfigDraft): DiagnosisConfigApiM
     total_ave_threshold_ms: Number(config.logAnalyzerParams.total_ave_threshold_ms),
     zone_anomaly_density_threshold: Number(config.logAnalyzerParams.zone_anomaly_density_threshold),
   },
+  enable_local_cache: config.enableLocalCache,
 })
 
 const diagnosisConfigDraft = reactive<DiagnosisConfigDraft>(createDefaultDiagnosisConfig())
@@ -6582,22 +6590,83 @@ const FLOW_ROLE_STYLE: Record<string, { color: string; bg: string }> = {
   meta: { color: '#b45309', bg: '#fef3c7' },
   data: { color: '#be185d', bg: '#fce7f3' },
 }
+// 图布局：节点坐标为容器宽高比例（线性映射为像素），inset 为视图内边距（占画布比例）。
+// ECharts graph 系列默认按节点包围盒做等比缩放（preserveAspect=true），节点越集中放大倍数越大，
+// 会把节点及其下方标注直接推出画布（路由模式 GET 的 Data Worker 标注因此不可见）；
+// 故显式关闭 preserveAspect，并用 inset 预留节点下方标注（bottom）与顶部边时延（top）空间，
+// 使节点坐标线性映射为画布像素，位置与标注完全可预期。
+interface FlowLayoutDef {
+  nodes: Record<string, { x: number; y: number }>
+  inset: { left: number; right: number; top: number; bottom: number }
+}
 // GET：Client 最左、Entry Worker 正右侧，Meta Worker 右上 / Data Worker 右下。
-// 比例坐标预留上下边距，节点下方标注文字完整露出不被截断。
-const FLOW_NODE_LAYOUT_GET: Record<string, { x: number; y: number }> = {
-  client: { x: 0.12, y: 0.42 },
-  entry: { x: 0.4, y: 0.42 },
-  meta: { x: 0.72, y: 0.16 },
-  data: { x: 0.72, y: 0.66 },
+// 绑定模式（enableLocalCache=true）经 entry 中继；路由模式（false）客户端直连 Worker（无 entry）。
+const FLOW_LAYOUT_GET: FlowLayoutDef = {
+  nodes: {
+    client: { x: 0.14, y: 0.5 },
+    entry: { x: 0.46, y: 0.5 },
+    meta: { x: 0.82, y: 0.16 },
+    data: { x: 0.82, y: 0.76 },
+  },
+  // 左右预留 Client/Meta+Data 标注宽度（l+r=0.32 → 视图宽=数据宽，scaleX=1）；
+  // 上预留 Client→Meta 曲线边上沿标签与标题不重叠、下预留 Data Worker 标注高度，
+  // top+bottom=0.40 → 视图高=数据包围盒高（yspan=0.60），scaleY=1，与 scaleX 一致，
+  // 避免 ECharts 边标签缩放补偿只取 scaleX 导致纵向非等比压扁
+  inset: { left: 0.14, right: 0.18, top: 0.16, bottom: 0.24 },
 }
-// SET：Client / Entry Worker / Meta Worker 从左到右一排（无 Data Worker）
-const FLOW_NODE_LAYOUT_SET: Record<string, { x: number; y: number }> = {
-  client: { x: 0.2, y: 0.5 },
-  entry: { x: 0.5, y: 0.5 },
-  meta: { x: 0.8, y: 0.5 },
+// SET：Client / Entry Worker / Meta Worker 从左到右一排（绑定模式无 Data Worker）。
+// 行布局节点同 y：graph 系列对零高包围盒自动外扩 ±1（dataRect 高=2），
+// 构建时把视图高固定为 2px（top/bottom=(H-2)/2），使 scaleY=1、行居中于画布纵向中央。
+const FLOW_LAYOUT_SET: FlowLayoutDef = {
+  nodes: {
+    client: { x: 0.18, y: 0.25 },
+    entry: { x: 0.5, y: 0.25 },
+    meta: { x: 0.82, y: 0.25 },
+  },
+  inset: { left: 0.18, right: 0.18, top: 0.32, bottom: 0.32 },
 }
-const flowNodeLayout = (flow: 'GET' | 'SET'): Record<string, { x: number; y: number }> =>
-  flow === 'GET' ? FLOW_NODE_LAYOUT_GET : FLOW_NODE_LAYOUT_SET
+// 路由模式（enableLocalCache=false）：GET = Client 左侧直连 Meta（右上）/Data（右下），无 entry；
+// SET = Client 直连 Data Worker，两节点居中水平排列（无 entry、无 Meta Worker）。
+const FLOW_LAYOUT_GET_ROUTED: FlowLayoutDef = {
+  nodes: {
+    client: { x: 0.14, y: 0.5 },
+    meta: { x: 0.82, y: 0.16 },
+    data: { x: 0.82, y: 0.76 },
+  },
+  // 与 FLOW_LAYOUT_GET 相同的 top+bottom=0.40：视图高=数据高，scaleY=1，避免边标签纵向压扁
+  inset: { left: 0.14, right: 0.18, top: 0.16, bottom: 0.24 },
+}
+const FLOW_LAYOUT_SET_ROUTED: FlowLayoutDef = {
+  nodes: {
+    client: { x: 0.3, y: 0.25 },
+    data: { x: 0.7, y: 0.25 },
+  },
+  inset: { left: 0.3, right: 0.3, top: 0.32, bottom: 0.32 },
+}
+// 行布局（SET）视图内边距：节点同 y → dataRect 高为 2（自动外扩 ±1），
+// 视图高固定 2px 使 scaleY=1 且行居中；GET 用 inset 比例预留标注空间。
+const flowSeriesInsets = (
+  flow: 'GET' | 'SET',
+  flowCfg: FlowLayoutDef,
+  width: number,
+  height: number,
+) => {
+  const left = flowCfg.inset.left * width
+  const right = flowCfg.inset.right * width
+  if (flow === 'SET') {
+    return { left, right, top: (height - 2) / 2, bottom: (height - 2) / 2 }
+  }
+  return { left, right, top: flowCfg.inset.top * height, bottom: flowCfg.inset.bottom * height }
+}
+const flowLayout = (
+  flow: 'GET' | 'SET',
+  enableLocalCache: boolean = true,
+): FlowLayoutDef => {
+  if (enableLocalCache) {
+    return flow === 'GET' ? FLOW_LAYOUT_GET : FLOW_LAYOUT_SET
+  }
+  return flow === 'GET' ? FLOW_LAYOUT_GET_ROUTED : FLOW_LAYOUT_SET_ROUTED
+}
 // 兜底样式：索引访问在 noUncheckedIndexedAccess 下会判为可选，故单独抽出非可选常量。
 const DEFAULT_FLOW_EDGE_STYLE = { color: '#3b82f6', width: 2.5, lineType: 'solid' as const }
 const FLOW_EDGE_STYLE: Record<string, { color: string; width: number; lineType: 'solid' | 'dashed' }> = {
@@ -6606,18 +6675,55 @@ const FLOW_EDGE_STYLE: Record<string, { color: string; width: number; lineType: 
   present: DEFAULT_FLOW_EDGE_STYLE,
   missing: { color: '#9ca3af', width: 2, lineType: 'dashed' },
 }
-// 交互段 stage_key -> 角色边（与后端 READ_STAGES / WRITE_STAGES 对齐）。
+// 交互段定义：绑定模式（enableLocalCache=true）经 entry 中继，与后端
+// READ_STAGES/WRITE_STAGES 对齐；路由模式（false）客户端直连 Worker，
+// 与后端 _ROUTED_READ_STAGES/_ROUTED_WRITE_STAGES 对齐（stage_key 一致）。
 // "点归点线归线"：只保留真正的跨角色交互窗口；client/worker 自身处理改由正交分解标注在节点上。
-const TRACE_FLOW_STAGES: Record<
-  string,
-  { source: string; target: string; operation: string; flow: 'read' | 'write' | 'both' }
-> = {
-  client_to_entry: { source: 'client', target: 'entry', operation: 'Client UB 通信', flow: 'both' },
-  entry_to_meta: { source: 'entry', target: 'meta', operation: 'QueryGet RPC 网络/框架', flow: 'read' },
-  entry_to_data: { source: 'entry', target: 'data', operation: 'Entry→Data 远端供数', flow: 'read' },
-  data_to_entry_ub: { source: 'data', target: 'entry', operation: 'Worker UB 通信(URMA 回传)', flow: 'read' },
-  entry_to_meta_publish: { source: 'entry', target: 'meta', operation: 'Entry→Meta Publish', flow: 'write' },
+const traceFlowStageDefs = (
+  flow: 'read' | 'write',
+  enableLocalCache: boolean,
+): Array<{ stageKey: string; source: string; target: string; operation: string }> => {
+  if (enableLocalCache) {
+    return flow === 'read'
+      ? [
+          { stageKey: 'client_to_entry', source: 'client', target: 'entry', operation: 'Client UB 通信' },
+          { stageKey: 'entry_to_meta', source: 'entry', target: 'meta', operation: 'QueryGet RPC 网络/框架' },
+          { stageKey: 'entry_to_data', source: 'entry', target: 'data', operation: 'Entry→Data 远端供数' },
+          { stageKey: 'data_to_entry_ub', source: 'data', target: 'entry', operation: 'Worker UB 通信(URMA 回传)' },
+        ]
+      : [
+          { stageKey: 'client_to_entry', source: 'client', target: 'entry', operation: 'Client UB 通信' },
+          { stageKey: 'entry_to_meta_publish', source: 'entry', target: 'meta', operation: 'Entry→Meta Publish' },
+        ]
+  }
+  // 路由模式：GET = client→meta(QueryAndGet RPC) → client→data(远端供数) → data→client(URMA 回传)；
+  // SET = client→data(Create/URMA 写/Publish) → data→client(回执)。
+  return flow === 'read'
+    ? [
+        { stageKey: 'client_to_meta', source: 'client', target: 'meta', operation: 'Client→Meta QueryAndGet RPC 网络/框架' },
+        { stageKey: 'client_to_data', source: 'client', target: 'data', operation: 'Client→Data 远端供数' },
+        { stageKey: 'data_to_client_ub', source: 'data', target: 'client', operation: 'Worker UB 通信(URMA 回传)' },
+      ]
+    : [
+        { stageKey: 'client_to_data', source: 'client', target: 'data', operation: 'Client UB 通信/数据写入' },
+        { stageKey: 'data_to_client_ack', source: 'data', target: 'client', operation: 'Worker UB 通信(回执)' },
+      ]
 }
+// 节点可见性过滤：绑定模式 SET 无 Data Worker；路由模式（enableLocalCache=false）
+// 无 entry 节点，且 SET 无 Meta Worker（客户端直连数据 Worker）。
+const filterFlowNodes = (
+  node: FlowNodeModel,
+  isWrite: boolean,
+  enableLocalCache: boolean,
+): boolean => {
+  if (!enableLocalCache && node.id === 'entry') return false
+  if (isWrite && !enableLocalCache && node.id === 'meta') return false
+  if (isWrite && enableLocalCache && node.id === 'data') return false
+  return true
+}
+// 路由模式下无 entry 节点：原归 entry 的段（Worker/Meta 内部）改归 data worker
+const decompNodeFor = (node: string, enableLocalCache: boolean): string =>
+  enableLocalCache || node !== 'entry' ? node : 'data'
 // 正交分解段（与后端 _GET/_SET_DECOMP_SEGMENTS 对齐）：key -> 展示名/颜色/归属节点
 // GET 9 段互斥分解（与瀑布图 buildExclusiveSegments 完全一致）；
 // SET 与 GET 普通分支完全一致（SDK处理 + Worker/Meta内部 + Worker UB + Client UB + 其他）。
@@ -6669,28 +6775,32 @@ const buildFlowGraphOption = (
   size: { width: number; height: number },
   title: string,
   decomposition?: FlowDecompositionModel | null,
+  enableLocalCache: boolean = true,
 ): EChartsOption => {
   const width = Math.max(size.width || 600, 600)
-  const height = Math.max(size.height || 340, 300)
+  const height = Math.max(size.height || 400, 240)
   // 自适应分位阈值（后端下发），缺省回退固定 10/50ms
   const warnMs = graph.warn_ms ?? FLOW_WARN_MS
   const criticalMs = graph.critical_ms ?? FLOW_CRITICAL_MS
+  // 布局：节点坐标 + 视图内边距（关闭 preserveAspect 后线性映射为画布像素）
+  const flowCfg = flowLayout(flow, enableLocalCache)
   // 节点自身处理统计：优先用后端下发的 own_rollup（avg/p50/p99/max），缺失时回退
   // 由正交分解段中"点归点"段（node 匹配）的 avg 求和。
   const nodeOwn = (node: FlowNodeModel): FlowEdgeRollupModel | null => {
     if (node.own_rollup && node.own_rollup.avg_ms != null) return node.own_rollup
     const sum = (decomposition?.segments ?? [])
-      .filter((seg) => seg.node === node.id && seg.key !== 'residual')
+      .filter((seg) => seg.node && decompNodeFor(seg.node, enableLocalCache) === node.id)
       .reduce((acc, seg) => acc + (seg.rollup?.avg_ms ?? 0), 0)
     return sum > 0.001
       ? { trace_count: 0, avg_ms: sum, top_workers: [] }
       : null
   }
   const nodes = (graph.nodes?.length ? graph.nodes : [])
-    // SET 写入流无 Data Worker，仅渲染 Client/Entry/Meta
-    .filter((node) => flow !== 'SET' || node.id !== 'data')
+    // 绑定模式 SET 无 Data Worker；路由模式无 entry（SET 亦无 Meta Worker）
+    .filter((node) => filterFlowNodes(node, flow === 'SET', enableLocalCache))
     .map((node) => {
-      const layout = flowNodeLayout(flow)[node.id] ?? { x: 0.5, y: 0.5 }
+      const layout =
+        flowCfg.nodes[node.id] ?? { x: 0.5, y: 0.5 }
       const roleStyle = FLOW_ROLE_STYLE[node.id] ?? { color: '#6b7280', bg: '#f3f4f6' }
       const own = nodeOwn(node)
       const baseLabel = node.label || FLOW_ROLE_LABELS[node.id] || node.id
@@ -6705,8 +6815,8 @@ const buildFlowGraphOption = (
         show: true,
         position: 'bottom' as const,
         distance: 8,
-        fontSize: 11,
-        lineHeight: 14,
+        fontSize: 12,
+        lineHeight: 18,
         fontWeight: 700,
         color: roleStyle.color,
         formatter: () => {
@@ -6761,8 +6871,8 @@ const buildFlowGraphOption = (
       label: {
         show: true,
         formatter: `${edge.operation}\n${flowEdgeLatencyText(edge)}`,
-        fontSize: 10,
-        lineHeight: 13,
+        fontSize: 11,
+        lineHeight: 17,
         color: style.color,
         fontWeight: 600,
       },
@@ -6807,6 +6917,9 @@ const buildFlowGraphOption = (
         layout: 'none',
         roam: false,
         draggable: false,
+        // 关闭包围盒等比缩放：节点坐标按 inset 视图线性映射为画布像素，标注完整可见
+        preserveAspect: false,
+        ...flowSeriesInsets(flow, flowCfg, width, height),
         data: nodes,
         links,
         emphasis: { focus: 'adjacency', lineStyle: { width: 7 } },
@@ -6852,7 +6965,9 @@ const buildSingleTraceFlowOption = (
 ): EChartsOption => {
   const stage = summary.per_trace?.find((item) => item.trace_id === traceId)
   const width = Math.max(size.width || 600, 600)
-  const height = Math.max(size.height || 340, 300)
+  const height = Math.max(size.height || 400, 240)
+  // 资产库模式：路由模式（enableLocalCache=false）无 entry 节点，客户端直连 Worker
+  const enableLocalCache = summary.enable_local_cache ?? true
   // 时延未识别的 Trace（log_parse_result 无对应行）也渲染角色布局图：
   // 操作类型取 per_trace 的 operation，缺失时回退到 trace 行的 operation，再兜底 GET。
   const rawOperation = stage?.operation || fallbackOperation || ''
@@ -6867,11 +6982,13 @@ const buildSingleTraceFlowOption = (
   const hasData = Boolean(
     stage && (stage.total_ms != null || Object.keys(stage.stages ?? {}).length > 0),
   )
+  // 布局：节点坐标 + 视图内边距（关闭 preserveAspect 后线性映射为画布像素）
+  const flowCfg = flowLayout(isWrite ? 'SET' : 'GET', enableLocalCache)
   const nodes = (summary.nodes?.length ? summary.nodes : [])
-    // SET 写入流无 Data Worker，仅渲染 Client/Entry/Meta
-    .filter((node) => !isWrite || node.id !== 'data')
+    // 绑定模式 SET 无 Data Worker；路由模式无 entry（SET 亦无 Meta Worker）
+    .filter((node) => filterFlowNodes(node, isWrite, enableLocalCache))
     .map((node) => {
-      const layout = flowNodeLayout(isWrite ? 'SET' : 'GET')[node.id] ?? { x: 0.5, y: 0.5 }
+      const layout = flowCfg.nodes[node.id] ?? { x: 0.5, y: 0.5 }
       const roleStyle = FLOW_ROLE_STYLE[node.id] ?? { color: '#6b7280', bg: '#f3f4f6' }
       const rolePod = stage?.roles?.[node.id]
       // 节点容器列表：优先用 trace 行级 pod_role 聚合的全部容器（能体现双重身份 pod），
@@ -6880,9 +6997,10 @@ const buildSingleTraceFlowOption = (
         const pods = getFlowNodePods(trace, node.id)
         return pods.length ? pods : rolePod ? [rolePod] : []
       })()
-      // 节点自身处理 = 正交分解中归属该节点的段之和（点归点），不含残差
+      // 节点自身处理 = 正交分解中归属该节点的段之和（点归点），不含残差；
+      // 路由模式下原归 entry 的段（Worker/Meta 内部）改归 data worker
       const own = Object.entries(DECOMP_SEGMENT_META)
-        .filter(([, meta]) => meta.node === node.id && node.id !== '')
+        .filter(([, meta]) => meta.node && decompNodeFor(meta.node, enableLocalCache) === node.id)
         .reduce((acc, [key]) => acc + (stage?.stages?.[key] ?? 0), 0)
       const ownMs = own > 0.001 ? own : null
       const podLine = (pod: string) => {
@@ -6902,8 +7020,8 @@ const buildSingleTraceFlowOption = (
           show: true,
           position: 'bottom' as const,
           distance: 8,
-          fontSize: 11,
-          lineHeight: 14,
+          fontSize: 12,
+          lineHeight: 18,
           fontWeight: 700,
           color: roleStyle.color,
           formatter: (params: { name: string }) => {
@@ -6933,38 +7051,36 @@ const buildSingleTraceFlowOption = (
         },
       }
     })
-  const links = Object.entries(TRACE_FLOW_STAGES)
-    .filter(([, def]) => (isWrite ? def.flow !== 'read' : def.flow !== 'write'))
-    .map(([stageKey, def]) => {
-      const ms = stage?.stages?.[stageKey]
-      const status = flowStageStatus(ms, warnMs, criticalMs)
-      const style = FLOW_EDGE_STYLE[status] ?? DEFAULT_FLOW_EDGE_STYLE
-      return {
-        source: def.source,
-        target: def.target,
-        label: {
-          show: true,
-          formatter: ms != null ? `${def.operation}\n${ms.toFixed(1)}ms` : `${def.operation}\n无数据`,
-          fontSize: 10,
-          lineHeight: 13,
-          color: style.color,
-          fontWeight: 600,
-        },
-        lineStyle: {
-          color: style.color,
-          width: style.width,
-          type: style.lineType,
-          curveness: 0.1,
-          opacity: status === 'missing' ? 0.5 : 0.95,
-        },
-        tooltip: {
-          formatter: () =>
-            `${def.operation}（${FLOW_ROLE_LABELS[def.source]} → ${FLOW_ROLE_LABELS[def.target]}）：${
-              ms != null ? `${ms.toFixed(1)}ms（${status}）` : '无该段时延数据'
-            }`,
-        },
-      }
-    })
+  const links = traceFlowStageDefs(isWrite ? 'write' : 'read', enableLocalCache).map((def) => {
+    const ms = stage?.stages?.[def.stageKey]
+    const status = flowStageStatus(ms, warnMs, criticalMs)
+    const style = FLOW_EDGE_STYLE[status] ?? DEFAULT_FLOW_EDGE_STYLE
+    return {
+      source: def.source,
+      target: def.target,
+      label: {
+        show: true,
+        formatter: ms != null ? `${def.operation}\n${ms.toFixed(1)}ms` : `${def.operation}\n无数据`,
+        fontSize: 11,
+        lineHeight: 17,
+        color: style.color,
+        fontWeight: 600,
+      },
+      lineStyle: {
+        color: style.color,
+        width: style.width,
+        type: style.lineType,
+        curveness: 0.1,
+        opacity: status === 'missing' ? 0.5 : 0.95,
+      },
+      tooltip: {
+        formatter: () =>
+          `${def.operation}（${FLOW_ROLE_LABELS[def.source]} → ${FLOW_ROLE_LABELS[def.target]}）：${
+            ms != null ? `${ms.toFixed(1)}ms（${status}）` : '无该段时延数据'
+          }`,
+      },
+    }
+  })
   const residualMs = stage?.stages?.residual
   return {
     title: {
@@ -6989,6 +7105,9 @@ const buildSingleTraceFlowOption = (
         layout: 'none',
         roam: false,
         draggable: false,
+        // 关闭包围盒等比缩放：节点坐标按 inset 视图线性映射为画布像素，标注完整可见
+        preserveAspect: false,
+        ...flowSeriesInsets(isWrite ? 'SET' : 'GET', flowCfg, width, height),
         data: nodes,
         links,
         emphasis: { focus: 'adjacency', lineStyle: { width: 7 } },
@@ -7005,6 +7124,7 @@ const renderFlowChart = (
   flow: 'GET' | 'SET',
   title: string,
   decomposition?: FlowDecompositionModel | null,
+  enableLocalCache: boolean = true,
 ): ECharts | null => {
   if (!element || !graph) return instance
   if (instance && instance.getDom() !== element) {
@@ -7019,6 +7139,7 @@ const renderFlowChart = (
       { width: element.clientWidth, height: element.clientHeight },
       title,
       decomposition,
+      enableLocalCache,
     ),
     true,
   )
@@ -7055,6 +7176,7 @@ const renderLatencyFlowCharts = () => {
   if (!isAbnormalMonitorPage.value || isLatencyFlowLoading.value || latencyFlowError.value) return
   const summary = latencyFlowSummary.value
   if (!summary) return
+  const enableLocalCache = summary.enable_local_cache ?? true
   const readDecomp = summary.decomposition?.find((item) => item.operation === 'GET')
   const writeDecomp = summary.decomposition?.find((item) => item.operation === 'SET')
   latencyReadFlowChartInstance = renderFlowChart(
@@ -7064,6 +7186,7 @@ const renderLatencyFlowCharts = () => {
     'GET',
     'Read Flow',
     readDecomp,
+    enableLocalCache,
   )
   latencyWriteFlowChartInstance = renderFlowChart(
     latencyWriteFlowRef.value,
@@ -7072,6 +7195,7 @@ const renderLatencyFlowCharts = () => {
     'SET',
     'Write Flow',
     writeDecomp,
+    enableLocalCache,
   )
 }
 
@@ -7103,12 +7227,14 @@ const showFlowEdgeDetail = (edge: FlowEdgeModel) => {
 const showFlowNodeDetail = (nodeId: string) => {
   const summary = latencyFlowSummary.value
   const operation = activeFlowTab.value
-  // 节点自身处理 = 正交分解中归属该节点的段之和（不含残差/交互边）
+  const enableLocalCache = summary?.enable_local_cache ?? true
+  // 节点自身处理 = 正交分解中归属该节点的段之和（不含残差/交互边）；
+  // 路由模式下原归 entry 的段（Worker/Meta 内部）改归 data worker
   const traceItems: FlowNodeTraceItem[] = (summary?.per_trace ?? [])
     .filter((item) => item.operation === operation)
     .map((item) => {
       const own = Object.entries(DECOMP_SEGMENT_META)
-        .filter(([, meta]) => meta.node === nodeId && nodeId !== '')
+        .filter(([, meta]) => meta.node && decompNodeFor(meta.node, enableLocalCache) === nodeId)
         .reduce((acc, [key]) => acc + (item.stages?.[key] ?? 0), 0)
       return {
         trace_id: item.trace_id,
@@ -23222,6 +23348,27 @@ onBeforeUnmount(() => {
               <span v-if="diagnosisConfigImportMessage" class="config-import-message">
                 {{ diagnosisConfigImportMessage }}
               </span>
+            </section>
+
+            <section
+              v-show="!isDiagnosisConfigLoading"
+              class="parse-config-section client-mode-config-section"
+            >
+              <div class="parse-config-section-heading">
+                <div>
+                  <h3>客户端模式</h3>
+                  <p>选择客户端的访问模式，决定日志解析时是否产生 entry worker 角色。</p>
+                </div>
+              </div>
+              <label class="client-mode-toggle">
+                <input type="checkbox" v-model="diagnosisConfigDraft.enableLocalCache" />
+                <span class="client-mode-toggle-label">启用本地缓存（enableLocalWorker=True）</span>
+              </label>
+              <p class="client-mode-desc">
+                关闭（默认，路由模式）：客户端直连 meta/data worker，日志解析不再产生 entry
+                worker 角色；开启（绑定模式）：客户端绑定固定 Worker 作为 entry worker 中转请求。
+                仅对后续添加的日志解析任务生效。
+              </p>
             </section>
 
             <section

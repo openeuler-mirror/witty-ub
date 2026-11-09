@@ -68,6 +68,10 @@
     "second_level_label": "Coordinator故障-进程申请不到CPU/内存/IO等资源"
   },
   {
+    "first_level_label": "Coordinator故障",
+    "second_level_label": "Coordinator故障-网络不可用"
+  },
+  {
     "first_level_label": "杰夫系统故障",
     "second_level_label": "杰夫系统故障-系统不可用"
   },
@@ -212,72 +216,72 @@
     "second_level_label": "Worker集群故障-集群不可用"
   },
   {
-    "first_level_label": "服务器故障",
+    "first_level_label": "硬件故障",
     "second_level_label": "服务器故障-掉电"
   },
   {
-    "first_level_label": "服务器故障",
+    "first_level_label": "硬件故障",
     "second_level_label": "服务器故障-CPU故障"
   },
   {
-    "first_level_label": "服务器故障",
+    "first_level_label": "硬件故障",
     "second_level_label": "服务器故障-内存故障"
   },
   {
-    "first_level_label": "服务器故障",
+    "first_level_label": "硬件故障",
     "second_level_label": "服务器故障-硬盘故障"
   },
   {
-    "first_level_label": "服务器故障",
+    "first_level_label": "硬件故障",
     "second_level_label": "服务器故障-UB级联卡故障"
   },
   {
-    "first_level_label": "以太网卡故障",
+    "first_level_label": "硬件故障",
     "second_level_label": "网卡故障-双网卡down"
   },
   {
-    "first_level_label": "以太网卡故障",
+    "first_level_label": "硬件故障",
     "second_level_label": "网卡故障-单网卡down"
   },
   {
-    "first_level_label": "以太网卡故障",
+    "first_level_label": "硬件故障",
     "second_level_label": "网卡故障-时延高"
   },
   {
-    "first_level_label": "以太网卡故障",
+    "first_level_label": "硬件故障",
     "second_level_label": "网卡故障-丢包"
   },
   {
-    "first_level_label": "以太网卡故障",
+    "first_level_label": "硬件故障",
     "second_level_label": "网卡故障-抖动"
   },
   {
-    "first_level_label": "以太网卡故障",
+    "first_level_label": "硬件故障",
     "second_level_label": "网卡故障-闪断"
   },
   {
-    "first_level_label": "以太网卡故障",
+    "first_level_label": "硬件故障",
     "second_level_label": "网卡故障-带宽不足"
   },
   {
-    "first_level_label": "UDie故障",
-    "second_level_label": "UDie故障-NFE故障"
+    "first_level_label": "硬件故障",
+    "second_level_label": "ub芯片故障-NFE"
   },
   {
-    "first_level_label": "UDie故障",
-    "second_level_label": "Udie故障-CE故障"
+    "first_level_label": "硬件故障",
+    "second_level_label": "ub芯片故障-CE"
   },
   {
-    "first_level_label": "UDie故障",
-    "second_level_label": "UDie故障-FE故障"
+    "first_level_label": "硬件故障",
+    "second_level_label": "ub芯片故障-FE"
   },
   {
-    "first_level_label": "UDie故障",
-    "second_level_label": "UDie故障-Jetty不足"
+    "first_level_label": "硬件故障",
+    "second_level_label": "ub芯片故障-Jetty不足"
   },
   {
-    "first_level_label": "UDie故障",
-    "second_level_label": "UDie故障-UB带宽不足"
+    "first_level_label": "硬件故障",
+    "second_level_label": "ub芯片故障-UB带宽不足"
   },
   {
     "first_level_label": "UB交换机故障",
@@ -300,28 +304,28 @@
     "second_level_label": "以太交换机故障-整机故障"
   },
   {
-    "first_level_label": "光模块故障",
-    "second_level_label": "光模块故障-down"
+    "first_level_label": "硬件故障",
+    "second_level_label": "ub端口故障-down"
   },
   {
-    "first_level_label": "光模块故障",
-    "second_level_label": "光模块故障-闪断"
+    "first_level_label": "硬件故障",
+    "second_level_label": "ub端口故障-闪断"
   },
   {
-    "first_level_label": "光模块故障",
-    "second_level_label": "光模块故障-丢包"
+    "first_level_label": "硬件故障",
+    "second_level_label": "ub端口故障-丢包"
   },
   {
-    "first_level_label": "光模块故障",
-    "second_level_label": "光模块故障-降lane"
+    "first_level_label": "硬件故障",
+    "second_level_label": "ub端口故障-降lane"
   },
   {
-    "first_level_label": "光模块故障",
-    "second_level_label": "光模块故障-时延高"
+    "first_level_label": "硬件故障",
+    "second_level_label": "ub端口故障-时延高"
   },
   {
-    "first_level_label": "光模块故障",
-    "second_level_label": "光模块故障-抖动"
+    "first_level_label": "硬件故障",
+    "second_level_label": "ub端口故障-抖动"
   },
   {
     "first_level_label": "光纤故障",

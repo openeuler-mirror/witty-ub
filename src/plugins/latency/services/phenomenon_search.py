@@ -40,8 +40,10 @@ SYMPTOM_MAX = 600
 MAX_CANDIDATE_LIMIT = 200
 # Absolute budget for one search, including every widening round and local
 # mapping.  Read-interval timeouts cannot bound a slow-drip upstream, and the
-# caller must get an explicit error before the 5-second deadline.
-SEARCH_BUDGET_SECONDS = 4.5
+# caller must get an explicit error before the 15-second deadline.
+# RAG search 对未命中 embedding 缓存的 query 实测最长约 7s（见 rag_client 注释），
+# 预算 4.5s 会频繁触发 "search budget exceeded"，故与 RAG 客户端预算对齐为 15s。
+SEARCH_BUDGET_SECONDS = 15.0
 
 # 运维快照只看最近 5 分钟；进程重启后自动清零。
 RETRIEVAL_WINDOW_SECONDS = 300

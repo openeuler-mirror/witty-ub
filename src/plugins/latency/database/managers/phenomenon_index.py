@@ -30,7 +30,7 @@ from latency.ENUM.phenomenon import (
     ReportIndexStatus,
 )
 from latency.services.report_phenomenon import PhenomenonDoc, sha256_hex
-from sqlalchemy import and_, delete, func, or_, select, text, tuple_, update
+from sqlalchemy import and_, case, delete, func, or_, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -82,6 +82,17 @@ class PhenomenonIndexPGManager:
         async with session_scope(session) as current:
             stmt = insert(DiagnosticReportIndex).values(**data)
             update_cols = {key: value for key, value in data.items() if key != "report_id"}
+            if "sidecar_hash" in data:
+                # 已确认报告的文档被编辑/重导入后，确认指纹必须跟随当前版本，
+                # 否则侧车 hash 与 confirmed_sidecar_hash 长期不一致会让
+                # 已确认文档重新出现在「待验证」列表。
+                update_cols["confirmed_sidecar_hash"] = case(
+                    (
+                        DiagnosticReportIndex.confirmed_sidecar_hash.is_not(None),
+                        stmt.excluded.sidecar_hash,
+                    ),
+                    else_=stmt.excluded.confirmed_sidecar_hash,
+                )
             await current.execute(
                 stmt.on_conflict_do_update(
                     index_elements=[DiagnosticReportIndex.report_id],
@@ -321,6 +332,18 @@ class PhenomenonIndexPGManager:
         async with PGManager.session() as session:
             rows = await session.execute(
                 select(PhenomenonIndex).where(PhenomenonIndex.case_id == case_id)
+            )
+            return list(rows.scalars().all())
+
+    @staticmethod
+    async def get_cards_by_case_ids(case_ids: Iterable[str]) -> list[PhenomenonIndex]:
+        """Return all cards bound to any of the given case ids (one batch query)."""
+        unique = list(dict.fromkeys(case_ids))
+        if not unique:
+            return []
+        async with PGManager.session() as session:
+            rows = await session.execute(
+                select(PhenomenonIndex).where(PhenomenonIndex.case_id.in_(unique))
             )
             return list(rows.scalars().all())
 

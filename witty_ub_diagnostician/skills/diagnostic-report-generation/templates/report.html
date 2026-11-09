@@ -1092,12 +1092,12 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
       <div class="hero-metric"><div class="hero-metric-label">识别故障</div><div class="hero-metric-value">{{ inc.fault_count }} 个</div></div>
       <div class="hero-metric"><div class="hero-metric-label">主故障</div><div class="hero-metric-value mono">{{ inc.primary_fault_id }}</div></div>
       <div class="hero-metric"><div class="hero-metric-label">次生 / 独立</div><div class="hero-metric-value">{{ inc.secondary_fault_count }} / {{ inc.independent_fault_count }}</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">综合置信度</div><div class="hero-metric-value">{{ inc.confidence }}</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">综合置信度</div><div class="hero-metric-value">{{ inc.confidence or '—' }}</div></div>
       {% else %}
       <div class="hero-metric"><div class="hero-metric-label">故障域</div><div class="hero-metric-value">{{ f0.conclusion.fault_domain }}</div></div>
       <div class="hero-metric"><div class="hero-metric-label">故障组件</div><div class="hero-metric-value">{{ f0.conclusion.fault_component }}</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">影响范围</div><div class="hero-metric-value">{{ f0.conclusion.affected_scope_pct }}%</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">诊断置信度</div><div class="hero-metric-value">{{ f0.conclusion.confidence }}</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">影响范围</div><div class="hero-metric-value">{% if f0.conclusion.affected_scope_pct %}{{ f0.conclusion.affected_scope_pct }}%{% else %}—{% endif %}</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">诊断置信度</div><div class="hero-metric-value">{{ f0.conclusion.confidence or '—' }}</div></div>
       {% endif %}
     </div>
   </div>
@@ -1706,8 +1706,8 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
       <div class="conclusion-cards">
         <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">{{ f0.conclusion.fault_domain }}</div></div>
         <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">{{ f0.conclusion.fault_component }}</div></div>
-        <div class="conclusion-card"><div class="card-label">影响范围</div><div class="card-value">{{ f0.conclusion.affected_scope_pct }}%</div><div class="card-sub">{{ f0.conclusion.affected_scope_desc }}</div></div>
-        <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">{{ f0.conclusion.confidence }}</div></div>
+        <div class="conclusion-card"><div class="card-label">影响范围</div><div class="card-value">{% if f0.conclusion.affected_scope_pct %}{{ f0.conclusion.affected_scope_pct }}%{% else %}—{% endif %}</div>{% if f0.conclusion.affected_scope_desc %}<div class="card-sub">{{ f0.conclusion.affected_scope_desc }}</div>{% endif %}</div>
+        <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">{{ f0.conclusion.confidence or '—' }}</div></div>
       </div>
       {% if f0.conclusion.fault_function %}
       <div class="conclusion-func">

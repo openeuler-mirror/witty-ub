@@ -83,7 +83,7 @@ export PYTHONPATH="$PROJECT_DIR/src/plugins${PYTHONPATH:+:$PYTHONPATH}"
 ARGS=(--archive "$ACTIVE" --state "$STATE" --operator "$OPERATOR")
 [ "$FORCE" -eq 1 ] && ARGS+=(--force)
 
-_log "导入内置报告（后台执行，日志: $LOG）"
+_log "导入内置报告（后台执行，日志: ${LOG}）"
 (
     set -euo pipefail
     exec "$PYTHON" -m latency.access.builtin_reports_cli "${ARGS[@]}"

@@ -965,6 +965,15 @@ async def test_reconcile_ignores_deleted_remote_tombstones(monkeypatch):
         PhenomenonIndexService, "_repair_case_derived", staticmethod(no_repair)
     )
 
+    async def no_label_repair():
+        return {"repaired": 0}
+
+    monkeypatch.setattr(
+        PhenomenonIndexService,
+        "_repair_case_label_hash",
+        staticmethod(no_label_repair),
+    )
+
     stats = await PhenomenonIndexService.reconcile()
 
     assert stats["orphans"] == 1
@@ -1055,6 +1064,15 @@ async def test_reconcile_retires_mappings_left_in_a_previous_kb(monkeypatch):
         PhenomenonIndexService, "_repair_case_derived", staticmethod(no_repair)
     )
 
+    async def no_label_repair():
+        return {"repaired": 0}
+
+    monkeypatch.setattr(
+        PhenomenonIndexService,
+        "_repair_case_label_hash",
+        staticmethod(no_label_repair),
+    )
+
     stats = await PhenomenonIndexService.reconcile()
 
     assert stats["stale_kb"] == 1
@@ -1126,6 +1144,80 @@ async def test_repair_case_derived_aligns_operation_and_fingerprint(monkeypatch)
 
     assert stats == {"repaired": 1, "signals_dropped": 7}
     assert seen == [("case-1", "SET", expected)]
+
+
+@pytest.mark.asyncio
+async def test_repair_case_label_hash_aligns_taxonomy_version(monkeypatch):
+    """分类字典版本漂移会重算 source_label_hash，标签未变已对齐的不重复写。"""
+    from latency.database.managers.diag_case_library import DiagCaseLibraryPGManager
+    from latency.services import label_taxonomy
+
+    refreshed: list[tuple[str, str]] = []
+
+    async def refresh_label_hash(case_id, source_label_hash):
+        refreshed.append((case_id, source_label_hash))
+        return True
+
+    payload = {
+        "report": {"title": "r"},
+        "basic_info": {"operation": "SET"},
+        "faults": [{"id": "F01", "status": "confirmed", "title": "t",
+                    "conclusion": {"first_level_label": "硬件故障",
+                                   "second_level_label": "ub端口故障-down"}}],
+    }
+
+    async def bound():
+        return [
+            # 版本漂移：hash 过期，标签仍有效，应重算。
+            SimpleNamespace(
+                id="case-1", report_id="report_a", source_fault_id="F01",
+                source_label_hash="old-version-hash",
+                first_level_label="硬件故障", second_level_label="ub端口故障-down",
+            ),
+            # 已对齐：与当前版本计算一致，不应重复写。
+            SimpleNamespace(
+                id="case-2", report_id="report_b", source_fault_id="F01",
+                source_label_hash="snapshot:硬件故障:ub端口故障-down:v2",
+                first_level_label="硬件故障", second_level_label="ub端口故障-down",
+            ),
+            # 无标签快照：不参与重算。
+            SimpleNamespace(
+                id="case-3", report_id="report_c", source_fault_id="F01",
+                source_label_hash=None,
+                first_level_label="硬件故障", second_level_label="ub端口故障-down",
+            ),
+        ]
+
+    def load(report_id):
+        return payload, None, None
+
+    class FakeValidation:
+        taxonomy_version = "v2"
+        first_level_label = "硬件故障"
+        second_level_label = "ub端口故障-down"
+
+    def fake_validate(first, second):
+        return FakeValidation()
+
+    def fake_snapshot(first, second, version):
+        return f"snapshot:{first}:{second}:{version}"
+
+    monkeypatch.setattr(
+        DiagCaseLibraryPGManager, "cases_with_report_binding", staticmethod(bound)
+    )
+    monkeypatch.setattr(
+        DiagCaseLibraryPGManager,
+        "refresh_case_label_hash",
+        staticmethod(refresh_label_hash),
+    )
+    monkeypatch.setattr(service, "_load_report_payload", load)
+    monkeypatch.setattr(label_taxonomy, "validate_labels", fake_validate)
+    monkeypatch.setattr(label_taxonomy, "label_snapshot_hash", fake_snapshot)
+
+    stats = await PhenomenonIndexService._repair_case_label_hash()
+
+    assert stats == {"repaired": 1}
+    assert refreshed == [("case-1", "snapshot:硬件故障:ub端口故障-down:v2")]
 
 
 @pytest.mark.asyncio
