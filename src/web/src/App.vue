@@ -1008,6 +1008,7 @@ type ParseResultTableRow = {
   createLatency: number | null
   publishLatency: number | null
   workerTotalLatency: number | null
+  podRole?: TracePodRoleModel
   raw: LogParseResultModel
 }
 
@@ -3399,6 +3400,7 @@ const topSlowRequestsTotal = ref(0)
 const topSlowTraceRows = computed<AbnormalTraceRow[]>(() =>
   topSlowRequests.value.map((result) => toAbnormalTraceRow(result)),
 )
+const topSlowTraceTableRef = ref<HTMLDivElement | null>(null)
 const hoveredSlowTraceRowKey = ref('')
 // Top500 时延 Trace 列表：客户端分页展示（数据一次性取回，翻页而非滚动）
 const topSlowTracePageSize = 10
@@ -3737,13 +3739,13 @@ type ColumnWidthMap = {
 }
 
 const traceListColumnWidths = reactive<ColumnWidthMap>({
-  latencyLeft: [150, 185, 220, 170, 95, 90, 75],
+  latencyLeft: [150, 185, 220, 170, 90, 75],
   faultLeft: [110, 185, 300, 130, 110, 110, 80, 110],
   latencyData: [100, 400],
   faultData: [110, 180, 165, 170, 175, 175],
   faultTraceLeft: [110, 185, 315],
   faultTraceActions: [150],
-  slowTraceLeft: [185, 220, 170, 95, 90, 75],
+  slowTraceLeft: [185, 220, 170, 90, 75],
   slowTraceData: [100, 400],
 })
 
@@ -3877,7 +3879,7 @@ const DETAIL_TRACE_TIME_COLUMN_WIDTH = 160
 const DETAIL_TRACE_POD_COLUMN_MIN_WIDTH = 170
 
 const getDetailLatencyLeftGridStyle = () => {
-  const [, , traceIdWidth, , , clusterWidth, hostWidth] = traceListColumnWidths.latencyLeft
+  const [, , traceIdWidth, , clusterWidth, hostWidth] = traceListColumnWidths.latencyLeft
   const widths = [
     DETAIL_TRACE_LABEL_COLUMN_WIDTH,
     DETAIL_TRACE_TIME_COLUMN_WIDTH,
@@ -4500,6 +4502,15 @@ const syncLatencyTraceRowHeights = () => {
     syncSplitTableRowHeights(
       latencyTraceTableRef.value,
       '.abnormal-latency-grid.aggregate-body-row',
+    )
+  })
+}
+
+const syncTopSlowTraceRowHeights = () => {
+  nextTick(() => {
+    syncSplitTableRowHeights(
+      topSlowTraceTableRef.value,
+      '.fault-trace-scroll-grid.aggregate-body-row',
     )
   })
 }
@@ -5410,7 +5421,7 @@ const traceDelayColumns = getLatencySeriesConfig.map(({ key, label }) => ({
   label,
   threshold: traceDelayThresholdsUs[key],
   unit: key === 'urma_inflight_max' ? ('count' as const) : ('us' as const),
-})) as const satisfies readonly {
+})) satisfies readonly {
   key: TraceDelayKey
   label: string
   threshold: number
@@ -5498,6 +5509,15 @@ const formatMetricValue = (value?: number | null) =>
 const formatNullableMetricValue = (value?: number | null) =>
   value === null ? 'null' : formatMetricValue(value)
 
+const formatLatencyTooltipValue = (value: number) => {
+  if (value === 0) return '0'
+
+  const valueUs = value * 1000
+  if (Number(value.toFixed(3)) !== 0) return `${formatMetricValue(value)} ms`
+  if (Number(valueUs.toFixed(3)) !== 0) return `${formatMetricValue(valueUs)} us`
+  return `${formatMetricValue(valueUs * 1000)} ns`
+}
+
 const formatTraceDelayColumnValue = (
   value: number | null | undefined,
   column: TraceDelayColumn,
@@ -5505,6 +5525,10 @@ const formatTraceDelayColumnValue = (
   if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
   if (value < 0) return '无效值'
   if (column.unit === 'count') return String(Math.round(value))
+  if (value === 0) return '0'
+  if (value > 0 && Number(value.toFixed(3)) === 0) {
+    return `${formatMetricValue(value * 1000)} ns`
+  }
   return `${formatMetricValue(value)} ${column.unit}`
 }
 
@@ -5895,7 +5919,7 @@ const createLatencyEchartsOption = (
       appendToBody: true,
       order: 'valueDesc',
       valueFormatter: (value) =>
-        typeof value === 'number' ? `${formatMetricValue(value)} ms` : String(value ?? '-'),
+        typeof value === 'number' ? formatLatencyTooltipValue(value) : String(value ?? '-'),
     },
     legend: {
       show: hasLegend,
@@ -6907,6 +6931,9 @@ const buildFlowGraphOption = (
       text: title,
       left: 'center',
       top: 2,
+      z: 10,
+      backgroundColor: '#ffffff',
+      padding: [4, 8],
       textStyle: { fontSize: 13, fontWeight: 600, color: '#374151' },
     },
     tooltip: { trigger: 'item' },
@@ -6915,7 +6942,9 @@ const buildFlowGraphOption = (
       {
         type: 'graph',
         layout: 'none',
-        roam: false,
+        // 允许按住鼠标拖动画布；仅启用平移，避免滚轮误缩放图形。
+        roam: 'move',
+        roamTrigger: 'global',
         draggable: false,
         // 关闭包围盒等比缩放：节点坐标按 inset 视图线性映射为画布像素，标注完整可见
         preserveAspect: false,
@@ -6930,7 +6959,7 @@ const buildFlowGraphOption = (
 
 // 单个 trace 的 flow 图：从 per_trace 还原各交互段时延并按阈值着色
 // 从 trace 行级 pod_role 聚合中取某角色节点下的全部容器（含双重身份 pod）
-const getFlowNodePods = (trace: TraceDetailRow | null, nodeId: string): string[] => {
+const getFlowNodePods = (trace: TraceDetailRow | null | undefined, nodeId: string): string[] => {
   const pr = trace?.podRole
   if (!pr) return []
   if (nodeId === 'client') return pr.client_pod ? [pr.client_pod] : []
@@ -6941,7 +6970,7 @@ const getFlowNodePods = (trace: TraceDetailRow | null, nodeId: string): string[]
 }
 
 // pod 所属的全部角色（按 pod_role 聚合），用于时延流图的双重身份标注
-const getTracePodRoleIds = (trace: TraceDetailRow | null, pod: string): string[] => {
+const getTracePodRoleIds = (trace: TraceDetailRow | null | undefined, pod: string): string[] => {
   const pr = trace?.podRole
   if (!pr) return []
   const roles: string[] = []
@@ -7094,6 +7123,9 @@ const buildSingleTraceFlowOption = (
         : '未识别到该 Trace 的时延分解数据',
       left: 'center',
       top: 2,
+      z: 10,
+      backgroundColor: '#ffffff',
+      padding: [4, 8],
       textStyle: { fontSize: 13, fontWeight: 600, color: '#374151' },
       subtextStyle: { fontSize: 10, color: '#6b7280' },
     },
@@ -7103,7 +7135,9 @@ const buildSingleTraceFlowOption = (
       {
         type: 'graph',
         layout: 'none',
-        roam: false,
+        // 允许按住鼠标拖动画布；仅启用平移，避免滚轮误缩放图形。
+        roam: 'move',
+        roamTrigger: 'global',
         draggable: false,
         // 关闭包围盒等比缩放：节点坐标按 inset 视图线性映射为画布像素，标注完整可见
         preserveAspect: false,
@@ -7405,6 +7439,7 @@ const resizeLatencyCharts = () => {
   resizeBrpcFaultTimelineChart()
   resizeBrpcEventDetailTimelineChart()
   brpcThreadFailureGraphInstance?.resize()
+  syncTopSlowTraceRowHeights()
   syncLatencyTraceRowHeights()
   syncDetailLatencyTraceRowHeights()
   syncFaultTraceRowHeights()
@@ -7971,6 +8006,11 @@ const ROLE_CHIP_PRIORITY = ['client', 'entry_worker', 'meta_worker', 'data_worke
 
 const getRoleChipLabel = (role: string) => ROLE_CHIP_LABELS[role] ?? role
 
+const getRoleChipTooltip = (roles: string[]) => {
+  const labels = roles.map(getRoleChipLabel)
+  return labels.length > 1 ? `角色：\n${labels.join('\n')}` : `角色：${labels[0]}`
+}
+
 const getRoleChipClass = (chip: { roles: string[] }) =>
   chip.roles.length > 1 ? 'role-chip-multi' : `role-chip-${chip.roles[0]}`
 
@@ -7979,7 +8019,7 @@ const getRoleChipStyle = (chip: { roles: string[] }) => {
   if (chip.roles.length <= 1) return {}
   const bgs = chip.roles.map((r) => ROLE_CHIP_BG[r] ?? '#f3f4f6')
   const stops = bgs.map((bg, i) => `${bg} ${(i / bgs.length) * 100}% ${((i + 1) / bgs.length) * 100}%`)
-  const primary = chip.roles[0]
+  const primary = chip.roles[0] ?? 'other'
   return {
     background: `linear-gradient(90deg, ${stops.join(', ')})`,
     borderColor: ROLE_CHIP_BORDER[primary] ?? '#e5e7eb',
@@ -8105,6 +8145,7 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       createLatency: getRecordNullableNumber(record, ['create_latency']),
       publishLatency: getRecordNullableNumber(record, ['publish_latency']),
       workerTotalLatency: getRecordNullableNumber(record, ['worker_total_latency']),
+      podRole: record.pod_role as TracePodRoleModel | undefined,
       raw: result,
     }
   }),
@@ -8203,15 +8244,21 @@ const splitRawLogText = (rawText: string) =>
     .map((part) => part.trim())
     .filter((part, index, parts) => part || index < parts.length - 1)
 
+const normalizeTraceLogColumnValue = (label: string, value: string) =>
+  label.toLowerCase() === 'message' ? value.replace(/(?:\\n|\r?\n)$/, '') : value
+
 const normalizeTraceLogColumns = (headers: string[], fields: string[]) => {
   const normalizedHeaders = [...headers]
   while (normalizedHeaders.length < fields.length) {
     normalizedHeaders.push(`extra_${normalizedHeaders.length - headers.length + 1}`)
   }
-  return fields.map((value, index) => ({
-    label: normalizedHeaders[index] || `field_${index + 1}`,
-    value: value || '-',
-  }))
+  return fields.map((value, index) => {
+    const label = normalizedHeaders[index] || `field_${index + 1}`
+    return {
+      label,
+      value: normalizeTraceLogColumnValue(label, value) || '-',
+    }
+  })
 }
 
 const buildTraceRawColumns = (
@@ -8457,12 +8504,10 @@ const getTraceLogGroups = (trace?: TraceDetailRow | null) => {
       }
     })
     .sort((a, b) => {
-      const ai = rolesByPod.has(a.podName)
-        ? roleOrder.indexOf(rolesByPod.get(a.podName)![0])
-        : roleOrder.length
-      const bi = rolesByPod.has(b.podName)
-        ? roleOrder.indexOf(rolesByPod.get(b.podName)![0])
-        : roleOrder.length
+      const aRole = rolesByPod.get(a.podName)?.[0]
+      const bRole = rolesByPod.get(b.podName)?.[0]
+      const ai = aRole ? roleOrder.indexOf(aRole) : roleOrder.length
+      const bi = bRole ? roleOrder.indexOf(bRole) : roleOrder.length
       return ai - bi || a.podName.localeCompare(b.podName)
     })
 }
@@ -8678,6 +8723,19 @@ watch(
   () => {
     if (activeAggregateTab.value === 'trace') syncLatencyTraceRowHeights()
   },
+  { immediate: true },
+)
+
+watch(
+  () => [
+    topSlowTracePage.value,
+    ...paginatedTopSlowTraceRows.value.map(
+      (row) => `${row.id}:${row.time}:${row.traceId}:${row.clusterName}:${row.host}`,
+    ),
+    ...traceListColumnWidths.slowTraceLeft,
+    ...traceListColumnWidths.slowTraceData,
+  ],
+  syncTopSlowTraceRowHeights,
   { immediate: true },
 )
 
@@ -16429,20 +16487,23 @@ onBeforeUnmount(() => {
                 class="aggregate-table top-slow-trace-table"
                 :class="{ 'aggregate-table-state-mode': topSlowTraceRows.length === 0 }"
               >
-                <div class="aggregate-table-frame abnormal-trace-frame fault-trace-list top-slow-trace-frame">
+                <div
+                  ref="topSlowTraceTableRef"
+                  class="aggregate-table-frame abnormal-trace-frame fault-trace-list top-slow-trace-frame"
+                >
                   <div class="aggregate-fixed-left">
                     <div
                       class="abnormal-left-grid slow-trace-left-grid aggregate-table-header"
                       :style="{ gridTemplateColumns: getSlowTraceLeftGridColumnWidths() }"
                     >
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         时间
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'slowTraceLeft', 0)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         Trace ID
                         <div
                           class="column-resize-handle"
@@ -16456,21 +16517,14 @@ onBeforeUnmount(() => {
                           @mousedown="(e) => handleColumnResizeStart(e, 'slowTraceLeft', 2)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
-                        操作类型
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
+                        集群
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'slowTraceLeft', 3)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
-                        集群
-                        <div
-                          class="column-resize-handle"
-                          @mousedown="(e) => handleColumnResizeStart(e, 'slowTraceLeft', 4)"
-                        ></div>
-                      </div>
-                      <div class="aggregate-cell">主机</div>
+                      <div class="aggregate-cell monitor-wrap-cell">主机</div>
                     </div>
                     <template v-if="topSlowTraceRows.length > 0">
                       <div
@@ -16488,8 +16542,8 @@ onBeforeUnmount(() => {
                         @mouseenter="hoveredSlowTraceRowKey = `${row.id}:${row.traceId}`"
                         @mouseleave="hoveredSlowTraceRowKey = ''"
                       >
-                        <div class="aggregate-cell">{{ row.time }}</div>
-                        <div class="aggregate-cell trace-id">
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.time }}</div>
+                        <div class="aggregate-cell trace-id monitor-wrap-cell">
                           <span class="trace-id-text">{{ row.traceId }}</span>
                         </div>
                         <div class="aggregate-cell pod-role-tags-cell">
@@ -16500,15 +16554,14 @@ onBeforeUnmount(() => {
                               class="role-chip"
                               :class="getRoleChipClass(chip)"
                               :style="getRoleChipStyle(chip)"
-                              :data-roles="`角色：${chip.roles.map(getRoleChipLabel).join('、')}`"
+                              :data-roles="getRoleChipTooltip(chip.roles)"
                             >
                               {{ chip.ip }}
                             </span>
                           </span>
                         </div>
-                        <div class="aggregate-cell">{{ row.operation }}</div>
-                        <div class="aggregate-cell">{{ row.clusterName }}</div>
-                        <div class="aggregate-cell">{{ row.host }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.clusterName }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.host }}</div>
                       </div>
                     </template>
                   </div>
@@ -16760,7 +16813,7 @@ onBeforeUnmount(() => {
                       <div class="aggregate-left-grid aggregate-table-header">
                         <div class="aggregate-cell fault-expand-cell"></div>
                         <div
-                          class="aggregate-cell aggregate-sortable-cell"
+                          class="aggregate-cell monitor-wrap-cell aggregate-sortable-cell"
                           @click="handleTimeWindowStartTimeSort"
                         >
                           <span class="sort-header-content">
@@ -16787,7 +16840,7 @@ onBeforeUnmount(() => {
                             </span>
                           </span>
                         </div>
-                        <div class="aggregate-cell">结束时间</div>
+                        <div class="aggregate-cell monitor-wrap-cell">结束时间</div>
                         <div
                           class="aggregate-cell count-cell aggregate-sortable-cell"
                           @click="handleTimeWindowSort('total_cnt')"
@@ -16911,8 +16964,8 @@ onBeforeUnmount(() => {
                                 {{ isTimeWindowExpanded(twIdx) ? '🔽' : '▶️' }}
                               </span>
                             </div>
-                            <div class="aggregate-cell">{{ twEvent.start_time }}</div>
-                            <div class="aggregate-cell">{{ twEvent.end_time }}</div>
+                            <div class="aggregate-cell monitor-wrap-cell">{{ twEvent.start_time }}</div>
+                            <div class="aggregate-cell monitor-wrap-cell">{{ twEvent.end_time }}</div>
                             <div class="aggregate-cell count-cell">
                               {{ twEvent.total_cnt }}
                             </div>
@@ -17391,21 +17444,21 @@ onBeforeUnmount(() => {
                       class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
                       :style="{ gridTemplateColumns: getLatencyLeftGridColumnWidths() }"
                     >
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         故障类型
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 0)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         时间
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 1)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         Trace ID
                         <div
                           class="column-resize-handle"
@@ -17419,21 +17472,14 @@ onBeforeUnmount(() => {
                           @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 3)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
-                        操作类型
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
+                        集群
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 4)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
-                        集群
-                        <div
-                          class="column-resize-handle"
-                          @mousedown="(e) => handleColumnResizeStart(e, 'latencyLeft', 5)"
-                        ></div>
-                      </div>
-                      <div class="aggregate-cell">主机</div>
+                      <div class="aggregate-cell monitor-wrap-cell">主机</div>
                     </div>
                     <template
                       v-if="
@@ -17457,7 +17503,7 @@ onBeforeUnmount(() => {
                         @mouseenter="hoveredLatencyTraceRowKey = `${row.id}:${row.traceId}`"
                         @mouseleave="hoveredLatencyTraceRowKey = ''"
                       >
-                        <div class="aggregate-cell">
+                        <div class="aggregate-cell monitor-wrap-cell">
                           <span
                             v-for="tag in getTraceTags(row.traceId, 'latency')"
                             :key="tag.type"
@@ -17467,8 +17513,8 @@ onBeforeUnmount(() => {
                             {{ tag.label }}
                           </span>
                         </div>
-                        <div class="aggregate-cell">{{ row.time }}</div>
-                        <div class="aggregate-cell trace-id">
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.time }}</div>
+                        <div class="aggregate-cell trace-id monitor-wrap-cell">
                           <span class="trace-id-text">{{ row.traceId }}</span>
                         </div>
                         <div class="aggregate-cell pod-role-tags-cell">
@@ -17479,15 +17525,14 @@ onBeforeUnmount(() => {
                               class="role-chip"
                               :class="getRoleChipClass(chip)"
                               :style="getRoleChipStyle(chip)"
-                              :data-roles="`角色：${chip.roles.map(getRoleChipLabel).join('、')}`"
+                              :data-roles="getRoleChipTooltip(chip.roles)"
                             >
                               {{ chip.ip }}
                             </span>
                           </span>
                         </div>
-                        <div class="aggregate-cell">{{ row.operation }}</div>
-                        <div class="aggregate-cell">{{ row.clusterName }}</div>
-                        <div class="aggregate-cell">{{ row.host }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.clusterName }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.host }}</div>
                       </div>
                     </template>
                   </div>
@@ -18041,7 +18086,7 @@ onBeforeUnmount(() => {
                       <div class="fault-aggregate-time-grid aggregate-table-header">
                         <div class="aggregate-cell fault-expand-cell"></div>
                         <div
-                          class="aggregate-cell aggregate-sortable-cell"
+                          class="aggregate-cell monitor-wrap-cell aggregate-sortable-cell"
                           @click="handleFaultAggregatedEventStartTimeSort"
                         >
                           <span class="sort-header-content">
@@ -18072,7 +18117,7 @@ onBeforeUnmount(() => {
                             </span>
                           </span>
                         </div>
-                        <div class="aggregate-cell">结束时间</div>
+                        <div class="aggregate-cell monitor-wrap-cell">结束时间</div>
                       </div>
                       <template
                         v-if="
@@ -18100,8 +18145,8 @@ onBeforeUnmount(() => {
                                 {{ isFaultAggregatedEventExpanded(row) ? '🔽' : '▶️' }}
                               </span>
                             </div>
-                            <div class="aggregate-cell">{{ row.startTime }}</div>
-                            <div class="aggregate-cell">{{ row.endTime }}</div>
+                            <div class="aggregate-cell monitor-wrap-cell">{{ row.startTime }}</div>
+                            <div class="aggregate-cell monitor-wrap-cell">{{ row.endTime }}</div>
                           </div>
                           <div
                             v-if="isFaultAggregatedEventExpanded(row)"
@@ -18677,21 +18722,21 @@ onBeforeUnmount(() => {
                       class="abnormal-left-grid fault-trace-left-grid aggregate-table-header"
                       :style="{ gridTemplateColumns: getFaultTraceLeftGridColumnWidths() }"
                     >
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         故障类型
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'faultTraceLeft', 0)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell column-resizable">
+                      <div class="aggregate-cell monitor-wrap-cell column-resizable">
                         时间
                         <div
                           class="column-resize-handle"
                           @mousedown="(e) => handleColumnResizeStart(e, 'faultTraceLeft', 1)"
                         ></div>
                       </div>
-                      <div class="aggregate-cell">Trace ID</div>
+                      <div class="aggregate-cell monitor-wrap-cell">Trace ID</div>
                     </div>
                     <template
                       v-if="
@@ -18712,7 +18757,7 @@ onBeforeUnmount(() => {
                         @mouseenter="hoveredFaultTraceRowKey = `${trace.id}:${trace.traceId}`"
                         @mouseleave="hoveredFaultTraceRowKey = ''"
                       >
-                        <div class="aggregate-cell">
+                        <div class="aggregate-cell monitor-wrap-cell">
                           <span
                             v-for="tag in getTraceTags(trace.traceId, 'fault')"
                             :key="tag.type"
@@ -18722,8 +18767,8 @@ onBeforeUnmount(() => {
                             {{ tag.label }}
                           </span>
                         </div>
-                        <div class="aggregate-cell">{{ trace.time }}</div>
-                        <div class="aggregate-cell trace-id">{{ trace.traceId }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ trace.time }}</div>
+                        <div class="aggregate-cell trace-id monitor-wrap-cell">{{ trace.traceId }}</div>
                       </div>
                     </template>
                   </div>
@@ -18749,14 +18794,14 @@ onBeforeUnmount(() => {
                             @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 0)"
                           ></div>
                         </div>
-                        <div class="aggregate-cell column-resizable">
+                        <div class="aggregate-cell monitor-wrap-cell column-resizable">
                           集群
                           <div
                             class="column-resize-handle"
                             @mousedown="(e) => handleFaultTraceScrollColumnResizeStart(e, 1)"
                           ></div>
                         </div>
-                        <div class="aggregate-cell column-resizable">
+                        <div class="aggregate-cell monitor-wrap-cell column-resizable">
                           主机IP
                           <div
                             class="column-resize-handle"
@@ -18819,13 +18864,13 @@ onBeforeUnmount(() => {
                                 class="role-chip"
                                 :class="getRoleChipClass(chip)"
                                 :style="getRoleChipStyle(chip)"
-                                :data-roles="`角色：${chip.roles.map(getRoleChipLabel).join('、')}`"
+                                :data-roles="getRoleChipTooltip(chip.roles)"
                               >
                                 {{ chip.ip }}
                               </span>
                             </span>
                           </div>
-                          <div class="aggregate-cell fault-trace-cluster-cell">
+                          <div class="aggregate-cell fault-trace-cluster-cell monitor-wrap-cell">
                             <span
                               v-for="clusterName in trace.clusterNames"
                               :key="`${trace.id}-cluster-${clusterName}`"
@@ -18834,7 +18879,7 @@ onBeforeUnmount(() => {
                               {{ clusterName }}
                             </span>
                           </div>
-                          <div class="aggregate-cell fault-trace-host-cell">
+                          <div class="aggregate-cell fault-trace-host-cell monitor-wrap-cell">
                             <span
                               v-for="hostName in trace.hostNames"
                               :key="`${trace.id}-host-${hostName}`"
@@ -19555,7 +19600,7 @@ onBeforeUnmount(() => {
                     <div class="brpc-event-primary-left-grid brpc-event-table-header">
                       <div class="aggregate-cell fault-expand-cell"></div>
                       <div
-                        class="aggregate-cell aggregate-sortable-cell"
+                        class="aggregate-cell monitor-wrap-cell aggregate-sortable-cell"
                         @click="toggleBrpcAggregatedEventStartTimeSort"
                       >
                         <span class="sort-header-content">
@@ -19583,7 +19628,7 @@ onBeforeUnmount(() => {
                           </span>
                         </span>
                       </div>
-                      <div class="aggregate-cell">结束时间</div>
+                      <div class="aggregate-cell monitor-wrap-cell">结束时间</div>
                       <div
                         class="aggregate-cell aggregate-sortable-cell"
                         @click="
@@ -19637,8 +19682,8 @@ onBeforeUnmount(() => {
                             {{ isBrpcEventWindowExpanded(window.key) ? '🔽' : '▶️' }}
                           </span>
                         </div>
-                        <div class="aggregate-cell">{{ window.startTime }}</div>
-                        <div class="aggregate-cell">{{ window.endTime }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ window.startTime }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ window.endTime }}</div>
                         <div class="aggregate-cell count-cell brpc-event-fault-total">
                           {{ getBrpcEventWindowFaultTotal(window) }}
                         </div>
@@ -21767,12 +21812,12 @@ onBeforeUnmount(() => {
                       class="abnormal-left-grid latency-anomaly-left-grid aggregate-table-header"
                       :style="getDetailLatencyLeftGridStyle()"
                     >
-                      <div class="aggregate-cell">标签</div>
-                      <div class="aggregate-cell">时间</div>
-                      <div class="aggregate-cell">Trace ID</div>
+                      <div class="aggregate-cell monitor-wrap-cell">标签</div>
+                      <div class="aggregate-cell monitor-wrap-cell">时间</div>
+                      <div class="aggregate-cell monitor-wrap-cell">Trace ID</div>
                       <div class="aggregate-cell">Pod IP</div>
-                      <div class="aggregate-cell">集群</div>
-                      <div class="aggregate-cell">主机 IP</div>
+                      <div class="aggregate-cell monitor-wrap-cell">集群</div>
+                      <div class="aggregate-cell monitor-wrap-cell">主机 IP</div>
                     </div>
                   </div>
                   <div
@@ -21805,7 +21850,7 @@ onBeforeUnmount(() => {
                           height: getTraceRowHeight(row.podIp),
                         }"
                       >
-                        <div class="aggregate-cell">
+                        <div class="aggregate-cell monitor-wrap-cell">
                           <span
                             v-for="tag in getTraceTags(row.traceId, 'latency')"
                             :key="tag.type"
@@ -21824,18 +21869,18 @@ onBeforeUnmount(() => {
                             <span v-for="dot in 3" :key="dot" aria-hidden="true"></span>
                           </span>
                         </div>
-                        <div class="aggregate-cell">{{ row.time }}</div>
-                        <div class="aggregate-cell trace-id">{{ row.traceId }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell">{{ row.time }}</div>
+                        <div class="aggregate-cell trace-id monitor-wrap-cell">{{ row.traceId }}</div>
                         <div
                           class="aggregate-cell multi-line-pod-cell"
                           :title="getMultiLineCellTitle(row.podIp)"
                         >
                           <span v-html="row.podIp"></span>
                         </div>
-                        <div class="aggregate-cell" :title="row.clusterName">
+                        <div class="aggregate-cell monitor-wrap-cell" :title="row.clusterName">
                           {{ row.clusterName }}
                         </div>
-                        <div class="aggregate-cell" :title="row.host">{{ row.host }}</div>
+                        <div class="aggregate-cell monitor-wrap-cell" :title="row.host">{{ row.host }}</div>
                       </div>
                     </template>
                   </div>
@@ -22159,9 +22204,9 @@ onBeforeUnmount(() => {
                     class="abnormal-left-grid fault-trace-left-grid aggregate-table-header"
                     :style="{ gridTemplateColumns: getFaultTraceLeftGridColumnWidths() }"
                   >
-                    <div class="aggregate-cell">故障类型</div>
-                    <div class="aggregate-cell">时间</div>
-                    <div class="aggregate-cell">Trace ID</div>
+                    <div class="aggregate-cell monitor-wrap-cell">故障类型</div>
+                    <div class="aggregate-cell monitor-wrap-cell">时间</div>
+                    <div class="aggregate-cell monitor-wrap-cell">Trace ID</div>
                   </div>
                   <template
                     v-if="
@@ -22176,7 +22221,7 @@ onBeforeUnmount(() => {
                       class="abnormal-left-grid fault-trace-left-grid aggregate-body-row"
                       :style="{ gridTemplateColumns: getFaultTraceLeftGridColumnWidths() }"
                     >
-                      <div class="aggregate-cell">
+                      <div class="aggregate-cell monitor-wrap-cell">
                         <span
                           v-for="tag in getTraceTags(trace.traceId, 'fault')"
                           :key="tag.type"
@@ -22186,8 +22231,8 @@ onBeforeUnmount(() => {
                           {{ tag.label }}
                         </span>
                       </div>
-                      <div class="aggregate-cell">{{ trace.time }}</div>
-                      <div class="aggregate-cell trace-id">{{ trace.traceId }}</div>
+                      <div class="aggregate-cell monitor-wrap-cell">{{ trace.time }}</div>
+                      <div class="aggregate-cell trace-id monitor-wrap-cell">{{ trace.traceId }}</div>
                     </div>
                   </template>
                 </div>
@@ -22206,8 +22251,8 @@ onBeforeUnmount(() => {
                       class="fault-trace-scroll-grid aggregate-table-header"
                       :style="faultDetailTraceScrollGridStyle"
                     >
-                      <div class="aggregate-cell">集群</div>
-                      <div class="aggregate-cell">主机IP</div>
+                      <div class="aggregate-cell monitor-wrap-cell">集群</div>
+                      <div class="aggregate-cell monitor-wrap-cell">主机IP</div>
                       <div class="aggregate-cell">故障码</div>
                       <div class="aggregate-cell">故障名称</div>
                     </div>
@@ -22238,7 +22283,7 @@ onBeforeUnmount(() => {
                         class="fault-trace-scroll-grid aggregate-body-row"
                         :style="faultDetailTraceScrollGridStyle"
                       >
-                        <div class="aggregate-cell fault-trace-cluster-cell">
+                        <div class="aggregate-cell fault-trace-cluster-cell monitor-wrap-cell">
                           <span
                             v-for="clusterName in trace.clusterNames"
                             :key="`${trace.id}-cluster-${clusterName}`"
@@ -22247,7 +22292,7 @@ onBeforeUnmount(() => {
                             {{ clusterName }}
                           </span>
                         </div>
-                        <div class="aggregate-cell fault-trace-host-cell">
+                        <div class="aggregate-cell fault-trace-host-cell monitor-wrap-cell">
                           <span
                             v-for="hostName in trace.hostNames"
                             :key="`${trace.id}-host-${hostName}`"

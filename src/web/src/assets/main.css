@@ -6906,6 +6906,28 @@ body.agent-panel-resizing-corner {
   overflow: hidden;
 }
 
+/* 监控表格中的标识类字段在列宽不足时完整换行，不再以省略号截断。 */
+.aggregate-cell.monitor-wrap-cell {
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.35;
+}
+
+.aggregate-cell.monitor-wrap-cell .trace-id-text,
+.aggregate-cell.monitor-wrap-cell .trace-type-tag,
+.aggregate-cell.monitor-wrap-cell .fault-trace-cluster-item,
+.aggregate-cell.monitor-wrap-cell .fault-trace-host-item {
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .parse-result-pagination {
   display: flex;
   flex: 0 0 auto;
@@ -9976,8 +9998,7 @@ body.agent-panel-resizing-corner {
 /* 多重角色 chip（渐变背景）：保持深色底，逐行列出全部角色 */
 .role-chip.role-chip-multi:hover::after {
   background: #1f2937;
-  white-space: normal;
-  max-width: 260px;
+  white-space: pre;
   text-align: left;
 }
 .role-chip.role-chip-client {
@@ -10103,10 +10124,7 @@ body.agent-panel-resizing-corner {
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   margin-top: 10px;
-  /* 限制图容器最大宽度并居中，避免全宽拉伸使节点分布过散 */
-  max-width: 860px;
-  margin-left: auto;
-  margin-right: auto;
+  width: 100%;
 }
 .flow-graph-cell {
   min-width: 0;
@@ -10250,6 +10268,9 @@ body.agent-panel-resizing-corner {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   color: #1d4ed8;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .flow-edge-value {
   font-weight: 700;
