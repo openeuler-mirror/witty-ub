@@ -1008,6 +1008,7 @@ type ParseResultTableRow = {
   createLatency: number | null
   publishLatency: number | null
   workerTotalLatency: number | null
+  podRole?: TracePodRoleModel
   raw: LogParseResultModel
 }
 
@@ -5420,7 +5421,7 @@ const traceDelayColumns = getLatencySeriesConfig.map(({ key, label }) => ({
   label,
   threshold: traceDelayThresholdsUs[key],
   unit: key === 'urma_inflight_max' ? ('count' as const) : ('us' as const),
-})) as const satisfies readonly {
+})) satisfies readonly {
   key: TraceDelayKey
   label: string
   threshold: number
@@ -6958,7 +6959,7 @@ const buildFlowGraphOption = (
 
 // 单个 trace 的 flow 图：从 per_trace 还原各交互段时延并按阈值着色
 // 从 trace 行级 pod_role 聚合中取某角色节点下的全部容器（含双重身份 pod）
-const getFlowNodePods = (trace: TraceDetailRow | null, nodeId: string): string[] => {
+const getFlowNodePods = (trace: TraceDetailRow | null | undefined, nodeId: string): string[] => {
   const pr = trace?.podRole
   if (!pr) return []
   if (nodeId === 'client') return pr.client_pod ? [pr.client_pod] : []
@@ -6969,7 +6970,7 @@ const getFlowNodePods = (trace: TraceDetailRow | null, nodeId: string): string[]
 }
 
 // pod 所属的全部角色（按 pod_role 聚合），用于时延流图的双重身份标注
-const getTracePodRoleIds = (trace: TraceDetailRow | null, pod: string): string[] => {
+const getTracePodRoleIds = (trace: TraceDetailRow | null | undefined, pod: string): string[] => {
   const pr = trace?.podRole
   if (!pr) return []
   const roles: string[] = []
@@ -8018,7 +8019,7 @@ const getRoleChipStyle = (chip: { roles: string[] }) => {
   if (chip.roles.length <= 1) return {}
   const bgs = chip.roles.map((r) => ROLE_CHIP_BG[r] ?? '#f3f4f6')
   const stops = bgs.map((bg, i) => `${bg} ${(i / bgs.length) * 100}% ${((i + 1) / bgs.length) * 100}%`)
-  const primary = chip.roles[0]
+  const primary = chip.roles[0] ?? 'other'
   return {
     background: `linear-gradient(90deg, ${stops.join(', ')})`,
     borderColor: ROLE_CHIP_BORDER[primary] ?? '#e5e7eb',
@@ -8144,6 +8145,7 @@ const detailParseResultRows = computed<ParseResultTableRow[]>(() =>
       createLatency: getRecordNullableNumber(record, ['create_latency']),
       publishLatency: getRecordNullableNumber(record, ['publish_latency']),
       workerTotalLatency: getRecordNullableNumber(record, ['worker_total_latency']),
+      podRole: record.pod_role as TracePodRoleModel | undefined,
       raw: result,
     }
   }),
@@ -8502,12 +8504,10 @@ const getTraceLogGroups = (trace?: TraceDetailRow | null) => {
       }
     })
     .sort((a, b) => {
-      const ai = rolesByPod.has(a.podName)
-        ? roleOrder.indexOf(rolesByPod.get(a.podName)![0])
-        : roleOrder.length
-      const bi = rolesByPod.has(b.podName)
-        ? roleOrder.indexOf(rolesByPod.get(b.podName)![0])
-        : roleOrder.length
+      const aRole = rolesByPod.get(a.podName)?.[0]
+      const bRole = rolesByPod.get(b.podName)?.[0]
+      const ai = aRole ? roleOrder.indexOf(aRole) : roleOrder.length
+      const bi = bRole ? roleOrder.indexOf(bRole) : roleOrder.length
       return ai - bi || a.podName.localeCompare(b.podName)
     })
 }
