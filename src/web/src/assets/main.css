@@ -10103,10 +10103,7 @@ body.agent-panel-resizing-corner {
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   margin-top: 10px;
-  /* 限制图容器最大宽度并居中，避免全宽拉伸使节点分布过散 */
-  max-width: 860px;
-  margin-left: auto;
-  margin-right: auto;
+  width: 100%;
 }
 .flow-graph-cell {
   min-width: 0;

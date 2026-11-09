@@ -6920,6 +6920,9 @@ const buildFlowGraphOption = (
       text: title,
       left: 'center',
       top: 2,
+      z: 10,
+      backgroundColor: '#ffffff',
+      padding: [4, 8],
       textStyle: { fontSize: 13, fontWeight: 600, color: '#374151' },
     },
     tooltip: { trigger: 'item' },
@@ -6928,7 +6931,9 @@ const buildFlowGraphOption = (
       {
         type: 'graph',
         layout: 'none',
-        roam: false,
+        // 允许按住鼠标拖动画布；仅启用平移，避免滚轮误缩放图形。
+        roam: 'move',
+        roamTrigger: 'global',
         draggable: false,
         // 关闭包围盒等比缩放：节点坐标按 inset 视图线性映射为画布像素，标注完整可见
         preserveAspect: false,
@@ -7107,6 +7112,9 @@ const buildSingleTraceFlowOption = (
         : '未识别到该 Trace 的时延分解数据',
       left: 'center',
       top: 2,
+      z: 10,
+      backgroundColor: '#ffffff',
+      padding: [4, 8],
       textStyle: { fontSize: 13, fontWeight: 600, color: '#374151' },
       subtextStyle: { fontSize: 10, color: '#6b7280' },
     },
@@ -7116,7 +7124,9 @@ const buildSingleTraceFlowOption = (
       {
         type: 'graph',
         layout: 'none',
-        roam: false,
+        // 允许按住鼠标拖动画布；仅启用平移，避免滚轮误缩放图形。
+        roam: 'move',
+        roamTrigger: 'global',
         draggable: false,
         // 关闭包围盒等比缩放：节点坐标按 inset 视图线性映射为画布像素，标注完整可见
         preserveAspect: false,
