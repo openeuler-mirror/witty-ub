@@ -7994,6 +7994,11 @@ const ROLE_CHIP_PRIORITY = ['client', 'entry_worker', 'meta_worker', 'data_worke
 
 const getRoleChipLabel = (role: string) => ROLE_CHIP_LABELS[role] ?? role
 
+const getRoleChipTooltip = (roles: string[]) => {
+  const labels = roles.map(getRoleChipLabel)
+  return labels.length > 1 ? `角色：\n${labels.join('\n')}` : `角色：${labels[0]}`
+}
+
 const getRoleChipClass = (chip: { roles: string[] }) =>
   chip.roles.length > 1 ? 'role-chip-multi' : `role-chip-${chip.roles[0]}`
 
@@ -16529,7 +16534,7 @@ onBeforeUnmount(() => {
                               class="role-chip"
                               :class="getRoleChipClass(chip)"
                               :style="getRoleChipStyle(chip)"
-                              :data-roles="`角色：${chip.roles.map(getRoleChipLabel).join('、')}`"
+                              :data-roles="getRoleChipTooltip(chip.roles)"
                             >
                               {{ chip.ip }}
                             </span>
@@ -17508,7 +17513,7 @@ onBeforeUnmount(() => {
                               class="role-chip"
                               :class="getRoleChipClass(chip)"
                               :style="getRoleChipStyle(chip)"
-                              :data-roles="`角色：${chip.roles.map(getRoleChipLabel).join('、')}`"
+                              :data-roles="getRoleChipTooltip(chip.roles)"
                             >
                               {{ chip.ip }}
                             </span>
@@ -18848,7 +18853,7 @@ onBeforeUnmount(() => {
                                 class="role-chip"
                                 :class="getRoleChipClass(chip)"
                                 :style="getRoleChipStyle(chip)"
-                                :data-roles="`角色：${chip.roles.map(getRoleChipLabel).join('、')}`"
+                                :data-roles="getRoleChipTooltip(chip.roles)"
                               >
                                 {{ chip.ip }}
                               </span>

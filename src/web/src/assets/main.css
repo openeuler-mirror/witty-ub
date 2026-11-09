@@ -9976,8 +9976,7 @@ body.agent-panel-resizing-corner {
 /* 多重角色 chip（渐变背景）：保持深色底，逐行列出全部角色 */
 .role-chip.role-chip-multi:hover::after {
   background: #1f2937;
-  white-space: normal;
-  max-width: 260px;
+  white-space: pre;
   text-align: left;
 }
 .role-chip.role-chip-client {
