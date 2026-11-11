@@ -36,6 +36,12 @@ class ProcessHandler:
     """进程处理器类"""
 
     tasks = {}  # 存储进程的字典
+    # ``spawn`` 子进程在执行 target 前要先重建 Event 里的命名
+    # SemLock。并发启动较慢时，ready 等待可能先超时；若父进程此时
+    # 丢掉最后一个 Event 引用，/dev/shm/sem.* 会被 unlink，子进程随后
+    # SemLock._rebuild 就会 FileNotFoundError。超时不代表启动失败，
+    # 因此保留引用到子进程就绪或进程被回收。
+    startup_events = {}
     lock = multiprocessing.Lock()  # 创建一个锁对象
     max_processes = min(
         Config().get_config().task.cpu_limit,
@@ -143,6 +149,7 @@ class ProcessHandler:
             process.join()
             exits[tid] = process.exitcode
             process.close()
+            ProcessHandler.startup_events.pop(tid, None)
             logger.debug(f"[ProcessHandler] 清理已结束的进程: {tid}")
         return exits
 
@@ -197,14 +204,23 @@ class ProcessHandler:
                 )
                 process.start()
                 ProcessHandler.tasks[task_id] = process
+                # BaseProcess.start() 会删除 process._args，Process 对象本身不再
+                # 持有 ready_event；必须在管理器中显式保活。
+                ProcessHandler.startup_events[task_id] = ready_event
                 logger.debug(f"[ProcessHandler] 任务 {task_id} 已添加到进程池，PID: {process.pid}")
                 # 先放锁再等就绪：等的是子进程 import + 建进程组（可能数秒），
                 # 握锁等会把同一批任务的 spawn 串行化（实测三个任务各差 3.7s）。
                 ProcessHandler.lock.release()
                 released = True
-                if not ready_event.wait(timeout=ProcessHandler.time_out):
+                if ready_event.wait(timeout=ProcessHandler.time_out):
+                    # set() 说明子进程已完成 Event 重建并进入 target，
+                    # 此时 unlink 父进程的名称不会影响子进程已打开的句柄。
+                    ProcessHandler.startup_events.pop(task_id, None)
+                else:
                     logger.warning(
-                        "[ProcessHandler] 任务 %s 等待进程组初始化超时", task_id
+                        "[ProcessHandler] 任务 %s 等待进程组初始化超时，"
+                        "保留启动信号量等待子进程继续启动",
+                        task_id,
                     )
                 return True
             except Exception as e:
@@ -273,12 +289,15 @@ class ProcessHandler:
                     logger.debug(f"[ProcessHandler] 任务 {task_id} 进程已自然结束")
                 ProcessHandler.tasks.pop(task_id, None)
                 process.close()
+                ProcessHandler.startup_events.pop(task_id, None)
             except Exception as e:
                 logger.warning(f"[ProcessHandler] 清理进程 {task_id} 失败: {e}")
                 ProcessHandler.lock.release()
                 return False
             logger.debug(f"[ProcessHandler] 任务 {task_id} 已从进程池移除")
         else:
+            # 防御性清理：正常情况下 tasks 与 startup_events 同步移除。
+            ProcessHandler.startup_events.pop(task_id, None)
             logger.debug(f"[ProcessHandler] 任务 {task_id} 不在进程池中，可能已结束或未启动")
         ProcessHandler.lock.release()
         return True
