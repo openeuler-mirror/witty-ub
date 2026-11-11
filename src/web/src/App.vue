@@ -21169,7 +21169,7 @@ onBeforeUnmount(() => {
 
           <label class="form-field">
             <span>资产库名称</span>
-            <input v-model="dialog.name" type="text" maxlength="80" autocomplete="off" />
+            <input v-model="dialog.name" type="text" maxlength="200" autocomplete="off" />
           </label>
 
           <label class="form-field">
@@ -21203,7 +21203,7 @@ onBeforeUnmount(() => {
 
           <label class="form-field">
             <span>名称</span>
-            <input v-model="queryDialog.name" type="text" maxlength="80" autocomplete="off" />
+            <input v-model="queryDialog.name" type="text" maxlength="200" autocomplete="off" />
           </label>
 
           <label class="form-field">

@@ -40,6 +40,8 @@ def _validate_asset_time_str(value: str) -> str:
 
 AssetTimeStr = Annotated[str, AfterValidator(_validate_asset_time_str)]
 
+ASSET_NAME_MAX_LENGTH = 200
+
 
 class RunBrpcDiagnosisRequest(StrictRequestModel):
     start_time: str = Field(
@@ -61,7 +63,12 @@ class RunBrpcDiagnosisRequest(StrictRequestModel):
 
 class CreateLogKnowledgeRequest(StrictRequestModel):
     image_bytes: Optional[bytes] = Field(default=None, description="知识相关的图片数据")
-    name: str = Field(..., min_length=1, description="知识名称")
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=ASSET_NAME_MAX_LENGTH,
+        description="知识名称",
+    )
     description: str = Field(..., min_length=1, description="知识描述")
 
     @field_validator("name")
@@ -75,12 +82,20 @@ class CreateLogKnowledgeRequest(StrictRequestModel):
 
 class UpdateLogKnowledgeRequest(StrictRequestModel):
     image_bytes: Optional[bytes] = Field(default=None, description="知识相关的图片数据")
-    name: Optional[str] = Field(default=None, description="知识名称")
+    name: Optional[str] = Field(
+        default=None,
+        max_length=ASSET_NAME_MAX_LENGTH,
+        description="知识名称",
+    )
     description: Optional[str] = Field(default=None, description="知识描述")
 
 
 class ListLogKnowledgeRequest(StrictRequestModel):
-    name: Optional[str] = Field(default=None, description="知识名称，支持模糊查询")
+    name: Optional[str] = Field(
+        default=None,
+        max_length=ASSET_NAME_MAX_LENGTH,
+        description="知识名称，支持模糊查询",
+    )
     description: Optional[str] = Field(
         default=None, description="知识描述，支持模糊查询"
     )
