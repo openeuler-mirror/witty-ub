@@ -169,6 +169,31 @@ def test_rpc_fields_embedded_in_sdk_slow_items_are_preserved():
         assert rows.select("_rpc_e2e_us", "_rpc_network_us").row(0) == (7., 9.)
 
 
+def test_urma_sched_unsigned_wraparound_is_discarded():
+    path = "worker-info.log"
+    prefix = (
+        "[URMA_ELAPSED_TOTAL] cost 0.2ms, src address: 10.0.0.1, "
+        "dst address: 10.0.0.2, urma_inflight_wr_count:3, wake_delay:"
+    )
+    values = [7, (1 << 63) - 1, 1 << 63, (1 << 64) - 1]
+    source = pl.DataFrame({
+        "line": [_line(f"trace-{index}", prefix + str(value))
+                 for index, value in enumerate(values)],
+        "__file": [path] * len(values),
+    })
+
+    rows = scan.info_label_columns(
+        source, [path], [[WorkerInfoParser()]], file_rank={path: 0}
+    )
+
+    assert rows["urma_sched_us"].to_list() == [
+        7.0,
+        float((1 << 63) - 1),
+        None,
+        None,
+    ]
+
+
 @pytest.mark.parametrize("progress", [False, True])
 def test_light_batches_match_unsliced_projection_with_reordered_sources(tmp_path, progress):
     files, parsers = _sources(tmp_path)
