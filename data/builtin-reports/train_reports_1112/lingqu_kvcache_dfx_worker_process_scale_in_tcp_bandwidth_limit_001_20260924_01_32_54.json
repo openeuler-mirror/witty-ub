@@ -1,0 +1,845 @@
+{
+  "report": {
+    "title": "KVCache 缩容场景 TCP 带宽不足诊断报告",
+    "report_id": "diag-a99d31c2-20261112-001",
+    "generated_at": "2026-11-12T00:00:00+08:00"
+  },
+  "basic_info": {
+    "kb_id": "a99d31c2-db6a-4614-b11a-40f52e52c0a3",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_scale_in_tcp_bandwidth_limit_001_20260924_01_32_54",
+    "log_file": "lingqu_kvcache_dfx_worker_process_scale_in_tcp_bandwidth_limit_001_20260924_01_32_54",
+    "operation": "GET / SET（分开统计）",
+    "time_range_start": "2026-09-24 01:31:26",
+    "time_range_end": "2026-09-24 01:36:35",
+    "total_trace_cnt": 32,
+    "fault_trace_cnt": 32,
+    "fault_ratio": "分析样本中 GET 异常 5 条、SET 故障事件 27 条；两类口径不可合并为业务失败率",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "T:URMA_WRITE": 0.514496,
+      "C:Key not found": 0.857493
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：缩容场景中 GET 的 Client→Worker TCP QueryAndGet 路径等待显著放大，固定标签为硬件故障/网卡故障-带宽不足；SET 的早期 URMA 事件作为上下文保留但不与 GET 强行建立因果。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "GET 在 01:36:28~01:36:35 出现 5 条 15.262~30.047 ms 异常，均由客户端 RPC 等待主导；涉及 1 个 Client Pod 与 2 个 Meta Worker Pod。",
+    "confidence": 0.88
+  },
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "在受影响 Client 与两个 Worker 所在节点同步采集 ethtool -S、ip -s link、sar -n DEV/TCP/ETCP、ss -ti、tc -s qdisc 及交换机端口吞吐/丢弃，确认故障窗带宽是否触顶或队列拥塞。",
+      "depends_on": "需要节点和交换机只读监控权限",
+      "expected_effect": "把已定界的 TCP 路径瓶颈进一步确认到具体网卡、端口或队列。",
+      "verify": "复现同规模缩容和 GET 流量，确认吞吐低于链路容量且 GET P90 恢复到基线。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "解除异常限速或扩容链路带宽；同时检查 TCP qdisc、速率/双工协商与共享带宽争用，避免缩容迁移流量与业务 GET 抢占同一链路。",
+      "depends_on": "P0 确认限速或拥塞位置后实施",
+      "expected_effect": "降低 Client RPC 等待并消除 15~30 ms 集中长尾。",
+      "verify": "变更后对相同 Client→Worker 路径做连续 GET，对比 Client RPC、Worker 处理和端到端时延。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": 100.0,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": null,
+            "anomaly_rate": "5/5",
+            "fail_share": "100%（仅指参与归桶样本）",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "P50 19.717 ms、P90 30.047 ms、max 30.047 ms；Worker 窗口仅占中位数约 0.2%，客户端等待主导。"
+          }
+        ],
+        "conclusion": "GET 的 5 条异常全部归入 cross_window，未观测到 RPC 网络/排队子阶段明细；原始访问日志显示 transportType:TCP，Client QueryAndGet RPC 等待占端到端绝大部分。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "SET·数据面未观测",
+            "pct": 96.296,
+            "cls": "s-warn"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "pct": 3.704,
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": null,
+            "anomaly_rate": "0/26",
+            "fail_share": "0%（时延异常口径）",
+            "status": "warn",
+            "fault": "上下文",
+            "detail": "26 条 trace 的 Client 总时延 P90 仅 0.003 ms；故障侧另记录 26 条状态码 2007，不能与时延桶计数混作失败率。"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": null,
+            "anomaly_rate": "0/1",
+            "fail_share": "0%（时延异常口径）",
+            "status": "ok",
+            "fault": "上下文",
+            "detail": "1 条 trace，主阶段证据 0.306 ms；故障侧状态码 1004，发生在 GET 尖峰约 5 分钟前。"
+          }
+        ],
+        "conclusion": "SET 时延本身未升高；01:31~01:32 的 2007/1004 属 URMA 可用性事件，与 01:36 的 TCP GET 长尾时间窗不重叠，报告不据时间相邻断言因果。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 32,
+    "top_error_codes": [
+      {
+        "code": "2007",
+        "name": "K_URMA_WORKER_UNAVAILABLE",
+        "pct": 96.296,
+        "fault": "SET 上下文"
+      },
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": 3.704,
+        "fault": "SET 上下文"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "GET·cross_window",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.157",
+        "host": null,
+        "pct": 50.0,
+        "fault": "F01 Client"
+      },
+      {
+        "pod": "192.168.189.79",
+        "host": null,
+        "pct": 40.0,
+        "fault": "F01 Meta Worker"
+      },
+      {
+        "pod": "192.168.219.94",
+        "host": null,
+        "pct": 10.0,
+        "fault": "F01 Meta Worker"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-09-24 01:31",
+        "level": "warn",
+        "pct": 66.667,
+        "spike": "SET 故障事件 18 条",
+        "lat_ms": null,
+        "fault": "SET 上下文"
+      },
+      {
+        "time": "2026-09-24 01:32",
+        "level": "warn",
+        "pct": 33.333,
+        "spike": "SET 故障事件 9 条",
+        "lat_ms": null,
+        "fault": "SET 上下文"
+      },
+      {
+        "time": "2026-09-24 01:36",
+        "level": "critical",
+        "pct": 100.0,
+        "spike": "GET 异常 5 条",
+        "lat_ms": 30.047,
+        "fault": "F01"
+      }
+    ]
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "缩容流量窗口 TCP 带宽不足导致 GET QueryAndGet 长尾",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 0.88,
+      "category": "latency",
+      "affected_scope": "Client 192.168.235.157 到 Meta Worker 192.168.189.79/192.168.219.94 的 GET TCP 路径",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-带宽不足",
+        "one_line_conclusion": "GET 的 TCP QueryAndGet 等待占端到端时延绝大部分，Worker 处理仅 0.030~0.049 ms；固定标签指向网卡带宽不足。",
+        "fault_domain": "硬件故障/网卡故障-带宽不足",
+        "fault_component": "Client↔Worker 以太网/TCP 数据路径",
+        "fault_function": "DS_KV_CLIENT_GET / DS_POSIX_QUERY_AND_GET",
+        "fault_function_loc": "client.rpc.direct_query_and_get",
+        "affected_scope_pct": 100.0,
+        "affected_scope_desc": "本次 GET 异常样本 5/5 命中同一 cross_window 桶；4 条经 192.168.189.79，1 条经 192.168.219.94。",
+        "confidence": 0.88,
+        "key_findings": [
+          "GET 5 条异常集中在 2026-09-24 01:36:28~01:36:35，端到端 15.262~30.047 ms。",
+          "代表 trace 02505721... 的 Client RPC QueryAndGet 为 30.030 ms，而 Worker 访问仅 0.034 ms，瓶颈不在 Worker 业务执行。",
+          "Worker access 明确记录 transportType:TCP，且两个 Worker 端点均出现同类长尾，支持公共 TCP 路径瓶颈。",
+          "资产未包含 NIC/交换机吞吐、drop、retransmit 遥测；“带宽不足”由用户指定固定标签给出，现场日志完成到 TCP 路径定界，物理点位仍需复测闭环。",
+          "SET 的 2007/1004 发生在 01:31~01:32，与 GET 尖峰不重叠，不作为本故障的直接因果证据。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "GET 异常数",
+            "value": "5",
+            "sub": "全部归入 cross_window",
+            "tone": "bad"
+          },
+          {
+            "label": "桶内 P90",
+            "value": "30.047 ms",
+            "sub": "证据耗时，不是 P99",
+            "tone": "bad"
+          },
+          {
+            "label": "Worker 处理",
+            "value": "0.030~0.049 ms",
+            "sub": "明显低于 Client RPC 等待",
+            "tone": "good"
+          },
+          {
+            "label": "采样",
+            "value": "5/5",
+            "sub": "未截断；异常 trace 全量",
+            "tone": "neutral"
+          }
+        ],
+        "stages": [
+          {
+            "name": "GET·Client/Worker交叉窗口未细分",
+            "p50": 19.717,
+            "p90": 30.047,
+            "p99": null,
+            "baseline": null,
+            "ratio": 1.523913,
+            "share": 100.0,
+            "status": "bottleneck",
+            "detail": "request_mode=unknown 的粗分桶；5/5 条 Worker 有窗口但干净，客户端等待主导。P90/P50=1.524。",
+            "features": {
+              "operation": "GET",
+              "bucket_key": "cross_window",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "a99d31c2-db6a-4614-b11a-40f52e52c0a3",
+                  "log_id": "5dc87adf-6b58-4795-a0a1-22e7384a5c30",
+                  "operation": "GET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[5]"
+              },
+              "sample_cnt": 5,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（yuanrong us 覆盖子集），每条 trace 按最大互斥阶段归入唯一桶。",
+              "trace_cnt": 5,
+              "normal_cnt": 0,
+              "anomalous_cnt": 5,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 19.717,
+                "p90_ms": 30.047,
+                "max_ms": 30.047,
+                "client_p50_ms": 19.717,
+                "client_p90_ms": 30.047
+              },
+              "tail_ratio_p90_p50": 1.523913,
+              "note": "粗分：request_mode=unknown，客户端等待主导；5/5 条 worker 有窗口但干净，worker 窗口占比中位数约 0.2%。",
+              "action": "补采 NIC/TCP 遥测并解除限速或拥塞。",
+              "top_traces": [
+                {
+                  "trace_id": "02505721-d50d-4002-a528-b5f3a637fcee",
+                  "evidence_ms": 30.047,
+                  "client_ms": 30.047
+                },
+                {
+                  "trace_id": "7609a703-0b8a-4b67-a6c3-0b74955c7257",
+                  "evidence_ms": 25.082,
+                  "client_ms": 25.082
+                },
+                {
+                  "trace_id": "d8c639e2-389f-4bd4-a950-4fbde2cdcca5",
+                  "evidence_ms": 19.717,
+                  "client_ms": 19.717
+                },
+                {
+                  "trace_id": "5e52793d-d8ba-40d0-92eb-4fbcd782e50a",
+                  "evidence_ms": 17.824,
+                  "client_ms": 17.824
+                },
+                {
+                  "trace_id": "b65dbc06-570e-4003-b057-1b9b3cb1bcd3",
+                  "evidence_ms": 15.262,
+                  "client_ms": 15.262
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "瓶颈位于 GET 的 Client↔Worker TCP QueryAndGet 等待窗口；当前解析缺少新版 bRPC perf 子阶段，无法在日志内继续拆分 RPC 网络、排队和通知残差。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "事实 1",
+            "title": "异常集中且可复核",
+            "description": "5 条 GET 异常集中在 7 秒内，端到端时延 15.262~30.047 ms。",
+            "evidence": "GET heatmap=2026-09-24 01:36:00，共 5 条；/stats/stages sample_cnt=5、truncated=false。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "事实 2",
+            "title": "排除 Worker 业务处理为主瓶颈",
+            "description": "Client QueryAndGet RPC 等待约等于端到端时延，而 Worker 处理只有数十微秒。",
+            "evidence": "trace 02505721...：total=30.047 ms、client.rpc.direct_query_and_get=30.030 ms、worker_access=0.034 ms；其余 4 条同型。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "事实 3",
+            "title": "定界到 TCP 公共传输路径",
+            "description": "Worker access 明确为 transportType:TCP；同一 Client 对两个不同 Meta Worker 都出现异常，单 Worker 业务热点解释力不足。",
+            "evidence": "192.168.235.157→192.168.189.79 为 4 条，→192.168.219.94 为 1 条；Worker 侧 34~49 us。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "反证",
+            "title": "未把 SET URMA 事件并入 TCP 根因",
+            "description": "SET 的 2007/1004 在 01:31~01:32，GET TCP 尖峰在 01:36；无共享 trace，时间窗也不重叠。",
+            "evidence": "SET heatmap 18+9 条，GET heatmap 5 条；GET failure code 统计为空。",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "标签约束",
+            "title": "固定故障标签映射",
+            "description": "按用户指定映射，日志描述 worker_process_scale_in_tcp_bandwidth_limit 对应一级“硬件故障”、二级“网卡故障-带宽不足”。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md 第201行；/home/witty-ub-logs/gt_labels.json 第638~640行。",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "缩容相关流量窗口内，Client 到 Worker 的以太网/TCP QueryAndGet 路径受网卡可用带宽不足或对应队列拥塞影响，造成 15~30 ms 客户端等待；Worker 业务处理正常。具体物理网卡/交换机端口仍需 NIC 遥测闭环。",
+        "supporting_knowledge": "本地经验 ds-performance-degradation-diagnosis 指出传输层回退 TCP 会降低吞吐，需同时检查 Client/Worker 访问日志及网络带宽；已确认历史案例 UB-CASE-002631 在 L2 cross_window 与 TCP 等待机制上相似，但本次没有 NIC 遥测，故仅调整后采用。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "缩容/迁移流量进入共享网络",
+            "detail": "场景固定标签指向 TCP 带宽限制；日志本身不含链路吞吐遥测。",
+            "type": "source",
+            "transition": "带宽竞争或队列拥塞"
+          },
+          {
+            "label": "Client→Worker TCP QueryAndGet 等待放大",
+            "detail": "5 条请求的 Client RPC 等待为 15.247~30.030 ms。",
+            "type": "network",
+            "transition": "端到端长尾"
+          },
+          {
+            "label": "GET 时延异常",
+            "detail": "端到端 15.262~30.047 ms；Worker 处理仅 0.030~0.049 ms。",
+            "type": "impact",
+            "transition": "用户可见性能下降"
+          }
+        ],
+        "impact_scope": [
+          "集群 ci-kv-ds-1",
+          "Client Pod 192.168.235.157",
+          "Meta Worker Pod 192.168.189.79、192.168.219.94",
+          "GET/QueryAndGet 路径；SET 时延未呈现同类升高"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "02505721-d50d-4002-a528-b5f3a637fcee",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top-1；代表该桶最极端证据耗时，不等于总体严重度排序。",
+          "evidence_ms": 30.047,
+          "client_ms": 30.047,
+          "pod": "192.168.235.157→192.168.189.79",
+          "timestamp": "2026-09-24 01:36:28.287"
+        },
+        {
+          "trace_id": "7609a703-0b8a-4b67-a6c3-0b74955c7257",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top-2；证据耗时 Top 口径。",
+          "evidence_ms": 25.082,
+          "client_ms": 25.082,
+          "pod": "192.168.235.157→192.168.189.79",
+          "timestamp": "2026-09-24 01:36:34.942"
+        },
+        {
+          "trace_id": "b65dbc06-570e-4003-b057-1b9b3cb1bcd3",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内第二个 Meta Worker 样例；证据耗时 Top 口径，用于反证单 Worker 热点。",
+          "evidence_ms": 15.262,
+          "client_ms": 15.262,
+          "pod": "192.168.235.157→192.168.219.94",
+          "timestamp": "2026-09-24 01:36:33.354"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002631",
+          "rank": 1,
+          "stars": 4,
+          "match_logic": "L1：本次 GET 无错误码/故障模式，不命中；L2：命中 GET cross_window、TCP 路径与多 Pod 影响；L3：均为 Client→Worker 跨节点路径；L5：本次 transportType:TCP 与案例机制一致。",
+          "symptom": "跨节点 GET 的 TCP 路径带宽不足导致客户端等待。",
+          "root_cause": "历史案例认为扩缩容窗口内以太网可用带宽不足或 TCP 队列拥塞会放大 QueryAndGet 等待。",
+          "solution": "采集 NIC/TCP/qdisc/交换机遥测，确认吞吐触顶、drop 或重传后解除限速或扩容。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高",
+          "log_fit": "中",
+          "rc_consistency": "高",
+          "env_diff": "本次无 NIC 遥测，且案例 operation=MIXED。",
+          "adaptation": "仅采用排查方向和 TCP 路径机理，不复用历史 IP/Pod 或器件结论。",
+          "applicability": "adjust"
+        },
+        {
+          "id": "UB-CASE-002583",
+          "rank": 2,
+          "stars": 4,
+          "match_logic": "L1：无共同错误码；L2：命中 cross_window、GET 与多 Pod；L3：同为 Client→Worker TCP QueryAndGet；L5：未命中相同器件级证据。",
+          "symptom": "GET 经以太网 TCP 路径的 QueryAndGet 时延高。",
+          "root_cause": "历史案例已闭环到 TCP 路径等待，Worker 业务执行不是主瓶颈。",
+          "solution": "双端 ping/mtr、TCP RTT、网卡错误和重传指标联合复测。",
+          "adoption_class": "reference",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "高",
+          "log_fit": "中",
+          "rc_consistency": "高",
+          "env_diff": "没有本次资产的网卡与交换机指标。",
+          "adaptation": "用于反证 Worker 业务处理瓶颈，不直接复制根因结论。",
+          "applicability": "reference"
+        },
+        {
+          "id": "kvcache_access_022 / kvcache_access_067",
+          "rank": 3,
+          "stars": 2,
+          "match_logic": "L1：仅匹配 SET 上下文的 1004/2007；L2：URMA 域与主故障 TCP 时延域不同；L3：发生在另一 Client Pod 和更早时间窗，故不建议并入 F01。",
+          "symptom": "SET 出现 K_URMA_ERROR 与 K_URMA_WORKER_UNAVAILABLE。",
+          "root_cause": "Curated 知识指向 URMA 底层错误及本地 UB 发送端全部端口 BAD。",
+          "solution": "检查本地 UB 发送端隔离、初始化、健康状态以及 URMA 设备；必要时切换可用路径。",
+          "adoption_class": "not_recommended",
+          "adoption_label": "不并入主故障",
+          "phenomenon_fit": "低",
+          "log_fit": "高（仅 SET 上下文）",
+          "rc_consistency": "低",
+          "env_diff": "操作域和时间窗均不同。",
+          "adaptation": "保留为独立上下文告警，不用于证明 TCP 带宽根因。",
+          "applicability": "not_recommended"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在受影响 Client/Worker 两端和交换机端口同步采集吞吐、drop/error、retransmit、拥塞窗口和 qdisc backlog；保存 01:36 同粒度证据。",
+          "若确认 tc/qdisc 或网卡速率限制，先解除异常限速或临时扩容带宽；必要时将缩容迁移流量与在线 GET 流量错峰。",
+          "检查链路速率/双工协商、队列长度与中断分布，避免单队列拥塞。"
+        ],
+        "long_term": [
+          "建立 Client→Worker TCP RTT、重传、吞吐利用率和 qdisc 丢弃的联合告警，并与缩扩容事件关联。",
+          "为缩容迁移流量配置带宽预算和准入阈值，达到阈值时限速迁移而非挤占在线请求。",
+          "补齐新版 bRPC perf 日志入库，区分 RPC 网络、排队和响应通知残差。"
+        ],
+        "verification": [
+          "复现同规模缩容与 GET 压力，要求 5 分钟内无新的 cross_window 异常，GET P90 回落到变更前健康基线。",
+          "确认 Worker 处理仍保持微秒级，同时 Client QueryAndGet 不再出现 15~30 ms 等待。",
+          "确认 NIC 吞吐未触顶、qdisc backlog/drop 和 TCP retransmit 未在故障窗突增。"
+        ]
+      },
+      "source_code": null,
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "workflow": {
+    "session_id": "train-diagnosis-a99d31c2-20261112",
+    "total_steps": 8,
+    "api_calls": 31,
+    "duration": "单会话取证与报告生成",
+    "steps": [
+      {
+        "title": "固定标签解析",
+        "api_calls": [],
+        "result": "train_valid.md 映射到 worker_process_scale_in_tcp_bandwidth_limit；gt_labels.json 固定为硬件故障/网卡故障-带宽不足。"
+      },
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences"
+        ],
+        "result": "获得 TCP 回退、Client/Worker 联合分析和性能退化排查先验，均未直接作为现场证据。"
+      },
+      {
+        "title": "资产与解析完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "解析任务 successful；单日志文件，anomaly_cnt=5、trace_failure_event_cnt=27。"
+      },
+      {
+        "title": "GET/SET 独立阶段分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 5/5 落 cross_window；SET 26/27 为数据面未观测，未跨 operation 混桶。"
+      },
+      {
+        "title": "分布与时间热点",
+        "api_calls": [
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/links",
+          "POST /stats/heatmap"
+        ],
+        "result": "GET 异常集中 01:36；SET 事件集中 01:31~01:32。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "GET /trace/{id}",
+          "POST /log_parse_result/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "GET Client RPC 等待主导且 transportType=TCP；SET 原始日志为 URMA 全端口 BAD/发送失败。"
+      },
+      {
+        "title": "知识与案例匹配",
+        "api_calls": [
+          "GET /failure_mode/status_code/{code}",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "GET 命中 TCP cross_window 同类案例；SET 命中 UB 端点不可用案例，均回到现场证据核对。"
+      },
+      {
+        "title": "报告特征提取",
+        "api_calls": [
+          "latency_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "时延 features 由真实 /stats/stages 快照离线提取；报告随后执行契约校验。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "TCP",
+          "传输层",
+          "Worker"
+        ],
+        "search_query_used": "TCP QueryAndGet 客户端等待 Worker 处理正常 带宽不足",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "URMA/RDMA 连接建立失败时，如果 enable_transport_fallback=true，通常会回退到 TCP，但性能会下降。",
+        "how_used_in_diagnosis": "用于建议核查高速传输状态和 TCP 路径，不作为带宽不足的现场证明。",
+        "confidence_on_reference": 0.78,
+        "confidence_reason": "与现场 transportType:TCP 相符，但缺少回退事件证据。"
+      },
+      {
+        "experience_id": "a97a8e58-94b9-4f35-b97c-bf2534f5ce40",
+        "experience_type": "SKILL",
+        "name": "ds-performance-degradation-diagnosis",
+        "source_path": "data/skill_hub/ds-performance-degradation-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "时延",
+          "吞吐",
+          "TCP",
+          "网络带宽"
+        ],
+        "search_query_used": "TCP QueryAndGet 客户端等待 Worker 处理正常 带宽不足",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "性能分析需要同时关注 Client 和 Worker 两侧的日志和监控。",
+        "how_used_in_diagnosis": "用于形成双端网络遥测和 Client/Worker 对照建议。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "本次现场已通过 Client 与 Worker 时延对照验证该排查方法有效。"
+      },
+      {
+        "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+        "experience_type": "SKILL",
+        "name": "ds-client-log-analysis",
+        "source_path": "data/skill_hub/ds-client-log-analysis/skill_def.md",
+        "keywords_matched": [
+          "Client",
+          "访问日志",
+          "trace_id"
+        ],
+        "search_query_used": "TCP QueryAndGet 客户端等待 Worker 处理正常 带宽不足",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "分析 Client 日志时，应同时获取对应 Worker 日志和访问日志。",
+        "how_used_in_diagnosis": "用于按 trace 串联 Client 与 Worker 访问日志并做反证。",
+        "confidence_on_reference": 0.92,
+        "confidence_reason": "现场 trace 显示 Client 等待与 Worker 微秒级处理形成明确对照。"
+      },
+      {
+        "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+        "experience_type": "SKILL",
+        "name": "ds-hash-ring-metadata-diagnosis",
+        "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "scale down",
+          "迁移"
+        ],
+        "search_query_used": "KVCache worker scale in TCP 带宽不足 高时延 超时",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "分析迁移问题时，需要同时查看源节点、目标节点和 Master 的日志。",
+        "how_used_in_diagnosis": "现场未观测元数据迁移失败或 ring 版本不一致，未作为根因。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "场景相关但现场缺少对应失败模式。"
+      },
+      {
+        "experience_id": "564dd96b-d802-4fab-829b-a6c18563e228",
+        "experience_type": "SKILL",
+        "name": "umdk-performance-degradation-diagnosis",
+        "source_path": "data/skill_hub/umdk-performance-degradation-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "性能下降",
+          "超时"
+        ],
+        "search_query_used": "KVCache worker scale in TCP 带宽不足 高时延 超时",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Worker was hanged about X ms",
+        "how_used_in_diagnosis": "现场没有 Worker 挂起或调度延迟日志，排除该经验方向。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "关键词命中但机制与现场不符。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "TCP",
+          "传输性能下降"
+        ],
+        "search_query_used": "TCP QueryAndGet 客户端等待 Worker 处理正常 带宽不足",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "检查是否大量回退到 TCP（enable_transport_fallback）。",
+        "how_used_in_diagnosis": "用于补充检查高速传输状态和 TCP 回退配置。",
+        "confidence_on_reference": 0.75,
+        "confidence_reason": "现场确认 TCP，但没有直接确认回退动作。"
+      },
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+        "keywords_matched": [
+          "Worker",
+          "日志分析"
+        ],
+        "search_query_used": "TCP QueryAndGet 客户端等待 Worker 处理正常 带宽不足",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Worker 运行日志是定位服务端问题的核心。",
+        "how_used_in_diagnosis": "已查 Worker 访问日志，但未发现 Worker 处理瓶颈，未采用其服务端故障方向。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "排查方法有用，但根因不在 Worker 业务处理。"
+      },
+      {
+        "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Worker 错误模式",
+        "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+        "keywords_matched": [
+          "Worker",
+          "错误模式"
+        ],
+        "search_query_used": "KVCache worker scale in TCP 带宽不足 高时延 超时",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Worker 错误通常发生在启动、集群注册、lease 保活、服务监听、Client 注册和后台线程运行阶段。",
+        "how_used_in_diagnosis": "现场无对应 Worker 生命周期错误，未采用。",
+        "confidence_on_reference": 0.45,
+        "confidence_reason": "与本次 TCP 时延证据不匹配。"
+      },
+      {
+        "experience_id": "4ddc5242-7261-4657-a860-78d518b063a3",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem ETCD 事件模式",
+        "source_path": "data/wiki_hub/ds-etcd-event-patterns.md",
+        "keywords_matched": [
+          "scale down",
+          "节点状态"
+        ],
+        "search_query_used": "KVCache worker scale in TCP 带宽不足 高时延 超时",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Worker 通过 ETCD 进行节点注册、lease 保活、元数据存储和事件监听。",
+        "how_used_in_diagnosis": "现场没有 ETCD 错误或周期性 lease 特征，未采用。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "仅场景关联，无现场命中。"
+      },
+      {
+        "experience_id": "862f89c4-27af-4ac8-90b9-266f48ff6b32",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 共享内存日志模式",
+        "source_path": "data/wiki_hub/ds-shared-memory-patterns.md",
+        "keywords_matched": [
+          "SCMTCP",
+          "共享内存"
+        ],
+        "search_query_used": "TCP QueryAndGet 客户端等待 Worker 处理正常 带宽不足",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Client 尝试连接到 Worker 的 fd 传递端点（SCMTCP 或 UDS）。",
+        "how_used_in_diagnosis": "现场没有共享内存 fd 传递失败证据，未将其作为根因。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "可能影响路径选择，但缺少直接日志。"
+      },
+      {
+        "experience_id": "1f2d9b46-3f6e-4b84-b26f-d7b48793b555",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Hash Ring 模式",
+        "source_path": "data/wiki_hub/ds-hash-ring-patterns.md",
+        "keywords_matched": [
+          "scale down",
+          "Hash Ring"
+        ],
+        "search_query_used": "KVCache worker scale in TCP 带宽不足 高时延 超时",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "节点上下线会触发 hash ring 更新，并可能伴随元数据迁移。",
+        "how_used_in_diagnosis": "未发现 ring 版本不一致或迁移失败证据，未采用。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "场景先验成立但现场故障机制不同。"
+      },
+      {
+        "experience_id": "a43dcf67-d3bb-4fb5-99ba-e47e6343ea7d",
+        "experience_type": "SKILL",
+        "name": "ds-shared-memory-diagnosis",
+        "source_path": "data/skill_hub/ds-shared-memory-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "共享内存",
+          "SCMTCP"
+        ],
+        "search_query_used": "TCP QueryAndGet 客户端等待 Worker 处理正常 带宽不足",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "SCMTCP 用于跨节点（或同节点 TCP），UDS 用于同节点 Unix Domain Socket。",
+        "how_used_in_diagnosis": "没有 fd 传递或 mmap 失败证据，不采用共享内存故障假设。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "传输背景相关，现场机制未命中。"
+      },
+      {
+        "experience_id": "4cceeb69-c022-4e21-a00a-f440f681132e",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Client 错误模式",
+        "source_path": "data/wiki_hub/ds-client-error-patterns.md",
+        "keywords_matched": [
+          "Client",
+          "TCP"
+        ],
+        "search_query_used": "TCP QueryAndGet 客户端等待 Worker 处理正常 带宽不足",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Client 错误通常发生在初始化、连接 Worker、注册、接口调用和共享内存通信阶段。",
+        "how_used_in_diagnosis": "GET 状态码为 0，未出现初始化或注册错误，未采用。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "客户端有等待但没有该 Wiki 的错误模式。"
+      },
+      {
+        "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 访问日志模式",
+        "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+        "keywords_matched": [
+          "访问日志",
+          "TCP 拥塞"
+        ],
+        "search_query_used": "TCP QueryAndGet 客户端等待 Worker 处理正常 带宽不足",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "网络/传输层异常（URMA 连接失效、TCP 拥塞）。",
+        "how_used_in_diagnosis": "用于解释访问日志中的传输层排查方向，不替代 NIC 现场证据。",
+        "confidence_on_reference": 0.72,
+        "confidence_reason": "与现场 TCP 等待相符，但仍需网卡指标闭环。"
+      }
+    ],
+    "summary": {
+      "total_references": 14,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 5,
+      "considered_not_adopted_count": 9,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "已记录诊断前后两轮经验检索的唯一命中项；经验仅作先验或建议，现场结论以 API、trace 与原始日志为准。"
+    }
+  }
+}

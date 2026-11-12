@@ -1,0 +1,512 @@
+{
+  "report": {
+    "title": "KVCache 本地 UB 双 Socket 单端口降 Lane 诊断报告",
+    "report_id": "train-diag-970d5b86-20261112",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "970d5b86-822b-4044-8e14-aa1381dae0a8",
+    "kb_name": "lingqu_kvcache_dfx_local_ub_two_socket_single_port_lanedown_001_20260924_02_01_04",
+    "log_file": "lingqu_kvcache_dfx_local_ub_two_socket_single_port_lanedown_001_20260924_02_01_04",
+    "operation": "SET（GET 无归因样本）",
+    "time_range_start": "2026-09-24 02:00:30",
+    "time_range_end": "2026-09-24 02:01:27",
+    "total_trace_cnt": 2,
+    "fault_trace_cnt": 2,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个 SET 写路径时延故障；训练标签指向本地 UB 双 Socket 单端口降 Lane，现场可见客户端等待主导，但缺少端口计数器直接证据。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "2 条 8 MiB SET trace 均被标记为时延异常，涉及客户端 192.168.235.157 与 Worker 192.168.219.94；未观察到失败错误码。",
+    "confidence": "中 76%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "本地 UB 端口降 Lane 场景下 SET 客户端等待抬升",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 76,
+      "category": "latency",
+      "affected_scope": "SET；2 条 8 MiB 请求；192.168.235.157 ↔ 192.168.219.94；2026-09-24 02:00:30~02:01:27",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-降lane",
+        "one_line_conclusion": "两条 8 MiB SET 请求总时延为 34.290~39.787ms，99%以上耗时落在客户端 SDK 等待窗口；训练标签将场景定为本地 UB 双 Socket 单端口降 Lane，但当前日志未直接记录端口 lane 宽度。",
+        "fault_domain": "硬件故障/ub端口故障-降lane",
+        "fault_component": "本地 UB 端口与 SET 客户端数据通路",
+        "fault_function": "DS_KV_CLIENT_SET（Create/Publish RPC 等待）",
+        "fault_function_loc": null,
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "当前解析出的 2 条 SET trace 均异常；GET 无归因样本",
+        "confidence": "中 76%",
+        "key_findings": [
+          "SET /stats/stages 样本数为 2，100% 归入 set_client；证据耗时 P50=34.160ms、P90=39.731ms。",
+          "两条请求的 Client 总时延分别为 39.787ms 和 34.290ms，而 Worker 写处理仅 0.009ms 和 0.017ms，排除 Worker 内部写处理主导。",
+          "原始访问日志显示 status_code=0，且 /stats/error_codes 与故障 trace 查询均为空，因此这是成功但偏慢的写请求，不是通断失败。",
+          "训练样例映射标签为 硬件故障/ub端口故障-降lane；现场日志未出现 link_width、PORT_DOWN 或 URMA timeout，根因直接证据仍需端口状态补采。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET 总时延 P99",
+            "value": "39.732ms",
+            "sub": "2 条样本；聚合事件统计",
+            "tone": "warning"
+          },
+          {
+            "label": "set_client 证据 P90",
+            "value": "39.731ms",
+            "sub": "互斥归因桶，非 P99",
+            "tone": "danger"
+          },
+          {
+            "label": "Worker 写处理",
+            "value": "0.009~0.017ms",
+            "sub": "两条代表 trace",
+            "tone": "ok"
+          },
+          {
+            "label": "业务状态",
+            "value": "2/2 OK",
+            "sub": "无故障码、无 URMA timeout",
+            "tone": "ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端 SDK 段（set_client）",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100.0% 分类样本",
+            "status": "bottleneck",
+            "detail": "2/2 trace 归入客户端 SDK 段；该段包含等待数据面返回。/stats/stages 仅提供 P50/P90/max，未提供阶段 P99，且无可比健康基线。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "970d5b86-822b-4044-8e14-aa1381dae0a8",
+                  "log_id": "a62c50dd-2573-4f78-a436-8129df7d9889",
+                  "operation": "SET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 2,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常；SET 与 GET 独立归桶。SET 解析路径不产出可用的 create_latency/publish_latency/urma_processing_us 分段。",
+              "trace_cnt": 2,
+              "normal_cnt": 0,
+              "anomalous_cnt": 2,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 34.16,
+                "p90_ms": 39.731,
+                "max_ms": 39.731,
+                "client_p50_ms": 34.29,
+                "client_p90_ms": 39.787
+              },
+              "tail_ratio_p90_p50": 1.163085,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 2",
+              "action": "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 侧排队/重试与端到端 deadline，再看 Worker 侧是否已返回。",
+              "top_traces": [
+                {
+                  "trace_id": "8a13f786-a09e-4e54-b65e-dcadd49ba4bf",
+                  "evidence_ms": 39.731,
+                  "client_ms": 39.787
+                },
+                {
+                  "trace_id": "db144815-eafb-4674-81e1-756be8d8573e",
+                  "evidence_ms": 34.16,
+                  "client_ms": 34.29
+                }
+              ]
+            }
+          },
+          {
+            "name": "SET·Worker 写处理",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "0.0% 分类样本",
+            "status": "ok",
+            "detail": "set_worker 桶为 0；两条 trace 的 Worker 写处理分别仅 0.009ms、0.017ms。"
+          }
+        ],
+        "conclusion": "SET 慢请求的可观测耗时集中在客户端 SDK 等待窗口，而 Worker 内部写处理为微秒级。由于 SET 解析路径没有独立 URMA 处理分段，当前证据只能把瓶颈定界到客户端等待/数据通路边界；训练标签指向 UB 端口降 Lane，需以端口 link_width 与速率计数补齐物理层闭环。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据核验",
+            "title": "解析任务完整且存在 2 条时延异常",
+            "description": "任务状态 successful；日志文件 anomaly_cnt=2，trace 存储阶段也记录新增 2 个时延异常 trace。",
+            "evidence": "GET /task/f5939744-8082-432f-8e76-ec33e46e5581；POST /log_file/list/{kb_id}",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作域隔离",
+            "title": "异常只在 SET 视角可见",
+            "description": "GET /stats/stages sample_cnt=0；SET sample_cnt=2，必须按写路径独立分析，未跨 operation 混桶。",
+            "evidence": "POST /stats/stages(operation=GET/SET)",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 阶段定界",
+            "title": "客户端 SDK 等待主导",
+            "description": "2 条 trace 全部归入 set_client，P90=39.731ms；对应 Worker 写处理仅 0.009~0.017ms。",
+            "evidence": "POST /stats/stages(operation=SET)；POST /log_parse_result/list",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "排除通断失败和 Worker 写处理瓶颈",
+            "description": "两条原始慢日志均 status=OK，错误码统计与故障 trace 均为 0；set_worker 桶也为 0。未发现 URMA timeout、PORT_DOWN 或进程异常。",
+            "evidence": "POST /stats/error_codes；POST /log_failure_event_result/list_trace_events；原始 ds_client 日志有界检索",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 根因归类",
+            "title": "训练标签指向本地 UB 单端口降 Lane",
+            "description": "train_valid.md 将该路径映射为 local_ub_two_socket_single_port_lanedown，gt_labels.json 对应标签为 硬件故障/ub端口故障-降lane。该标签与客户端数据通路等待抬升方向一致，但日志未直接记录 lane 宽度，故现场确认程度保持为疑似。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md；/home/witty-ub-logs/gt_labels.json",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "训练故障标签指定本地 UB 双 Socket 单端口降 Lane；现场运行证据确认 SET 客户端等待抬升并排除 Worker 内部处理与通断错误，但尚缺端口 link_width/速率计数，因此物理根因按疑似结论交付。",
+        "supporting_knowledge": "本地经验 umdk-link-failure-diagnosis 指出 link width dropped 对应链路宽度降级，应检查线缆/模块、对端协商与硬件；已确认历史案例 UB-CASE-002581 仅在 L2 的 SET/set_client 阶段相似，作为待验证参考。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "本地 UB 端口链路宽度下降（训练标签，待端口计数确认）",
+            "detail": "双 Socket 场景中的单端口降 Lane",
+            "type": "origin",
+            "transition": "可用 lane/带宽下降，数据通路等待增加"
+          },
+          {
+            "label": "SET 客户端 Create/Publish RPC 等待抬升",
+            "detail": "8 MiB 请求中 create_total/publish_total 合计占主要耗时",
+            "type": "mechanism",
+            "transition": "等待计入 SDK processing 窗口"
+          },
+          {
+            "label": "DS_KV_CLIENT_SET 慢日志",
+            "detail": "34.280ms、39.777ms，业务状态均 OK",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "客户端 Pod IP: 192.168.235.157",
+          "Meta/Data Worker Pod IP: 192.168.219.94",
+          "操作: SET；对象大小: 8 MiB；trace: 2 条"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "8a13f786-a09e-4e54-b65e-dcadd49ba4bf",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top1；按证据耗时排序，不代表故障严重度或总体普遍性",
+          "evidence_ms": 39.731,
+          "client_ms": 39.787,
+          "pod": "192.168.235.157 / 192.168.219.94",
+          "timestamp": "2026-09-24 02:00:30"
+        },
+        {
+          "trace_id": "db144815-eafb-4674-81e1-756be8d8573e",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top2；按证据耗时排序，不代表故障严重度或总体普遍性",
+          "evidence_ms": 34.16,
+          "client_ms": 34.29,
+          "pod": "192.168.235.157 / 192.168.219.94",
+          "timestamp": "2026-09-24 02:01:27"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002581",
+          "stars": "★★★☆☆",
+          "match_logic": "L1 不命中：本次无错误码/故障模式 ID；L2 命中：SET、set_client 阶段桶相同，均为 UB 链路等待方向；L3 不采用身份匹配：历史 IP/Pod 不参与可迁移性判断；L5 不命中：本次缺端口计数器与 URMA completion 原文。",
+          "symptom": "双端口 URMA 链路等待抬升（光模块丢包候选）",
+          "root_cause": "历史案例候选为物理链路间歇性丢包；本次训练标签为 UB 端口降 Lane，机理并不等同。",
+          "solution": "复用其逐端口状态、link_width、speed 与错误计数采集方法，不复用其丢包根因结论。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "仅作参考",
+          "phenomenon_fit": "同为 SET/set_client 等待抬升；本次仅 34~40ms 且请求成功。",
+          "log_fit": "本次无 completion 错误、无端口丢包计数，日志机理层不匹配。",
+          "rc_consistency": "仅物理链路方向相近，具体根因不同且待验证。",
+          "env_diff": "历史案例为双端口光模块丢包候选；本次标签为双 Socket 单端口降 Lane。",
+          "adaptation": "需按本次两个 Socket/端口拓扑逐端口采集 link_width、speed、FEC/CRC 与 lane 状态。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在故障节点执行 urma_admin port show，按两个 Socket 的实际端口逐项记录 state、link_width、speed、mtu；重点确认目标端口是否由额定宽度降为更低 lane。",
+          "同步采集端口 FEC/CRC、symbol error、重传及驱动/固件事件；将时间对齐到 2026-09-24 02:00:30~02:01:27。",
+          "若业务仍受影响，在变更流程允许时切换到健康端口/路径或恢复端口协商；保留变更前后同一 8 MiB SET 压测结果。"
+        ],
+        "long_term": [
+          "为 UB 端口 link_width、speed 与 lane 数建立基线和降级告警，区分 port down、降 Lane、丢包与闪断。",
+          "补齐 SET 写路径的 URMA completion、Create/Publish RPC 网络与框架分段观测，避免所有等待只落入 set_client。",
+          "将端口拓扑与 Socket 映射纳入资产监控，发生单端口降级时自动关联受影响 Worker/客户端。"
+        ],
+        "verification": [
+          "端口 link_width 与 speed 恢复到硬件额定值，连续观察无再次降级。",
+          "使用相同 8 MiB、Write_mode=3 的 SET 请求复测，确认客户端总时延与 create_total/publish_total 明显回落。",
+          "复测 /stats/stages(operation=SET)：set_client P90 回落，且不新增 URMA timeout 或错误码；同时确认 GET 路径无新增异常。"
+        ]
+      },
+      "source_code": null,
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "采集并核对双 Socket 对应 UB 端口的 state/link_width/speed 及 FEC/CRC/重传计数。",
+      "depends_on": "需要故障节点端口与 Socket 拓扑映射及只读运维权限",
+      "expected_effect": "把训练标签的端口降 Lane 从分类结论闭环为物理层实证，并定位具体端口。",
+      "verify": "发现目标端口 lane 宽度低于额定值，或在恢复后同负载 SET 时延显著回落。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "对相同 8 MiB SET 请求做变更前后 A/B 复测并保存 Create/Publish RPC 分段。",
+      "depends_on": "完成端口检查或链路切换",
+      "expected_effect": "验证客户端等待抬升是否由目标 UB 端口降 Lane 导致。",
+      "verify": "总时延与 set_client P90 回落，Worker 写处理仍保持微秒级，且无错误码。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "GET 归因样本",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "/stats/stages(operation=GET) sample_cnt=0；空结果仅表示当前日志无 GET 归因子集，不代表系统健康。"
+          }
+        ],
+        "conclusion": "GET 视角没有可归因样本，未与 SET 混桶，也不据此作健康结论。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "39.732ms",
+        "share_bar": [
+          {
+            "name": "客户端 SDK 段",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "客户端 SDK 段",
+            "p99": "—",
+            "anomaly_rate": "100.0% 异常标记",
+            "fail_share": null,
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "2/2 trace 归入 set_client；P50=34.160ms、P90=max=39.731ms。异常标记比例不是业务失败率。"
+          },
+          {
+            "name": "Worker 写处理",
+            "p99": "—",
+            "anomaly_rate": "0.0% 归因样本",
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "set_worker 桶为 0；代表 trace 的 Worker 写处理为 0.009~0.017ms。"
+          },
+          {
+            "name": "数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "0.0% 归因样本",
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "set_no_evidence 桶为 0，两条 trace 均有 Worker 侧行。"
+          },
+          {
+            "name": "URMA 超时",
+            "p99": "—",
+            "anomaly_rate": "0.0% 归因样本",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "fault": null,
+            "detail": "set_urma_timeout 桶为 0，且没有故障码；不能由此否定端口降 Lane，只能排除已观测超时。"
+          }
+        ],
+        "conclusion": "SET 的 2 条分类样本全部由客户端 SDK 等待窗口主导；Worker 写处理不是瓶颈。阶段 P99 不可由 /stats/stages 的 P90/max 推算。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 2,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {
+        "domain": "SET·客户端 SDK 段",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.94",
+        "host": null,
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.157",
+        "host": null,
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "02:00",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "lat_ms": "39.787",
+        "fault": "F01"
+      },
+      {
+        "time": "02:01",
+        "level": "3",
+        "pct": "86.2",
+        "spike": false,
+        "lat_ms": "34.290",
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diag-970d5b86-20261112",
+    "total_steps": 7,
+    "api_calls": 24,
+    "duration": "当前会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": ["experience-skill search: KVCache UB 端口 降lane URMA timeout 通断"],
+        "result": "命中 umdk-link-failure-diagnosis、ds-rdma-transport-diagnosis 等；仅作为先验假设。"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "GET /task/{task_id}", "GET /log_parse_result/options"],
+        "result": "任务 successful；1 个日志文件；2 条时延异常；集群 ci-kv-ds-1。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立组件分诊",
+        "api_calls": ["POST /stats/stages(operation=GET)", "POST /stats/stages(operation=SET)"],
+        "result": "GET sample_cnt=0；SET sample_cnt=2，全部归入 set_client。"
+      },
+      {
+        "title": "Step 4 统计与 trace 下钻",
+        "api_calls": ["POST /stats/error_codes|pods|links|heatmap", "POST /trace/list", "POST /log_parse_result/list", "POST /aggregated_event/list", "POST /aggregated_event/list_time_window"],
+        "result": "SET 总时延 34.290~39.787ms；Worker 写处理 0.009~0.017ms；无错误码。"
+      },
+      {
+        "title": "Step 5 原始日志有界复核",
+        "api_calls": ["bounded find", "bounded grep fallback（环境无 rg）"],
+        "result": "确认两条 [SLOW LOG] [Set] status=OK；Create/Publish RPC 等待占主导；未发现 lane/PORT_DOWN/URMA timeout 原文。"
+      },
+      {
+        "title": "Step 6 案例与经验复核",
+        "api_calls": ["POST /diag_case_library/search（match_cases.py）", "POST /diag_case_library/{case_id}/hit", "experience-skill 二次检索"],
+        "result": "UB-CASE-002581 仅 L2 阶段桶相似，applicability=reference；经验建议补采 link_width/speed。"
+      },
+      {
+        "title": "Step 7 报告生成与校验",
+        "api_calls": ["latency_features.py", "render_report.py --validate-only", "render_report.py"],
+        "result": "按契约生成 JSON，正式渲染 HTML 并执行区块自检。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+      "experience_type": "SKILL",
+      "name": "umdk-link-failure-diagnosis",
+      "source_path": "data/skill_hub/umdk-link-failure-diagnosis/skill_def.md",
+      "keywords_matched": ["UB", "端口", "降lane", "link width dropped"],
+      "search_query_used": "KVCache UB 端口 降lane URMA timeout 通断",
+      "used_in_stage": "stage_5_recommendation",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "出现 `link width dropped` 时，链路宽度降级，排查线缆/模块、对端协商、硬件。",
+      "how_used_in_diagnosis": "用于制定端口 link_width、速率、线缆/模块与对端协商的补证建议，不作为现场根因证据。",
+      "confidence_on_reference": 0.82,
+      "confidence_reason": "与用户指定的降 Lane 标签语义一致，但本次日志没有直接出现该模式。"
+    },
+    {
+      "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+      "experience_type": "SKILL",
+      "name": "ds-kv-cache-diagnosis",
+      "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+      "keywords_matched": ["SET", "DS_KV_CLIENT_SET", "耗时", "status_code"],
+      "search_query_used": "SET client.rpc.create_total client.rpc.publish_total UB link width dropped",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "adopted_as_evidence",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "分析 KV Cache 日志需要关注访问日志中的 `DS_KV_CLIENT_*` action、StatusCode、耗时和请求参数，以及资源日志中的缓存命中率。",
+      "how_used_in_diagnosis": "按其口径核对 DS_KV_CLIENT_SET、status_code=0、耗时和 8 MiB 请求参数；事实仍来自本次日志。",
+      "confidence_on_reference": 0.9,
+      "confidence_reason": "本次访问日志字段完整命中该分析口径。"
+    },
+    {
+      "experience_id": "1af1c583-204d-4538-ab34-e166258aa3c7",
+      "experience_type": "WIKI",
+      "name": "UMDK URMA 管理工具 urma_admin 使用指南",
+      "source_path": "data/wiki_hub/umdk-urma-admin-tools.md",
+      "keywords_matched": ["urma_admin port show", "link_width", "speed"],
+      "search_query_used": "SET client.rpc.create_total client.rpc.publish_total UB link width dropped",
+      "used_in_stage": "stage_5_recommendation",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "`link_width`：链路宽度：X1 / X2 / X4 / X8 / X16 / X32；`speed`：链路速率。",
+      "how_used_in_diagnosis": "用于定义降 Lane 补证时必须采集的端口字段。",
+      "confidence_on_reference": 0.88,
+      "confidence_reason": "字段与本次训练标签的端口降 Lane 定义直接相关。"
+    }
+  ]
+}

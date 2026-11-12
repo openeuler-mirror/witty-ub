@@ -186,6 +186,10 @@ class DiagCaseLibraryModel(BaseModel):
     stage_features_json: Optional[StageFeaturesModel] = Field(
         default=None, description="L2 阶段桶分布快照"
     )
+    log_semantic_profile: dict[str, float] = Field(
+        default_factory=dict,
+        description="日志语义错误码轮廓（单位向量）；检索期次级排序信号，随案例持久化",
+    )
     fault_shape: Optional[str] = Field(default=None, description="故障时间形状")
     time_window_json: Optional[TimeWindowModel] = Field(default=None, description="故障时间窗口")
     confidence: float = Field(default=0.0, description="结论验证强度，0~1")
@@ -304,6 +308,10 @@ class CreateDiagCaseDraftRequest(StrictRequestModel):
     )
     stage_features_json: Optional[StageFeaturesModel] = Field(
         default=None, description="L2 阶段桶分布快照"
+    )
+    log_semantic_profile: dict[str, float] = Field(
+        default_factory=dict,
+        description="日志语义错误码轮廓（单位向量）；报告派生建案时由服务端填充",
     )
     fault_shape: Optional[str] = Field(default=None, description="故障时间形状")
     time_window_json: Optional[TimeWindowModel] = Field(

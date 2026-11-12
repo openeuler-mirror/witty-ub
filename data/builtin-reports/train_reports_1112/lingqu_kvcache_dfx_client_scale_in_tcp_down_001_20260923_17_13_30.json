@@ -1,0 +1,854 @@
+{
+  "report": {
+    "title": "client_scale_in_tcp_down 单网卡 down 通断故障诊断报告",
+    "report_id": "RPT-20261112-CSD1",
+    "generated_at": "2026-11-12 11:10:00"
+  },
+  "basic_info": {
+    "kb_id": "43da8c84-f457-44b7-b319-15744b4c375c",
+    "kb_name": "lingqu_kvcache_dfx_client_scale_in_tcp_down_001_20260923_17_13_30",
+    "log_file": "lingqu_kvcache_dfx_client_scale_in_tcp_down_001_20260923_17_13_30",
+    "operation": "GET / SET（独立分析）",
+    "time_range_start": "2026-09-23 17:14:00",
+    "time_range_end": "2026-09-23 17:15:00",
+    "total_trace_cnt": 1000,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "0.10",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "T:CUDA": 0.107763,
+      "C:RPC deadline exceeded": 0.287368,
+      "T:CLIENT_WORKER_WARMUP": 0.32329,
+      "T:E2001": 0.215526,
+      "T:E1008": 0.862105,
+      "T:DS_ERR": 0.107763
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个 SET 写路径通断故障：CreateMeta 从 192.168.235.150 到 192.168.219.81 连续超时并返回 1001，最符合目的侧单网卡 down/瞬时链路不可达。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "1 条 SET 故障 trace；GET 同窗无故障；SET 正常时延样本 1000 条未见 URMA 超时",
+    "confidence": "中高 82%（物理 link-down 仍需系统与交换机证据闭环）"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "疑似目的侧单网卡 down 导致 CreateMeta RPC 超时",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 82,
+      "category": "error",
+      "affected_scope": "2026-09-23 17:14–17:15；SET；192.168.235.150 → 192.168.219.81:31501；3 个关联 Pod",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-单网卡down",
+        "one_line_conclusion": "17:14:11，192.168.235.150 向 192.168.219.81:31501 发起 CreateMeta 时连续 3 次超时，级联导致 SET/Publish 返回 1001；标签按用户指定 ground truth 映射，物理网卡 down 尚待补证。",
+        "fault_domain": "硬件故障/网卡故障-单网卡down",
+        "fault_component": "Worker → Master CreateMeta TCP RPC 链路",
+        "fault_function": "MasterOCService.CreateMeta / WorkerOCService.Publish",
+        "fault_function_loc": "worker_oc_service_publish_impl.cpp:483,675",
+        "affected_scope_pct": "0.10",
+        "affected_scope_desc": "1/1000 SET trace 命中故障；唯一故障源目对为 192.168.235.150 → 192.168.219.81；GET 为 0",
+        "confidence": "中高 82%",
+        "key_findings": [
+          "SET 在 17:14–17:15 唯一命中状态码 1001；GET 同窗为 0。",
+          "CreateMeta 从 192.168.235.150:31501 到 192.168.219.81:31501 连续 3 次 RPC timeout，累计约 496ms。",
+          "入口 Client 192.168.235.148 到 Worker 192.168.235.150 的 SCMTCP 建连、fd 传递和注册均成功，healthy=1。",
+          "故障后约 7ms 目标侧出现 URMA connection created，更符合瞬时链路恢复而非持续服务崩溃。",
+          "未取得 NIC carrier/link-down、驱动 reset 或交换机端口事件；单网卡 down 不能仅由时间共现完全确认。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "43da8c84-f457-44b7-b319-15744b4c375c",
+              "operation": "GET",
+              "start_time": "2026-09-23 17:14:00",
+              "end_time": "2026-09-23 17:15:00"
+            },
+            "code_filter": [
+              "1001"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "43da8c84-f457-44b7-b319-15744b4c375c",
+                    "start_time": "2026-09-23 17:14:00",
+                    "end_time": "2026-09-23 17:15:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100,
+                    "operation": "GET"
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 0,
+                  "returned_windows": 0
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 0,
+              "total_windows": 0
+            },
+            "code_distribution": {
+              "total_count": 0,
+              "items": [
+                {
+                  "code": "1001",
+                  "count": 0,
+                  "share_pct": null
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-09-23 17:14:00",
+                  "end_time": "2026-09-23 17:15:00",
+                  "complete": true,
+                  "counts": {
+                    "1001": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "43da8c84-f457-44b7-b319-15744b4c375c",
+              "operation": "SET",
+              "start_time": "2026-09-23 17:14:00",
+              "end_time": "2026-09-23 17:15:00"
+            },
+            "code_filter": [
+              "1001"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "43da8c84-f457-44b7-b319-15744b4c375c",
+                    "start_time": "2026-09-23 17:14:00",
+                    "end_time": "2026-09-23 17:15:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100,
+                    "operation": "SET"
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 1,
+              "items": [
+                {
+                  "code": "1001",
+                  "count": 1,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-09-23 17:14:00",
+                  "end_time": "2026-09-23 17:15:00",
+                  "complete": true,
+                  "counts": {
+                    "1001": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "逐码命中口径下，SET 在 17:14–17:15 出现 1 次状态码 1001，构成占比 100%；GET 同窗为 0。该计数不是业务失败率；单窗口现象只支持突发通断故障，不单独证明物理网卡根因。",
+        "metrics": [
+          {
+            "label": "SET 故障 trace",
+            "value": "1",
+            "sub": "状态码 1001",
+            "tone": "danger"
+          },
+          {
+            "label": "GET 故障 trace",
+            "value": "0",
+            "sub": "同一分钟窗口",
+            "tone": "ok"
+          },
+          {
+            "label": "故障窗口",
+            "value": "1min",
+            "sub": "17:14–17:15",
+            "tone": "warn"
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 现象观察",
+            "title": "SET 唯一状态码 1001",
+            "description": "分钟聚合显示 SET 在 17:14–17:15 有 1 次 K_RPC_DEADLINE_EXCEEDED；GET 同窗为 0。",
+            "evidence": "[POST /log_failure_event_result/list_time_aggregated_failure_events] GET/SET 独立查询",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 链路定位",
+            "title": "CreateMeta 目的端未在截止时间响应",
+            "description": "原始 trace 显示 192.168.235.150:31501 → 192.168.219.81:31501 连续 3 次超时，随后 RequestingToMaster、Publish 和 Client warmup 依次失败。",
+            "evidence": "[POST /log_failure_event_result/list_log_events] trace_id=0e455000-e8de-43dc-b1fc-c91312bf4b24",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 反证检查",
+            "title": "排除 Client 到入口 Worker 初始建链失败",
+            "description": "同一 trace 中 SCMTCP 建连成功、共享内存 fd 传递成功、Register client done 且 healthy=1。",
+            "evidence": "client_worker_common_api.cpp:597/534；worker_service_impl.cpp:287",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "④ 候选排序",
+            "title": "瞬时 TCP 路径不可达优先",
+            "description": "故障集中于单一源目对且目标侧随后建立连接；未见 Worker 退出、服务端执行或线程池饱和证据，因此瞬时链路不可达优先于持续进程故障和负载瓶颈。",
+            "evidence": "[POST /stats/links] + 原始 trace 时序 + curated status_code=1001",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 根因候选",
+            "title": "疑似目的侧单网卡 down",
+            "description": "现场 TCP RPC 超时链与用户指定硬件故障/网卡故障-单网卡down 标签一致；但缺少 NIC、驱动和交换机侧证据，维持疑似状态。",
+            "evidence": "现场源目链路超时；gt_labels.json 标签映射；基础设施证据缺口",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "supporting_knowledge": "status_code 1001；kvcache_access_020；kvcache_runtime_1377/2295/2303；已确认案例 UB-CASE-002557（仅作待验证历史假设）"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "疑似目的侧单网卡 down/链路瞬断",
+            "detail": "192.168.219.81 所在节点；待 NIC/交换机侧证据确认"
+          },
+          {
+            "label": "CreateMeta RPC 连续超时",
+            "detail": "192.168.235.150:31501 → 192.168.219.81:31501；3 次重试，约 496ms"
+          },
+          {
+            "label": "RequestingToMaster 失败",
+            "detail": "kvcache_runtime_2295；code=1001"
+          },
+          {
+            "label": "Worker Publish 失败",
+            "detail": "kvcache_runtime_2303；DS_POSIX_PUBLISH=1001"
+          },
+          {
+            "label": "Client warmup SET 失败",
+            "detail": "客户端总耗时约 496.613ms；故障上浮到 SDK"
+          }
+        ],
+        "impact_scope": [
+          "集群 zzz-kv-ds-1",
+          "源目对 192.168.235.150 → 192.168.219.81:31501",
+          "关联 Client 192.168.235.148",
+          "SET 写路径 1 条故障 trace；GET 同窗 0 条"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "0e455000-e8de-43dc-b1fc-c91312bf4b24",
+          "kind": "error",
+          "why": "status_code=1001 + SET + src=192.168.235.150 + dst=192.168.219.81 + 2026-09-23 17:14–17:15 过滤命中的唯一故障 trace",
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_access_020,kvcache_runtime_1377,kvcache_runtime_2295,kvcache_runtime_2303,kvcache_runtime_247",
+          "pod": "192.168.235.148 / 192.168.235.150 / 192.168.219.81",
+          "host": "—",
+          "timestamp": "2026-09-23 17:14:10.872"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002557",
+          "rank": 1,
+          "stars": 5,
+          "match_logic": "L1 命中 status_code=1001 与 kvcache_access_020；L2 命中 MIXED/SET、few_pods 与 link_pair；L5 历史案例无关键词字段。软匹配 0.2931。",
+          "symptom": "扩缩容暖机期间 CreateMeta RPC 连续超时并返回 1001。",
+          "root_cause": "历史案例认为最可能为目的侧单网卡 down，但同样缺少 link-down 系统日志。",
+          "solution": "核验目标 NIC、驱动和交换机端口；恢复链路后复测 CreateMeta 与 SET。",
+          "phenomenon_fit": "与本次时间窗、trace、源目对和错误码完全一致。",
+          "log_fit": "同一代表 trace 的 RPC Retry/CreateMeta timeout 链。",
+          "rc_consistency": "一致但仍需基础设施证据",
+          "env_diff": "历史案例为已确认导入案例，当前资产仍独立保持证据分层。",
+          "adaptation": "采用其补证与复测步骤，不把历史结论替代现场事实。",
+          "applicability": "adjust"
+        },
+        {
+          "id": "kvcache_access_020",
+          "rank": 2,
+          "stars": 5,
+          "match_logic": "L1 精确命中状态码 1001；L2 命中 RPC/网络故障域；L3 命中源目链路；L5 原文命中 RPC timed out。",
+          "symptom": "请求返回 K_RPC_DEADLINE_EXCEEDED，RPC 调用超过截止时间。",
+          "root_cause": "网络、服务端处理或本地等待未能在期限内完成。",
+          "solution": "检查网络时延、服务端处理时间与 RPC 超时配置；恢复服务响应后重试。",
+          "applicability": "direct"
+        },
+        {
+          "id": "ds-client-log-analysis",
+          "rank": 3,
+          "stars": 4,
+          "match_logic": "L1 命中 K_RPC_DEADLINE_EXCEEDED=1001；L2 命中 Client/Worker RPC 排查域；L3/L5 仅提供通用流程。",
+          "symptom": "Client 请求重连或 RPC 超时。",
+          "root_cause": "可能为 Worker 不可达、负载或网络异常。",
+          "solution": "结合访问日志、对应 Worker 日志和网络状态排查。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即在 192.168.219.81 所在节点检查承载业务 IP 的网卡 operstate、carrier、驱动 reset 及 RX/TX error/drop，并核对 17:14:11 前后的交换机端口 down/up 事件。",
+          "若目标网卡仍 down，切换冗余链路或迁移目标 Worker/Master；恢复后重新执行 Client warmup 与 SET。",
+          "从 192.168.235.150 连续复测 192.168.219.81:31501 的 TCP 连通性与丢包，并确认 CreateMeta 出现服务端 ServerRecv/ServerSend。"
+        ],
+        "long_term": [
+          "为单网卡 carrier change、驱动 reset 和交换机端口 flap 建立秒级关联告警。",
+          "关键元数据链路采用双网卡/bond 冗余并演练 failover，确保切换时间低于 warmup/RPC 预算。"
+        ],
+        "verification": [
+          "连续 30 分钟观察 /stats/error_codes：GET/SET 均无新增 1001。",
+          "重跑 Client warmup/SET，确认 DS_POSIX_PUBLISH 返回 0，CreateMeta 服务端收发日志完整。",
+          "确认目标 NIC carrier 持续 up，驱动和交换机端口无新增 down/up、reset、drop/error 异常。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核查并恢复 192.168.219.81 对应业务网卡与交换机端口；仍 down 时切换冗余链路或迁移服务。",
+      "depends_on": "业务 IP 到物理网卡/交换机端口映射",
+      "expected_effect": "恢复 CreateMeta 目标端可达性",
+      "verify": "NIC carrier=up 且 CreateMeta 出现 ServerRecv/ServerSend"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "从 192.168.235.150 重跑 TCP 连通与 Client warmup/SET。",
+      "depends_on": "链路恢复",
+      "expected_effect": "SET 不再返回 1001",
+      "verify": "连续 30 分钟 GET/SET 状态码 1001 零新增"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "GET 归因子集",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "fault": "无样本",
+            "detail": "sample_cnt=0；无 GET 归因子集，空结果不代表系统整体健康。"
+          }
+        ],
+        "conclusion": "GET 独立视角无归因样本，错误码与故障 trace 查询也为空。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "SET·客户端SDK段",
+            "pct": 100.0,
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "1000 条正常时延样本",
+            "detail": "独立 SET 口径：trace_cnt=1000，P50=0.670ms、P90=0.718ms、max=1.083ms；客户端 P90=0.797ms。P90/max 不冒充 P99；故障 trace 缺时延明细，未进入此桶。"
+          },
+          {
+            "name": "SET·URMA超时",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "0 条",
+            "detail": "trace_cnt=0，未观测 URMA_WAIT_TIMEOUT。"
+          }
+        ],
+        "conclusion": "SET 正常时延样本全部归入客户端 SDK 段且为亚毫秒级；本次故障来自单条 CreateMeta RPC 通断超时，不与 GET 混桶。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 1,
+    "top_error_codes": [
+      {
+        "code": "1001",
+        "name": "K_RPC_DEADLINE_EXCEEDED",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "CreateMeta RPC 源目链路",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.150 → 192.168.219.81",
+        "host": "—",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-09-23 17:14",
+        "level": 3,
+        "pct": 100.0,
+        "spike": true,
+        "lat_ms": null,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-client-scale-in-tcp-down-20260923",
+    "total_steps": 8,
+    "api_calls": 32,
+    "duration": "本会话内完成",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences（SKILL/WIKI）"
+        ],
+        "result": "命中 Client、Hash Ring、RDMA/URMA 等经验；均作为待验证先验。"
+      },
+      {
+        "title": "资产与解析完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "1 个日志文件，overall_status=successful；定界产出 1 条故障 trace。"
+      },
+      {
+        "title": "GET/SET 组件分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET sample_cnt=0；SET 1000 条正常时延样本均归入客户端 SDK 段，URMA 超时桶为 0。"
+      },
+      {
+        "title": "精确统计分布",
+        "api_calls": [
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/links",
+          "POST /stats/heatmap"
+        ],
+        "result": "SET 唯一码 1001、1 条；故障集中于 17:14 单窗；故障源目对由 trace 事件确认。"
+      },
+      {
+        "title": "故障 Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "唯一 trace 显示 CreateMeta 连续超时、RequestingToMaster/Publish/Client warmup 级联失败。"
+      },
+      {
+        "title": "Curated 知识核验",
+        "api_calls": [
+          "GET /failure_mode/status_code/1001",
+          "GET /failure_mode/{id} × 5"
+        ],
+        "result": "1001 定义为 RPC deadline exceeded；故障模式定位到 RPC Retry、RequestingToMaster 与 Publish。"
+      },
+      {
+        "title": "历史案例匹配",
+        "api_calls": [
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "命中已确认案例 UB-CASE-002557；L1/L2 高度一致，作为待验证假设并已回写命中。"
+      },
+      {
+        "title": "标签与报告校验",
+        "api_calls": [
+          "读取 train_valid.md 与 gt_labels.json",
+          "render_report.py --validate-only"
+        ],
+        "result": "按用户指定映射使用硬件故障/网卡故障-单网卡down；标签不提高物理根因确认度。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+        "experience_type": "SKILL",
+        "name": "ds-hash-ring-metadata-diagnosis",
+        "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis",
+        "keywords_matched": [
+          "scale down"
+        ],
+        "search_query_used": "KVCache client scale in TCP down 通断 故障码",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Submit scale down task of ... with traceid ...",
+        "how_used_in_diagnosis": "现场代表 trace 未出现该缩容任务模式，未用于根因。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "组件、错误模式或现场命中不足，未用于结论。"
+      },
+      {
+        "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+        "experience_type": "SKILL",
+        "name": "ds-client-log-analysis",
+        "source_path": "data/skill_hub/ds-client-log-analysis",
+        "keywords_matched": [
+          "K_RPC_DEADLINE_EXCEEDED"
+        ],
+        "search_query_used": "K_RPC_DEADLINE_EXCEEDED 1001 CreateMeta RPC timed out scale down 网络",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_RPC_DEADLINE_EXCEEDED=1001 | RPC 超时 | 检查 Worker 负载、网络延迟",
+        "how_used_in_diagnosis": "作为网络与 Worker 状态排查建议；具体语义以 curated 知识为准。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "与现场日志及 curated 1001 解释一致，仅作建议。"
+      },
+      {
+        "experience_id": "a43dcf67-d3bb-4fb5-99ba-e47e6343ea7d",
+        "experience_type": "SKILL",
+        "name": "ds-shared-memory-diagnosis",
+        "source_path": "data/skill_hub/ds-shared-memory-diagnosis",
+        "keywords_matched": [
+          "共享内存"
+        ],
+        "search_query_used": "KVCache client scale in TCP down 通断 故障码",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "fd 传递失败不会导致 Client 注册失败，但会关闭零拷贝通道。",
+        "how_used_in_diagnosis": "现场 SCMTCP、fd 传递和注册均成功，未采用为根因。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "组件、错误模式或现场命中不足，未用于结论。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+        "keywords_matched": [
+          "URMA"
+        ],
+        "search_query_used": "KVCache client scale in TCP down 通断 故障码",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "检查 Jetty 状态变化（`[URMA_MODIFY_JETTY_TO_ERROR]`、`Mark Jetty ... invalid`）。",
+        "how_used_in_diagnosis": "现场未观测对应 Jetty 错误模式，未采用为根因。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "组件、错误模式或现场命中不足，未用于结论。"
+      },
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis",
+        "keywords_matched": [
+          "Worker"
+        ],
+        "search_query_used": "KVCache client scale in TCP down 通断 故障码",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "检查 Client 注册情况（`Register client: ...`）。",
+        "how_used_in_diagnosis": "现场注册 healthy=1，用于反证入口 Worker 注册失败。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "与现场日志及 curated 1001 解释一致，仅作建议。"
+      },
+      {
+        "experience_id": "4ddc5242-7261-4657-a860-78d518b063a3",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem ETCD 事件模式",
+        "source_path": "data/wiki_hub/ds-etcd-event-patterns.md",
+        "keywords_matched": [
+          "Scale Down"
+        ],
+        "search_query_used": "KVCache client scale in TCP down 通断 故障码",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Submit scale down task of ... with traceid ...",
+        "how_used_in_diagnosis": "代表 trace 未出现该事件模式，未采用。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "组件、错误模式或现场命中不足，未用于结论。"
+      },
+      {
+        "experience_id": "862f89c4-27af-4ac8-90b9-266f48ff6b32",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 共享内存日志模式",
+        "source_path": "data/wiki_hub/ds-shared-memory-patterns.md",
+        "keywords_matched": [
+          "共享内存"
+        ],
+        "search_query_used": "KVCache client scale in TCP down 通断 故障码",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Register client: ..., pod: ..., version: ..., socket fd: ..., shmEnabled: ...",
+        "how_used_in_diagnosis": "用于核对注册日志字段；不作为故障根因证据。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "与现场日志及 curated 1001 解释一致，仅作建议。"
+      },
+      {
+        "experience_id": "1f2d9b46-3f6e-4b84-b26f-d7b48793b555",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Hash Ring 模式",
+        "source_path": "data/wiki_hub/ds-hash-ring-patterns.md",
+        "keywords_matched": [
+          "Scale Down"
+        ],
+        "search_query_used": "KVCache client scale in TCP down 通断 故障码",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Begin to process voluntary scale down task",
+        "how_used_in_diagnosis": "现场代表 trace 未见该模式，未采用。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "组件、错误模式或现场命中不足，未用于结论。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "URMA"
+        ],
+        "search_query_used": "KVCache client scale in TCP down 通断 故障码",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "[URMA_NEED_CONNECT] No existing connection for remoteAddress: ..., remoteInstanceId=..., requires...",
+        "how_used_in_diagnosis": "现场主要错误为 CreateMeta TCP RPC timeout，未采用该模式解释根因。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "组件、错误模式或现场命中不足，未用于结论。"
+      },
+      {
+        "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 访问日志模式",
+        "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+        "keywords_matched": [
+          "SET"
+        ],
+        "search_query_used": "KVCache client scale in TCP down 通断 故障码",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "DS_KV_CLIENT_Set",
+        "how_used_in_diagnosis": "用于确认写操作域；具体故障事实来自 API 和原始日志。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "与现场日志及 curated 1001 解释一致，仅作建议。"
+      },
+      {
+        "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+        "experience_type": "SKILL",
+        "name": "ds-cluster-management-diagnosis",
+        "source_path": "data/skill_hub/ds-cluster-management-diagnosis",
+        "keywords_matched": [
+          "1001"
+        ],
+        "search_query_used": "K_RPC_DEADLINE_EXCEEDED 1001 CreateMeta RPC timed out scale down 网络",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_RPC_DEADLINE_EXCEEDED=1001 | RPC 超时 | 检查网络、ETCD 负载",
+        "how_used_in_diagnosis": "现场超时目标为 Worker CreateMeta 端点，无 ETCD 证据，未采用 ETCD 假设。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "组件、错误模式或现场命中不足，未用于结论。"
+      },
+      {
+        "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+        "experience_type": "SKILL",
+        "name": "umdk-link-failure-diagnosis",
+        "source_path": "data/skill_hub/umdk-link-failure-diagnosis",
+        "keywords_matched": [
+          "PORT_DOWN"
+        ],
+        "search_query_used": "K_RPC_DEADLINE_EXCEEDED 1001 CreateMeta RPC timed out scale down 网络",
+        "used_in_stage": "recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "部分链路问题需要结合硬件、固件、物理连接信息。",
+        "how_used_in_diagnosis": "用于制定网卡、驱动与交换机侧补证步骤，不冒充现场证据。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "与现场日志及 curated 1001 解释一致，仅作建议。"
+      },
+      {
+        "experience_id": "8b93bf19-64f1-40d6-8ab4-c2e65a7e1ddf",
+        "experience_type": "SKILL",
+        "name": "umdk-urpc-log-analysis",
+        "source_path": "data/skill_hub/umdk-urpc-log-analysis",
+        "keywords_matched": [
+          "URPC"
+        ],
+        "search_query_used": "K_RPC_DEADLINE_EXCEEDED 1001 CreateMeta RPC timed out scale down 网络",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "需区分 URPC 框架错误和底层 URMA CR 错误。",
+        "how_used_in_diagnosis": "本次是 bRPC CreateMeta 超时，无 URPC/CR 错误，未采用。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "组件、错误模式或现场命中不足，未用于结论。"
+      },
+      {
+        "experience_id": "0f8b80d7-bbc5-4fa1-9899-4405545bfe50",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 请求第三方日志模式",
+        "source_path": "data/wiki_hub/ds-request-out-log-patterns.md",
+        "keywords_matched": [
+          "1001"
+        ],
+        "search_query_used": "K_RPC_DEADLINE_EXCEEDED 1001 CreateMeta RPC timed out scale down 网络",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "ETCD 请求超时（K_RPC_DEADLINE_EXCEEDED）",
+        "how_used_in_diagnosis": "现场未出现 ETCD action，未采用该解释。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "组件、错误模式或现场命中不足，未用于结论。"
+      },
+      {
+        "experience_id": "92401341-c3f6-400c-a079-c7ad95c86759",
+        "experience_type": "WIKI",
+        "name": "UMDK URPC 错误日志模式",
+        "source_path": "data/wiki_hub/umdk-urpc-error-log-patterns.md",
+        "keywords_matched": [
+          "传输层"
+        ],
+        "search_query_used": "K_RPC_DEADLINE_EXCEEDED 1001 CreateMeta RPC timed out scale down 网络",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "URPC_ERR_TRANSPORT_ERR | 传输层错误 | URMA 返回失败",
+        "how_used_in_diagnosis": "现场无该错误码，未采用。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "组件、错误模式或现场命中不足，未用于结论。"
+      },
+      {
+        "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Worker 错误模式",
+        "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+        "keywords_matched": [
+          "1001"
+        ],
+        "search_query_used": "K_RPC_DEADLINE_EXCEEDED 1001 CreateMeta RPC timed out scale down 网络",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_RPC_DEADLINE_EXCEEDED=1001 | RPC 超时 | 检查网络、负载、线程池",
+        "how_used_in_diagnosis": "作为候选排查方向；原始日志更支持源目链路瞬时不可达。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "与现场日志及 curated 1001 解释一致，仅作建议。"
+      },
+      {
+        "experience_id": "87fafdb7-c200-4d13-891d-ffc12cbeca90",
+        "experience_type": "WIKI",
+        "name": "UMDK DLock 调试统计码解读",
+        "source_path": "data/wiki_hub/umdk-dlock-debug-stats-guide.md",
+        "keywords_matched": [
+          "ETIMEOUT"
+        ],
+        "search_query_used": "K_RPC_DEADLINE_EXCEEDED 1001 CreateMeta RPC timed out scale down 网络",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "DEBUG_STATS_ETIMEOUT | 操作超时",
+        "how_used_in_diagnosis": "与本次 KVCache/bRPC 组件不一致，未采用。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "组件、错误模式或现场命中不足，未用于结论。"
+      }
+    ],
+    "summary": {
+      "total_references": 17,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 6,
+      "considered_not_adopted_count": 11,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库只用于排查流程、候选与补证建议；根因排序由本次 API 现场日志、curated 知识和反证检查支撑。"
+    }
+  }
+}

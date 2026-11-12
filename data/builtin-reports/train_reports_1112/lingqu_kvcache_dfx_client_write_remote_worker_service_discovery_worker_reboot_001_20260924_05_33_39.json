@@ -1,0 +1,466 @@
+{
+  "report": {
+    "title": "KVCache 远端 Worker 重启导致 SET 写入 URMA 建链失败诊断报告",
+    "report_id": "RPT-20261112-9D06",
+    "generated_at": "2026-11-12 12:00:00"
+  },
+  "basic_info": {
+    "kb_id": "9d06a89c-4579-4d96-acab-fdfa06e06b3d",
+    "kb_name": "lingqu_kvcache_dfx_client_write_remote_worker_service_discovery_worker_reboot_001_20260924_05_33_39",
+    "log_file": "lingqu_kvcache_dfx_client_write_remote_worker_service_discovery_worker_reboot_001_20260924_05_33_39",
+    "operation": "GET / SET（独立分析）",
+    "time_range_start": "2026-09-24 05:37:02",
+    "time_range_end": "2026-09-24 05:37:15",
+    "total_trace_cnt": 7,
+    "fault_trace_cnt": 7,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：远端 Worker 重启窗口内服务发现与连接状态未收敛，导致 SET 写请求集中发生 URMA 建链快速失败。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "13 秒内 7 条 SET trace 均命中 1009；GET 未采到故障或可归因样本。",
+    "confidence": "高 90%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "远端 Worker 重启后旧服务发现/连接状态导致 SET 写入建链失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 90,
+      "category": "error",
+      "affected_scope": "SET；客户端/数据角色 Pod 192.168.235.157；2026-09-24 05:37:02–05:37:15；7 条故障 trace",
+      "conclusion": {
+        "first_level_label": "OS故障",
+        "second_level_label": "OS故障-重启",
+        "one_line_conclusion": "远端 Worker 重启后服务发现、路由或 RPC/URMA 连接状态尚未收敛，7 条 SET 写请求访问 192.168.235.165:31501 时快速返回 K_URMA_CONNECT_FAILED(1009)。",
+        "fault_domain": "OS故障/OS故障-重启",
+        "fault_component": "远端 Worker 服务发现与 RPC/URMA 建链",
+        "fault_function": "WorkerWorkerExchangeUrmaConnectInfo",
+        "fault_function_loc": "fast_transport_manager_wrapper / bRPC 调用边界",
+        "affected_scope_pct": "100.00",
+        "affected_scope_desc": "已识别的 7 条 SET trace 全部受影响，集中于 Pod 192.168.235.157；GET 侧无可用故障样本，不能外推 GET 健康。",
+        "confidence": "高 90%",
+        "key_findings": [
+          "SET 侧唯一错误码为 1009，共 7 条 trace、7 个日志级事件，占已取得错误码命中 100%。",
+          "7 条 trace 均命中 failure_mode=kvcache_access_059（URMA连接失败），并集中在 05:37:02–05:37:14。",
+          "代表日志一致出现“UB establish failed”“RPC peer dead”“brpc errno=112 Host is down”，目标均为 192.168.235.165:31501。",
+          "请求总时延仅 0.034–0.050ms，bRPC e2e 仅 2–4us，属于对端不可达快速失败，不支持排队或慢处理假设。",
+          "故障标签按用户指定的 gt_labels.json 与 train_valid.md 映射取 OS故障/OS故障-重启；应用日志直接证明端点 down，未包含 boot_id、systemd/dmesg 或 restartCount。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {"label": "故障 trace", "value": "7", "sub": "SET；trace 级去重", "tone": "danger"},
+          {"label": "主导错误码", "value": "1009", "sub": "K_URMA_CONNECT_FAILED · 100%", "tone": "danger"},
+          {"label": "故障窗口", "value": "13s", "sub": "05:37:02–05:37:15", "tone": "warn"}
+        ],
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "9d06a89c-4579-4d96-acab-fdfa06e06b3d",
+              "operation": "SET",
+              "start_time": "2026-09-24 05:37:02",
+              "end_time": "2026-09-24 05:37:15"
+            },
+            "code_filter": ["1009"],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "9d06a89c-4579-4d96-acab-fdfa06e06b3d",
+                    "operation": "SET",
+                    "start_time": "2026-09-24 05:37:02",
+                    "end_time": "2026-09-24 05:37:15",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 4,
+                  "returned_windows": 4
+                }
+              ]
+            },
+            "coverage": {"complete": true, "returned_windows": 4, "total_windows": 4},
+            "code_distribution": {
+              "total_count": 7,
+              "items": [{"code": "1009", "count": 7, "share_pct": 100.0}],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {"start_time": "2026-09-24 05:37:02", "end_time": "2026-09-24 05:37:03", "complete": true, "counts": {"1009": 4}, "other_count": 0},
+                {"start_time": "2026-09-24 05:37:03", "end_time": "2026-09-24 05:37:04", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-24 05:37:04", "end_time": "2026-09-24 05:37:05", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-24 05:37:05", "end_time": "2026-09-24 05:37:06", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-24 05:37:06", "end_time": "2026-09-24 05:37:07", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-24 05:37:07", "end_time": "2026-09-24 05:37:08", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-24 05:37:08", "end_time": "2026-09-24 05:37:09", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-24 05:37:09", "end_time": "2026-09-24 05:37:10", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-24 05:37:10", "end_time": "2026-09-24 05:37:11", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-24 05:37:11", "end_time": "2026-09-24 05:37:12", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-24 05:37:12", "end_time": "2026-09-24 05:37:13", "complete": true, "counts": {"1009": 1}, "other_count": 0},
+                {"start_time": "2026-09-24 05:37:13", "end_time": "2026-09-24 05:37:14", "complete": true, "counts": {"1009": 1}, "other_count": 0},
+                {"start_time": "2026-09-24 05:37:14", "end_time": "2026-09-24 05:37:15", "complete": true, "counts": {"1009": 1}, "other_count": 0}
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 错误码分布完整覆盖 4 个有数据秒级桶：1009 共 7 次逐码命中，05:37:02 首秒集中 4 次，随后 05:37:12–14 每秒 1 次；GET 同范围查询为空，仅表示未采到 GET 故障记录。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "S1",
+            "title": "数据完整性确认",
+            "description": "解析任务 successful，定界产出并落库 7 条故障 trace；报告基于完整解析结果。",
+            "evidence": "GET /task/cacb01c9-49f2-48ef-9304-86b3612ef470：status=successful；task report 显示故障 trace 7 条落库。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S2",
+            "title": "读写操作隔离",
+            "description": "GET 与 SET 独立查询。GET 无归因样本与故障码，SET 有 7 条故障 trace，故故障限定在写路径。",
+            "evidence": "/stats/stages(GET) sample_cnt=0；/stats/error_codes(GET) total=0；/stats/stages(SET) sample_cnt=7；/stats/error_codes(SET) 为 1009×7。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S3",
+            "title": "错误语义收敛到 URMA 建链",
+            "description": "全部 SET 故障均返回 1009，并命中 kvcache_access_059。Curated 知识将其解释为 K_URMA_CONNECT_FAILED。",
+            "evidence": "list_trace_events：7/7 status_code=1009、failure_mode=kvcache_access_059；GET /failure_mode/status_code/1009 与 GET /failure_mode/kvcache_access_059。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S4",
+            "title": "原始日志定位对端不可达",
+            "description": "连接信息交换调用在 RPC 返回边界快速失败，目标端点被判定 Host is down，形成 URMA 建链失败。",
+            "evidence": "7 条 access 原文均包含 WorkerWorkerExchangeUrmaConnectInfo->[192.168.235.165:31501]、RPC peer dead、brpc errno=112 Host is down、Not connected。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S5",
+            "title": "排除慢处理与本地 URMA 初始化失败",
+            "description": "请求为微秒级快速失败，且失败前已取得 delegated rjetty/seg context；不支持线程排队、请求超时或本地 URMA 未初始化假设。",
+            "evidence": "trace 总时延 0.034–0.050ms；bRPC e2e 2–4us、server queue/exec=0；日志存在 Got delegated rjetty context 与 Got delegated seg context。",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "S6",
+            "title": "根因与标签闭环",
+            "description": "用户指定的训练标签映射将该日志描述标注为 OS故障-重启；现场证据与已人工确认同类案例共同验证重启后的旧端点/连接状态未收敛这一直接故障机制。应用日志本身未直接记录 OS reboot 动作。",
+            "evidence": "train_valid.md 对应描述 client_write_remote_worker_service_discovery_worker_reboot；gt_labels.json 映射 OS故障/OS故障-重启；已确认案例 UB-CASE-002564 与本次 1009、failure_mode、IP、时间及日志短语一致。",
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "远端 Worker 所在 OS 重启，使原服务实例短时不可达；调用侧服务发现、路由及 RPC/URMA 连接状态未及时收敛，仍向 192.168.235.165:31501 交换 URMA 连接信息，bRPC 返回 errno=112 Host is down，最终 7 条 SET 写请求上浮 K_URMA_CONNECT_FAILED(1009)。",
+        "supporting_knowledge": "Curated failure_mode kvcache_access_059 说明 1009 为 URMA 连接建立失败；本地经验 ds-rdma-transport-diagnosis 指出传输连接状态与 Worker 生命周期强相关、远端 Worker 重启会触发连接重建；历史确认案例 UB-CASE-002564 与现场特征高度一致。"
+      },
+      "propagation": {
+        "chain": [
+          {"label": "远端 Worker 所在 OS 重启", "detail": "原 Worker 实例和 31501 服务端点在重启窗口内不可用。", "type": "root"},
+          {"label": "服务发现/路由状态未收敛", "detail": "调用侧仍持有并访问旧端点 192.168.235.165:31501。", "transition": "旧实例尚未被完全摘除或连接尚未刷新"},
+          {"label": "WorkerWorkerExchangeUrmaConnectInfo 失败", "detail": "bRPC 返回 RPC peer dead、errno=112 Host is down，且无服务端收发。", "transition": "RPC 快速失败"},
+          {"label": "URMA 建链失败", "detail": "故障模式 kvcache_access_059，上浮 K_URMA_CONNECT_FAILED(1009)。", "transition": "错误码映射"},
+          {"label": "SET 写入失败", "detail": "13 秒内 7 条 DS_KV_CLIENT_SET 失败；GET 未采到同期故障。", "transition": "业务接口返回失败"}
+        ],
+        "impact_scope": [
+          "操作域：SET 写路径；GET 与 SET 已独立查询。",
+          "故障 trace：7 条，错误码 1009 占已取得逐码命中 100%。",
+          "观测 Pod：192.168.235.157；目标端点：192.168.235.165:31501。",
+          "故障窗口：2026-09-24 05:37:02–05:37:15。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "4ddac19e-e575-45ee-8e62-e3f1c70fa98e",
+          "kind": "error",
+          "why": "status_code=1009 + pod=192.168.235.157 + 05:37:02–05:37:15；首个故障秒代表 trace",
+          "status_code": "1009",
+          "failure_mode_id": "kvcache_access_059",
+          "pod": "192.168.235.157",
+          "timestamp": "2026-09-24 05:37:02"
+        },
+        {
+          "trace_id": "6fec4d5b-ae2a-4681-a6ad-9f32ff42afde",
+          "kind": "error",
+          "why": "status_code=1009 + pod=192.168.235.157 + 05:37:02–05:37:15；后续重试窗口代表 trace",
+          "status_code": "1009",
+          "failure_mode_id": "kvcache_access_059",
+          "pod": "192.168.235.157",
+          "timestamp": "2026-09-24 05:37:13"
+        },
+        {
+          "trace_id": "ef90eb55-5f50-4d37-94ce-8272fd29055b",
+          "kind": "error",
+          "why": "status_code=1009 + pod=192.168.235.157 + 05:37:02–05:37:15；末个故障秒代表 trace",
+          "status_code": "1009",
+          "failure_mode_id": "kvcache_access_059",
+          "pod": "192.168.235.157",
+          "timestamp": "2026-09-24 05:37:14"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "d6aafd57-6c36-49b9-94d8-d2424bfcc973",
+          "stars": 5,
+          "match_logic": "L1 命中 1009 与 kvcache_access_059；L2 命中 SET 操作域，案例覆盖同一远端重启/服务发现未收敛场景；L3 现场日志命中 RPC peer dead、Host is down 与相同目标端点。",
+          "symptom": "远端 Worker 重启场景下，SET 在 URMA 建链时命中 Host is down，旧服务发现/连接状态未收敛。",
+          "root_cause": "远端 Worker 重启后服务发现、路由和 URMA/RPC 连接状态未及时收敛。",
+          "solution": "确认 Worker/主机 Ready 与 31501 监听，刷新旧路由、RPC channel 和 URMA Jetty/connection 后再放流。",
+          "phenomenon_fit": "本次 7 条 1009 trace、时间、Pod、目标端点和代表 trace 均与案例证据一致。",
+          "log_fit": "命中 WorkerWorkerExchangeUrmaConnectInfo、RPC peer dead、Host is down。",
+          "rc_consistency": "一致；案例为已人工确认且已闭环。",
+          "env_diff": "无已知关键差异；案例本身覆盖本日志场景。",
+          "adaptation": "现场仍应补取 boot_id/restartCount，避免只靠应用错误判定 OS 动作。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 2,
+          "id": "kvcache_access_059",
+          "stars": 5,
+          "match_logic": "L1 精确命中 failure_mode 与 1009；L2 为 URMA 建链故障域；L3 原始日志直接出现 UB establish failed。",
+          "symptom": "请求返回 K_URMA_CONNECT_FAILED，URMA 连接建立失败。",
+          "root_cause": "URMA 功能未启用、目标 Jetty 不存在或 UB 数据通道建立过程失败。",
+          "solution": "确认 URMA 已启用且目标 Jetty、UB 设备和网络配置有效；修复建链故障后重试。",
+          "phenomenon_fit": "与 7 条 SET 的错误码和故障模式完全一致。",
+          "log_fit": "目标端点 Host is down，将本次范围进一步收敛到远端不可达。",
+          "rc_consistency": "一致，但 curated 知识只解释建链失败，不单独证明 OS 重启。",
+          "env_diff": "无版本信息可比较。",
+          "adaptation": "结合本次 ground-truth 标签和生命周期证据使用。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 3,
+          "id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": 4,
+          "match_logic": "L1 命中 K_URMA_CONNECT_FAILED=1009；L2 命中 worker-worker 传输域；L3 命中 WorkerWorkerExchangeUrmaConnectInfo，但经验不是现场证据。",
+          "symptom": "URMA/RDMA 传输连接建立失败，Jetty 或远端 Worker 状态变化触发连接重建。",
+          "root_cause": "传输层连接状态与 Worker 生命周期强相关，远端 Worker 重启会触发连接重建。",
+          "solution": "检查远端 Worker 状态、连接重建和目标 Jetty；恢复后确认连接交换成功。",
+          "phenomenon_fit": "与本次重启后快速建链失败一致。",
+          "log_fit": "本次未采到 TryReconnectRemoteWorker 或 Jetty invalid 日志，仅采到连接交换失败。",
+          "rc_consistency": "方向一致。",
+          "env_diff": "经验版本为 0.8.1.rc20，本次日志显示客户端版本 0.9.2，需按现场接口核对。",
+          "adaptation": "只采用连接重建排查方向，不把经验中的全部日志模式视为已发生。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "确认 192.168.235.165 对应主机和 Worker 已完成重启并进入 Ready，核验 31501/31502 监听、服务发现实例 ID 与当前进程一致。",
+          "在调用端清理或刷新指向旧实例的服务发现缓存、路由、bRPC channel 与 URMA Jetty/connection，确认 WorkerWorkerExchangeUrmaConnectInfo 成功后再逐步放流。",
+          "对故障窗口内返回 1009 的 SET 先查询写入结果，再按幂等策略补写，避免结果不明时盲目重复写。",
+          "若端点恢复后仍出现 E112，转查路由、邻居表、UB 设备与交换机端口，排除重启之外的持续网络故障。"
+        ],
+        "long_term": [
+          "建立摘流→服务发现下线→OS/Worker 重启→Ready→路由与 URMA 连接收敛→放流的自动化门禁。",
+          "关联采集 OS boot_id、systemd/dmesg、容器 restartCount/退出码、Worker instance_id、服务发现版本与 Jetty 重建状态。",
+          "为 1009、bRPC E112、旧实例访问和连接重建失败建立同窗告警，并在失效端点上启用自动摘除/熔断。",
+          "补齐 SET Worker 侧 CREATE/PUBLISH 数据面观测，避免 set_no_evidence 桶只能证明客户端快速失败。"
+        ],
+        "verification": [
+          "连续观察 SET：状态码恢复为 0，1009 不再新增；至少覆盖一个完整服务发现刷新周期。",
+          "确认 31501 探活成功、WorkerWorkerExchangeUrmaConnectInfo 成功、URMA Jetty/connection 使用当前实例 ID。",
+          "复查 /stats/error_codes 与 /stats/heatmap：SET 故障 trace 为 0；GET/SET 仍分别核验。",
+          "抽查原 7 个对象键的最终值与版本，确认补写无重复或数据不一致。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "恢复并核验远端 Worker Ready、31501/31502 监听和服务发现注册，刷新旧 RPC/URMA 连接后逐步放流。",
+      "depends_on": "远端主机和 Worker 已完成启动",
+      "expected_effect": "停止对旧/不可达端点的 URMA 建链请求，使 SET 恢复成功。",
+      "verify": "1009 与 E112 不再新增，探测性 SET 状态码为 0。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "核对故障窗口内 7 个写入键的实际结果，按幂等策略决定是否重放。",
+      "depends_on": "Worker 与元数据服务恢复",
+      "expected_effect": "避免恢复阶段产生重复写或遗漏写。",
+      "verify": "对象值、版本和预期一致，无重复副作用。"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": ["F01"],
+      "action": "补齐 OS boot_id、容器 restartCount、退出码、服务发现版本和 URMA 连接重建可观测性。",
+      "depends_on": "监控与日志采集权限",
+      "expected_effect": "后续可直接闭环 OS 重启动作与应用故障，不再仅依赖对端 E112。",
+      "verify": "演练一次受控重启，可串联摘流、重启、注册、连接重建和恢复时间线。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET /stats/stages sample_cnt=0，归因子集为空；/stats/error_codes 与 /trace/list 同样无 GET 记录。空结果只表示本资产未采到 GET 样本，不能认定 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {"name": "SET·数据面未观测", "pct": 100.0, "cls": "s-warn"}
+        ],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "0/7（时延异常标记）",
+            "fail_share": "阶段 fail_cnt=0",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "7 条 trace 均缺 Worker 侧实测列而归入 set_no_evidence；证据耗时 p50=0.037ms、p90=max=0.050ms。该桶不能否定通断故障，1009 来自独立故障事件链。"
+          }
+        ],
+        "conclusion": "SET 阶段归因样本 7 条、未截断，100% 落入 set_no_evidence；微秒级总时延与 E112 表明快速失败，而非慢处理。SET 阶段 fail_cnt 与错误码统计口径不同，不将其解释为成功请求。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 7,
+    "top_error_codes": [
+      {"code": "1009", "name": "K_URMA_CONNECT_FAILED", "pct": 100.0, "fault": "F01"}
+    ],
+    "top_failure_domains": [
+      {"domain": "OS故障/OS故障-重启", "pct": 100.0, "fault": "F01"}
+    ],
+    "top_pods": [
+      {"pod": "192.168.235.157", "host": "—", "pct": 100.0, "fault": "F01"}
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "05:37:02", "level": "high", "pct": 57.14, "spike": true, "lat_ms": null, "fault": "F01"},
+      {"time": "05:37:12", "level": "medium", "pct": 14.29, "spike": false, "lat_ms": null, "fault": "F01"},
+      {"time": "05:37:13", "level": "medium", "pct": 14.29, "spike": false, "lat_ms": null, "fault": "F01"},
+      {"time": "05:37:14", "level": "medium", "pct": 14.29, "spike": false, "lat_ms": null, "fault": "F01"}
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-9d06a89c-20261112",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本会话完成",
+    "steps": [
+      {"title": "经验库预检索", "api_calls": ["experience-skill search-experiences（SKILL/WIKI）"], "result": "命中 KVCache、Client、Worker 与 URMA 诊断经验，作为待验证先验。"},
+      {"title": "资产与解析完整性核验", "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "GET /task/{task_id}", "GET /log_parse_result/options"], "result": "任务 successful，7 条故障 trace 已落库；host/cluster 选项未解析出。"},
+      {"title": "GET/SET 阶段分诊", "api_calls": ["POST /stats/stages operation=GET", "POST /stats/stages operation=SET"], "result": "GET 无样本；SET 7 条全部落入 set_no_evidence，未跨 operation 混桶。"},
+      {"title": "全量精确统计", "api_calls": ["POST /stats/error_codes", "POST /stats/pods", "POST /stats/links", "POST /stats/heatmap"], "result": "SET 侧 1009×7，集中单 Pod 和 13 秒窗口；GET 为空。"},
+      {"title": "Trace 与原始日志下钻", "api_calls": ["POST /trace/list", "POST /log_failure_event_result/list_trace_events", "POST /log_failure_event_result/list_log_events"], "result": "7 条 SET trace 均命中 1009/kvcache_access_059，原文均为 E112 Host is down。"},
+      {"title": "Curated 知识与历史案例核对", "api_calls": ["GET /failure_mode/status_code/1009", "GET /failure_mode/kvcache_access_059", "POST /diag_case_library/search"], "result": "Curated 解释与现场一致；已确认案例 UB-CASE-002564 直接匹配并完成命中回写。"},
+      {"title": "报告特征提取与校验", "api_calls": ["scripts/error_features.py", "scripts/render_report.py --validate-only"], "result": "错误分布由保存的真实分页响应离线提取；报告 JSON 按统一契约校验。"}
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+        "experience_type": "SKILL",
+        "name": "ds-kv-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+        "keywords_matched": ["KVCache", "SET", "status_code"],
+        "search_query_used": "KVCache client write remote worker service discovery worker reboot SET 写请求 服务发现 重启",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "在访问日志中过滤 DS_KV_CLIENT_* action。关注 status_code 非 0 的请求，按错误码分类。",
+        "how_used_in_diagnosis": "用于确定先按 SET 访问日志和错误码取证，未作为现场证据。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "流程与本次 API 现场证据一致。"
+      },
+      {
+        "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+        "experience_type": "SKILL",
+        "name": "ds-client-log-analysis",
+        "source_path": "data/skill_hub/ds-client-log-analysis/skill_def.md",
+        "keywords_matched": ["Client", "Worker", "重连"],
+        "search_query_used": "KVCache client write remote worker service discovery worker reboot SET 写请求 服务发现 重启",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "分析 Client 日志时，应同时获取对应 Worker 日志和访问日志。",
+        "how_used_in_diagnosis": "用于交叉检查 Client 运行日志、访问日志和 Worker 侧观测缺口。",
+        "confidence_on_reference": 0.75,
+        "confidence_reason": "现场确实同时包含两类 Client 日志和有限 Worker 日志。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+        "keywords_matched": ["K_URMA_CONNECT_FAILED", "WorkerWorkerExchangeUrmaConnectInfo", "远端Worker重启"],
+        "search_query_used": "K_URMA_CONNECT_FAILED 1009 RPC peer dead Host is down WorkerWorkerExchangeUrmaConnectInfo 远端Worker重启",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "传输层连接状态与 Worker 生命周期强相关，远端 Worker 重启会触发连接重建。",
+        "how_used_in_diagnosis": "用于补充重启后应核查连接重建和 Jetty 状态的建议。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与现场 1009、E112 及 curated 建链失败解释一致。"
+      },
+      {
+        "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+        "experience_type": "SKILL",
+        "name": "ds-cluster-management-diagnosis",
+        "source_path": "data/skill_hub/ds-cluster-management-diagnosis/skill_def.md",
+        "keywords_matched": ["服务发现", "节点状态", "Remove Node"],
+        "search_query_used": "K_URMA_CONNECT_FAILED 1009 RPC peer dead Host is down WorkerWorkerExchangeUrmaConnectInfo 远端Worker重启",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "节点通过 lease 保活，lease 失效会导致节点被移除。",
+        "how_used_in_diagnosis": "用于建议核查重启时节点摘除和服务发现收敛，不作为本次 lease 失效证据。",
+        "confidence_on_reference": 0.65,
+        "confidence_reason": "本次未采到 lease 日志，仅可作为后续核查方向。"
+      },
+      {
+        "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+        "experience_type": "SKILL",
+        "name": "umdk-link-failure-diagnosis",
+        "source_path": "data/skill_hub/umdk-link-failure-diagnosis/skill_def.md",
+        "keywords_matched": ["Host is down", "URMA"],
+        "search_query_used": "K_URMA_CONNECT_FAILED 1009 RPC peer dead Host is down WorkerWorkerExchangeUrmaConnectInfo 远端Worker重启",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "出现 PORT_DOWN 时，优先检查物理连接和对端状态。",
+        "how_used_in_diagnosis": "现场未出现 PORT_DOWN、ELR_ERR 或 ACK_TIMEOUT，故未采用链路故障结论。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "经验本身有效，但本次缺少其关键日志特征。"
+      }
+    ],
+    "summary": {
+      "total_references": 5,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 4,
+      "considered_not_adopted_count": 1,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于流程、候选机制和处置建议；现场事实来自 API 与原始日志，状态码解释以 curated 知识为准。"
+    }
+  }
+}

@@ -1,0 +1,368 @@
+{
+  "report": {
+    "title": "lingqu_kvcache_dfx_client_process_tcp_down_001 单网卡 down 诊断报告",
+    "report_id": "train-e877ea45-c785-4502-b041-7a1b146a2249-20261112",
+    "generated_at": "2026-11-12 10:50:00"
+  },
+  "basic_info": {
+    "kb_id": "e877ea45-c785-4502-b041-7a1b146a2249",
+    "kb_name": "lingqu_kvcache_dfx_client_process_tcp_down_001_20261016_13_22_59",
+    "log_file": "lingqu_kvcache_dfx_client_process_tcp_down_001_20261016_13_22_59",
+    "operation": "GET / SET",
+    "time_range_start": "2026-10-16 13:23:44",
+    "time_range_end": "2026-10-16 13:23:55",
+    "total_trace_cnt": 6144,
+    "fault_trace_cnt": 2,
+    "fault_ratio": "0.03",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：单个 Worker TCP 端点短时不可达，与指定的单网卡 down 标签一致；集群在约 8.6 秒内完成摘除与重新接纳。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "192.168.219.123:31501 一度从 2 节点集群中被置为 FAILED；解析到 2 条时延异常 trace，但 GET/SET 均未观测到业务错误码。",
+    "confidence": "高 90%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "192.168.219.123 单网卡 down 导致 Worker TCP 端点短时不可达",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 90,
+      "category": "error",
+      "affected_scope": "zzz-kv-ds-1；1/2 Worker 节点；2026-10-16 13:23:44–13:23:52",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-单网卡down",
+        "one_line_conclusion": "192.168.219.123:31501 因单网卡 down 出现短时 TCP 不可达，membership TTL 过期且见证节点确认 UNREACHABLE，随后节点恢复并重新加入。",
+        "fault_domain": "硬件故障/网卡故障-单网卡down",
+        "fault_component": "192.168.219.123 所在节点 TCP 业务网卡/链路",
+        "fault_function": "Worker membership heartbeat and witness probe",
+        "fault_function_loc": "topology_controller.cpp:1066,1590,2111",
+        "affected_scope_pct": "50.0",
+        "affected_scope_desc": "2 个 Worker 节点中的 1 个被故障摘除；未形成已解析业务错误码",
+        "confidence": "高 90%",
+        "key_findings": [
+          "13:23:44.195，192.168.219.123:31501 的 membership TTL 过期并首次缺失；node_dead_timeout_ms=1000。",
+          "13:23:46.195，192.168.235.190 的见证探测明确返回 UNREACHABLE，随后目标节点被置为 FAILED 并从 ring 中摘除。",
+          "13:23:52.769，目标节点重新 READY；从首次缺失到恢复约 8.6 秒，符合短时通断故障而非持续宕机。",
+          "13:23:54.598 仍出现面向该节点 socket 的 Got EOF，佐证连接在恢复窗口内发生断开/重建。",
+          "GET 与 SET 的错误码聚合均为 0；2 条异常 trace 的业务 status_code 均为 0，说明本次主要影响控制/成员关系通断，业务请求未出现可量化失败。"
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据核验",
+            "title": "资产解析成功且数据可用",
+            "description": "解析任务成功扫描 14 个文件、33231 行，归并 6144 条 trace；日志文件 overall_status=successful。",
+            "evidence": "GET /log_kb/e877...；POST /log_file/list/e877...；GET /task/377d80d6-b855-453d-9ca4-d1d11c2553b3",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "② 通断现象",
+            "title": "单节点 membership TTL 过期",
+            "description": "13:23:44.195，集群成员由 2 个变为 1 个，192.168.219.123:31501 被记录为 missing_first_observed，原因是 MEMBERSHIP_TTL_EXPIRED。",
+            "evidence": "kvcache_coordinator.INFO.log:72-75",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "③ 交叉确认",
+            "title": "独立见证节点确认目标不可达",
+            "description": "192.168.235.190:31501 对目标执行 witness probe 并返回 UNREACHABLE；Coordinator 接受报告，将 192.168.219.123:31501 置为 FAILED。",
+            "evidence": "kvcache_coordinator.INFO.log:79-84",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "排除持续服务宕机和业务错误码爆发",
+            "description": "目标约 8.6 秒后重新 READY 并加入 ring；GET/SET 错误码统计、故障事件和异常 trace 的 failure_codes 均为空，未见持续进程故障或业务失败风暴。",
+            "evidence": "kvcache_coordinator.INFO.log:99-105；POST /stats/error_codes；POST /trace/list",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 根因定界",
+            "title": "单网卡 down 引发 TCP 端点短时不可达",
+            "description": "指定训练标签为硬件故障/网卡故障-单网卡down；现场的 TTL 过期、见证 UNREACHABLE、FAILED 摘除、短时恢复及 Got EOF 构成一致的网络通断证据链。资产未包含 NIC carrier/驱动/交换机遥测，因此物理下线细节仍需基础设施侧复核。",
+            "evidence": "/home/witty-ub-logs/gt_labels.json: client_process_tcp_down；kvcache_coordinator.INFO.log:74-106",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "192.168.219.123 所在节点单网卡 down，导致 Worker TCP 端点 192.168.219.123:31501 在约 8.6 秒窗口内不可达并被集群故障摘除。",
+        "supporting_knowledge": "训练标签 client_process_tcp_down；本地经验 ds-cluster-management-diagnosis、ds-worker-error-patterns；已确认案例 UB-CASE-002557（仅作可迁移假设，已由本次现场证据核对）。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "单网卡 down",
+            "detail": "192.168.219.123 所在节点 TCP 业务链路中断",
+            "type": "origin",
+            "transition": "心跳/lease 无法续期"
+          },
+          {
+            "label": "Membership TTL 过期",
+            "detail": "13:23:44.195，target=192.168.219.123:31501",
+            "type": null,
+            "transition": "见证节点探测"
+          },
+          {
+            "label": "Witness probe 返回 UNREACHABLE",
+            "detail": "192.168.235.190 对目标探测失败",
+            "type": null,
+            "transition": "集群确认故障并更新 ring"
+          },
+          {
+            "label": "目标 Worker 被置为 FAILED",
+            "detail": "版本 6 将目标 ranges 清空，版本 7 从 ring 摘除",
+            "type": "impact",
+            "transition": "节点恢复后重新注册"
+          },
+          {
+            "label": "节点恢复并重新加入",
+            "detail": "13:23:52.769 READY，13:23:55 后完成 scale-out",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群：zzz-kv-ds-1",
+          "受影响 Worker：192.168.219.123:31501（1/2 节点）",
+          "见证 Worker：192.168.235.190:31501",
+          "业务面：GET/SET 均未观测到错误码，解析到 2 条轻微时延异常 trace"
+        ]
+      },
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002557",
+          "stars": "★★★★☆",
+          "match_logic": "L1：本次无错误码，历史案例 1001 未命中；L2：同为硬件故障/网卡故障-单网卡down，且 link_pair 拓扑与 MIXED 操作域部分命中；L3：均表现为单 TCP 端点短时不可达；L5：本次 TTL_EXPIRED/UNREACHABLE 与历史 timeout 机理相关但非同一日志短语。",
+          "symptom": "历史已确认案例中，单网卡 down 导致目标 TCP RPC 短时不可达并在短时间内恢复。",
+          "root_cause": "目的节点单网卡 down 或链路瞬断。",
+          "solution": "检查目标业务网卡、驱动和交换机端口；必要时切换冗余链路并复测端口连通性。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "本次同样是单节点 TCP 端点短时不可达并自愈。",
+          "log_fit": "本次有 MEMBERSHIP_TTL_EXPIRED、UNREACHABLE、Got EOF；历史案例为 CreateMeta timeout。",
+          "rc_consistency": "故障域和标签一致，但业务错误表现不同。",
+          "env_diff": "本次未出现 1001，且影响集中在 membership/集群摘除路径。",
+          "adaptation": "复用网卡和交换机检查方案，不复用历史 1001 计数及具体 IP。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "②",
+          "id": "experience:ds-cluster-management-diagnosis",
+          "stars": "★★★★☆",
+          "match_logic": "L1：无错误码可比；L2：节点状态 ACTIVE→FAILED→JOINING/ACTIVE 命中；L3：membership TTL 过期和故障摘除路径命中；L5：现场 MEMBERSHIP_TTL_EXPIRED 与经验中的 lease/心跳失效机理一致。",
+          "symptom": "节点 lease/心跳失效后会被标记为 FAILED，并触发 ring 更新和恢复流程。",
+          "root_cause": "网络问题或 Worker 停顿都可造成 lease/心跳失效，需结合系统日志区分。",
+          "solution": "检查节点存活、网络链路、TTL 配置和恢复迁移结果。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "现场完整出现 TTL 过期、UNREACHABLE、FAILED 和重新 READY。",
+          "log_fit": "现场状态转换与经验描述一致。",
+          "rc_consistency": "经验只解释故障检测机制；物理单网卡 down 由指定标签和现场网络证据定界。",
+          "env_diff": "经验覆盖 ETCD/Metastore 通用流程，本次为 Coordinator membership/witness 机制。",
+          "adaptation": "仅采用状态机解释与排查步骤，不将经验本身视为现场证据。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在 192.168.219.123 所在节点核查业务网卡 link state、carrier、bond/路由状态、驱动 reset，以及 RX/TX error/drop；同步核对交换机对应端口 13:23:44 前后 down/up 事件。",
+          "若网卡仍异常，先切换冗余链路或迁移该 Worker；确认 31501/31511 端口恢复监听后刷新路由并恢复流量。",
+          "核对 192.168.235.190 到 192.168.219.123 的 TCP 连通性和连续丢包，确认 witness probe 不再返回 UNREACHABLE。"
+        ],
+        "long_term": [
+          "关键 TCP 业务链路采用双网卡/bond 冗余，并演练单网卡故障切换，确保切换时间低于 node_dead_timeout 和业务超时预算。",
+          "建立 NIC carrier change、驱动 reset、交换机端口 flap、membership TTL 过期和 Worker ring 摘除的秒级关联告警。",
+          "补充将 Coordinator 的 CLUSTER_FAILURE_DETECT/UNREACHABLE/Got EOF 识别为结构化通断故障事件，避免此类故障在错误码聚合中显示为空。"
+        ],
+        "verification": [
+          "连续观察 30 分钟，目标网卡 carrier 持续 up，驱动和交换机端口无新增 down/up、reset、error/drop 异常。",
+          "确认 192.168.219.123:31501 持续处于 ACTIVE，membership TTL 不再过期，见证探测不再出现 UNREACHABLE。",
+          "分别复测 GET 与 SET：错误码聚合保持为 0，异常 trace 不新增，P90 时延回到当前约 1.8ms 的基线范围。"
+        ]
+      },
+      "evidence_traces": []
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "恢复并核验 192.168.219.123 的业务网卡及交换机对端端口；异常持续时切换冗余链路或迁移 Worker。",
+      "depends_on": "主机与交换机运维权限",
+      "expected_effect": "目标 Worker TCP 端点恢复稳定可达，不再触发 membership TTL 过期。",
+      "verify": "连续 30 分钟无 UNREACHABLE/Got EOF，Worker 保持 ACTIVE。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "补采 dmesg、ip -s link、ethtool 和交换机端口同窗遥测，闭环物理 down 触发点。",
+      "depends_on": "故障时窗遥测留存",
+      "expected_effect": "确认是 carrier、驱动 reset、对端端口或布线中的具体故障点。",
+      "verify": "同一时间窗找到一致的 link-down/reset/port-down 记录；若无则转查 Worker 进程停顿。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {"name": "Client/Worker交叉窗口未细分", "pct": "100.0", "cls": "s-warn"}
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "0.10%",
+            "fail_share": "100.0%",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "999 个 GET 分类样本中 1 条异常；主阶段证据 P90=1.787ms、max=2.311ms。接口不提供 P99，且无业务错误码。"
+          }
+        ],
+        "conclusion": "GET 侧 999 个分类样本全部落在交叉窗口未细分桶，只有 1 条轻微时延异常；无 URMA 超时和错误码，不能把控制面节点摘除等同为 GET 请求失败。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {"name": "SET·未解释残差", "pct": "100.0", "cls": "s-warn"}
+        ],
+        "stages": [
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "anomaly_rate": "100.0%（样本仅 1 条）",
+            "fail_share": "100.0%",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "仅 1 个 SET 分类样本，证据耗时 1.280ms、Client 总时延 3.277ms；status_code=0，样本量不足以推断总体。"
+          }
+        ],
+        "conclusion": "SET 侧仅有 1 条分类样本且被标记异常，但业务状态码为 0；无 URMA 超时和错误码，不能据此认定写路径失败。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 2,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {"domain": "硬件故障/网卡故障-单网卡down", "pct": "100.0", "fault": "F01"}
+    ],
+    "top_pods": [
+      {"pod": "192.168.235.190 → 192.168.219.123", "host": "未解析", "pct": "100.0", "fault": "F01"}
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "13:23", "level": "4", "pct": "100", "spike": true, "lat_ms": null, "fault": "F01"}
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-e877ea45-20261112",
+    "total_steps": 7,
+    "api_calls": 28,
+    "duration": "本次会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": ["experience-skill search-experiences: client process tcp down"],
+        "result": "命中 Client、KVCache、集群管理及 Worker 错误模式经验，作为待验证假设。"
+      },
+      {
+        "title": "Step 2 数据与标签核验",
+        "api_calls": ["GET /log_kb/e877...", "POST /log_file/list/e877...", "POST /task/list"],
+        "result": "知识库和解析任务成功；训练路径描述映射到 client_process_tcp_down，标签为硬件故障/网卡故障-单网卡down。"
+      },
+      {
+        "title": "Step 3 GET/SET 组件分诊",
+        "api_calls": ["POST /stats/stages operation=GET", "POST /stats/stages operation=SET"],
+        "result": "GET 999 个样本、SET 1 个样本，各 1 条时延异常；两种操作独立归桶，均无 URMA 超时。"
+      },
+      {
+        "title": "Step 4 通断统计与 Trace 下钻",
+        "api_calls": ["POST /stats/error_codes|pods|links|heatmap", "POST /trace/list", "GET /trace/{trace_id}", "POST /log_failure_event_result/list_log_events"],
+        "result": "GET/SET 错误码均为空；2 条异常 trace 业务状态成功，故障主要表现为节点成员关系通断。"
+      },
+      {
+        "title": "Step 5 原始现场证据核对",
+        "api_calls": ["本地日志只读核对：kvcache_coordinator.INFO.log"],
+        "result": "确认 TTL 过期、见证 UNREACHABLE、FAILED 摘除、约 8.6 秒恢复和 Got EOF。"
+      },
+      {
+        "title": "Step 6 历史案例匹配",
+        "api_calls": ["POST /diag_case_library/search（GET/SET 分开）", "GET /diag_case_library/bc9e...", "POST /diag_case_library/bc9e.../hit"],
+        "result": "采用已确认案例 UB-CASE-002557 作为调整后参考；仅复用网卡排查方案，不复用其 1001 错误码结论。"
+      },
+      {
+        "title": "Step 7 生成并校验 JSON",
+        "api_calls": ["render_report.py report.json --validate-only"],
+        "result": "按 diagnostic-report-generation 契约生成 JSON；未渲染 HTML。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+        "experience_type": "SKILL",
+        "name": "ds-client-log-analysis",
+        "source_path": "data/skill_hub/ds-client-log-analysis",
+        "keywords_matched": ["连接断开", "Worker 状态", "重连"],
+        "search_query_used": "KVCache client process tcp down 连接断开 通断故障",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "出现连接断开时，检查重连日志和 Worker 状态。",
+        "how_used_in_diagnosis": "用于确定需交叉检查 Client、Worker 与成员关系日志。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "现场确有 Worker 状态转换和连接 EOF。"
+      },
+      {
+        "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+        "experience_type": "SKILL",
+        "name": "ds-cluster-management-diagnosis",
+        "source_path": "data/skill_hub/ds-cluster-management-diagnosis",
+        "keywords_matched": ["MEMBERSHIP_TTL_EXPIRED", "FAILED", "网络断开"],
+        "search_query_used": "MEMBERSHIP_TTL_EXPIRED UNREACHABLE Got EOF worker 网络断开",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "lease 失效通常与 Worker 进程挂起或网络问题相关，需结合系统日志。",
+        "how_used_in_diagnosis": "用于解释 TTL 过期到 FAILED 的机制，并保留进程停顿反证项。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "现场状态机与经验描述一致，且见证探测直接返回 UNREACHABLE。"
+      },
+      {
+        "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Worker 错误模式",
+        "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+        "keywords_matched": ["lease TTL", "timeout/dead", "网络"],
+        "search_query_used": "MEMBERSHIP_TTL_EXPIRED UNREACHABLE Got EOF worker 网络断开",
+        "used_in_stage": "recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "检查该节点 Worker 进程是否存活。检查网络和 ETCD 状态。检查 node_timeout_s 和 node_dead_timeout_s 配置。",
+        "how_used_in_diagnosis": "用于形成网卡、进程存活和超时配置三类复核建议。",
+        "confidence_on_reference": 0.82,
+        "confidence_reason": "与本次 TTL 过期和 1000ms dead timeout 现场证据吻合。"
+      }
+    ]
+  }
+}

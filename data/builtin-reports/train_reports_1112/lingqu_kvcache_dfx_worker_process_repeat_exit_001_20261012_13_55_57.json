@@ -1,0 +1,513 @@
+{
+  "report": {
+    "title": "lingqu_kvcache_dfx_worker_process_repeat_exit_001_20261012_13_55_57 诊断报告",
+    "report_id": "TRAIN-46d60f6b-20261112",
+    "generated_at": "2026-11-12T15:28:18+08:00"
+  },
+  "basic_info": {
+    "kb_id": "46d60f6b-098d-4ac9-b579-bec660ed29ee",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_repeat_exit_001_20261012_13_55_57",
+    "log_file": "/home/witty-ub-logs/data/train/lingqu_kvcache_dfx_worker_process_repeat_exit_001_20261012_13_55_57",
+    "operation": "GET（SET 无样本）",
+    "time_range_start": "2026-10-12 13:55:04.734",
+    "time_range_end": "2026-10-12 13:55:05.612",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到 1 个待确认故障：固定标签为 Worker 进程反复重启；现场仅能确认同窗 1 条 GET 时延异常，缺少进程生命周期日志，不能把标签直接升级为已证实根因。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "1 条 GET trace 被标记异常，涉及同一 trace 中 4 个 Pod IP；SET 无样本，通断故障事件为 0。",
+    "confidence": "中低 45%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Worker 进程反复重启（固定标签，现场待补证）",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 45,
+      "category": "latency",
+      "affected_scope": "ci-kv-ds-1；单条 GET trace 涉及 4 个 Pod IP；2026-10-12 13:55:04~13:55:05",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程反复重启",
+        "one_line_conclusion": "按 train_valid.md 日志路径对应描述 worker_process_repeat_exit，从 gt_labels.json 固定归类为 Worker故障/Worker故障-进程反复重启；现场 API 仅确认 1 条 23.298ms GET 异常，尚无进程退出、拉起或重启次数的直接日志证据。",
+        "fault_domain": "Worker故障/Worker故障-进程反复重启",
+        "fault_component": "KVCache Worker 进程（具体 Pod 待确认）",
+        "fault_function": null,
+        "fault_function_loc": null,
+        "affected_scope_pct": "100.00",
+        "affected_scope_desc": "当前资产库仅 1 条解析 trace，该 trace 涉及 4 个 Pod IP；不等同于 4 个独立故障 Pod。",
+        "confidence": "中低 45%",
+        "key_findings": [
+          "资产库解析任务 successful：扫描 12 个文件、4 行，归并为 1 条 trace；定界工具产出 0 个故障 trace，解析侧新增 1 条时延异常 trace。",
+          "GET /stats/stages 样本数 1，唯一 trace 归入 cross_window；证据耗时 P50/P90/max 均为 23.298ms，Worker 窗口占比中位数仅 0.6%。",
+          "异常 trace=d9f86066-825e-43bc-ab7a-b3fb5df96ee7，操作 DS_KV_CLIENT_GET，状态码为 0、failure_codes 为空。",
+          "SET /stats/stages 样本数 0；GET/SET 通断 trace 查询均为 0，Top 错误码为 0。",
+          "日志包中的 Worker/Client INFO 日志为空，仅有 4 行访问日志，无法观察进程退出、重启拉起、lease 失效、FATAL、OOM 或信号处理。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "GET 异常 trace",
+            "value": "1 条",
+            "sub": "资产库全部解析 trace",
+            "tone": "danger"
+          },
+          {
+            "label": "端到端耗时",
+            "value": "23.298ms",
+            "sub": "单样本，不能称为 P99",
+            "tone": "warn"
+          },
+          {
+            "label": "Worker 窗口",
+            "value": "0.131ms",
+            "sub": "约占总时延 0.6%",
+            "tone": "ok"
+          },
+          {
+            "label": "SET 样本",
+            "value": "0 条",
+            "sub": "无写路径证据",
+            "tone": "neutral"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker 交叉窗口未细分（cross_window）",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100%（1/1 分类样本）",
+            "status": "warn",
+            "detail": "桶内仅 1 条样本，P90/max=23.298ms；Worker 窗口占比中位数 0.6%，现有观测更接近客户端等待主导，但不能据此证明或排除 Worker 进程重启。"
+          }
+        ],
+        "conclusion": "GET 仅有 1 条异常样本，归入 <strong>cross_window</strong>，端到端耗时 23.298ms；Worker 已观测窗口很短。由于没有可比基线、没有 P99、没有进程生命周期日志，时延证据只能说明客户端等待主导，不能独立确认固定标签所述的 Worker 反复重启。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析成功但现场日志极稀疏",
+            "description": "任务状态 successful，扫描 12 个文件仅得到 4 行访问日志和 1 条 trace；故障定界侧没有产出故障 trace。",
+            "evidence": "GET /log_kb/{kb_id}；POST /log_file/list/{kb_id}：overall_status=successful，trace_failure_event_cnt=0，parse rows=1，diagnosis rows=0。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作域分离",
+            "title": "仅 GET 有样本，SET 无样本",
+            "description": "GET 与 SET 分别调用 /stats/stages；GET sample_cnt=1，SET sample_cnt=0，未跨操作混桶。",
+            "evidence": "POST /stats/stages(operation=GET/SET, log_id=47cb2de3-3011-4b98-a34f-39357b85518b)。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 现场现象",
+            "title": "唯一 GET trace 为交叉窗口未细分异常",
+            "description": "trace 总耗时 23.298ms，SDK processing 23.167ms，local worker internal 0.131ms，worker total 0.035ms；状态码均为 0。",
+            "evidence": "POST /log_parse_result/list 与 GET /trace/d9f86066-825e-43bc-ab7a-b3fb5df96ee7。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 标签核对",
+            "title": "固定标签指向 Worker 进程反复重启",
+            "description": "用户指定以 train_valid.md 中路径对应的日志描述 worker_process_repeat_exit 查 gt_labels.json，得到 Worker故障/Worker故障-进程反复重启。该标签用于报告分类，不替代现场证据。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md 第193行；/home/witty-ub-logs/gt_labels.json 的 worker_process_repeat_exit 条目。",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "无法从现有日志确认重启闭环",
+            "description": "若 Worker 反复重启已被现场直接记录，应能看到至少两轮进程启动时间、退出/FATAL/信号、容器 restartCount 或健康检查变化；当前 Worker INFO 文件均为空，访问日志仅显示请求成功，故根因保持待确认。",
+            "evidence": "本地日志包 3 份 Worker kvcache.INFO.log 均为 0 行；GET/SET list_trace_events 均 total=0；/stats/error_codes total=0。",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": null,
+        "supporting_knowledge": "本地经验库 ds-worker-log-analysis 与 Wiki《yuanrong-datasystem Worker 错误模式》仅用于规定补证方向：核对最后 ERROR/FATAL、信号、lease、容器/系统日志；它们不是本次现场事实。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "GET 读取 16 个对象",
+            "detail": "Client 192.168.235.177，data_size=134217728，status_code=0",
+            "type": "observation",
+            "transition": "请求进入 SDK 等待窗口"
+          },
+          {
+            "label": "SDK/交叉窗口等待主导",
+            "detail": "sdk_processing=23.167ms；cross_window 证据耗时=23.298ms",
+            "type": "observation",
+            "transition": "Worker 侧仅观察到短窗口"
+          },
+          {
+            "label": "Worker 访问成功返回",
+            "detail": "3 条 DS_POSIX_QUERY_AND_GET 均 status_code=0，单条 Worker access 耗时 0.034~0.062ms",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群：ci-kv-ds-1",
+          "Client Pod IP：192.168.235.177",
+          "同 trace 元数据/Worker 相关 Pod IP：192.168.219.76、192.168.235.175、192.168.189.100",
+          "固定标签指向 Worker 进程反复重启，但具体重启 Pod 和次数未被日志记录"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "d9f86066-825e-43bc-ab7a-b3fb5df96ee7",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top1；仅代表该桶证据耗时 Top，不代表故障严重度或普遍性",
+          "evidence_ms": 23.298,
+          "client_ms": 23.298,
+          "timestamp": "2026-10-12 13:55:04"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002577",
+          "stars": "★★★☆☆",
+          "match_logic": "L1：无错误码/故障模式 ID，未命中；L2：cross_window、GET/MIXED 操作域与 few_pods 规模命中；L3：本次无可用源目拓扑，未命中；L5：本次无进程退出原文关键词，未命中。",
+          "symptom": "历史已确认案例表现为多 Worker 进程退出后，GET 的元数据 RPC 无响应与数据面不可达，客户端等待升高。",
+          "root_cause": "历史案例根因为部分 Worker 进程退出；该结论只作为本次待验证假设。",
+          "solution": "参考其核验顺序补采 Worker/容器生命周期、端口监听与进程启动轮次；未取得相同现场证据前不直接执行重启。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "仅作参考",
+          "phenomenon_fit": "中：交叉窗口和少量 Pod 规模相近",
+          "log_fit": "低：本次没有 E1008、进程退出或空窗前后启动日志",
+          "rc_consistency": "未验证",
+          "env_diff": "历史案例包含多节点退出和 RPC 超时；本次只有一条成功 GET 访问 trace",
+          "adaptation": "仅复用取证清单，不复用确定性根因和直接重启处置",
+          "applicability": "reference"
+        },
+        {
+          "rank": "②",
+          "id": "experience:ds-worker-log-analysis",
+          "stars": "★★★☆☆",
+          "match_logic": "L1：无状态码可匹配；L2：Worker 生命周期故障域与固定标签一致；L3：无拓扑证据；L5：经验要求的 ERROR/FATAL、信号、lease 与容器日志在本次均缺失。",
+          "symptom": "经验库说明 Worker 异常退出需检查最后 ERROR/FATAL、lease 失效、信号处理，并区分正常重启与异常退出后重启。",
+          "root_cause": "经验库未对本次现场给出根因，只提供补证检查点。",
+          "solution": "补采 Worker INFO、container.log、restartCount、退出码、dmesg/systemd 与 lease 时间线。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "建议已采用",
+          "phenomenon_fit": "中：标签指向 Worker 反复重启",
+          "log_fit": "低：现场生命周期日志为空",
+          "rc_consistency": "不冲突，但未获现场验证",
+          "env_diff": "经验基于完整 Worker 生命周期日志，本资产库不具备",
+          "adaptation": "作为后续补采与复核清单",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "先补采固定标签所指 Worker 的进程/容器生命周期证据：至少覆盖故障前后 10 分钟，包含两轮以上启动 banner、退出码、信号/FATAL、容器 restartCount 与健康检查事件。",
+          "按 trace 时间 2026-10-12 13:55:04 对齐 4 个 Pod IP 的 Worker INFO、container runtime、Kubernetes Event 与节点 dmesg，确定具体退出 Pod、退出原因及重启次数。",
+          "在确认异常退出前不要仅凭 23.298ms 单条 GET trace 重启 Worker；当前访问日志状态码均为 0，先避免误处置。"
+        ],
+        "long_term": [
+          "为 Worker 进程启动、退出、restartCount、OOMKilled、健康检查失败和 lease 失效建立统一时间线采集，确保训练资产库保留生命周期日志而非仅访问日志。",
+          "为重复重启设置告警：在固定窗口内按 Pod 统计启动次数和退出码，并与 GET/SET 访问异常分开观测。",
+          "完善 cross_window 的 RPC/SDK 细分观测，补齐客户端排队、重试和 Worker 响应通知，以避免把客户端等待直接归因于 Worker。"
+        ],
+        "verification": [
+          "确认同一 Worker Pod 在故障窗口内存在至少两次退出→拉起闭环，记录每次时间、退出码和触发源；否则不得确认“进程反复重启”。",
+          "处置后连续观察 30 分钟，restartCount 不再增长，Worker 健康检查和端口监听持续正常。",
+          "分别复测 GET 与 SET：GET 不再出现同类 cross_window 异常，SET 需产生有效样本后单独验证，禁止用 GET 结果替代。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "补齐 Worker 进程/容器生命周期日志并按 13:55:04 故障窗建立退出—拉起时间线。",
+      "depends_on": "获得 Kubernetes/容器运行时和节点系统日志读取权限",
+      "expected_effect": "把固定标签从训练分类转化为可审计的现场证据，定位具体 Pod 与退出原因。",
+      "verify": "同一 Pod 至少两轮退出与启动记录可相互对应，并含退出码或触发原因。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "对异常 trace 的 SDK 等待段补采线程栈、RPC 排队/网络/响应通知指标。",
+      "depends_on": "可复现同类 GET 请求并开启对应观测",
+      "expected_effect": "解释 cross_window 的 23.298ms 等待，区分进程重启影响与客户端侧等待。",
+      "verify": "新 trace 可落入更具体阶段桶，且具有相同时间窗的进程生命周期对照。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—（仅 1 条样本）",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": "100.0",
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "RPC网络",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "归因桶 trace_cnt=0"
+          },
+          {
+            "name": "RPC排队",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "归因桶 trace_cnt=0"
+          },
+          {
+            "name": "QueryMeta",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "归因桶 trace_cnt=0"
+          },
+          {
+            "name": "URMA",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "归因桶 trace_cnt=0，URMA timeout 也为 0"
+          },
+          {
+            "name": "Data Worker服务端处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "归因桶 trace_cnt=0"
+          },
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—（P90/max=23.298ms）",
+            "anomaly_rate": "100%（1/1 分类样本）",
+            "fail_share": "1/1",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "唯一 trace；Worker 窗口占比中位数 0.6%，客户端等待主导。"
+          },
+          {
+            "name": "未解释残差",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "归因桶 trace_cnt=0"
+          },
+          {
+            "name": "URMA超时",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "归因桶 trace_cnt=0"
+          }
+        ],
+        "conclusion": "GET 样本数为 1，100% 被归入 cross_window；百分比仅表示参与分类样本的桶占比，不是耗时占比，也不是失败率。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—（无样本）",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0"
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0"
+          }
+        ],
+        "conclusion": "SET 归因子集为空，不能据此判断写路径健康，也不能与 GET 混合归桶。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 1,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {
+        "domain": "Worker故障/Worker故障-进程反复重启（固定标签，待现场确认）",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.189.100",
+        "host": "—",
+        "pct": "100.0%（同一条 trace）",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.76",
+        "host": "—",
+        "pct": "100.0%（同一条 trace）",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.175",
+        "host": "—",
+        "pct": "100.0%（同一条 trace）",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.177",
+        "host": "—",
+        "pct": "100.0%（同一条 trace）",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-10-12 13:55",
+        "level": "warn",
+        "pct": "100.0",
+        "spike": true,
+        "lat_ms": "23.298",
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-46d60f6b",
+    "total_steps": 7,
+    "api_calls": 15,
+    "duration": "本次会话",
+    "steps": [
+      {
+        "title": "Step 1 固定标签核验",
+        "api_calls": [],
+        "result": "train_valid.md 路径对应描述为 worker_process_repeat_exit；gt_labels.json 固定标签为 Worker故障/Worker故障-进程反复重启。"
+      },
+      {
+        "title": "Step 2 经验库预检索",
+        "api_calls": ["experience-skill search-experiences（SKILL/WIKI）"],
+        "result": "命中 ds-worker-log-analysis 与《yuanrong-datasystem Worker 错误模式》，仅作为补证清单。"
+      },
+      {
+        "title": "Step 3 数据完整性核验",
+        "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "GET /log_parse_result/options"],
+        "result": "任务 successful；12 文件/4 行/1 trace；故障定界 0 条、解析异常 1 条。"
+      },
+      {
+        "title": "Step 4 GET/SET 独立分诊",
+        "api_calls": ["POST /stats/stages operation=GET", "POST /stats/stages operation=SET"],
+        "result": "GET sample_cnt=1，归入 cross_window；SET sample_cnt=0，未混桶。"
+      },
+      {
+        "title": "Step 5 Trace 与统计下钻",
+        "api_calls": ["POST /trace/list", "GET /trace/{trace_id}", "POST /log_parse_result/list", "POST /stats/error_codes", "POST /stats/pods", "POST /stats/links", "POST /stats/heatmap"],
+        "result": "唯一异常 GET trace 为 23.298ms，failure_codes 为空；4 个 Pod IP 均属于同一 trace。"
+      },
+      {
+        "title": "Step 6 通断与历史案例复核",
+        "api_calls": ["POST /log_failure_event_result/list_trace_events operation=GET", "POST /log_failure_event_result/list_trace_events operation=SET", "POST /diag_case_library/search"],
+        "result": "GET/SET 通断事件均为 0；已确认案例 UB-CASE-002577 仅 L2 特征匹配，作为待验证参考并完成命中回写。"
+      },
+      {
+        "title": "Step 7 报告生成",
+        "api_calls": [],
+        "result": "生成完整契约 JSON，并准备执行独立校验、HTML 渲染与区块自检。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+      "keywords_matched": ["worker", "进程反复退出", "异常退出", "重启"],
+      "search_query_used": "KVCACHE worker process repeated exit 进程反复退出 DFX",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "异常退出时，检查最后 ERROR/FATAL 日志、lease 失效、信号处理。",
+      "how_used_in_diagnosis": "用于制定 Worker 生命周期补采与反证检查清单，未作为现场根因证据。",
+      "confidence_on_reference": 0.75,
+      "confidence_reason": "排查方法适用于 Worker 生命周期问题，但本次对应日志为空。"
+    },
+    {
+      "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem Worker 错误模式",
+      "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+      "keywords_matched": ["worker", "错误模式", "异常退出", "重启"],
+      "search_query_used": "GET cross_window 23ms Worker 进程反复重启 无故障码",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "Worker 异常退出前通常有 ERROR 或 FATAL 日志，但 `kill -9` 或 OOM killer 终止时可能没有。",
+      "how_used_in_diagnosis": "用于说明缺失 ERROR/FATAL 不能单独排除 kill -9/OOM，需补采容器与系统日志。",
+      "confidence_on_reference": 0.7,
+      "confidence_reason": "与常见进程退出观测边界一致，但本次没有系统侧日志交叉验证。"
+    }
+  ]
+}

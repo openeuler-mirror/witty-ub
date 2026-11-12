@@ -1,0 +1,645 @@
+{
+  "report": {
+    "title": "KVCache Worker 链式迁移期间写链路故障诊断报告",
+    "report_id": "diag-813d5ac1-20261112-worker-chain-migration",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "813d5ac1-cb8c-4fd1-ad9b-35a91bccc59d",
+    "kb_name": "lingqu_kvcache_dfx_worker_chain_migration_001_20260923_16_24_44",
+    "log_file": "b28224b4-71ea-4a65-ae8a-3e751efa5973 / lingqu_kvcache_dfx_worker_chain_migration_001_20260923_16_24_44",
+    "operation": "SET（GET 无归因样本）",
+    "time_range_start": "2026-09-23 16:22:40.724",
+    "time_range_end": "2026-09-23 16:22:41.837",
+    "total_trace_cnt": 2,
+    "fault_trace_cnt": 2,
+    "fault_ratio": "100%（仅指本资产库解析出的 2 条 SET trace）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC peer dead": 0.164354,
+      "T:E112": 0.986122,
+      "C:Metadata owner unavailable": 0.023479
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到 Worker 进程退出及其容器重启标签描述的同一故障链；现场直接证实目标 31501 端点先超时后 peer dead，容器重启触发细节仍需编排侧事件闭环。",
+    "fault_count": 2,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 1,
+    "independent_fault_count": 0,
+    "overall_impact": "SET 的 Create/CreateMeta/Publish 写链路在 1.1 秒窗口内出现 2/2 条异常，分别返回 1001 与 39。",
+    "confidence": "高（Worker 端点失活与业务影响）；中（容器重启触发细节）"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "目标 Worker 进程退出/失活导致 SET 元数据发布失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 0.94,
+      "category": "mixed",
+      "affected_scope": "2 个观测 Pod、1 个共同目标 Worker 端点",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程退出",
+        "one_line_conclusion": "192.168.235.142:31501 在 SET 窗口内由 100ms 无响应转为 E112 peer dead，导致 Create/CreateMeta/Publish 失败并上浮 1001/39。",
+        "fault_domain": "Worker故障/Worker故障-进程退出",
+        "fault_component": "KVCache Worker / metadata owner",
+        "fault_function": "WorkerOCService.Create、MasterOCService.CreateMeta、Publish",
+        "fault_function_loc": "access_recorder.cpp:1066；transport_layer.cpp:871；worker_oc_service_publish_impl.cpp:483/675",
+        "affected_scope_pct": 100,
+        "affected_scope_desc": "本资产库解析出的 2 条 SET trace 全部异常；GET 无样本，不能外推到整体业务失败率。",
+        "confidence": 0.94,
+        "key_findings": [
+          "16:22:40.724，Create 到 192.168.235.142:31501 达到 100ms deadline，返回 1001。",
+          "约 1.1 秒后，同一目标被客户端及 192.168.189.70 Worker 判定 E112 Host is down / RPC peer dead。",
+          "CreateMeta 重试失败后 Publish 返回 39（Metadata owner unavailable）。",
+          "错误码 1001 与 39 各占逐码命中次数的 50%；均集中在同一分钟。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "异常 trace",
+            "value": "2",
+            "sub": "SET",
+            "tone": "bad"
+          },
+          {
+            "label": "错误码",
+            "value": "1001 / 39",
+            "sub": "各 1 次逐码命中",
+            "tone": "warn"
+          }
+        ],
+        "conclusion": "SET 在连续两个 1 秒桶内先出现 1001，后出现 39。该时序与同一目标端点从超时到 peer dead 的现场日志一致，但时间先后本身不单独证明因果。",
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "813d5ac1-cb8c-4fd1-ad9b-35a91bccc59d",
+              "operation": "SET",
+              "start_time": "2026-09-23 16:22:40",
+              "end_time": "2026-09-23 16:22:42"
+            },
+            "code_filter": [
+              "39",
+              "1001"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "813d5ac1-cb8c-4fd1-ad9b-35a91bccc59d",
+                    "operation": "SET",
+                    "start_time": "2026-09-23 16:22:40",
+                    "end_time": "2026-09-23 16:22:42",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 2,
+              "items": [
+                {
+                  "code": "1001",
+                  "count": 1,
+                  "share_pct": 50.0
+                },
+                {
+                  "code": "39",
+                  "count": 1,
+                  "share_pct": 50.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-23 16:22:40",
+                  "end_time": "2026-09-23 16:22:41",
+                  "complete": true,
+                  "counts": {
+                    "1001": 1,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 16:22:41",
+                  "end_time": "2026-09-23 16:22:42",
+                  "complete": true,
+                  "counts": {
+                    "1001": 0,
+                    "39": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "最长 SET",
+            "value": "100.131 ms",
+            "sub": "Create RPC deadline",
+            "tone": "bad"
+          },
+          {
+            "label": "另一异常 SET",
+            "value": "4.367 ms",
+            "sub": "CreateMeta/Publish peer dead",
+            "tone": "warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "1/2",
+            "share": "50%",
+            "status": "bottleneck",
+            "detail": "证据耗时 P50/P90/max 均为 100.131ms；/stats/stages 不提供 P99，未作推算。"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "1/2",
+            "share": "50%",
+            "status": "warn",
+            "detail": "证据耗时 P50/P90/max 均为 4.089ms，Client 总时延 4.367ms。"
+          }
+        ],
+        "conclusion": "SET 两条异常分别落入独立写路径桶；最长请求由 100ms Create RPC 截止时间主导。GET /stats/stages sample_cnt=0，不能进行读写时延对比。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "S1",
+            "title": "确认数据可用",
+            "description": "唯一日志文件解析任务 successful，进度 100%，产出 2 条异常 trace。",
+            "evidence": "GET /log_kb；POST /log_file/list；GET /task/1f45595c-7384-4828-a773-80a9aa47519e",
+            "confirmed": true
+          },
+          {
+            "step_label": "S2",
+            "title": "按操作分诊",
+            "description": "GET sample_cnt=0；SET sample_cnt=2 且两条均异常，分别归入 set_no_evidence 与 set_residual。",
+            "evidence": "POST /stats/stages，operation=GET/SET、log_id=b28224b4-71ea-4a65-ae8a-3e751efa5973",
+            "confirmed": true
+          },
+          {
+            "step_label": "S3",
+            "title": "锁定共同失活端点",
+            "description": "两个 trace 均指向 192.168.235.142:31501；先 100ms 超时，后多调用方 E112 Host is down / Not connected。",
+            "evidence": "POST /log_failure_event_result/list_log_events；trace cc530611... 与 72021016...",
+            "confirmed": true
+          },
+          {
+            "step_label": "S4",
+            "title": "确认业务传播",
+            "description": "CreateMeta 对失活 owner 重试失败，Publish 上浮 39；curated 知识将 39 解释为网络中断、owner 进程异常或路由过期。",
+            "evidence": "GET /failure_mode/status_code/39；GET /failure_mode/kvcache_access_036",
+            "confirmed": true
+          },
+          {
+            "step_label": "S5",
+            "title": "反证网络瞬断",
+            "description": "当前日志没有源目 IP 聚合、主机事件或系统网络证据，故不能完全排除单端点网络中断；但同一端点由超时转 peer dead、历史已确认同类案例及用户提供标签共同支持 Worker 进程退出。",
+            "evidence": "POST /stats/links total=0；历史案例 UB-CASE-002534/002564；训练标签 worker_chain_migration",
+            "excluded": false
+          },
+          {
+            "step_label": "S6",
+            "title": "根因定界",
+            "description": "目标 metadata owner Worker 在链式迁移窗口退出或重启，31501 端口失去服务；路由/连接尚未收敛使写请求继续访问旧端点。",
+            "evidence": "现场 trace + curated 状态码/故障模式 + 已确认案例的 L1/L2 复核",
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "目标 metadata owner Worker（192.168.235.142:31501）在故障窗口退出/失活，写链路仍访问该端点，导致 Create 超时或 peer dead，并进一步使 CreateMeta/Publish 返回 K_METADATA_OWNER_UNAVAILABLE。退出的底层触发信号需容器与系统事件补证。",
+        "supporting_knowledge": "Curated：kvcache_access_020、kvcache_access_036、kvcache_runtime_1377/2295/2303。历史已确认案例 UB-CASE-002534 与 UB-CASE-002564 在 1001/39、peer dead、Worker 失活及影响规模上同类。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Worker 退出/端点失活",
+            "detail": "192.168.235.142:31501 不再按时响应并被 BRPC 判定 peer dead。",
+            "type": "root"
+          },
+          {
+            "label": "Create/CreateMeta 失败",
+            "detail": "客户端 Create 达到 100ms deadline；Worker 到 metadata owner 的 CreateMeta 返回 E112。",
+            "transition": "RPC 超时或对端死亡"
+          },
+          {
+            "label": "元数据发布不可确认",
+            "detail": "Publish 返回 39 Metadata owner unavailable。",
+            "transition": "失败上浮"
+          },
+          {
+            "label": "SET 业务失败",
+            "detail": "2 条观测 SET trace 全部异常。",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "SET Create/CreateMeta/Publish 路径",
+          "Pod 192.168.219.75 与 192.168.189.70",
+          "目标端点 192.168.235.142:31501"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "cc530611-ebc4-4f43-940b-6c0e2a3ed01c",
+          "kind": "error",
+          "why": "status_code=1001 + SET + 16:22:40 窗；Create 到共同目标达到 100ms deadline，同时为 set_no_evidence 桶内证据耗时 Top。",
+          "evidence_ms": 100.131,
+          "client_ms": 100.131,
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_access_020",
+          "pod": "192.168.219.75",
+          "timestamp": "2026-09-23 16:22:40.724"
+        },
+        {
+          "trace_id": "72021016-33af-4daa-bb8d-63b8e9001c85",
+          "kind": "error",
+          "why": "status_code=39 + SET + 16:22:41 窗；CreateMeta 对同一目标 E112 peer dead，并派生 Publish 失败。",
+          "evidence_ms": 4.089,
+          "client_ms": 4.367,
+          "status_code": "39",
+          "failure_mode_id": "kvcache_access_036",
+          "pod": "192.168.189.70 / 192.168.219.75",
+          "timestamp": "2026-09-23 16:22:41.816"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_020 + kvcache_access_036",
+          "stars": "★★★★★",
+          "match_logic": "L1：1001/39 与现场逐字命中；L2：RPC/网络知识域可解释端点失活上浮；L3：现场 Create/CreateMeta/Publish 拓扑与知识症状一致。",
+          "symptom": "RPC 截止超时后出现元数据所有者不可用。",
+          "root_cause": "网络中断、元数据 owner 进程异常或路由过期。",
+          "solution": "检查 owner 进程、网络和路由；39 写请求先核实发布结果再重试。",
+          "applicability": "direct",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002564",
+          "stars": "★★★★★",
+          "match_logic": "L1：39 与 kvcache_access_036 命中；L2：SET、set_no_evidence/set_residual、few_pods 全命中；L3：具体 IP 不参与匹配，但 peer dead/重启后路由未收敛机理一致。",
+          "symptom": "远端 Worker 重启后服务发现与连接状态未收敛。",
+          "root_cause": "旧路由/连接继续指向 down 端点。",
+          "solution": "确认 Worker Ready 和 31501 监听，清理旧路由/RPC channel 并验证收敛。",
+          "applicability": "direct",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用"
+        },
+        {
+          "rank": "③",
+          "id": "experience:ds-hash-ring-metadata-diagnosis",
+          "stars": "★★★★☆",
+          "match_logic": "L1：经验不提供本次 1001/39；L2：Worker 上下线触发 ring/元数据迁移与当前场景描述相符；L3：本资产日志未包含 ring 版本与迁移完成日志，需调整后采用。",
+          "symptom": "节点上下线期间 hash ring 更新与元数据迁移可能尚未收敛。",
+          "root_cause": "路由版本或 owner 迁移状态未收敛会把请求继续导向失活节点。",
+          "solution": "核对所有节点 ring 版本、迁移任务和 ACTIVE/JOINING/FAILED 状态。",
+          "applicability": "adjust",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "核验并恢复 192.168.235.142 对应 Worker 容器/进程，确认 31501 端口监听与健康探针恢复。",
+          "刷新客户端及存活 Worker 的路由、transport snapshot 和 BRPC channel，确认不再访问旧实例。",
+          "对返回 39 的对象先查询实际发布状态，再决定是否重试，避免结果未知时重复写。"
+        ],
+        "long_term": [
+          "补齐 Worker PID/启动时间、容器 restartCount、lastState、exitCode、OOMKilled、探针事件和 31501 失联的关联告警。",
+          "链式迁移/扩缩容采用‘迁移 owner 与副本→等待 ring/路由收敛→摘流→终止旧 Worker’的闸门。",
+          "保留退出前后容器、kubelet、systemd、dmesg/OOM 与 Worker ERROR/FATAL 日志，形成退出原因闭环。"
+        ],
+        "verification": [
+          "分别执行 GET 与 SET 回归：GET 确认无新增异常样本，SET 确认 1001/39 清零且 Create/CreateMeta/Publish 成功。",
+          "验证所有 Worker 的 ring 版本、metadata owner 路由和实例 ID 一致，旧 192.168.235.142 实例引用已清理。",
+          "复核故障对象的实际发布结果与幂等性，确认无重复写或半发布对象。"
+        ]
+      }
+    },
+    {
+      "id": "F02",
+      "title": "Worker 容器重启触发进程失活（需编排侧补证）",
+      "role": "secondary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 0.72,
+      "category": "error",
+      "affected_scope": "目标 Worker 容器",
+      "simplified": true,
+      "upstream": "F01",
+      "need_independent_fix": true,
+      "conclusion": {
+        "first_level_label": "容器故障",
+        "second_level_label": "容器故障-Worker容器重启",
+        "one_line_conclusion": "训练标签将同一事件标注为 Worker 容器重启；现场 KVC 日志验证了重启窗口的端点失活结果，但未携带 restartCount/exitCode。",
+        "fault_domain": "容器故障/容器故障-Worker容器重启",
+        "fault_component": "Worker 容器",
+        "fault_function": "容器生命周期 / Worker 拉起",
+        "fault_function_loc": null,
+        "affected_scope_pct": null,
+        "affected_scope_desc": "缺少编排侧事件，不能量化重启次数和持续时间。",
+        "confidence": 0.72,
+        "key_findings": [
+          "故障标签来源明确包含容器故障-Worker容器重启。",
+          "现场仅直接观测到目标 Worker 端点超时与 peer dead。",
+          "需以 restartCount、lastState、退出码或 kubelet 事件完成直接证明。"
+        ]
+      },
+      "solution": {
+        "short_term": [
+          "查询目标 Worker Pod 的 restartCount、lastState.terminated、exitCode、reason 与故障窗口事件。"
+        ],
+        "long_term": [
+          "将容器重启、进程退出和 KVC 1001/39 建立时间关联告警。"
+        ],
+        "verification": [
+          "确认重启时间与 16:22:40–16:22:42 窗口对齐，并验证恢复后 31501 监听及路由收敛。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [
+    {
+      "from": "F02",
+      "to": "F01",
+      "type": "correlated",
+      "confidence": 0.72,
+      "evidence": "标签描述包含 Worker 容器重启，现场同时观察到 Worker 端点失活；缺少容器事件，暂不升级为确定 causes。"
+    }
+  ],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01",
+        "F02"
+      ],
+      "action": "恢复目标 Worker 并补采容器终止/重启证据。",
+      "depends_on": "目标 Pod 与节点访问权限",
+      "expected_effect": "恢复 31501 服务并确定退出触发源。",
+      "verify": "端口监听、Pod Ready、restartCount/exitCode 与故障窗口对齐。"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "刷新 metadata owner 路由、transport snapshot 与 BRPC channel。",
+      "depends_on": "Worker 恢复或完成摘除",
+      "expected_effect": "停止访问旧端点，消除 1001/39。",
+      "verify": "GET/SET 分离复测与错误码统计清零。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验 39 对应对象发布结果后再进行幂等重试。",
+      "depends_on": "对象状态查询能力",
+      "expected_effect": "避免结果未知导致重复写。",
+      "verify": "对象状态、版本与业务期望一致。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET sample_cnt=0；空结果仅表示本日志没有 GET 归因样本，不表示 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "数据面未观测",
+            "pct": 50,
+            "cls": "s-bottleneck"
+          },
+          {
+            "name": "未解释残差",
+            "pct": 50,
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "1/1",
+            "fail_share": "50%",
+            "status": "bottleneck",
+            "fault": "1001",
+            "detail": "P90=100.131ms；Client 总时延=100.131ms。"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "anomaly_rate": "1/1",
+            "fail_share": "50%",
+            "status": "warn",
+            "fault": "39",
+            "detail": "P90=4.089ms；Client 总时延=4.367ms。"
+          }
+        ],
+        "conclusion": "SET 两条样本分别落入两个独立桶；所有比例仅针对 sample_cnt=2 的参与分类样本，/stats/stages 不提供 P99。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 2,
+    "top_error_codes": [
+      {
+        "code": "1001",
+        "name": "K_RPC_DEADLINE_EXCEEDED",
+        "pct": "50.0",
+        "fault": "F01"
+      },
+      {
+        "code": "39",
+        "name": "K_METADATA_OWNER_UNAVAILABLE",
+        "pct": "50.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "Worker故障/Worker故障-进程退出",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.75",
+        "host": "—",
+        "pct": "66.7",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.70",
+        "host": "—",
+        "pct": "33.3",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-09-23 16:22",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diag-813d5ac1-20261112",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本会话内完成",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill SKILL/WIKI search"
+        ],
+        "result": "命中 Worker、RDMA、Hash Ring/元数据迁移等经验；经验仅作为假设。"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "唯一日志文件 overall_status=successful，2 条异常 trace，集群 czs-kv-ds。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立分诊",
+        "api_calls": [
+          "POST /stats/stages (GET)",
+          "POST /stats/stages (SET)"
+        ],
+        "result": "GET 无样本；SET sample_cnt=2，两个桶各 1 条异常。"
+      },
+      {
+        "title": "Step 4 精确统计",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap (GET/SET)",
+          "POST /trace/list (GET/SET)"
+        ],
+        "result": "SET 错误码 1001/39 各 1；故障集中在单分钟；GET 无 trace。"
+      },
+      {
+        "title": "Step 5 原始证据与 curated 知识",
+        "api_calls": [
+          "POST /log_failure_event_result/list_log_events",
+          "GET /trace/{id}",
+          "GET /failure_mode/status_code/{code}",
+          "GET /failure_mode/{id}"
+        ],
+        "result": "确认共同目标端点 timeout→peer dead→metadata owner unavailable。"
+      },
+      {
+        "title": "Step 6 案例匹配与反证",
+        "api_calls": [
+          "POST /diag_case_library/search",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "SET 宽召回 32 条，采纳已确认闭环案例 UB-CASE-002534、UB-CASE-002564；保留网络瞬断与容器事件缺失反证。"
+      },
+      {
+        "title": "Step 7 报告生成",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "按指定路径生成契约 JSON，并渲染 HTML 与侧车。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+      "keywords_matched": [
+        "Worker",
+        "RPC peer dead",
+        "1001"
+      ],
+      "search_query_used": "RPC peer dead Host is down metadata owner unavailable Worker 进程退出 重启",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "异常退出时，检查最后 ERROR/FATAL 日志、lease 失效、信号处理。",
+      "how_used_in_diagnosis": "用于建议补采 Worker 退出前 ERROR/FATAL、信号与容器事件。",
+      "confidence_on_reference": 0.85,
+      "confidence_reason": "与现场端点失活相符，且不覆盖 curated 状态码解释。"
+    },
+    {
+      "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+      "experience_type": "SKILL",
+      "name": "ds-hash-ring-metadata-diagnosis",
+      "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "元数据迁移",
+        "Worker 上下线",
+        "hash ring"
+      ],
+      "search_query_used": "RPC peer dead Host is down metadata owner unavailable Worker 进程退出 重启",
+      "used_in_stage": "recommendation",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "分析迁移问题时，需要同时查看源节点、目标节点和 Master 的日志。",
+      "how_used_in_diagnosis": "用于提出核对 ring、owner 迁移与源/目标/Master 日志的建议。",
+      "confidence_on_reference": 0.75,
+      "confidence_reason": "场景描述一致，但本资产没有直接的 ring 版本日志，故仅作建议。"
+    }
+  ]
+}

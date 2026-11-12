@@ -461,6 +461,16 @@ else
 fi
 
 start_rag_core_container() {
+    # 本地补丁：修复「解析子进程退出后任务槽位不回收」导致的解析永久被拒问题。
+    # 镜像内置版本缺少该修复，故以只读挂载方式覆盖对应文件。
+    local -a rag_patch_mount=()
+    local rag_patch_file="${RAG_CORE_PATCH_FILE:-${SCRIPT_DIR}/../patches/rag-core/process_handler.py}"
+    if [ -f "$rag_patch_file" ]; then
+        rag_patch_mount=(-v "${rag_patch_file}:/rag-service/rag_core/task/process_handler.py:ro")
+        log_info "应用 RAG Core 槽位回收补丁: ${rag_patch_file}"
+    else
+        log_warn "未找到 RAG Core 补丁 ${rag_patch_file}，容器将使用镜像内置版本"
+    fi
     docker run -d \
         --name "$WITTY_RAG_CORE_CONTAINER" \
         --restart unless-stopped \
@@ -471,6 +481,7 @@ start_rag_core_container() {
         -v "${RAG_RUNTIME_CONFIG}:/rag-service/rag_core/config.toml:ro" \
         -v "${RAG_LOG_DIR}:/rag-service/logs" \
         -v "${RAG_ACCESS_KEY_SECRET_DIR}:/run/secrets/witty-rag:ro" \
+        "${rag_patch_mount[@]+"${rag_patch_mount[@]}"}" \
         "$WITTY_RAG_MCP_IMAGE" >/dev/null
     log_ok "已启动 ${WITTY_RAG_CORE_CONTAINER}"
 }

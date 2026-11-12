@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from latency.services import label_taxonomy, report_phenomenon
+from latency.services import label_taxonomy, log_semantic_profile, report_phenomenon
 from latency.services.report_phenomenon import _as_dict, _as_list
 
 
@@ -405,6 +405,8 @@ def build_draft_from_fault(
         "latency_components": latency_components,
         "log_keywords": [],
         "stage_features_json": stage_features,
+        # 文档自带日志语义码轮廓（basic_info.log_semantic_profile）；缺失则由建案服务兜底现算。
+        "log_semantic_profile": log_semantic_profile.profile_from_basic(basic),
         "fault_shape": None,
         "time_window_json": (
             {

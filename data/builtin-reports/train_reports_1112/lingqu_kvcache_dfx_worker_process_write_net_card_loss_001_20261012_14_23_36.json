@@ -1,0 +1,373 @@
+{
+  "report": {
+    "title": "KVCache SET 写路径高时延诊断报告：网卡丢包标签",
+    "report_id": "diag-9324bdb0-4bae-4949-87a1-52d88c7e86d3-F01",
+    "generated_at": "2026-11-12 16:30:00"
+  },
+  "experience_refs": [
+    {
+      "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+      "experience_type": "SKILL",
+      "name": "ds-kv-cache-diagnosis",
+      "source_path": "data/skill_hub/ds-kv-cache-diagnosis",
+      "keywords_matched": ["KVCache", "SET", "status_code", "时延"],
+      "search_query_used": "KVCache SET 写入 网卡 丢包 通断 超时",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "分析 KV Cache 日志需要关注访问日志中的 DS_KV_CLIENT_* action、StatusCode、耗时和请求参数。",
+      "how_used_in_diagnosis": "用于确定 SET 访问日志、状态码与耗时字段的核查顺序，不作为现场证据。",
+      "confidence_on_reference": 0.9,
+      "confidence_reason": "与本次 DS_KV_CLIENT_SET 日志类型直接一致。"
+    },
+    {
+      "experience_id": "a97a8e58-94b9-4f35-b97c-bf2534f5ce40",
+      "experience_type": "SKILL",
+      "name": "ds-performance-degradation-diagnosis",
+      "source_path": "data/skill_hub/ds-performance-degradation-diagnosis",
+      "keywords_matched": ["网络", "丢包", "传输层", "时延"],
+      "search_query_used": "KVCache SET 写入 网卡 丢包 通断 超时",
+      "used_in_stage": "recommendation",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "性能分析需要同时关注 Client 和 Worker 两侧的日志和监控。",
+      "how_used_in_diagnosis": "用于安排 Client/Worker 双端与网络计数器复核，不替代本次 API 证据。",
+      "confidence_on_reference": 0.82,
+      "confidence_reason": "双端核查原则适用于本次 RPC 等待型长尾。"
+    },
+    {
+      "experience_id": "4cceeb69-c022-4e21-a00a-f440f681132e",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem Client 错误模式",
+      "source_path": "data/wiki_hub/ds-client-error-patterns.md",
+      "keywords_matched": ["网络延迟", "丢包", "Worker"],
+      "search_query_used": "SET client.rpc.create_total Worker RPC 丢包",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "连接 Worker 超时的可能原因包括 Worker 负载高、网络延迟或丢包。",
+      "how_used_in_diagnosis": "作为网络质量与 Worker 负载两类候选的检查清单；最终按现场微秒级 Worker 处理反证负载候选。",
+      "confidence_on_reference": 0.75,
+      "confidence_reason": "候选范围与现场相符，但该 Wiki 不能直接证明网卡丢包。"
+    }
+  ],
+  "summary": {
+    "total_references": 3,
+    "adopted_as_evidence_count": 0,
+    "adopted_as_suggestion_count": 3,
+    "considered_not_adopted_count": 0,
+    "conflicted_with_curated_count": 0,
+    "reference_coverage_note": "经验库仅用于排查顺序和建议；根因定界以本资产库 API 与原始日志证据为准。"
+  },
+  "basic_info": {
+    "kb_id": "9324bdb0-4bae-4949-87a1-52d88c7e86d3",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_write_net_card_loss_001_20261012_14_23_36",
+    "log_file": "lingqu_kvcache_dfx_worker_process_write_net_card_loss_001_20261012_14_23_36",
+    "operation": "SET",
+    "time_range_start": "2026-10-12 14:23:07.525",
+    "time_range_end": "2026-10-12 14:23:08.402",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个 SET 写路径长尾：8 MiB 写请求总耗时 209.724 ms，其中 client.rpc.create_total 为 209.223 ms，而 Worker CREATE/PUBLISH 仅 12/69 us；按固定标签归为网卡丢包，直接丢包计数仍待补证。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "当前资产库仅 1 条可分类 SET trace，且该 trace 被标记为时延异常；请求最终 status_code=0，属于成功但显著变慢。",
+    "confidence": "中高（82%）：阶段定位充分，物理丢包机理缺少网卡/交换机计数器直接闭环。"
+  },
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "在客户端与 Worker 对应物理机同步采集 ip -s link、ethtool -S、nstat/TcpRetransSegs 及交换机端口 drop/CRC 计数，并与 14:23 窗口或复现窗口比较增量。",
+      "depends_on": "需要 Pod 到宿主机、网卡和交换机端口的资产映射。",
+      "expected_effect": "确认具体丢包方向与故障端口，区分客户端网卡、对端网卡和中间交换链路。",
+      "verify": "同负载复测 8 MiB SET，确认 client.rpc.create_total 不再出现约 209 ms 平台值，且链路丢包/重传计数不再增长。"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": ["F01"],
+      "action": "在确认异常端口后迁移链路或更换网卡/线缆/交换端口，并保留变更前后计数器快照。",
+      "depends_on": "P1 已定位异常端口或链路方向。",
+      "expected_effect": "消除重传等待，恢复 SET 写路径时延。",
+      "verify": "连续压测并比较 SET P90/P99、Create RPC 耗时和业务成功率。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET /stats/stages 已独立调用，sample_cnt=0；明细缺 GET 归因子集，不能把空结果解释为 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {"name": "SET·客户端SDK段", "pct": 100.0, "cls": "s-bottleneck"}
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p99": null,
+            "anomaly_rate": "100.0%（1/1，异常标记比例）",
+            "fail_share": "100.0%（分类样本请求占比）",
+            "status": "bottleneck",
+            "fault": "唯一异常 trace 归入 set_client",
+            "detail": "证据耗时 P50/P90/max 均为 209.643 ms；样本 n=1，不能据此估算 P99。Client 总时延为 209.724 ms。"
+          }
+        ],
+        "conclusion": "SET 与 GET 分开归桶。SET 样本仅 1 条且未截断，耗时集中在客户端 SDK 父窗口；原始日志进一步显示 client.rpc.create_total 占主导。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 1,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {"domain": "硬件故障/网卡故障-丢包", "pct": 100.0, "fault": "固定故障标签；物理丢包计数待补证"}
+    ],
+    "top_pods": [
+      {"pod": "192.168.235.177（Client）", "host": null, "pct": 50.0, "fault": "代表 trace 涉及端点；不是独立失败请求占比"},
+      {"pod": "192.168.219.76（Meta/Data Worker）", "host": null, "pct": 50.0, "fault": "代表 trace 涉及端点；不是独立失败请求占比"}
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "2026-10-12 14:23:00", "level": "high", "pct": 100.0, "spike": true, "lat_ms": 209.724, "fault": "1 条 SET 时延异常 trace"}
+    ]
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SET 写请求 Create RPC 等待约 209 ms（固定标签：网卡丢包）",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 0.82,
+      "category": "latency",
+      "affected_scope": "1 条 SET trace，涉及 Client 192.168.235.177 与 Worker 192.168.219.76",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-丢包",
+        "one_line_conclusion": "8 MiB SET 请求成功返回但耗时 209.724 ms，209.223 ms 集中在 client.rpc.create_total；Worker CREATE/PUBLISH 仅 12/69 us，符合链路丢包重传导致 RPC 等待的形态，但缺少 NIC/交换机计数器直接证明。",
+        "fault_domain": "硬件故障/网卡故障-丢包",
+        "fault_component": "Client 到 Worker 的 SET Create RPC 链路",
+        "fault_function": "DS_KV_CLIENT_SET / client.rpc.create_total",
+        "fault_function_loc": "object_client_impl.cpp:2841；access_recorder.cpp:1066",
+        "affected_scope_pct": "100.0（1/1 可分类 SET trace）",
+        "affected_scope_desc": "单条异常、双端点、14:23 单分钟窗口；样本量不足以外推全局影响。",
+        "confidence": "中高 82%",
+        "key_findings": [
+          "trace bd782626-9f6b-401c-8393-5fc866e337fc 总耗时 209.724 ms，is_anomalous=true，业务 status_code=0。",
+          "客户端 latencySummary：client.rpc.create_total=209223 us，占总耗时约 99.76%；URMA 成功传输段仅 153 us，memory_copy 116 us。",
+          "同 trace 的 Worker DS_POSIX_CREATE=12 us、DS_POSIX_PUBLISH=69 us，排除 Worker 业务处理耗时主导。",
+          "SET set_urma_timeout 桶为 0，故障码统计为 0；这是成功但变慢，不是已观测到的通断失败。",
+          "固定标签为硬件故障/网卡故障-丢包；现场缺少 drop/retransmit/CRC 计数，物理丢包方向仍需闭环。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {"label": "SET 总时延", "value": "209.724 ms", "sub": "单条异常 trace", "tone": "danger"},
+          {"label": "client.rpc.create_total", "value": "209.223 ms", "sub": "客户端原始 latencySummary", "tone": "danger"},
+          {"label": "Worker CREATE/PUBLISH", "value": "12 / 69 us", "sub": "服务端处理为微秒级", "tone": "ok"},
+          {"label": "业务状态", "value": "status_code=0", "sub": "成功但变慢", "tone": "warn"}
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p99": null,
+            "baseline": null,
+            "ratio": null,
+            "share": "100.0%（分类样本请求占比）",
+            "status": "bottleneck",
+            "detail": "桶内 n=1，P50/P90/max 均 209.643 ms；不能由 P90/max 补造 P99。原始日志将父窗口进一步定位到 client.rpc.create_total。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "9324bdb0-4bae-4949-87a1-52d88c7e86d3",
+                  "log_id": "309ec519-acda-408c-ad88-f621713728b8",
+                  "operation": "SET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[0]"
+              },
+              "sample_cnt": 1,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常；SET 与 GET 独立归桶；本次仅 1 条 SET 样本。",
+              "trace_cnt": 1,
+              "normal_cnt": 0,
+              "anomalous_cnt": 1,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 209.643,
+                "p90_ms": 209.643,
+                "max_ms": 209.643,
+                "client_p50_ms": 209.724,
+                "client_p90_ms": 209.724
+              },
+              "tail_ratio_p90_p50": 1.0,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 1",
+              "action": "先核查 SDK 等待数据面返回的 RPC 过程，再与 Worker 处理耗时交叉验证。",
+              "top_traces": [
+                {"trace_id": "bd782626-9f6b-401c-8393-5fc866e337fc", "evidence_ms": 209.643, "client_ms": 209.724}
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 长尾定位在客户端 SDK 父窗口，并由原始 latencySummary 收敛到 Create RPC 等待；Worker 内部处理与 URMA 成功传输段均为微秒级。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "S1",
+            "title": "数据完整性与操作域核验",
+            "description": "解析任务成功；GET 与 SET 分别调用 /stats/stages。GET sample_cnt=0，SET sample_cnt=1，故障仅能在 SET 写路径定界。",
+            "evidence": "log_file id=309ec519-acda-408c-ad88-f621713728b8，任务最终 100% successful；GET note 明确无归因子集，SET 唯一 trace 为异常。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "S2",
+            "title": "长尾归入 SET 客户端段",
+            "description": "唯一异常 trace 被互斥归入 set_client，证据耗时 209.643 ms，Client 总时延 209.724 ms。",
+            "evidence": "POST /stats/stages(operation=SET)：set_client trace_cnt=1、fail_cnt=1、P90/max=209.643 ms；top trace 为 bd782626-9f6b-401c-8393-5fc866e337fc。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "S3",
+            "title": "排除 Worker 处理与成功传输段主导",
+            "description": "客户端原始日志显示 Create RPC 等待占绝对主导，而 Worker CREATE/PUBLISH 和 URMA 成功传输段均为微秒级。",
+            "evidence": "DS_KV_CLIENT_SET latencySummary：create_total=209223 us、ub_transfer=153 us；Worker DS_POSIX_CREATE=12 us、DS_POSIX_PUBLISH=69 us；status_code=0。",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "S4",
+            "title": "网卡丢包机理判定",
+            "description": "约 209 ms 的成功 RPC 等待、服务端微秒级处理和无错误码形态，与丢包后重传恢复相容；固定训练标签亦为网卡丢包。但资产未提供网卡/交换机 drop、CRC、TCP 重传或抓包，故物理丢包保持高概率候选而非直接证明。",
+            "evidence": "固定标签：硬件故障/网卡故障-丢包；已确认案例 UB-CASE-002545、UB-CASE-002637 在 L2 阶段桶/操作域/影响规模上匹配；案例仅作待验证假设。",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "高概率候选：Client 到 Worker 的 SET Create RPC 链路发生瞬时网卡丢包/重传等待，使 8 MiB 写请求成功但延迟升至 209.724 ms；具体故障网卡和方向须用端口计数器或抓包确认。",
+        "supporting_knowledge": "固定标签来自 train_valid.md 对应描述 worker_process_write_net_card_loss 与 gt_labels.json；历史案例为 diag_case_library 已人工确认案例，但未作为本次现场证据。"
+      },
+      "propagation": {
+        "chain": [
+          {"label": "8 MiB SET 发起", "detail": "Client 192.168.235.177 发起 DS_KV_CLIENT_SET，Write_mode=3。", "type": "observed", "transition": "进入 Create RPC"},
+          {"label": "Create RPC 等待膨胀", "detail": "client.rpc.create_total=209223 us，占端到端约 99.76%；推测链路丢包触发重传/恢复。", "type": "suspected", "transition": "请求最终到达 Worker"},
+          {"label": "Worker 快速处理", "detail": "DS_POSIX_CREATE=12 us，DS_POSIX_PUBLISH=69 us，UpdateMeta 完成。", "type": "observed", "transition": "响应返回 Client"},
+          {"label": "业务成功但慢", "detail": "Client 总耗时 209.724 ms，status_code=0，并记录 [SLOW LOG] [Set] Done。", "type": "observed", "transition": "形成 P2 时延异常"}
+        ],
+        "impact_scope": [
+          "当前资产库仅观测到 1 条可分类 SET trace，不能外推整个集群故障率。",
+          "涉及 Client 192.168.235.177 与 Worker 192.168.219.76；host 信息缺失。",
+          "GET 路径无可归因样本，不能声明 GET 健康或受影响。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "bd782626-9f6b-401c-8393-5fc866e337fc",
+          "kind": "latency",
+          "why": "来自 SET·set_client 归因桶的证据耗时 Top trace；排序口径是桶内证据耗时 Top，不代表总体严重度或普遍性。",
+          "evidence_ms": 209.643,
+          "client_ms": 209.724,
+          "status_code": "0",
+          "failure_mode_id": null,
+          "pod": "192.168.235.177, 192.168.219.76",
+          "host": null,
+          "timestamp": "2026-10-12 14:23:07.525"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002545",
+          "stars": 5,
+          "match_logic": "L1：本次与案例均无错误码/故障模式，无法形成 L1 命中；L2：set_client、SET/MIXED 写路径与约 208~210 ms Create RPC 等待形态命中；L3：案例端点身份不参与匹配；L5：本次原文 client.rpc.create_total 与 [SLOW LOG] [Set] Done 支持同类机理，但案例未登记关键词字段。",
+          "symptom": "8 MiB SET 成功但慢，Create RPC 等待约 207.4 ms，服务端和成功传输段正常。",
+          "root_cause": "案例已确认客户端接入网卡丢包导致重传/恢复等待。",
+          "solution": "采集双端网卡、交换机端口丢包/重传计数，锁定方向后迁移端口或更换硬件。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高：阶段、数据大小、等待量级和成功状态一致。",
+          "log_fit": "中：本次无直接网卡计数，且端点不同。",
+          "rc_consistency": "与固定标签和现场阶段证据相容，但仍需本现场计数器闭环。",
+          "env_diff": "案例为不同资产与端点；身份信息不参与匹配。",
+          "adaptation": "仅复用采集与验证方法，不直接复制案例的具体故障端口结论。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 2,
+          "id": "UB-CASE-002637",
+          "stars": 4,
+          "match_logic": "L1：无错误码/故障模式，不能命中；L2：SET、set_client、multi_pod 均命中；L3：不按 IP/Pod 名匹配；L5：案例包含同类 Create RPC 约 210 ms 平台值，但根因同样要求网络计数器确认。",
+          "symptom": "多条 8 MiB SET 在 209~211 ms，客户端 Create RPC 等待主导，Worker 微秒级处理。",
+          "root_cause": "高概率为客户端至 Worker 以太网链路丢包触发重传等待。",
+          "solution": "同步采集 ip -s link、ethtool -S、TcpRetransSegs 与双端抓包。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高：操作域、阶段桶、影响规模和等待量级一致。",
+          "log_fit": "高：候选案例包含相同代表 trace，但其结论仍明确缺少 NIC 计数。",
+          "rc_consistency": "支持高概率网络丢包候选，不提升为直接证明。",
+          "env_diff": "案例聚合了多个日期和端点，本报告只分析当前资产的单条 trace。",
+          "adaptation": "保留当前资产 n=1 的范围限制，并单独执行网卡/交换机闭环。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在 Client 192.168.235.177 与 Worker 192.168.219.76 对应宿主机同步采集 ip -s link、ethtool -S 和 nstat，重点核查 dropped/errors/missed/CRC/TcpRetransSegs 增量。",
+          "核查交换机对应端口的 ingress/egress drop、CRC、拥塞丢弃与链路 flap；保留故障前后或复现前后的计数器快照。",
+          "若计数集中于单端口，先迁移流量或倒换端口，再用相同 8 MiB SET 负载复测。"
+        ],
+        "long_term": [
+          "建立 Pod→host→网卡→交换机端口资产映射，并对丢包、TCP 重传和 CRC/FEC 计数设置增量告警。",
+          "补齐 SET Create RPC 的发送、网络等待、服务执行与响应通知分段观测，避免 set_client 父窗口过粗。",
+          "建立 8 MiB SET 的健康基线，持续对比 client.rpc.create_total、Worker CREATE/PUBLISH 与端到端 P90/P99。"
+        ],
+        "verification": [
+          "修复或迁移后连续复测同源目链路的 8 MiB SET，请求 status_code 保持 0，client.rpc.create_total 不再出现约 209 ms 平台值。",
+          "复测期间双端网卡与交换机端口的 drop/error/CRC/retransmit 计数不再增长。",
+          "同时检查 Worker CREATE/PUBLISH 仍保持微秒级，确认没有把瓶颈转移到服务端。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "workflow": {
+    "session_id": "diag-9324bdb0-4bae-4949-87a1-52d88c7e86d3-20261112",
+    "total_steps": 7,
+    "api_calls": 24,
+    "duration": "本次会话",
+    "steps": [
+      {"title": "经验库预检索", "api_calls": ["experience-skill search-experiences（SKILL/WIKI）"], "result": "命中 KVCache、性能退化与 Client 错误模式经验，仅作为先验和建议。"},
+      {"title": "资产与解析完整性核验", "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "GET /log_parse_result/options"], "result": "资产存在，1 个日志目录，任务成功，解析得到 1 条时延异常 trace。"},
+      {"title": "GET/SET 独立阶段分诊", "api_calls": ["POST /stats/stages operation=GET", "POST /stats/stages operation=SET"], "result": "GET sample_cnt=0；SET 唯一异常归入 set_client，禁止混桶。"},
+      {"title": "统计分布与时窗定位", "api_calls": ["POST /stats/error_codes|pods|links|heatmap（GET/SET）", "POST /log_failure_event_result/list_time_aggregated_failure_events（GET/SET）"], "result": "无业务故障码；SET 热点为 14:23 单分钟，涉及两个 Pod 端点。"},
+      {"title": "代表 trace 与原始日志下钻", "api_calls": ["POST /trace/list", "GET /trace/{trace_id}", "POST /log_parse_result/list", "POST /log_failure_event_result/list_log_events"], "result": "Create RPC 209.223 ms 主导，Worker CREATE/PUBLISH 12/69 us，status_code=0。"},
+      {"title": "历史案例软匹配", "api_calls": ["POST /diag_case_library/search", "POST /diag_case_library/{case_id}/hit"], "result": "命中并采纳 UB-CASE-002545、UB-CASE-002637 为 adjust 级参考；均未替代现场证据。"},
+      {"title": "契约特征与报告生成", "api_calls": ["latency_features.py", "render_report.py --validate-only", "render_report.py"], "result": "SET set_client 特征由脚本提取；报告 JSON、HTML 与侧车按统一契约生成。"}
+    ]
+  }
+}

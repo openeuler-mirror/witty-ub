@@ -735,7 +735,8 @@ async def _import_one(
                     "report_id": report_id,
                     "report_meta_id": _clip(result.report_meta_id, 128),
                     "kb_id": None,
-                    "kb_name": None,
+                    # 保留 sidecar 的 kb_name（= log_file.name），供案例/报告回溯来源日志。
+                    "kb_name": _clip(basic.get("kb_name"), 256),
                     "title": _text(report.get("title")),
                     "generated_at": _clip(report.get("generated_at"), 32),
                     "operation": report_phenomenon.fault_operation(payload),

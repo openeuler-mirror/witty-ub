@@ -390,5 +390,9 @@
   {
     "first_level_label": "误操作故障",
     "second_level_label": "误操作故障-拔以太光纤"
+  },
+  {
+    "first_level_label": "用户相关故障",
+    "second_level_label": "使用问题"
   }
 ]

@@ -1,0 +1,840 @@
+{
+  "report": {
+    "title": "Worker链迁移期间SET写路由不可用诊断报告",
+    "report_id": "diag-deda770c-worker-chain-migration-20261009",
+    "generated_at": "2026-11-12 14:00:00"
+  },
+  "basic_info": {
+    "kb_id": "deda770c-ea8a-465a-9fcf-5a2c347c48af",
+    "kb_name": "lingqu_kvcache_dfx_worker_chain_migration_001_20261009_14_21_42",
+    "log_file": "lingqu_kvcache_dfx_worker_chain_migration_001_20261009_14_21_42",
+    "operation": "GET / SET（独立分析）",
+    "time_range_start": "2026-10-09 14:26:46",
+    "time_range_end": "2026-10-09 14:31:42",
+    "total_trace_cnt": 25,
+    "fault_trace_cnt": 25,
+    "fault_ratio": "100%（故障侧trace口径）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC deadline exceeded": 0.16342,
+      "T:E1008": 0.980522,
+      "C:Metadata owner unavailable": 0.108947
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到Worker端点不可达/路由耗尽主故障及疑似Worker容器重启伴随现象；两者存在生命周期相关性，但容器事件证据缺失，未断言确定因果。",
+    "fault_count": 2,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 1,
+    "independent_fault_count": 0,
+    "overall_impact": "SET写路径25条故障侧trace：1条返回39并耗时95.801ms，随后24条返回37；GET无可归因样本。",
+    "confidence": "中 76%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Worker进程退出候选导致metadata owner不可达与路由耗尽",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P1",
+      "confidence": "中高 82%（直接故障确认，退出触发待闭环）",
+      "category": "mixed",
+      "affected_scope": "ci-kv-ds-1；Pod 192.168.235.151、192.168.219.101；RPC目标192.168.189.67:31501",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程退出",
+        "fault_domain": "Worker故障/Worker故障-进程退出",
+        "one_line_conclusion": "14:26:46起SET先因metadata owner RPC超时返回39，约48秒后持续返回37；现场确认Worker端点/路由不可用，进程退出为指定标签对应的高优先级候选。",
+        "fault_component": "KVCache Worker / Metadata owner",
+        "affected_scope_pct": 100,
+        "affected_scope_desc": "25/25条故障侧SET trace受影响；不是全业务请求失败率",
+        "confidence": "中高 82%",
+        "key_findings": [
+          "状态码37命中24次（96%），状态码39命中1次（4%），时间聚合分页完整。",
+          "trace 84a1bb87-a41b-42f9-be6c-56970a79c0b3 显示CreateMeta到192.168.189.67:31501两次超时并上浮为39。",
+          "随后24条SET原文均为“All workers filtered or excluded”，持续约5分钟。",
+          "SET异常trace证据耗时79.181ms、Client总时延95.801ms；GET归因样本为0。",
+          "资产中未提供目标Worker退出码、PID变化或容器事件，因此不把进程退出写成已直接确认事实。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "deda770c-ea8a-465a-9fcf-5a2c347c48af",
+              "operation": "SET",
+              "start_time": "2026-10-09 14:26:00",
+              "end_time": "2026-10-09 14:32:00"
+            },
+            "code_filter": [
+              "37",
+              "39"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "deda770c-ea8a-465a-9fcf-5a2c347c48af",
+                    "operation": "SET",
+                    "start_time": "2026-10-09 14:26:00",
+                    "end_time": "2026-10-09 14:32:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 6,
+                  "returned_windows": 6
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 6,
+              "total_windows": 6
+            },
+            "code_distribution": {
+              "total_count": 25,
+              "items": [
+                {
+                  "code": "37",
+                  "count": 24,
+                  "share_pct": 96.0
+                },
+                {
+                  "code": "39",
+                  "count": 1,
+                  "share_pct": 4.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-09 14:26:00",
+                  "end_time": "2026-10-09 14:27:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 14:27:00",
+                  "end_time": "2026-10-09 14:28:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 5,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 14:28:00",
+                  "end_time": "2026-10-09 14:29:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 8,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 14:29:00",
+                  "end_time": "2026-10-09 14:30:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 3,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 14:30:00",
+                  "end_time": "2026-10-09 14:31:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 4,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 14:31:00",
+                  "end_time": "2026-10-09 14:32:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 4,
+                    "39": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 故障在 14:26–14:32 短时簇发：先出现 1 次状态码 39，随后 24 次状态码 37；计数为完整 6 个一分钟窗内的逐码命中次数，不代表业务失败率。",
+        "metrics": [
+          {
+            "label": "错误码命中",
+            "value": "25",
+            "sub": "完整 6 个一分钟窗",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "37 / 96%",
+            "sub": "K_NO_AVAILABLE_WORKER",
+            "tone": "warning"
+          },
+          {
+            "label": "前导错误码",
+            "value": "39 / 4%",
+            "sub": "K_METADATA_OWNER_UNAVAILABLE",
+            "tone": "danger"
+          }
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "异常SET总时延",
+            "value": "95.801 ms",
+            "sub": "trace 84a1...",
+            "tone": "danger"
+          },
+          {
+            "label": "未解释残差",
+            "value": "79.181 ms",
+            "sub": "SET归因桶实测",
+            "tone": "warning"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·未解释残差",
+            "p50": "79.181 ms",
+            "p90": "79.181 ms",
+            "p99": null,
+            "baseline": null,
+            "ratio": null,
+            "share": "1/25分类样本",
+            "status": "bottleneck",
+            "detail": "API不提供P99，不以P90/max代填。"
+          }
+        ],
+        "conclusion": "仅1条异常SET落入未解释残差桶；24条37记录缺Worker侧数据面证据且耗时很低，不能将其解释为Worker处理慢。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "01",
+            "title": "确认写路径故障",
+            "description": "SET故障码在6个一分钟窗内持续出现。",
+            "evidence": "[POST /stats/error_codes + 时间聚合] 37×24、39×1，完整覆盖。"
+          },
+          {
+            "step_label": "02",
+            "title": "定位前导RPC失败",
+            "description": "metadata owner CreateMeta RPC在79ms/15ms两轮deadline后失败，发布结果未知。",
+            "evidence": "[POST /log_failure_event_result/list_log_events] trace 84a1... 原始日志。"
+          },
+          {
+            "step_label": "03",
+            "title": "确认路由可用集合耗尽",
+            "description": "39之后约48秒起，24条SET均被健康状态或排除条件过滤。",
+            "evidence": "[现场原文] All workers filtered or excluded；curated kvcache_access_054。",
+            "confirmed": true
+          },
+          {
+            "step_label": "04",
+            "title": "排除纯URMA超时",
+            "description": "GET/SET的URMA timeout桶均为0，现场超时发生在CreateMeta RPC。",
+            "evidence": "[POST /stats/stages] GET/SET独立桶；[原始日志] brpc errno=1008。",
+            "excluded": true
+          },
+          {
+            "step_label": "05",
+            "title": "进程退出仍需生命周期闭环",
+            "description": "Worker退出/重启与现象及指定标签一致，但缺少容器退出码、PID或编排事件。",
+            "evidence": "[证据缺口] 当前资产仅含请求链日志；历史案例只作待验证假设。"
+          }
+        ],
+        "confirmed_root_cause": "Worker端点不可达且健康路由收敛失败",
+        "supporting_knowledge": "curated状态码39/37和故障模式kvcache_access_036/054与现场完全对应；历史确认案例UB-CASE-002644仅用于支持排查方向。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Worker端点失活",
+            "detail": "生命周期触发待闭环",
+            "type": "origin",
+            "transition": "owner RPC不可达"
+          },
+          {
+            "label": "CreateMeta超时",
+            "detail": "79ms+15ms两轮超时",
+            "transition": "上浮状态码39"
+          },
+          {
+            "label": "发布结果未知",
+            "detail": "SET总时延95.801ms",
+            "transition": "健康过滤/路由未收敛"
+          },
+          {
+            "label": "无可用Worker",
+            "detail": "状态码37×24",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "ci-kv-ds-1 SET写路径",
+          "客户端Pod 192.168.235.151",
+          "Worker/metadata链路 192.168.219.101→192.168.189.67:31501"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "84a1bb87-a41b-42f9-be6c-56970a79c0b3",
+          "kind": "error",
+          "why": "过滤条件：operation=SET、status_code=39、is_anomalous=true；原始日志显示CreateMeta RPC deadline exceeded并返回metadata owner unavailable。",
+          "evidence_ms": 79.181,
+          "client_ms": 95.801,
+          "status_code": "39",
+          "failure_mode_id": "kvcache_access_036",
+          "pod": "192.168.235.151 / 192.168.219.101",
+          "timestamp": "2026-10-09 14:26:46.643"
+        },
+        {
+          "trace_id": "e835655b-e95a-4325-be81-d10ac8713cf1",
+          "kind": "error",
+          "why": "过滤条件：operation=SET、status_code=37、时间窗14:27–14:32；原始日志为All workers filtered or excluded。",
+          "status_code": "37",
+          "failure_mode_id": "kvcache_access_054",
+          "pod": "192.168.235.151",
+          "timestamp": "2026-10-09 14:27:35.051"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "kvcache_access_036+kvcache_access_054",
+          "rank": 1,
+          "stars": 5,
+          "match_logic": "L1 命中状态码39/37及故障模式；L2 命中SET写路径与Worker可用性域；L3拓扑仅现场trace可见，知识条目未限定拓扑。",
+          "symptom": "元数据所有者不可用，随后无可用Worker。",
+          "root_cause": "网络中断、owner进程异常或路由过期会使发布RPC结果未知；健康过滤可使Worker集合为空。",
+          "solution": "检查owner进程、31501连通性与路由健康状态；确认发布结果后再重试。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用（与现场日志一致）",
+          "applicability": "direct"
+        },
+        {
+          "id": "UB-CASE-002644",
+          "rank": 3,
+          "stars": 4,
+          "match_logic": "L1命中37/39与kvcache_access_054/036；L2命中SET操作域，阶段桶未命中；L5本次原文同样出现All workers filtered or excluded与Metadata owner RPC failure。",
+          "symptom": "metadata owner Worker不可达后写路由耗尽。",
+          "root_cause": "已确认历史案例把Worker端点不可达作为直接故障，进程退出仍需生命周期证据闭环。",
+          "solution": "恢复Worker端点并刷新健康路由；核对退出/重启证据；对39先确认发布结果。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已确认案例，调整后采用",
+          "applicability": "adjust"
+        },
+        {
+          "id": "EXP-a0227481",
+          "rank": 2,
+          "stars": 4,
+          "match_logic": "L1未提供本次状态码；L2命中Worker生命周期/重启恢复域；L3建议核对退出前ERROR/FATAL、容器与系统日志，本资产缺少这些生命周期证据。",
+          "symptom": "Worker异常退出或重启会影响lease、集群重平衡和恢复协调。",
+          "root_cause": "经验库仅提供生命周期排查假设，不能替代本次现场证据。",
+          "solution": "补查container事件、退出码、restartCount、PID变化、systemd/dmesg及lease事件。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即核对192.168.189.67对应Worker的进程、31501监听、容器退出码、restartCount和PID/instanceId变化。",
+          "恢复Worker Ready后刷新客户端及存活Worker的健康路由/RPC channel，确认可用Worker集合不再为空。",
+          "对返回39的对象先查询metadata/发布结果，再决定是否重试，避免结果未知时重复写。"
+        ],
+        "long_term": [
+          "为Worker迁移链补齐容器、编排器、系统、lease和路由版本的同窗采集。",
+          "建立owner Worker退出/重启注入回归，验证39→路由收敛→恢复过程不会长期停留在37。"
+        ],
+        "verification": [
+          "连续10分钟复测SET，状态码37/39均为0。",
+          "确认目标31501端口可达且健康Worker集合非空，所有节点路由版本一致。",
+          "对原失败对象核对发布结果和数据一致性，确认无重复写或丢失。"
+        ]
+      },
+      "source_code": null
+    },
+    {
+      "id": "F02",
+      "title": "Worker容器重启伴随现象（待生命周期证据确认）",
+      "role": "secondary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": "中低 58%",
+      "category": "mixed",
+      "affected_scope": "疑似metadata owner Worker容器",
+      "simplified": true,
+      "upstream": "F01",
+      "need_independent_fix": false,
+      "conclusion": {
+        "first_level_label": "容器故障",
+        "second_level_label": "容器故障-Worker容器重启",
+        "fault_domain": "容器故障/容器故障-Worker容器重启",
+        "one_line_conclusion": "指定标签包含Worker容器重启，且现场呈现owner端点失活后路由耗尽；但当前资产无restartCount、退出码或实例ID变化，故仅列为次生待证实故障。",
+        "fault_component": "Worker容器",
+        "affected_scope_pct": null,
+        "affected_scope_desc": "缺少容器编排事件，无法量化容器影响范围",
+        "confidence": "中低 58%",
+        "key_findings": [
+          "现场可确认owner端点RPC超时和路由健康集合耗尽。",
+          "历史已确认案例UB-CASE-002564在相同SET阶段桶和状态码39下出现重启后状态未收敛。",
+          "当前资产无容器restartCount、退出码、OOMKilled或PID变化，不能直接确认重启。"
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "01",
+            "title": "观察到端点失活",
+            "description": "CreateMeta owner RPC无法在deadline内完成。",
+            "evidence": "[现场trace] 84a1..."
+          },
+          {
+            "step_label": "02",
+            "title": "重启仅为候选",
+            "description": "容器重启可解释端点瞬时失活和路由未收敛，但缺少生命周期日志。",
+            "evidence": "[历史案例假设] UB-CASE-002564；非本次现场证据。"
+          }
+        ],
+        "confirmed_root_cause": "容器重启尚未现场确认",
+        "supporting_knowledge": "经验库建议Worker异常退出时同时检查container.log和系统日志；本资产未提供对应证据。"
+      },
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002564",
+          "rank": 1,
+          "stars": 4,
+          "match_logic": "L1命中状态码39与kvcache_access_036；L2命中SET、few_pods及set_no_evidence/set_residual；L5命中CreateMeta owner不可达机制，但本次无容器重启事件原文。",
+          "symptom": "远端Worker重启后服务发现、路由和RPC连接状态未及时收敛。",
+          "root_cause": "历史案例支持重启后的状态未收敛假设；本次仅有间接请求链证据。",
+          "solution": "核对Worker容器restartCount和实例ID，并清理旧路由/RPC channel后复测SET。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "待现场闭环",
+          "applicability": "adjust"
+        },
+        {
+          "id": "EXP-a0227481",
+          "rank": 2,
+          "stars": 4,
+          "match_logic": "L1未提供本次状态码；L2命中Worker生命周期/重启恢复域；L3建议核对退出前ERROR/FATAL、容器与系统日志，本资产缺少这些生命周期证据。",
+          "symptom": "Worker异常退出或重启会影响lease、集群重平衡和恢复协调。",
+          "root_cause": "经验库仅提供生命周期排查假设，不能替代本次现场证据。",
+          "solution": "补查container事件、退出码、restartCount、PID变化、systemd/dmesg及lease事件。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "补取目标Worker Pod在14:24–14:34的restartCount、lastState、exitCode、reason、实例ID和编排事件。"
+        ],
+        "long_term": [
+          "将容器生命周期事件与KVCache trace_id时间窗统一归档。"
+        ],
+        "verification": [
+          "若确认重启，复核重启完成后31501监听、Ready状态和路由收敛时间；若无重启事件则排除此故障。"
+        ]
+      },
+      "source_code": null
+    }
+  ],
+  "fault_relations": [
+    {
+      "from": "F01",
+      "to": "F02",
+      "type": "correlated",
+      "confidence": "中 55%",
+      "evidence": "两者可由同一Worker生命周期变化解释，但当前只有请求链和指定标签，缺少容器事件，故不写成确定因果。"
+    }
+  ],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01",
+        "F02"
+      ],
+      "action": "补取并核对目标Worker进程与容器生命周期证据，恢复31501服务和Ready状态。",
+      "depends_on": "节点/容器平台权限",
+      "expected_effect": "确认或排除退出/重启触发，并恢复owner RPC。",
+      "verify": "restartCount/exitCode/PID证据与故障窗对齐，31501可达。"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "刷新健康路由和旧RPC channel，保护性暂停自动重放状态码39的写请求。",
+      "depends_on": "Worker恢复",
+      "expected_effect": "消除37并避免未知发布结果下重复写。",
+      "verify": "连续10分钟37/39为0，失败对象一致性核对通过。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01",
+        "F02"
+      ],
+      "action": "执行Worker迁移/退出注入回归并记录路由收敛时长。",
+      "depends_on": "测试环境",
+      "expected_effect": "验证恢复闭环并建立告警阈值。",
+      "verify": "退出、重启、路由刷新、SET恢复全链路均有时间戳和trace证据。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "无GET归因样本",
+            "pct": 100,
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "RPC网络",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "detail": "GET 归因子集无样本"
+          },
+          {
+            "name": "RPC排队",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "detail": "GET 归因子集无样本"
+          },
+          {
+            "name": "QueryMeta",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "detail": "GET 归因子集无样本"
+          },
+          {
+            "name": "URMA",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "detail": "GET 归因子集无样本"
+          },
+          {
+            "name": "Data Worker服务端处理",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "detail": "GET 归因子集无样本"
+          },
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "detail": "GET 归因子集无样本"
+          },
+          {
+            "name": "未解释残差",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "detail": "GET 归因子集无样本"
+          },
+          {
+            "name": "URMA超时",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "detail": "GET 归因子集无样本"
+          }
+        ],
+        "conclusion": "GET归因子集为空，不能据此认定GET健康；本次故障证据集中在SET。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "数据面未观测",
+            "pct": 96,
+            "cls": "s-warn"
+          },
+          {
+            "name": "未解释残差",
+            "pct": 4,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": 0,
+            "status": "ok",
+            "detail": "trace_cnt=0"
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p99": null,
+            "anomaly_rate": 0,
+            "fail_share": 0,
+            "status": "warn",
+            "detail": "24/25 个分类样本；P90=0.064ms，均无 Worker 侧数据面行"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": null,
+            "anomaly_rate": 100,
+            "fail_share": 100,
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "1 个异常 trace；证据耗时79.181ms，Client总时延95.801ms"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": 0,
+            "status": "ok",
+            "detail": "trace_cnt=0"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": 0,
+            "status": "ok",
+            "detail": "trace_cnt=0"
+          }
+        ],
+        "conclusion": "25个SET分类样本中24个缺Worker侧数据面行；唯一异常trace落入未解释残差，原始日志进一步定位为CreateMeta RPC超时。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": "25",
+    "top_error_codes": [
+      {
+        "code": "37",
+        "name": "K_NO_AVAILABLE_WORKER",
+        "pct": 96,
+        "fault": "F01"
+      },
+      {
+        "code": "39",
+        "name": "K_METADATA_OWNER_UNAVAILABLE",
+        "pct": 4,
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "Worker故障/进程退出候选",
+        "pct": 100,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.151",
+        "host": null,
+        "pct": 96.15,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.101",
+        "host": null,
+        "pct": 3.85,
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "14:26",
+        "level": 1,
+        "pct": 12.5,
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "14:27",
+        "level": 2,
+        "pct": 62.5,
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "14:28",
+        "level": 3,
+        "pct": 100,
+        "spike": true,
+        "fault": "F01"
+      },
+      {
+        "time": "14:29",
+        "level": 1,
+        "pct": 37.5,
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "14:30",
+        "level": 2,
+        "pct": 50,
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "14:31",
+        "level": 2,
+        "pct": 50,
+        "spike": false,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-worker-chain-migration-20261009",
+    "total_steps": 6,
+    "api_calls": 29,
+    "duration": "约20分钟",
+    "steps": [
+      {
+        "title": "经验预检索",
+        "api_calls": [
+          "experience-skill SKILL/WIKI检索"
+        ],
+        "result": "命中Worker生命周期与Hash Ring迁移经验，作为待验证假设。"
+      },
+      {
+        "title": "资产与解析完整性",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务successful；1个日志资产；集群ci-kv-ds-1。"
+      },
+      {
+        "title": "GET/SET组件分诊",
+        "api_calls": [
+          "POST /stats/stages (GET)",
+          "POST /stats/stages (SET)"
+        ],
+        "result": "GET无归因样本；SET 25样本，1条异常落未解释残差。"
+      },
+      {
+        "title": "故障分布与trace下钻",
+        "api_calls": [
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/links",
+          "POST /stats/heatmap",
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "37×24、39×1；锁定2条代表trace和原始日志。"
+      },
+      {
+        "title": "Curated知识与反证",
+        "api_calls": [
+          "GET /failure_mode/status_code/37",
+          "GET /failure_mode/status_code/39",
+          "GET /failure_mode/{id}"
+        ],
+        "result": "确认owner不可用→路由耗尽；URMA超时桶为0。"
+      },
+      {
+        "title": "历史案例匹配",
+        "api_calls": [
+          "POST /diag_case_library/search",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "采用3条已确认案例作调整后参考；均回到现场证据核对。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis",
+      "keywords_matched": [
+        "Worker",
+        "异常退出",
+        "容器重启"
+      ],
+      "search_query_used": "KVCache worker chain migration Worker进程退出 容器重启",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "分析 Worker 日志时应同时查看同节点的 `container.log` 和系统日志（如 dmesg、systemd）。",
+      "how_used_in_diagnosis": "用于提出补齐容器退出码、PID变化和系统事件的验证方案，不作为现场证据。",
+      "confidence_on_reference": 0.85,
+      "confidence_reason": "与curated状态码根因兼容，且能补足当前生命周期证据缺口。"
+    },
+    {
+      "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+      "experience_type": "SKILL",
+      "name": "ds-hash-ring-metadata-diagnosis",
+      "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis",
+      "keywords_matched": [
+        "迁移",
+        "Hash Ring",
+        "路由"
+      ],
+      "search_query_used": "KVCache worker chain migration Worker进程退出 容器重启",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "未发现本次资产中的ring版本、Add/Remove Node或迁移任务日志，未将迁移状态机作为已证实根因。",
+      "content_quoted": "分析迁移问题时，需要同时查看源节点、目标节点和 Master 的日志。",
+      "how_used_in_diagnosis": "仅用于检查证据覆盖范围；因缺少ring日志，未用于根因结论。",
+      "confidence_on_reference": 0.7,
+      "confidence_reason": "方法适用，但本资产缺少对应现场字段。"
+    }
+  ]
+}

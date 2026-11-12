@@ -1,0 +1,672 @@
+{
+  "report": {
+    "title": "Coordinator 集群网络时延场景诊断报告",
+    "report_id": "RPT-20261112-B9F3",
+    "generated_at": "2026-11-12 12:00:00"
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+        "keywords_matched": [
+          "K_URMA_ERROR",
+          "1004",
+          "URMA"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr failed ret 4096 SET",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+        "how_used_in_diagnosis": "作为设备与链路检查建议；现场结论仍以 API 证据为准。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与 curated 状态码解释及现场 1004 日志一致。"
+      },
+      {
+        "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+        "experience_type": "SKILL",
+        "name": "ds-kv-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-kv-cache-diagnosis",
+        "keywords_matched": [
+          "KV Cache",
+          "SET",
+          "高耗时"
+        ],
+        "search_query_used": "KVCache TCP 网络时延 coordinator GET SET P99",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "高耗时请求可能由资源不足、远端访问、网络延迟或 LRU 淘汰导致。",
+        "how_used_in_diagnosis": "用于建立候选方向，随后通过 GET/SET 独立取证核验。",
+        "confidence_on_reference": 0.75,
+        "confidence_reason": "属于通用排查方向，未作为现场根因证据。"
+      }
+    ],
+    "summary": {
+      "total_references": 2,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 2,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅提供排查建议；现场事实来自本资产库 API 与原始日志。"
+    }
+  },
+  "basic_info": {
+    "kb_id": "b9f3d177-f44f-479b-948e-966804b791b0",
+    "kb_name": "lingqu_kvcache_dfx_coordinator_cluster_tcp_network_delay_300_001_20260924_04_49_46",
+    "log_file": "lingqu_kvcache_dfx_coordinator_cluster_tcp_network_delay_300_001_20260924_04_49_46",
+    "operation": "GET / SET（独立分析）",
+    "time_range_start": "2026-09-24 04:46:19",
+    "time_range_end": "2026-09-24 04:46:21",
+    "total_trace_cnt": 2,
+    "fault_trace_cnt": 2,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "T:URMA_WRITE": 1.0
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：SET 写路径连续出现 URMA 写提交失败；训练标签为网卡时延高，但现场缺少 NIC 时延遥测，物理根因仍需验证。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "2 条已解析 SET trace 均返回 K_URMA_ERROR(1004)，GET 无归因样本。",
+    "confidence": "中高（直接故障链已确认，物理网卡时延未直接测得）"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SET 路径 URMA 写提交失败（网卡高时延标签）",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 78,
+      "category": "mixed",
+      "affected_scope": "192.168.219.97 → 192.168.235.165:31501；2 条 SET trace；04:46:19–04:46:20",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-时延高",
+        "one_line_conclusion": "两条 4 MiB SET 请求在同一源目链路调用 urma_post_jetty_send_wr 时返回 ret=4096，并上浮为 K_URMA_ERROR(1004)；按指定训练标签归类为网卡时延高，但当前现场只确认 URMA 写提交边界失败。",
+        "fault_domain": "硬件故障/网卡故障-时延高",
+        "fault_component": "Client→Worker URMA 写数据面",
+        "fault_function": "urma_post_jetty_send_wr",
+        "fault_function_loc": "urma_manager.cpp:2592",
+        "affected_scope_pct": "100.00",
+        "affected_scope_desc": "已解析的 2 条 SET trace 全部受影响；涉及两个 Pod IP 和一个固定源目对",
+        "confidence": "中高 78%",
+        "key_findings": [
+          "错误码 1004 共 2 条 trace、2 个日志事件，逐码命中占比 100%",
+          "两条原始日志均记录 call urma_post_jetty_send_wr failed, ret: 4096，dataSize=4194304",
+          "Worker 侧 DS_POSIX_CREATE 返回 0，耗时仅 17µs/23µs，排除 Worker 写处理慢为首要原因",
+          "SET 阶段证据 P90 仅 0.390ms、Client P90 仅 0.407ms；未观测到高时延量化证据",
+          "GET 归因样本为 0，不能把 GET 空结果解释为健康，也不能跨操作归桶"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "b9f3d177-f44f-479b-948e-966804b791b0",
+              "operation": "SET",
+              "start_time": "2026-09-24 04:46:19",
+              "end_time": "2026-09-24 04:46:21"
+            },
+            "code_filter": [
+              "1004"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "b9f3d177-f44f-479b-948e-966804b791b0",
+                    "operation": "SET",
+                    "start_time": "2026-09-24 04:46:19",
+                    "end_time": "2026-09-24 04:46:21",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 2,
+              "items": [
+                {
+                  "code": "1004",
+                  "count": 2,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-24 04:46:19",
+                  "end_time": "2026-09-24 04:46:20",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 04:46:20",
+                  "end_time": "2026-09-24 04:46:21",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 路径在连续两个 1 秒窗口各出现 1 次 K_URMA_ERROR(1004)，共 2 次逐码命中；该计数不是业务失败率。",
+        "metrics": [
+          {
+            "label": "故障 trace",
+            "value": "2",
+            "sub": "两条 SET 请求均命中 1004",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "1004",
+            "sub": "K_URMA_ERROR，占逐码命中 100%",
+            "tone": "danger"
+          }
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET Client P90",
+            "value": "0.407ms",
+            "sub": "样本 2，非 P99",
+            "tone": "ok"
+          },
+          {
+            "label": "SDK 段 P90",
+            "value": "0.390ms",
+            "sub": "set_client 桶，样本 2",
+            "tone": "ok"
+          },
+          {
+            "label": "GET 样本",
+            "value": "0",
+            "sub": "归因子集为空，不代表健康",
+            "tone": "warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端 SDK 段",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100.0% 样本",
+            "status": "warn",
+            "detail": "2/2 个 SET 样本归入 set_client；接口仅提供证据耗时 P50/P90/max，不能补写 P99。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "b9f3d177-f44f-479b-948e-966804b791b0",
+                  "log_id": "20be702e-58e0-4e57-bf8f-7d531e9d498b",
+                  "operation": "SET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 2,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 2,
+              "normal_cnt": 2,
+              "anomalous_cnt": 0,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 0.0,
+              "distribution": {
+                "p50_ms": 0.335,
+                "p90_ms": 0.39,
+                "max_ms": 0.39,
+                "client_p50_ms": 0.358,
+                "client_p90_ms": 0.407
+              },
+              "tail_ratio_p90_p50": 1.164179,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 2",
+              "action": "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 侧排队/重试与端到端 deadline，再看 Worker 侧是否已返回。",
+              "top_traces": [
+                {
+                  "trace_id": "e339ea25-75b8-4e9d-9ebe-d808d89138e0",
+                  "evidence_ms": 0.39,
+                  "client_ms": 0.407
+                },
+                {
+                  "trace_id": "005364bc-237f-4f64-ace5-0fca1114942c",
+                  "evidence_ms": 0.335,
+                  "client_ms": 0.358
+                }
+              ]
+            }
+          },
+          {
+            "name": "SET·Worker 写处理",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "0.0% 样本",
+            "status": "ok",
+            "detail": "set_worker 桶计数为 0；原始 Worker CREATE 行为成功且仅 17µs/23µs。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_worker",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "b9f3d177-f44f-479b-948e-966804b791b0",
+                  "log_id": "20be702e-58e0-4e57-bf8f-7d531e9d498b",
+                  "operation": "SET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[4]"
+              },
+              "sample_cnt": 2,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 0,
+              "normal_cnt": 0,
+              "anomalous_cnt": 0,
+              "bucket_share_pct": 0.0,
+              "anomalous_ratio_pct": null,
+              "distribution": {
+                "p50_ms": null,
+                "p90_ms": null,
+                "max_ms": null,
+                "client_p50_ms": null,
+                "client_p90_ms": null
+              },
+              "tail_ratio_p90_p50": null,
+              "note": "有 Worker 侧行且 local_worker_internal_us > sdk_processing_us，证据取 Worker 端写处理耗时",
+              "action": "Worker 端 CREATE/PUBLISH 处理主导：排查元数据落盘、buffer 准备、锁竞争与远端 Worker 调度。",
+              "top_traces": []
+            }
+          }
+        ],
+        "conclusion": "现有时延字段未显示 P99 升高：SET 的客户端总时延 P90 为 0.407ms，SDK 段 P90 为 0.390ms。故障主要表现为 URMA 写提交立即失败，而非已量化的长尾等待；训练标签中的“网卡时延高”需要 NIC RTT/丢包/重传指标复核。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 现场故障",
+            "title": "SET 连续返回 K_URMA_ERROR(1004)",
+            "description": "04:46:19 与 04:46:20 各出现一条 SET 故障 trace，状态码均为 1004，故障模式均为 kvcache_access_022。",
+            "evidence": "POST /log_failure_event_result/list_time_aggregated_failure_events；POST /stats/error_codes",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 边界定位",
+            "title": "失败发生在 Client→Worker URMA WRITE 提交边界",
+            "description": "两条 Client 日志逐字记录 call urma_post_jetty_send_wr failed, ret: 4096；源 192.168.219.97，目标 192.168.235.165:31501。",
+            "evidence": "POST /log_failure_event_result/list_log_events，trace=e339ea25...、005364bc...",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 反证检查",
+            "title": "Worker 写处理慢不成立",
+            "description": "同一 trace 的 Worker DS_POSIX_CREATE 均返回 0，耗时 17µs/23µs；SET 指标也未落入 set_worker 桶。",
+            "evidence": "原始 access.log；POST /stats/stages operation=SET",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "④ 根因边界",
+            "title": "网卡高时延仍是待验证物理根因",
+            "description": "固定源目链路上的 URMA 写提交失败与设备/链路异常相容，但当前没有 RTT、丢包、重传、CRC/drop 或 ret=4096 精确语义证据；不把标签直接冒充现场事实。",
+            "evidence": "SET Client P90=0.407ms；GET 无样本；现场未提供 NIC 遥测",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "已确认的直接原因是 Client→Worker 的 URMA WRITE 提交调用 urma_post_jetty_send_wr 返回 ret=4096，并上浮为 K_URMA_ERROR(1004)。按用户指定标签归为网卡故障-时延高；但物理网卡时延升高尚未被现场链路指标直接证实。",
+        "supporting_knowledge": "Curated kvcache_access_022 将 1004 解释为 URMA 库、设备、上下文、Jetty、内存段、事件或异步处理底层错误；经验库建议检查 URMA 设备和链路。两者均为解释依据，不替代现场证据。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "网卡/链路高时延假设",
+            "detail": "来自指定训练标签；当前缺 NIC 指标，尚未现场确认",
+            "type": "suspected",
+            "transition": "待验证"
+          },
+          {
+            "label": "URMA 写 WR 提交失败",
+            "detail": "urma_post_jetty_send_wr 返回 ret=4096",
+            "type": "confirmed",
+            "transition": "直接日志"
+          },
+          {
+            "label": "K_URMA_ERROR(1004)",
+            "detail": "SDK 将底层 URMA 失败上浮为 1004",
+            "type": "confirmed",
+            "transition": "错误传播"
+          },
+          {
+            "label": "SET 请求失败",
+            "detail": "两条 4 MiB DS_KV_CLIENT_SET 受影响",
+            "type": "confirmed",
+            "transition": "业务影响"
+          }
+        ],
+        "impact_scope": [
+          "操作域：SET；GET 无可归因样本",
+          "源目路径：192.168.219.97 → 192.168.235.165:31501",
+          "时间：2026-09-24 04:46:19–04:46:20",
+          "负载：每条请求 dataSize=4194304（4 MiB）"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "e339ea25-75b8-4e9d-9ebe-d808d89138e0",
+          "kind": "latency",
+          "why": "SET·客户端SDK段 桶内证据耗时 Top1；这是证据耗时排序，不代表故障严重度排序；同 trace 返回 1004。",
+          "evidence_ms": 0.39,
+          "client_ms": 0.407,
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "timestamp": "2026-09-24 04:46:19.249"
+        },
+        {
+          "trace_id": "005364bc-237f-4f64-ace5-0fca1114942c",
+          "kind": "latency",
+          "why": "SET·客户端SDK段 桶内证据耗时 Top2；这是证据耗时排序，不代表故障严重度排序；同 trace 返回 1004。",
+          "evidence_ms": 0.335,
+          "client_ms": 0.358,
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "timestamp": "2026-09-24 04:46:20.487"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_022",
+          "stars": "★★★★★",
+          "match_logic": "L1：错误码 1004 与故障模式 kvcache_access_022 精确命中；L2：URMA/硬件域匹配、SET 操作匹配；L3：固定 Client→Worker 源目路径与现场一致。",
+          "symptom": "请求返回 K_URMA_ERROR，URMA 传输或资源操作失败。",
+          "root_cause": "URMA 库、设备、上下文、Jetty、内存段、事件或异步处理发生底层错误。",
+          "solution": "检查 URMA 库、设备、上下文、Jetty、内存段或事件状态；确认环境与设备健康后重试。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "applicability": "direct"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002569",
+          "stars": "★★★★☆",
+          "match_logic": "L1：1004 与 kvcache_access_022 均命中；L2：set_client、few_pods、link_pair 命中，MIXED 操作仅部分匹配；L5：案例同样记录 urma_post_jetty_send_wr ret=4096。",
+          "symptom": "以太网链路高时延候选伴随 URMA 写提交失败。",
+          "root_cause": "案例确认 URMA 写提交边界失败；网卡高时延仍要求链路指标验证。",
+          "solution": "同步采集两端 NIC 统计和 RTT/丢包/重传，对 ret=4096 做版本化语义确认。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用",
+          "applicability": "adjust",
+          "adaptation": "只复用取证与验证路径，不把历史案例的物理根因当作本次现场事实。"
+        },
+        {
+          "rank": "③",
+          "id": "experience:f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": "★★★☆☆",
+          "match_logic": "L1：经验条目包含 K_URMA_ERROR=1004；L2：URMA 设备和链路方向匹配；L3：经验未包含本次源目拓扑，仅作为排查建议。",
+          "symptom": "URMA 通用错误。",
+          "root_cause": "经验条目未给出本次 ret=4096 的确定物理根因。",
+          "solution": "检查 URMA 设备和链路。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在 192.168.219.97 与 192.168.235.165 两端同步采集 ip -s link、ethtool -S、链路速率/双工、CRC/drop 与 TCP retrans，并与 04:46:19–04:46:21 对齐。",
+          "查询当前 URMA/provider/驱动版本中 ret=4096 的精确定义，同时检查 Jetty、CQ、事件和内存段状态；确认健康后重试相同 4 MiB SET。",
+          "若链路指标确认异常，临时迁移或隔离该源目路径，修复端口、线缆或网卡后复测。"
+        ],
+        "long_term": [
+          "建立 NIC RTT、抖动、丢包、重传、CRC/drop 与 K_URMA_ERROR(1004) 的联合时序告警。",
+          "为 urma_post_jetty_send_wr 返回码补充可读语义与分类，避免所有底层失败统一上浮为 1004。",
+          "补齐 GET/SET 全路径和 NIC 指标采集，保持两种 operation 独立归桶。"
+        ],
+        "verification": [
+          "在相同源目路径连续回放 4 MiB SET，确认 1004 归零且 urma_post_jetty_send_wr 不再返回 4096。",
+          "验证故障前后 RTT P50/P99、丢包、重传及 NIC 错误计数恢复到基线。",
+          "复查 SET /stats/stages 与原始日志：Worker CREATE 继续成功，Client 侧不再出现 URMA_WRITE 提交失败。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "同步采集两端 NIC/链路与 URMA ret=4096 语义证据，先验证网卡高时延假设。",
+      "depends_on": "保留故障窗口或可复现场景",
+      "expected_effect": "把物理根因从 URMA API 边界进一步定界到链路、设备、Jetty 或资源状态。",
+      "verify": "相同 4 MiB SET 回放无 1004，且链路指标恢复基线。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "确认链路异常后切流并修复端口、线缆或网卡。",
+      "depends_on": "NIC/链路指标确认异常",
+      "expected_effect": "恢复 Client→Worker 数据面写入。",
+      "verify": "连续回放不再出现 urma_post_jetty_send_wr ret=4096。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "GET 归因子集",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "fault": "",
+            "detail": "sample_cnt=0；归因子集为空，不能解释为系统健康。"
+          }
+        ],
+        "conclusion": "GET 独立视角无可归因样本；未与 SET 混合归桶。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "客户端 SDK 段",
+            "pct": 100.0,
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "客户端 SDK 段",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": "100.0% 样本",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "2/2 样本；证据 P90=0.390ms，Client P90=0.407ms。"
+          },
+          {
+            "name": "Worker 写处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0.0% 样本",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "set_worker 桶 0；Worker CREATE 为 17µs/23µs。"
+          }
+        ],
+        "conclusion": "SET 的两个样本均归入客户端 SDK 段；阶段接口无 P99，且 P90 未表现为高时延。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 2,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "硬件故障/网卡故障-时延高",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.97",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.165",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "04:46:19",
+        "level": "4",
+        "pct": "50",
+        "spike": true,
+        "fault": "F01"
+      },
+      {
+        "time": "04:46:20",
+        "level": "4",
+        "pct": "50",
+        "spike": false,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-b9f3d177",
+    "total_steps": 7,
+    "api_calls": 18,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences（SKILL/WIKI）"
+        ],
+        "result": "命中 KVCache、性能与 URMA 传输经验，作为先验建议。"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "日志任务 successful；1 个日志文件；解析 2 条 trace。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立阶段分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET sample=0；SET sample=2，均在 set_client 桶。"
+      },
+      {
+        "title": "Step 4 故障码与拓扑取证",
+        "api_calls": [
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/heatmap",
+          "POST /log_failure_event_result/list_trace_events"
+        ],
+        "result": "1004 命中 2 条 trace；涉及固定源目对及两个 Pod IP。"
+      },
+      {
+        "title": "Step 5 原始日志与 curated 知识核验",
+        "api_calls": [
+          "POST /log_failure_event_result/list_log_events",
+          "GET /failure_mode/status_code/1004",
+          "GET /failure_mode/kvcache_access_022"
+        ],
+        "result": "确认 urma_post_jetty_send_wr ret=4096 与 kvcache_access_022。"
+      },
+      {
+        "title": "Step 6 历史案例特征匹配",
+        "api_calls": [
+          "POST /diag_case_library/search",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "命中 UB-CASE-002569；仅复用验证路径，不替代现场证据。"
+      },
+      {
+        "title": "Step 7 报告特征提取与契约校验",
+        "api_calls": [
+          "error_features.py",
+          "latency_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "从保存的 API 响应离线提取特征，并执行统一契约校验。"
+      }
+    ]
+  }
+}

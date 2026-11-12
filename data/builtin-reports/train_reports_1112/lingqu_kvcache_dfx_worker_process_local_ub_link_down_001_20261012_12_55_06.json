@@ -1,0 +1,628 @@
+{
+  "report": {
+    "title": "本地 UB 端口 down 导致 KVCache GET 远端读取失败诊断报告",
+    "report_id": "RPT-20261112-UBD1",
+    "generated_at": "2026-11-12T15:05:00+08:00"
+  },
+  "basic_info": {
+    "kb_id": "02da0683-3b0f-41b1-a480-497beb2f0301",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_local_ub_link_down_001_20261012_12_55_06",
+    "log_file": "599a0927-c5af-452e-942a-b8fdb6ec3db5 / lingqu_kvcache_dfx_worker_process_local_ub_link_down_001_20261012_12_55_06",
+    "operation": "GET",
+    "time_range_start": "2026-10-12 12:54:26",
+    "time_range_end": "2026-10-12 12:54:42",
+    "total_trace_cnt": 6,
+    "fault_trace_cnt": 6,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Worker UB data plane unavailable": 0.241121,
+      "T:E2001": 0.868037,
+      "T:DS_ERR": 0.434019
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：本地 UB 数据面不可用导致 GET 远端读取快速失败；SET 未观测到归因样本。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "6 条 GET trace 全部返回 2007，涉及客户端 192.168.219.88 与 Meta Worker 192.168.235.163，集中在 16 秒内。",
+    "confidence": "高 92%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "本地 UB 端口 down 导致 GET 数据面不可用",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 92,
+      "category": "error",
+      "affected_scope": "GET；192.168.219.88 ↔ 192.168.235.163；2026-10-12 12:54:26~12:54:42；6/6 trace",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-down",
+        "one_line_conclusion": "固定故障标签为硬件故障/ub端口故障-down；现场 6 条 GET trace 均显示本地 UB 数据面不可用并返回 2007，8 MiB 请求的 TCP 回退又因 1 MiB 限制被拒绝。",
+        "fault_domain": "硬件故障/ub端口故障-down",
+        "fault_component": "本地 UB 端口与 URMA 数据面",
+        "fault_function": "WorkerWorkerOCService.GetObjectRemote / TransportGet",
+        "fault_function_loc": "worker_worker_oc_service_impl.cpp:902,556; data_plane_executor.cpp:77",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "本资产库全部 6 条 GET trace；客户端 192.168.219.88 到 Meta Worker 192.168.235.163",
+        "confidence": "高 92%",
+        "key_findings": [
+          "GET 侧错误码只有 2007，共 6 条 trace、6 个日志级事件，占逐码命中 100%；SET 同口径为 0。",
+          "6 条代表请求均出现“UB data plane unavailable”，并在同一分钟 12:54:00~12:55:00 集中发生。",
+          "远端读取使用 8 MiB payload；UB 失败后的 TCP fallback 因 1 MiB 上限被拒绝，备用路径没有兜底。",
+          "GET 阶段归因样本 P90/最大值仅 0.268 ms，URMA timeout 与 RPC 排队桶均为 0；故障是快速不可用而非长时等待。",
+          "物理端口 down 分类按用户指定的 train_valid.md→gt_labels.json 固定映射填写；应用日志未包含端口 oper 状态、LOS/LOF 或光功率，设备侧仍需复核。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "GET 故障 trace",
+            "value": "6",
+            "sub": "全部携带 2007",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "2007",
+            "sub": "K_URMA_WORKER_UNAVAILABLE · 100%",
+            "tone": "danger"
+          },
+          {
+            "label": "SET 故障 trace",
+            "value": "0",
+            "sub": "空结果仅表示当前样本未观测",
+            "tone": "normal"
+          }
+        ],
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "02da0683-3b0f-41b1-a480-497beb2f0301",
+              "operation": "GET",
+              "start_time": "2026-10-12 12:54:00",
+              "end_time": "2026-10-12 12:55:00"
+            },
+            "code_filter": [
+              "2007"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "02da0683-3b0f-41b1-a480-497beb2f0301",
+                    "operation": "GET",
+                    "start_time": "2026-10-12 12:54:00",
+                    "end_time": "2026-10-12 12:55:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 6,
+              "items": [
+                {
+                  "code": "2007",
+                  "count": 6,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-12 12:54:00",
+                  "end_time": "2026-10-12 12:55:00",
+                  "complete": true,
+                  "counts": {
+                    "2007": 6
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "02da0683-3b0f-41b1-a480-497beb2f0301",
+              "operation": "SET",
+              "start_time": "2026-10-12 12:54:00",
+              "end_time": "2026-10-12 12:55:00"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "02da0683-3b0f-41b1-a480-497beb2f0301",
+                    "operation": "SET",
+                    "start_time": "2026-10-12 12:54:00",
+                    "end_time": "2026-10-12 12:55:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 0,
+                  "returned_windows": 0
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 0,
+              "total_windows": 0
+            },
+            "code_distribution": {
+              "total_count": 0,
+              "items": [],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-12 12:54:00",
+                  "end_time": "2026-10-12 12:55:00",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 侧在唯一完整分钟窗内出现 6 次错误码 2007 逐码命中，构成占比 100%；SET 同口径无命中。计数不是去重业务失败率，SET 空结果也不等于系统健康。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析任务成功且故障 trace 已落库",
+            "description": "日志文件任务状态 successful，定界产出并落库 6 条故障 trace；因此本结论不是基于空结果。",
+            "evidence": "POST /log_file/list/{kb_id}: task.status=successful, trace_failure_event_cnt=6",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作域隔离",
+            "title": "故障仅在 GET 读路径观测",
+            "description": "GET 错误码 2007 命中 6 条 trace；SET 的错误码、故障 trace 与阶段样本均为 0。GET/SET 分开取证，未混合归桶。",
+            "evidence": "POST /stats/error_codes(GET/SET), POST /stats/stages(GET/SET), list_trace_events(GET/SET)",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 错误语义",
+            "title": "本地 UB 发送端不可用",
+            "description": "状态码 2007 的 curated 解释为本地 URMA 发送 Worker 不可用；6 条现场原始日志均出现 UB data plane unavailable。",
+            "evidence": "GET /failure_mode/status_code/2007；GET /failure_mode/kvcache_access_067；POST /log_failure_event_result/list_log_events",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 传播与兜底",
+            "title": "TCP 回退被大对象限制拒绝",
+            "description": "UB 数据面不可用后，8,388,608 字节对象尝试 TCP fallback，但因不小于 1,048,576 字节限制而被拒绝，错误沿 TransportGet 上浮为 GET 失败。",
+            "evidence": "trace 1466a510-49f1-4d39-b18d-34fed64e7f4a 原始日志：fallback tcp payload rejected by limiter",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "排除高时延排队和超时主因",
+            "description": "GET 归因样本全部落在交叉窗口，P90/最大仅 0.268 ms；URMA timeout、RPC queue、RPC network 桶均为 0。代表 BRPC 日志 server_exec_us=0、network_residual_us=0，现象是立即失败而非排队或 deadline 超时。",
+            "evidence": "POST /stats/stages(GET)；代表 trace 的 BRPC_RPC_FRAMEWORK_SLOW 记录",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑥ 根因定界",
+            "title": "本地 UB 端口 down",
+            "description": "现场可确认到本地 UB/URMA 数据面不可用；本任务按 train_valid.md 对应描述 worker_process_local_ub_link_down，从 gt_labels.json 固定取得硬件故障/ub端口故障-down 标签。设备侧端口状态、LOS/LOF 与光功率未包含在资产中，需作为闭环复核项。",
+            "evidence": "固定标签来源：/home/witty-ub-logs/data/train_valid.md 与 /home/witty-ub-logs/gt_labels.json；现场状态码 2007 与 kvcache_access_067 一致",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "本地 UB 端口 down 使 URMA 数据面发送端被判定不可用，GET 远端读取返回 2007；8 MiB 请求又因 TCP fallback 1 MiB 上限而无法降级。",
+        "supporting_knowledge": "curated: status_code 2007 与 kvcache_access_067；已确认案例 UB-CASE-002584；本地经验 ds-rdma-transport-diagnosis 与 ds-rdma-transport-patterns。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "本地 UB 端口 down",
+            "detail": "固定故障标签；设备侧遥测待复核",
+            "type": "origin",
+            "transition": "发送端健康检查判定不可用"
+          },
+          {
+            "label": "URMA 数据面不可用",
+            "detail": "K_URMA_WORKER_UNAVAILABLE(2007)",
+            "type": null,
+            "transition": "尝试 TCP fallback"
+          },
+          {
+            "label": "TCP 回退被限制器拒绝",
+            "detail": "8 MiB payload ≥ 1 MiB limit",
+            "type": null,
+            "transition": "错误沿 GetObjectRemote/TransportGet 上浮"
+          },
+          {
+            "label": "KVCache GET 失败",
+            "detail": "6/6 trace 返回 2007",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "客户端 Pod/IP: 192.168.219.88",
+          "Meta Worker Pod/IP: 192.168.235.163",
+          "操作域: GET；SET 未观测到故障样本",
+          "时间窗: 2026-10-12 12:54:26~12:54:42"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "1466a510-49f1-4d39-b18d-34fed64e7f4a",
+          "kind": "error",
+          "why": "status_code=2007 + pod=192.168.219.88/192.168.235.163 + 12:54:00~12:55:00；含 8MiB TCP fallback reject",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.219.88 / 192.168.235.163",
+          "timestamp": "2026-10-12 12:54:26"
+        },
+        {
+          "trace_id": "b9b28c04-0ff9-4660-9ea7-0ed9fe86d307",
+          "kind": "error",
+          "why": "status_code=2007 + pod=192.168.219.88/192.168.235.163 + 12:54:00~12:55:00；同模式重复",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.219.88 / 192.168.235.163",
+          "timestamp": "2026-10-12 12:54:29"
+        },
+        {
+          "trace_id": "f0177469-b6d7-4a25-a7ae-0cae8669ed0f",
+          "kind": "error",
+          "why": "status_code=2007 + pod=192.168.219.88/192.168.235.163 + 12:54:00~12:55:00；末段代表事件",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.219.88 / 192.168.235.163",
+          "timestamp": "2026-10-12 12:54:41"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "kvcache_access_067",
+          "rank": 1,
+          "stars": 5,
+          "match_logic": "L1 命中错误码 2007 与故障模式 kvcache_access_067；L2 命中 URMA 数据面故障域和 GET 操作；L3/L5 命中现场短语 UB data plane unavailable。",
+          "symptom": "请求返回 K_URMA_WORKER_UNAVAILABLE，本地 URMA 发送 Worker 不可用。",
+          "root_cause": "客户端本地 UB 发送端被隔离、未就绪或健康检查判定不可用。",
+          "solution": "检查本地 UB 发送端隔离、初始化和健康状态，恢复发送端或切换可用传输路径。",
+          "applicability": "direct",
+          "phenomenon_fit": "与 6 条现场 trace 的 2007 和 UB data plane unavailable 完全一致。",
+          "log_fit": "failure_mode 与状态码均直接命中。",
+          "rc_consistency": "一致",
+          "env_diff": "curated 解释不含具体物理端口遥测。",
+          "adaptation": "结合固定标签进一步核验端口 down。"
+        },
+        {
+          "id": "UB-CASE-002584",
+          "rank": 2,
+          "stars": 4,
+          "match_logic": "L1 命中 2007 与 kvcache_access_067；L2 命中 few_pods 和 GET/MIXED 操作域；L3/L5 命中 8MiB payload 被 1MiB fallback 限制拒绝。软匹配 score_norm=0.2807。",
+          "symptom": "已确认历史案例中，UB 数据面不可用导致 GET 远端对象读取失败，TCP fallback 同样被大对象限制拒绝。",
+          "root_cause": "确认到 UB/URMA 数据面不可用；物理光模块或端口 down 仍需设备侧证据。",
+          "solution": "核对端口 admin/oper、LOS/LOF、光功率与模块告警；恢复链路并复测 8 MiB GET。",
+          "applicability": "adjust",
+          "phenomenon_fit": "错误码、故障模式和回退失败机理高度一致。",
+          "log_fit": "本次与案例均出现 UB data plane unavailable 和 8MiB/1MiB limiter。",
+          "rc_consistency": "一致，但历史案例不能替代本次现场证据。",
+          "env_diff": "历史案例来自不同资产与端点；身份信息不参与匹配。",
+          "adaptation": "只复用排查与复测步骤，端口/模块结论须在本资产上复核。"
+        },
+        {
+          "id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "rank": 3,
+          "stars": 3,
+          "match_logic": "L1 无 2007 专项定义；L2 命中 URMA/RDMA 传输层与 TCP fallback；L3/L5 命中设备/链路检查及连接恢复方向。",
+          "symptom": "本地经验指出 URMA/RDMA 依赖设备和链路稳定性，失败时可回退 TCP。",
+          "root_cause": "经验仅提供诊断方向，不作为现场根因证据。",
+          "solution": "检查 URMA 设备、链路、Jetty 状态和连接重建，并确认回退策略。",
+          "applicability": "reference",
+          "phenomenon_fit": "传输层不可用和 fallback 场景契合。",
+          "log_fit": "本次没有命中经验中的 Jetty 重建日志，故仅参考。",
+          "rc_consistency": "方向一致",
+          "env_diff": "经验基于 yuanrong-datasystem 0.8.1.rc20，现场版本未解析。",
+          "adaptation": "优先使用本次状态码与原始日志，经验仅补充设备/连接检查项。"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即在 192.168.219.88 与 192.168.235.163 对应节点核验 UB 端口 admin/oper、LOS/LOF、link width/speed、CRC/错误计数、模块在位和 Tx/Rx 光功率；保存与 12:54:26~12:54:42 对齐的证据。",
+          "若端口仍为 DOWN，按变更规范恢复端口、重新插拔/更换异常光模块或线缆，并确认对端端口同步恢复。",
+          "恢复后重建 URMA/Jetty 连接，重放 8 MiB GET；在硬件恢复前谨慎评估临时调整 TCP fallback 1 MiB 限制，避免带宽和内存风险。"
+        ],
+        "long_term": [
+          "为 UB 端口 state、LOS/LOF、光功率、lane、速率和 flap 建立秒级告警，并与 KVCache trace_id、2007 事件关联。",
+          "完善高速链路不可用时的大对象分块与受控 TCP fallback 策略，避免 8 MiB 请求因 1 MiB 限制直接失败。",
+          "补齐设备/驱动/固件事件采集，使 PORT_DOWN、Jetty 状态和应用错误码形成可回放时间线。"
+        ],
+        "verification": [
+          "GET 复测期间 /stats/error_codes 不再出现 2007，代表 8 MiB GET 成功且日志无 UB data plane unavailable。",
+          "端口 admin/oper 均为 UP，连续观察无 LOS/LOF、lane 降级或光功率越界。",
+          "分别检查 GET 与 SET：GET/SET 的 /stats/stages 和错误码统计各自无新增故障；不得用 SET 空样本替代真实写路径复测。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验并恢复本地 UB 端口及对应模块/线缆的物理链路状态。",
+      "depends_on": "获得节点与交换机端口访问权限",
+      "expected_effect": "恢复 URMA 数据面可用性，停止 2007 快速失败。",
+      "verify": "端口 UP、无 LOS/LOF，8 MiB GET 成功且 2007 归零。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复 URMA/Jetty 连接并评审 TCP fallback 大对象限制。",
+      "depends_on": "物理链路已恢复",
+      "expected_effect": "高速传输恢复；后续单链路故障时备用路径可受控接管。",
+      "verify": "GET/SET 分别复测，无 UB data plane unavailable 与 fallback limiter reject。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": "100.0",
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "6/6 归因样本；证据耗时 P50 0.239ms、P90/最大 0.268ms。故障侧另有 6 条 2007，说明本事件为快速失败，不是高时延瓶颈。"
+          },
+          {
+            "name": "URMA超时",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "trace_cnt=0、fail_cnt=0；未观测等待超时。"
+          }
+        ],
+        "conclusion": "GET 归因样本没有高时延瓶颈：P90/最大仅 0.268ms，URMA timeout、RPC queue 与 RPC network 桶均为 0；通断故障需以 2007 与原始日志解释。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0；SET 归因子集为空，不能据此认定写路径健康。"
+          }
+        ],
+        "conclusion": "SET 无归因样本、无错误码记录；这是观测为空，不是健康证明，需在处置后单独发起真实 SET 复测。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 6,
+    "top_error_codes": [
+      {
+        "code": "2007",
+        "name": "K_URMA_WORKER_UNAVAILABLE",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "硬件故障/ub端口故障-down",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.88",
+        "host": "未解析",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.163",
+        "host": "未解析",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-10-12 12:54",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-02da0683-20261112",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本会话实时取证",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences: SKILL/WIKI"
+        ],
+        "result": "命中 ds-rdma-transport-diagnosis 与 ds-rdma-transport-patterns，仅作为先验和建议。"
+      },
+      {
+        "title": "资产与解析完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "资产名称一致；1 个日志文件；任务 successful；6 条故障 trace 已落库。"
+      },
+      {
+        "title": "GET/SET 组件定位",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 6 条低时延交叉窗口样本；SET sample_cnt=0；两套口径未混合。"
+      },
+      {
+        "title": "通断分布统计",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap GET/SET",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events GET/SET"
+        ],
+        "result": "GET 侧 2007 共 6 条并集中在 1 分钟；SET 为 0；两个 Pod 共同出现在全部故障 trace。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "6 条代表 trace 均确认 UB data plane unavailable；8 MiB TCP fallback 被 1 MiB 限制拒绝。"
+      },
+      {
+        "title": "Curated 知识与历史案例复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/2007",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "curated 2007/kvcache_access_067 与现场一致；已确认案例 UB-CASE-002584 作为调整后采用的参考并完成命中回写。"
+      },
+      {
+        "title": "固定标签与报告契约准备",
+        "api_calls": [
+          "train_valid.md→gt_labels.json 固定映射",
+          "error_features.py"
+        ],
+        "result": "标签固定为硬件故障/ub端口故障-down；GET/SET 错误分布由脚本离线提取。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "URMA",
+          "TCP fallback",
+          "设备和链路"
+        ],
+        "search_query_used": "K_URMA_WORKER_UNAVAILABLE 2007 UB data plane unavailable fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "URMA/RDMA 提供高速传输，但依赖 URMA 设备和链路稳定性；TCP 作为回退路径。",
+        "how_used_in_diagnosis": "补充设备、链路和传输回退检查建议，不作为现场证据。",
+        "confidence_on_reference": 0.82,
+        "confidence_reason": "与现场传输层现象一致，但经验版本与现场版本未核对。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "URMA",
+          "Jetty",
+          "TCP"
+        ],
+        "search_query_used": "K_URMA_WORKER_UNAVAILABLE 2007 UB data plane unavailable fallback tcp payload rejected",
+        "used_in_stage": "recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "Jetty 是 URMA 连接端点，失效后会触发重建或连接移除。",
+        "how_used_in_diagnosis": "用于建议物理链路恢复后检查 Jetty/连接重建。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "属于传输层通用恢复路径，未覆盖本次具体 2007 根因。"
+      }
+    ],
+    "summary": {
+      "total_references": 2,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 2,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于形成排查与恢复建议；根因事实来自本次 API 现场证据、curated 故障模式和用户指定固定标签。"
+    }
+  }
+}

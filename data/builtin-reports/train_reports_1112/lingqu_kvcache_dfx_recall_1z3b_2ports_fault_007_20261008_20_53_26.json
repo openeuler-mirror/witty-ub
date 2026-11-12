@@ -1,0 +1,671 @@
+{
+  "report": {
+    "title": "recall_1z3b_2ports SET Publish 故障诊断报告",
+    "report_id": "RPT-20261112-7A3D",
+    "generated_at": "2026-11-12"
+  },
+  "basic_info": {
+    "kb_id": "7a3d1b4b-57b4-4fd0-a732-05a6b2147e43",
+    "kb_name": "lingqu_kvcache_dfx_recall_1z3b_2ports_fault_007_20261008_20_53_26",
+    "log_file": "d4453380-3aa1-4e55-ab7a-ec26fee07425 / lingqu_kvcache_dfx_recall_1z3b_2ports_fault_007_20261008_20_53_26",
+    "operation": "SET（GET 独立核验无故障样本）",
+    "time_range_start": "2026-10-08 21:00:06",
+    "time_range_end": "2026-10-08 21:01:12",
+    "total_trace_cnt": 4,
+    "fault_trace_cnt": 4,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Invalid parameter": 1.0
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个 SET Publish 故障：现场直接证据确认对象属性不兼容导致 K_INVALID(2)；按用户指定真值来源归类为 ub 端口故障-down，但物理端口根因尚缺现场闭环证据。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "4 条 SET 故障 trace，涉及客户端 192.168.235.140 与 Data Worker 192.168.189.67，持续约 66 秒；GET 同窗无故障记录。",
+    "confidence": "高 92%（直接故障点）/低 35%（端口 down 物理根因）"
+  },
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核对失败 key 的既有 WriteMode、consistency_type、cacheType，使 SET/Publish 与首次创建属性一致；确需变更时按业务流程删除并重建。",
+      "depends_on": "确认对象生命周期与允许的数据重建窗口",
+      "expected_effect": "消除现场直接观测到的 Publish 参数一致性拒绝。",
+      "verify": "同 key 重放时 DS_POSIX_CREATE 与 DS_POSIX_PUBLISH 均返回 0。"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "按指定训练标签补采两端 UB 端口 link state、对端状态、lane/速率、光模块 DDM 及驱动/固件事件；只有出现 PORT_DOWN/LOS 或管理面 DOWN 才确认物理端口根因。",
+      "depends_on": "具备两端主机和交换机端口访问权限",
+      "expected_effect": "确认或排除 ub 端口 down 标签，避免用外部标签替代现场证据。",
+      "verify": "保存带端口号与时间戳的 urma_admin/驱动/DDM 结果，并与 21:00–21:02 故障窗对齐。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "客户端增加对象属性预检，并把 K_INVALID(2) 与 URMA/链路类错误分开告警。",
+      "depends_on": "SDK 可发布变更",
+      "expected_effect": "减少非法属性变更，并避免将参数错误包装成笼统 RPC failed。",
+      "verify": "单测覆盖属性冲突；链路故障演练采集独立 PORT_DOWN/超时错误码。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET 的 /stats/stages 返回 sample_cnt=0，归因桶全 0；同窗故障码统计也为空。这表示当前日志没有 GET 故障样本，不等同于长期健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "客户端 SDK 段",
+            "pct": "100.0",
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "客户端 SDK 段",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "fault": "F01",
+            "detail": "4/4 样本归入 set_client；P50 0.190ms、P90 0.226ms、max 0.226ms。/stats/stages 不提供 P99，故不补造。"
+          },
+          {
+            "name": "Worker 写处理",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "归因 trace_cnt=0；不能据此否定 Publish 业务错误，错误证据来自故障事件链。"
+          },
+          {
+            "name": "URMA 超时",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "set_urma_timeout 桶为 0，原始证据未命中 URMA_WAIT_TIMEOUT。"
+          }
+        ],
+        "conclusion": "SET 样本均为亚毫秒级，未出现时延异常或 URMA 超时；故障表现是 Publish 快速返回 K_INVALID(2)，不是慢请求。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 4,
+    "top_error_codes": [
+      {
+        "code": "2",
+        "name": "K_INVALID / Invalid parameter",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "kvcache_access_002 + kvcache_runtime_2303",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.140",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.67",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "21:00",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      },
+      {
+        "time": "21:01",
+        "level": "2",
+        "pct": "33.3",
+        "spike": false,
+        "fault": "F01"
+      }
+    ]
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SET Publish 返回 K_INVALID(2)，指定标签为 ub 端口故障-down",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 92,
+      "category": "error",
+      "affected_scope": "4 条 SET trace；192.168.235.140 → 192.168.189.67；21:00:06–21:01:12",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-down",
+        "one_line_conclusion": "4 条 SET 在 Create 成功后于 Publish 阶段快速返回 K_INVALID(2)；报告按指定真值来源归类为硬件故障/ub端口故障-down，但当前日志未直接观测端口 DOWN。",
+        "fault_domain": "硬件故障/ub端口故障-down",
+        "fault_component": "KVCache Publish（现场直接故障点）/ UB 端口（指定标签归类）",
+        "fault_function": "WorkerOCService.Publish / PublishObjectWithLock",
+        "fault_function_loc": "现场 failure_mode=kvcache_runtime_2303",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "4/4 条故障 trace 挂有状态码 2；客户端 192.168.235.140，Data Worker 192.168.189.67",
+        "confidence": "高 92%（参数不兼容）/低 35%（端口 down）",
+        "key_findings": [
+          "GET 与 SET 已分开核验：GET 无故障样本；SET 有 4 条故障 trace，禁止据 GET 空结果宣称读路径长期健康。",
+          "状态码 2 占 SET 逐码命中 100%，4 条 trace 同时命中 kvcache_access_002 与 kvcache_runtime_2303。",
+          "代表 trace 均显示 DS_POSIX_CREATE=0，随后 DS_POSIX_PUBLISH=2，原文明确提示 Write mode、consistency type 或 cache type 不可修改。",
+          "SET 总时延 0.299–0.339ms，trace/list 的 is_anomalous 均为 false；无 URMA_WAIT_TIMEOUT、PORT_DOWN 或 all ports are BAD 证据。",
+          "故障标签按用户指定映射取自 gt_labels.json：recall_1z3b_2ports_fault → 硬件故障/ub端口故障-down；该标签不等同于现场物理证据。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "7a3d1b4b-57b4-4fd0-a732-05a6b2147e43",
+              "operation": "SET",
+              "start_time": "2026-10-08 21:00:00",
+              "end_time": "2026-10-08 21:02:00"
+            },
+            "code_filter": [
+              "2"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "7a3d1b4b-57b4-4fd0-a732-05a6b2147e43",
+                    "operation": "SET",
+                    "start_time": "2026-10-08 21:00:00",
+                    "end_time": "2026-10-08 21:02:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 4,
+              "items": [
+                {
+                  "code": "2",
+                  "count": 4,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-08 21:00:00",
+                  "end_time": "2026-10-08 21:01:00",
+                  "complete": true,
+                  "counts": {
+                    "2": 3
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-08 21:01:00",
+                  "end_time": "2026-10-08 21:02:00",
+                  "complete": true,
+                  "counts": {
+                    "2": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "7a3d1b4b-57b4-4fd0-a732-05a6b2147e43",
+              "operation": "GET",
+              "start_time": "2026-10-08 21:00:00",
+              "end_time": "2026-10-08 21:02:00"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "7a3d1b4b-57b4-4fd0-a732-05a6b2147e43",
+                    "operation": "GET",
+                    "start_time": "2026-10-08 21:00:00",
+                    "end_time": "2026-10-08 21:02:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 0,
+                  "returned_windows": 0
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 0,
+              "total_windows": 0
+            },
+            "code_distribution": {
+              "total_count": 0,
+              "items": [],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-08 21:00:00",
+                  "end_time": "2026-10-08 21:01:00",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-08 21:01:00",
+                  "end_time": "2026-10-08 21:02:00",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 侧两个完整分钟窗共观测 4 次状态码 2 逐码命中，分布为 3→1；GET 侧同窗无故障事件。计数是逐码命中次数，不等同于业务失败率。",
+        "metrics": [
+          {
+            "label": "SET 故障 trace",
+            "value": "4",
+            "sub": "状态码 2，4 条 trace",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "K_INVALID(2)",
+            "sub": "4/4，逐码占比 100%",
+            "tone": "danger"
+          },
+          {
+            "label": "峰值窗口",
+            "value": "3",
+            "sub": "21:00–21:01 分钟窗",
+            "tone": "warn"
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据核验",
+            "title": "解析数据完整可用",
+            "description": "日志解析任务状态 successful，故障侧落库 4 条 trace。",
+            "evidence": "GET /task/912df8ab-e316-4225-af19-18705bee851d；POST /log_file/list。",
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作域隔离",
+            "title": "故障仅在 SET 证据链出现",
+            "description": "GET 的阶段与错误码统计为空；SET 有 4 条 code=2 故障 trace。GET 空结果仅代表当前范围无样本。",
+            "evidence": "POST /stats/stages、/stats/error_codes、/stats/heatmap，operation 分别为 GET/SET。",
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 错误定量",
+            "title": "K_INVALID(2) 短时集中",
+            "description": "两个分钟窗逐码计数 3→1，4/4 条 SET trace 携带状态码 2。",
+            "evidence": "POST /log_failure_event_result/list_time_aggregated_failure_events；POST /stats/error_codes。",
+            "confirmed": true
+          },
+          {
+            "step_label": "④ Trace 下钻",
+            "title": "Create 成功、Publish 参数一致性校验失败",
+            "description": "同一 trace 中 DS_POSIX_CREATE 返回 0，随后 Publish 返回 2；原文明确禁止修改 Write mode、consistency type 或 cache type。",
+            "evidence": "trace 5a1f9e36-ddca-4769-b32b-61016fcc6440、68b7c2b8-c847-42a8-923f-6c739f9efcdc、7caeb545-b3db-4311-ab64-5679a646d0a4。",
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "物理端口 down 尚未被现场日志证实",
+            "description": "21 条代表 trace 上下文未命中 PORT_DOWN 或 all ports are BAD；set_urma_timeout=0，BRPC network_residual_us=0。历史端口案例只能作为待验证假设。",
+            "evidence": "POST /stats/stages operation=SET；POST /log_failure_event_result/list_log_events。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑥ 标签归类",
+            "title": "按指定真值来源写入 ub 端口 down 标签",
+            "description": "train_valid.md 将该路径映射到 recall_1z3b_2ports_fault，gt_labels.json 将其映射为硬件故障/ub端口故障-down。此为用户指定分类依据，与现场直接根因分层展示。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md:105；/home/witty-ub-logs/gt_labels.json:714-716。",
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "现场可确认的直接原因是：对已存在对象执行 SET/Publish 时，请求属性与对象既有 WriteMode、consistency_type 或 cacheType 不一致，触发 K_INVALID(2)，导致 WorkerOCService.Publish 失败。按用户指定真值来源，分类固定为“硬件故障/ub端口故障-down”；但物理端口 down 仍需端口状态、驱动/固件与 DDM 证据闭环。",
+        "supporting_knowledge": "Curated：status_code=2 与 kvcache_access_002 解释为参数非法；kvcache_runtime_2303 指向对象缓存发布失败。经验库 ds-kv-cache-diagnosis 提示按非零状态码及 WriteMode/ConsistencyType 排查。已确认案例 UB-CASE-002538 提供端口 down 假设，但当前现场缺其端口状态证据。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "客户端发起 DS_KV_CLIENT_SET",
+            "detail": "192.168.235.140 写入 1KiB 对象，Write_mode=3。"
+          },
+          {
+            "label": "Data Worker 完成 DS_POSIX_CREATE",
+            "detail": "192.168.189.67 上代表 trace 的 Create 返回 0。"
+          },
+          {
+            "label": "Worker 执行 Publish",
+            "detail": "PublishObjectWithLock 检查对象既有属性。"
+          },
+          {
+            "label": "返回 K_INVALID(2)",
+            "detail": "Write mode、consistency type 或 cache type 不允许被修改。"
+          },
+          {
+            "label": "客户端 SET 失败",
+            "detail": "Publish RPC 包装为 code=2 / E2001，在两个分钟窗出现。"
+          }
+        ],
+        "impact_scope": [
+          "SET 写路径 4 条 trace",
+          "2 个参与 Pod",
+          "GET 同窗无故障记录但不能外推长期健康"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "5a1f9e36-ddca-4769-b32b-61016fcc6440",
+          "kind": "error",
+          "why": "status_code=2 + SET + 21:00–21:01 窗口；Create=0 后 Publish=2",
+          "status_code": "2",
+          "failure_mode_id": "kvcache_access_002,kvcache_runtime_2303",
+          "pod": "192.168.235.140 / 192.168.189.67",
+          "timestamp": "2026-10-08 21:00:06.478"
+        },
+        {
+          "trace_id": "68b7c2b8-c847-42a8-923f-6c739f9efcdc",
+          "kind": "error",
+          "why": "status_code=2 + SET + 21:00–21:01 窗口；set_client 证据耗时 Top1，Publish 参数拒绝",
+          "status_code": "2",
+          "failure_mode_id": "kvcache_access_002,kvcache_runtime_2303",
+          "pod": "192.168.235.140 / 192.168.189.67",
+          "timestamp": "2026-10-08 21:00:25.779"
+        },
+        {
+          "trace_id": "a7bc1032-4a28-4961-8d45-653b727030b1",
+          "kind": "error",
+          "why": "status_code=2 + SET + 21:01–21:02 窗口；同一参数拒绝在下一分钟继续出现",
+          "status_code": "2",
+          "failure_mode_id": "kvcache_access_002,kvcache_runtime_2303",
+          "pod": "192.168.235.140 / 192.168.189.67",
+          "timestamp": "2026-10-08 21:01:11.611"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002592",
+          "stars": "★★★★★",
+          "match_logic": "L1：状态码 2、kvcache_access_002、kvcache_runtime_2303 全命中；L2：SET/Publish 与亚毫秒快速失败形态命中；L3：Pod 身份不参与匹配；L5：Invalid parameter 与 Publish failed 逐字命中。",
+          "symptom": "SET 在 Create 成功后于 Publish 返回 K_INVALID(2)，无 PORT_DOWN/URMA 超时证据。",
+          "root_cause": "既有对象属性与后续 Publish 的 WriteMode、consistency_type 或 cacheType 不一致。",
+          "solution": "对齐对象属性；补采端口状态后再判断硬件故障。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "与本次现场直接证据高度一致。",
+          "log_fit": "错误码、failure mode 与原文均一致。",
+          "rc_consistency": "一致",
+          "env_diff": "历史案例覆盖更大样本，本次仅 4 条 trace。",
+          "adaptation": "只复用直接根因与参数修复，不带入历史计数。",
+          "applicability": "direct"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002538",
+          "stars": "★★★☆☆",
+          "match_logic": "L1：状态码 2 与 kvcache_access_002 命中；L2：SET 和分钟级快速失败部分命中；L3：身份不参与匹配；L5：本次无 PORT_DOWN/端口状态关键词，不命中。",
+          "symptom": "两个 UB 目标端口 down 时 SET Publish 快速返回 code=2。",
+          "root_cause": "对端 Data Worker 的两个 UB 端口 down。",
+          "solution": "检查端口 link、对端、线缆/模块并切换健康端点。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "可解释用户指定标签，但现场直接证据不足。",
+          "log_fit": "同为 code=2 快速失败；端口状态证据不匹配。",
+          "rc_consistency": "待验证",
+          "env_diff": "本次只有一个客户端和一个 Data Worker。",
+          "adaptation": "仅采用硬件核验清单，不覆盖当前 K_INVALID 直接解释。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "③",
+          "id": "curated:kvcache_access_002+kvcache_runtime_2303 / experience:ds-kv-cache-diagnosis",
+          "stars": "★★★★★",
+          "match_logic": "L1：状态码 2 与两个 failure mode 直接命中；L2：SET/Publish 操作域命中；L3：Create→Publish 调用序列命中；L5：WriteMode、consistency type、cache type 原文一致。",
+          "symptom": "K_INVALID(2) 且 Worker 对象缓存 Publish 失败。",
+          "root_cause": "请求参数或对象属性不合法，PublishObjectWithLock 返回错误。",
+          "solution": "校验 WriteMode、ConsistencyType、cacheType 与既有对象一致后重试。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "与 4 条现场 trace 一致。",
+          "log_fit": "Curated 与经验库均由现场原文验证。",
+          "rc_consistency": "一致",
+          "env_diff": "经验库版本为 yuanrong-datasystem 0.8.1.rc20；本次资产未提供版本。",
+          "adaptation": "采用参数检查逻辑，不假定版本一致。",
+          "applicability": "direct"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即核对失败 key 的既有 WriteMode、consistency_type、cacheType，并让 SET/Publish 请求保持一致；若业务必须变更属性，先删除并按目标属性重建。",
+          "按指定硬件标签补查 192.168.235.140 与 192.168.189.67 对应 UB 端口的 link state、对端、lane/速率、DDM 和驱动事件；仅在证据确认 down 后执行端口复位或切流。"
+        ],
+        "long_term": [
+          "SDK 在发起 Publish 前增加对象属性预检和幂等保护。",
+          "建立 UB 端口状态、LOS、光功率、lane/速率、completion timeout 联动采集。",
+          "把 K_INVALID 参数错误与 URMA/链路错误分开编码和监控。"
+        ],
+        "verification": [
+          "修正属性后重放至少 20 次同类 SET，要求 DS_KV_CLIENT_SET 与 DS_POSIX_PUBLISH 均返回 0。",
+          "端口侧保存 UP/healthy 或 DOWN 的直接证据，并与故障窗对齐；连续 30 分钟 /stats/error_codes 中 code=2 不增长。",
+          "GET、SET 分别复测并分别查询 /stats/stages，禁止合并归桶。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "workflow": {
+    "session_id": "sess-7a3d1b4b-20261112",
+    "total_steps": 7,
+    "api_calls": 29,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences（SKILL/WIKI）"
+        ],
+        "result": "命中 URMA 链路与 KVCache 经验；PORT_DOWN 经验因现场无对应原文未直接采用。"
+      },
+      {
+        "title": "Step 2 数据与标签核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "解析任务 successful；4 条故障 trace；指定路径标签映射为硬件故障/ub端口故障-down。"
+      },
+      {
+        "title": "Step 3 GET/SET 分离分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 无归因样本；SET 4 条全部在 set_client 桶，P90 0.226ms，无 URMA timeout。"
+      },
+      {
+        "title": "Step 4 分布统计",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap（GET/SET）",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events"
+        ],
+        "result": "SET 唯一码 2，4 条 trace；分钟窗 3→1；GET 为空。"
+      },
+      {
+        "title": "Step 5 Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "4 条均为 Create=0 后 Publish=2；21 条上下文无 PORT_DOWN/all ports are BAD。"
+      },
+      {
+        "title": "Step 6 Curated 与历史案例复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/2",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}"
+        ],
+        "result": "Curated 与 UB-CASE-002592 支持参数非法；UB-CASE-002538 的端口 down 仅作为待验证假设。"
+      },
+      {
+        "title": "Step 7 报告生成",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "错误分布由离线提取器生成，报告 JSON 进入契约校验与渲染。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+        "experience_type": "SKILL",
+        "name": "umdk-link-failure-diagnosis",
+        "source_path": "data/skill_hub/umdk-link-failure-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "PORT_DOWN",
+          "UB端口",
+          "链路故障"
+        ],
+        "search_query_used": "KVCache 通断 故障码 2ports URMA timeout",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "出现 PORT_DOWN 时，优先检查物理连接和对端状态。",
+        "how_used_in_diagnosis": "作为端口根因证据门槛；本次未见 PORT_DOWN，未采纳为现场根因。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "经验适用于端口事件，但当前现场缺少其要求的直接信号。"
+      },
+      {
+        "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+        "experience_type": "SKILL",
+        "name": "ds-kv-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "KV Cache",
+          "WriteMode",
+          "ConsistencyType",
+          "SET"
+        ],
+        "search_query_used": "K_INVALID code=2 Publish failed Write mode cannot be modified SET",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "KV 接口支持 WriteMode 和 ConsistencyType 配置，影响数据可靠性和一致性。",
+        "how_used_in_diagnosis": "用于建议核对 SET 对象属性；根因由现场 trace 与 curated 知识确认。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与状态码 2、Publish 原文和 curated 故障模式一致。"
+      },
+      {
+        "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 访问日志模式",
+        "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+        "keywords_matched": [
+          "status_code",
+          "K_INVALID",
+          "Write_mode"
+        ],
+        "search_query_used": "K_INVALID code=2 Publish failed Write mode cannot be modified SET",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "1–36：通用错误（如 K_DUPLICATED=1、K_INVALID=2、K_NOT_FOUND=3）。",
+        "how_used_in_diagnosis": "辅助核对 code=2 的通用错误码分类，不替代现场证据。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与 curated status_code=2 解释一致。"
+      }
+    ],
+    "summary": {
+      "total_references": 3,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 2,
+      "considered_not_adopted_count": 1,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "已覆盖 KVCache 参数一致性、访问日志错误码与 UB 端口链路经验；经验仅用于建议或证据门槛，结论以 API 现场证据为准。"
+    }
+  }
+}

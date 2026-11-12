@@ -1,0 +1,464 @@
+{
+  "report": {
+    "title": "KVCache 扩容场景 Coordinator 网络不可用诊断报告",
+    "report_id": "diag-94c5fc2c-20261112-coordinator-net-fault",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "94c5fc2c-8ad9-4d6a-ae0d-d9436644b20f",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_scale_out_coordinator_net_fault_001_20261011_09_20_08",
+    "log_file": "lingqu_kvcache_dfx_worker_process_scale_out_coordinator_net_fault_001_20261011_09_20_08",
+    "operation": "GET（SET 无解析样本）",
+    "time_range_start": "2026-10-11 09:21:42",
+    "time_range_end": "2026-10-11 09:21:43",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：按指定训练标签归类为 Coordinator 网络不可用；现场仅确认 GET 元数据/数据访问等待异常，网络通断根因仍需补充 Coordinator 与控制面证据闭环。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "1 条 GET trace 被标记异常，涉及 3 个 Pod IP；SET 无样本，未发现故障码事件。",
+    "confidence": "中 65%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "扩容期间 Coordinator 网络不可用标签对应的 GET 等待异常",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 65,
+      "category": "mixed",
+      "affected_scope": "2026-10-11 09:21:42–09:21:43；1 条 GET 异常 trace；3 个 Pod IP；SET 无样本",
+      "conclusion": {
+        "first_level_label": "Coordinator故障",
+        "second_level_label": "Coordinator故障-网络不可用",
+        "one_line_conclusion": "按用户指定的 gt_labels 固定标签归类为 Coordinator 网络不可用；现场 GET trace 总时延 27.212ms，其中 client.rpc.direct_query_and_get 为 27.108ms，而 Worker access 窗口仅 0.033ms。",
+        "fault_domain": "Coordinator故障/Coordinator故障-网络不可用",
+        "fault_component": "Coordinator/元数据访问链路（待补证）",
+        "fault_function": "client.rpc.direct_query_and_get",
+        "fault_function_loc": "DS_KV_CLIENT_GET latencySummary",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "已分类 GET 样本 1/1 异常；涉及 client、data worker、meta worker 三个 Pod IP",
+        "confidence": "中 65%",
+        "key_findings": [
+          "GET 与 SET 已独立分诊：GET sample_cnt=1、SET sample_cnt=0，未跨 operation 混桶。",
+          "唯一 GET trace 总时延 27.212ms；client.rpc.direct_query_and_get=27.108ms，Worker access 仅 0.033ms，等待集中在 Client/Worker 交叉窗口。",
+          "status_code=0 且 failure_codes=[]；GET/SET 的 list_trace_events 均为 0，当前没有连接失败错误码或 failure_mode 证据。",
+          "Coordinator 日志文件为空，bRPC perf 旁路扫描 17 个文件未发现 perf 行，因此无法把 27ms 等待进一步拆为 QueryMeta、RPC 网络或 RPC 排队。",
+          "故障标签来自用户指定映射：train_valid 日志描述 worker_process_scale_out_coordinator_net_fault → gt_labels 的 Coordinator故障/Coordinator故障-网络不可用；该标签是报告固定分类，不冒充现场根因证据。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "GET 总时延",
+            "value": "27.212ms",
+            "sub": "唯一异常 trace；非 P99",
+            "tone": "warning"
+          },
+          {
+            "label": "direct_query_and_get",
+            "value": "27.108ms",
+            "sub": "占该 trace 总时延约 99.6%",
+            "tone": "danger"
+          },
+          {
+            "label": "Worker access 窗口",
+            "value": "0.033ms",
+            "sub": "Worker 处理窗口较干净",
+            "tone": "ok"
+          },
+          {
+            "label": "SET 样本",
+            "value": "0",
+            "sub": "不可据此判断 SET 健康",
+            "tone": "neutral"
+          }
+        ],
+        "stages": [
+          {
+            "name": "GET·Client/Worker 交叉窗口未细分",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100.0%（分类样本占比）",
+            "status": "bottleneck",
+            "detail": "桶内仅 1 条异常样本，P50/P90/max 均为 27.212ms；这是证据耗时与分类样本占比，不是总体 P99 或耗时占比。request_mode=unknown，无法仅凭该桶断言具体网络段。",
+            "features": {
+              "operation": "GET",
+              "bucket_key": "cross_window",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "94c5fc2c-8ad9-4d6a-ae0d-d9436644b20f",
+                  "log_id": "a375ea57-eade-4341-8a7b-ef0db797caab",
+                  "operation": "GET",
+                  "sample_cap": 5000
+                },
+                "response_path": "result.items[5]"
+              },
+              "sample_cnt": 1,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（yuanrong us 覆盖子集），每条 trace 按最大互斥阶段归入唯一桶；URMA 超时为 anomaly_reason/content 文本匹配的近似口径；request_mode=unknown 的 trace 按现有列粗分定界（worker 窗口≥50% 总时延→data_worker，否则 cross_window），RPC 细分归因用 skill 脚本 brpc_stage_drill.py",
+              "trace_cnt": 1,
+              "normal_cnt": 0,
+              "anomalous_cnt": 1,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 27.212,
+                "p90_ms": 27.212,
+                "max_ms": 27.212,
+                "client_p50_ms": 27.212,
+                "client_p90_ms": 27.212
+              },
+              "tail_ratio_p90_p50": 1.0,
+              "note": "粗分：request_mode=unknown，客户端等待主导（worker 侧窗口<50% 总时延）；1/1 条 worker 有窗口但干净，worker 窗口占比中位数 0.2%；RPC 细分归因（QueryMeta/RPC网络/RPC排队）用 skill 脚本 brpc_stage_drill.py（latency-analysis 阶段 4.5）",
+              "action": "数据访问父窗口扣除已知子阶段后仍较高；仅有明确 Local processing / remoteObjects=0 证据时才判为本地处理，否则保留未细分。",
+              "top_traces": [
+                {
+                  "trace_id": "66f4cbbe-f712-4820-bd0a-1d1e7d014511",
+                  "evidence_ms": 27.212,
+                  "client_ms": 27.212
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 的唯一异常样本集中在 <strong>cross_window</strong> 粗分桶，客户端 direct_query_and_get 等待 27.108ms，而 Worker access 仅 0.033ms。该事实支持“异常发生在客户端等待/跨组件交互侧”，但由于缺少 bRPC perf、Coordinator 日志和错误码，不能从现场数据单独确认 Coordinator 网络断连。SET 无样本，空结果不代表写路径健康。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "S1",
+            "title": "确认数据完整性与操作域",
+            "description": "日志任务 successful，解析得到 1 条 trace、1 条时延异常；GET 与 SET 分别查询，SET 无样本。",
+            "evidence": "log_file overall_status=successful；anomaly_cnt=1；/stats/stages GET sample_cnt=1，SET sample_cnt=0。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S2",
+            "title": "定位客户端等待主导",
+            "description": "唯一 GET trace 的绝大部分时延位于 direct_query_and_get，Worker access 窗口很短。",
+            "evidence": "trace 66f4cbbe-f712-4820-bd0a-1d1e7d014511：total=27.212ms，direct_query_and_get=27.108ms，worker_access=0.033ms。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S3",
+            "title": "检查通断证据",
+            "description": "访问日志返回 status_code=0，未挂故障码；GET/SET 故障 trace 查询均为空。",
+            "evidence": "/stats/error_codes GET/SET total=0；list_trace_events GET/SET total=0；trace failure_codes=[]。",
+            "excluded": true
+          },
+          {
+            "step_label": "S4",
+            "title": "核验 Coordinator 网络不可用根因",
+            "description": "固定训练标签指向 Coordinator 网络不可用，但 Coordinator 日志为空，且现有 trace 无源目 IP、网络错误码或控制面日志；因此保留为外部标签指导下的待补证根因。",
+            "evidence": "train_valid 描述与 gt_labels 映射固定标签；coordinator/kvcache_coordinator.INFO.log 为 0 行；bRPC perf 扫描 0 行。",
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "当前可确认的是 GET 元数据/数据访问交互等待异常；按任务要求固定归类为 Coordinator故障-网络不可用。Coordinator 网络断连的现场机理证据不足，根因状态保持疑似，不能由同一时刻或文件名直接推导因果。",
+        "supporting_knowledge": "本地经验 ds-cluster-management-diagnosis 指出网络故障会影响集群节点状态与扩缩容流程，但其关键日志短语在本资产库中未出现，只用于补采和验证建议。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "固定故障分类",
+            "detail": "扩容场景下 Coordinator 网络不可用（外部 gt_labels 分类，待现场补证）",
+            "type": "suspected"
+          },
+          {
+            "label": "跨组件等待",
+            "detail": "client.rpc.direct_query_and_get 累计 27.108ms；Worker access 仅 0.033ms",
+            "type": "observed"
+          },
+          {
+            "label": "GET 时延异常",
+            "detail": "DS_KV_CLIENT_GET 总时延 27.212ms，被解析器标记为异常；业务状态码仍为 0",
+            "type": "observed"
+          }
+        ],
+        "impact_scope": [
+          "GET：1/1 分类样本异常，涉及 client 192.168.219.109、data worker 192.168.219.75、meta worker 192.168.235.172。",
+          "SET：无解析样本，无法判断是否受影响。",
+          "通断：未观测到错误码或 failure_mode，不能量化失败请求数。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "66f4cbbe-f712-4820-bd0a-1d1e7d014511",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top1；仅代表该桶证据耗时极值，不代表总体严重度排序",
+          "evidence_ms": 27.212,
+          "client_ms": 27.212
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "experience:ds-cluster-management-diagnosis",
+          "rank": 1,
+          "stars": 3,
+          "match_logic": "L1：无现场错误码/故障模式，未命中；L2：扩缩容与控制面网络域语义相关；L3：现场缺少 Coordinator/ETCD 拓扑证据，未命中。",
+          "symptom": "经验描述网络故障可触发集群节点状态变化并影响扩缩容。",
+          "root_cause": "仅作为 Coordinator/ETCD 连通性补查假设，未被本次现场证据确认。",
+          "solution": "补采 Coordinator/ETCD lease、watch、节点状态转换及网络探测证据。",
+          "phenomenon_fit": "与固定标签和扩容场景相关，但本次没有经验中列出的关键日志短语。",
+          "log_fit": "未出现 Failed to refresh lease、keep alive failed、fake node deletion 等关键短语。",
+          "rc_consistency": "待验证",
+          "env_diff": "本资产库 Coordinator 日志为空。",
+          "adaptation": "只能用于补采清单，不能直接沿用根因结论。",
+          "applicability": "reference"
+        },
+        {
+          "id": "UB-CASE-002601",
+          "rank": 2,
+          "stars": 2,
+          "match_logic": "L1：案例有 status 39/故障模式而现场无错误码，未命中；L2：仅 cross_window 与 MIXED/GET 操作部分命中；L3：案例为 Worker 容器重启，现场无重启/Host down 拓扑证据，未命中。",
+          "symptom": "已确认历史案例表现为 Worker 容器重复重启后 URMA/RPC 连接失效。",
+          "root_cause": "本次不采纳该案例的 Worker 容器重启根因。",
+          "solution": "只参考其核查进程生命周期与连接重建的验证思路。",
+          "phenomenon_fit": "软匹配 score_norm=0.4545，覆盖 2/5；只命中 L2。",
+          "log_fit": "本次没有 status 39、URMA ret=4096、Host is down 或容器重启证据。",
+          "rc_consistency": "不一致",
+          "env_diff": "本次固定标签为 Coordinator 网络不可用，案例标签为 Worker 容器重启。",
+          "adaptation": "不直接复用处置，仅作为排除 Worker 生命周期候选的检查项。",
+          "applicability": "not_recommended"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "补采故障窗口前后 Coordinator 完整日志、容器事件和进程状态；当前 coordinator/kvcache_coordinator.INFO.log 为空，先修复日志采集缺口。",
+          "核查 Coordinator 与 ETCD/Worker 控制面端口的双向连通性、丢包、连接重置和防火墙/安全组记录，并与 2026-10-11 09:21:42–09:21:43 对齐。",
+          "检查扩容任务状态、Coordinator leader/lease/watch 事件和节点注册状态，确认是否存在网络不可达引发的节点状态变化。",
+          "并行排查 Worker/客户端生命周期和 RPC 队列，避免在缺少错误码时把全部等待直接归因于网络。"
+        ],
+        "long_term": [
+          "将 Coordinator、ETCD、Worker 控制面日志与 bRPC perf 行纳入资产库必采项，确保 QueryMeta/RPC网络/RPC排队可分解。",
+          "为扩缩容流程建立 Coordinator 可达性、lease/watch 延迟、RPC deadline、节点状态变化的统一时间线告警。",
+          "对控制面网络故障增加快速失败、退避重试和幂等扩容保护，避免业务 GET 在控制面异常时长时间等待。"
+        ],
+        "verification": [
+          "复测同类 GET：确认 direct_query_and_get 时延恢复到健康基线，并连续观察至少 3 个扩容周期。",
+          "确认 Coordinator/ETCD lease 与 watch 正常、扩容任务完成且无节点误删/反复注册。",
+          "确认 GET/SET 分别有可观测样本；错误码、/stats/stages 与 bRPC perf 三类证据一致。",
+          "若网络探测正常且异常仍复现，转向 RPC 队列/线程调度或 Worker 生命周期候选，不继续沿用网络根因。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补齐 Coordinator/ETCD 控制面日志与网络观测",
+      "depends_on": "日志采集权限与对应 Pod/节点访问",
+      "expected_effect": "把固定标签转化为可复核的现场根因证据",
+      "verify": "故障窗可见 lease/watch、连接错误或明确反证"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "按原时间窗复核双向控制面连通性并重放扩容流程",
+      "depends_on": "先保留现场并确认变更窗口",
+      "expected_effect": "验证 Coordinator 网络不可用是否可稳定复现",
+      "verify": "GET/SET、扩容状态与网络指标形成一致闭环"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": 100.0,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "100.0%（1/1，异常标记口径）",
+            "fail_share": "100.0%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "证据 P90/max=27.212ms；无 P99；request_mode=unknown。"
+          }
+        ],
+        "conclusion": "GET 仅 1 条分类样本，全部落入 cross_window；百分比只描述参与分类样本。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "SET sample_cnt=0；空结果不代表写路径健康，也不与 GET 混合归桶。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 1,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {
+        "domain": "Coordinator故障/Coordinator故障-网络不可用（固定标签）",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.109",
+        "host": "—",
+        "pct": 100.0,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.75",
+        "host": "—",
+        "pct": 100.0,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.172",
+        "host": "—",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-10-11 09:21",
+        "level": "high",
+        "pct": 100.0,
+        "spike": true,
+        "lat_ms": 27.212,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-94c5fc2c-20261112",
+    "total_steps": 7,
+    "api_calls": 23,
+    "duration": "本会话实时取证",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences"
+        ],
+        "result": "命中 KVCache 与集群管理经验，均作为假设/建议而非现场证据。"
+      },
+      {
+        "title": "资产与解析状态核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务 successful；1 个日志资产；1 条异常 trace。"
+      },
+      {
+        "title": "GET/SET 独立阶段分诊",
+        "api_calls": [
+          "POST /stats/stages (GET)",
+          "POST /stats/stages (SET)"
+        ],
+        "result": "GET 1 条样本落 cross_window；SET 0 条样本。"
+      },
+      {
+        "title": "统计分布核验",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap"
+        ],
+        "result": "无错误码/源目对；GET 热点为 09:21，涉及 3 个 Pod IP。"
+      },
+      {
+        "title": "代表 trace 下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_parse_result/list",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认 27.212ms GET 等待，状态码 0，Worker 窗口 0.033ms。"
+      },
+      {
+        "title": "通断与 bRPC 反证",
+        "api_calls": [
+          "POST /log_failure_event_result/list_trace_events",
+          "brpc_stage_drill.py"
+        ],
+        "result": "GET/SET 故障 trace 均为 0；17 文件无 bRPC perf 行。"
+      },
+      {
+        "title": "历史案例软匹配",
+        "api_calls": [
+          "POST /diag_case_library/search via match_cases.py"
+        ],
+        "result": "24 条宽召回，剔除 2 条控制面候选；Top1 仅 L2 命中，不采纳其 Worker 容器重启根因。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+      "experience_type": "SKILL",
+      "name": "ds-kv-cache-diagnosis",
+      "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "KV Cache",
+        "DS_KV_CLIENT_GET",
+        "网络延迟"
+      ],
+      "search_query_used": "KVCACHE Coordinator 网络不可用 扩容 通断故障",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "高耗时请求可能由资源不足、远端访问、网络延迟或 LRU 淘汰导致。",
+      "how_used_in_diagnosis": "用于建立网络与远端访问候选并指导下钻，不作为根因证据。",
+      "confidence_on_reference": 0.6,
+      "confidence_reason": "与客户端等待现象相容，但现场缺少网络错误码。"
+    },
+    {
+      "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+      "experience_type": "SKILL",
+      "name": "ds-cluster-management-diagnosis",
+      "source_path": "data/skill_hub/ds-cluster-management-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "Coordinator",
+        "网络故障",
+        "扩缩容"
+      ],
+      "search_query_used": "DS_KV_CLIENT_GET direct_query_and_get 27ms Coordinator network",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "当 Worker 与 ETCD 连接断开时，会生成一个伪造的 DELETE 事件，触发本地集群状态更新。",
+      "how_used_in_diagnosis": "用于形成 Coordinator/ETCD lease、watch 和节点状态补采清单。",
+      "confidence_on_reference": 0.45,
+      "confidence_reason": "场景相关，但本次日志没有对应关键短语，未用于确认根因。"
+    }
+  ]
+}

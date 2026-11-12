@@ -253,6 +253,19 @@ class ListLogFailureEventResultRequest(StrictRequestModel):
         default_factory=list, description="trace_id列表"
     )
 
+
+class LogSemanticProfileRequest(StrictRequestModel):
+    kb_name: Optional[str] = Field(
+        default=None,
+        description="资产名（= log_file.name，报告 basic_info.kb_name）；优先按此解析日志",
+    )
+    log_id: Optional[str] = Field(
+        default=None, description="日志文件ID；给定则直接使用该文件"
+    )
+    kb_id: Optional[str] = Field(
+        default=None, description="知识库ID；仅作为 log_file.kb_id 兜底"
+    )
+
 class ListTraceFailureEventResultRequest(StrictRequestModel):
     kb_id: str = Field(..., description="日志知识库ID，用于过滤指定知识库的结果")
     log_id: Optional[str] = Field(default=None, description="日志文件路径ID，用于过滤指定日志文件路径的结果")

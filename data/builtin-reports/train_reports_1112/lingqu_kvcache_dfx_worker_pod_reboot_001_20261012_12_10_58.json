@@ -1,0 +1,573 @@
+{
+  "report": {
+    "title": "lingqu_kvcache_dfx_worker_pod_reboot_001_20261012_12_10_58 诊断报告",
+    "report_id": "report-3700cf95-worker-reboot-20261112",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "3700cf95-f152-40b3-8e4d-f039760e51e7",
+    "kb_name": "lingqu_kvcache_dfx_worker_pod_reboot_001_20261012_12_10_58",
+    "log_file": "lingqu_kvcache_dfx_worker_pod_reboot_001_20261012_12_10_58",
+    "operation": "SET（GET 独立检查无样本）",
+    "time_range_start": "2026-10-12 12:10:00",
+    "time_range_end": "2026-10-12 12:12:00",
+    "total_trace_cnt": 5,
+    "fault_trace_cnt": 5,
+    "fault_ratio": "100%（解析出的 5 条 SET trace 均有关联故障事件；仅 1 条被标记为时延异常）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC deadline exceeded": 0.178885,
+      "T:E1008": 0.804984,
+      "C:UNKNOWN_TYPE": 0.178885,
+      "T:UNKNOWN_TYPE": 0.536656
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：master Worker 容器重建后地址由 192.168.219.83 切换为 192.168.219.85，旧 RPC 路由超时且新实例 URMA 能力信息未稳定，导致 SET 短时失败。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "12:10~12:12 的 5 条 SET trace 均命中故障事件：1 条 K_RPC_DEADLINE_EXCEEDED，随后 4 条 K_NOT_SUPPORTED；GET 无归因样本。",
+    "confidence": "高 95%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "master Worker 容器重建导致连接与能力状态短时失效",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": "高 95%",
+      "category": "mixed",
+      "affected_scope": "ci-kv-ds-1 的 master Worker 及调用其 CreateMeta/UB Create 的 SET 写路径",
+      "conclusion": {
+        "first_level_label": "容器故障",
+        "second_level_label": "容器故障-Worker容器重启",
+        "one_line_conclusion": "2026-10-12 12:10~12:12，ci-kv-ds-1 的 master Worker 容器重建并切换 IP/PID，恢复窗口内旧 CreateMeta 路由超时、新实例未稳定返回 URMA 能力，造成 5 条 SET trace 失败。",
+        "fault_domain": "容器故障/容器故障-Worker容器重启",
+        "fault_component": "master Worker 容器生命周期与连接恢复",
+        "fault_function": "MasterOCService.CreateMeta / TransportLayer::Create",
+        "fault_function_loc": "worker_oc_service_publish_impl.cpp:483 / transport_layer.cpp:892",
+        "affected_scope_pct": "100",
+        "affected_scope_desc": "当前解析样本 5/5 SET trace 命中故障事件；不外推为完整业务失败率",
+        "confidence": "高 95%",
+        "key_findings": [
+          "master Worker 从 192.168.219.83、PID 3942 切换为 192.168.219.85、PID 68，符合容器重建后的新实例特征",
+          "12:10:12 的 SET trace 仍向旧地址 192.168.219.83:31501 发起 CreateMeta，79ms 与 15ms 两次 RPC 均超时并返回 1001",
+          "12:11:45~12:11:58 的 4 条 SET trace 均返回 36，原文一致为 worker returned no URMA info",
+          "错误码时间序列呈两阶段：先 1001 超时 1 次，后 36 能力不支持 4 次",
+          "缺少 Kubernetes Event、restartCount、Last State 与退出码，不能继续判定人工重启、OOM、探针失败或节点驱逐"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "故障码命中",
+            "value": "5",
+            "sub": "逐码命中次数，非业务失败率",
+            "tone": "bad"
+          },
+          {
+            "label": "主导错误码",
+            "value": "36 / 80%",
+            "sub": "K_NOT_SUPPORTED",
+            "tone": "warn"
+          },
+          {
+            "label": "RPC 超时",
+            "value": "1001 / 20%",
+            "sub": "K_RPC_DEADLINE_EXCEEDED",
+            "tone": "bad"
+          }
+        ],
+        "conclusion": "完整的 2 个分钟桶显示故障按时序分为两段：12:10 先出现 1 次 1001 RPC 超时，12:11 随后出现 4 次 36 能力不支持；这是逐码命中次数，不是去重失败请求率。",
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "3700cf95-f152-40b3-8e4d-f039760e51e7",
+              "operation": "SET",
+              "start_time": "2026-10-12 12:10:00",
+              "end_time": "2026-10-12 12:12:00"
+            },
+            "code_filter": [
+              "36",
+              "1001"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "3700cf95-f152-40b3-8e4d-f039760e51e7",
+                    "operation": "SET",
+                    "start_time": "2026-10-12 12:10:00",
+                    "end_time": "2026-10-12 12:12:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 5,
+              "items": [
+                {
+                  "code": "36",
+                  "count": 4,
+                  "share_pct": 80.0
+                },
+                {
+                  "code": "1001",
+                  "count": 1,
+                  "share_pct": 20.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-12 12:10:00",
+                  "end_time": "2026-10-12 12:11:00",
+                  "complete": true,
+                  "counts": {
+                    "36": 0,
+                    "1001": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-12 12:11:00",
+                  "end_time": "2026-10-12 12:12:00",
+                  "complete": true,
+                  "counts": {
+                    "36": 4,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 现象观察",
+            "title": "SET 写路径连续出现两类故障",
+            "description": "5 条 SET trace 均有关联故障事件：先出现 1001，随后出现 4 次 36；GET 独立口径没有归因样本。",
+            "evidence": "[POST /stats/error_codes, POST /stats/stages GET/SET] SET 36=4、1001=1；GET sample_cnt=0",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "② 链路定位",
+            "title": "旧 master 地址上的 CreateMeta 超时",
+            "description": "trace c6a6ede4 显示 192.168.189.100 仍访问旧 master 192.168.219.83:31501，两次 RPC 截止时间耗尽，Publish 与客户端 SET 返回 1001。",
+            "evidence": "[POST /log_failure_event_result/list_log_events] rpc_util.h:109、worker_oc_service_publish_impl.cpp:483/675",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "③ 生命周期核对",
+            "title": "master Worker 实例发生 IP/PID 切换",
+            "description": "同一 ci-worker-master-1 日志中，旧实例为 192.168.219.83/PID 3942，新实例为 192.168.219.85/PID 68；客户端后续初始化地址也切换至 192.168.219.85。",
+            "evidence": "[本地补充日志] ci-worker-master-1/kvcache.INFO.log 与 ds_client_43564.INFO.log；API trace 上下文未包含非 trace 生命周期行",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "排除持续性 URMA 设备离线作为唯一根因",
+            "description": "新实例可执行 Start import remote jetty，且异常集中于实例切换恢复窗口；更符合生命周期切换后连接/能力状态未收敛，而非全程设备离线。仍需设备遥测做最终排除。",
+            "evidence": "[现场原文] Start import remote jetty；[已确认案例 UB-CASE-002602] 同机制闭环证据",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 根因确认",
+            "title": "Worker 容器重建后的状态恢复窗口",
+            "description": "master Worker 容器重建并更换 IP/PID，使旧 RPC 路由继续访问失活地址；新实例承接流量时 URMA 能力信息尚未稳定返回，形成 1001→36 的级联表现。重启触发原因因缺少 Kubernetes 事件而保持未知。",
+            "evidence": "[现场证据闭环] 地址/PID 切换 + 旧地址超时 + 新地址 no URMA info；[diag_case_library] UB-CASE-002602 L1/L2 命中且已闭环",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "master Worker 容器重建后旧路由与新实例 URMA 能力状态未及时收敛",
+        "supporting_knowledge": "curated: kvcache_access_020、kvcache_access_053；本地经验: ds-worker-log-analysis、ds-rdma-transport-diagnosis；已确认案例: UB-CASE-002602。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Worker 容器重建",
+            "detail": "master IP .83→.85，PID 3942→68",
+            "type": "origin",
+            "transition": "旧连接与路由失效"
+          },
+          {
+            "label": "旧 CreateMeta 路由",
+            "detail": ".189.100→.219.83 超时",
+            "type": null,
+            "transition": "1001 上浮"
+          },
+          {
+            "label": "新实例恢复未稳",
+            "detail": "worker returned no URMA info",
+            "type": null,
+            "transition": "36 上浮"
+          },
+          {
+            "label": "SET 写入失败",
+            "detail": "1001×1，36×4",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "旧 master Worker: 192.168.219.83:31501",
+          "新 master Worker: 192.168.219.85:31501",
+          "调用侧: 192.168.189.100 与 192.168.219.109",
+          "操作域: SET；GET 无样本，未混入 SET 统计"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "c6a6ede4-4647-4124-ba76-ae8dbe08a7a4",
+          "kind": "error",
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_access_020",
+          "pod": "192.168.189.100 / 192.168.219.109",
+          "timestamp": "2026-10-12 12:10:12.163",
+          "why": "status_code=1001 + operation=SET + 2026-10-12 12:10:00~12:11:00；原始日志显示 CreateMeta 仍访问旧 master 地址并两次超时。"
+        },
+        {
+          "trace_id": "7ff7b9a2-ebbf-46e7-86c7-d40f7260761a",
+          "kind": "error",
+          "status_code": "36",
+          "failure_mode_id": "kvcache_access_053",
+          "pod": "192.168.219.109 / 192.168.219.85",
+          "timestamp": "2026-10-12 12:11:45.677",
+          "why": "status_code=36 + operation=SET + 2026-10-12 12:11:00~12:12:00；原始日志显示新 Worker returned no URMA info。"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002602",
+          "stars": 5,
+          "match_logic": "L1 命中 36/1001 与 kvcache_access_053/020；L2 命中容器故障-Worker容器重启及 MIXED→SET 可迁移域；L3 本次旧/新 master 地址切换与案例拓扑一致。",
+          "symptom": "master Worker 容器重建后旧 RPC 路由超时，新实例恢复窗口内返回 no URMA info。",
+          "root_cause": "容器重建更换 Pod IP，使旧路由、URMA Jetty/实例上下文及能力信息短时失效。",
+          "solution": "确认新实例 Ready，淘汰旧地址与连接上下文，并在能力发布完成后再承接流量。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采纳",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致",
+          "env_diff": "历史案例为 MIXED，本次仅观测到 SET；GET 无样本",
+          "adaptation": "只复用 SET 与生命周期恢复机制，不复用历史 GET 现象",
+          "applicability": "direct"
+        },
+        {
+          "rank": 2,
+          "id": "kvcache_access_020+kvcache_access_053",
+          "stars": 4,
+          "match_logic": "L1 精确命中 1001 与 36；L2 curated 域分别为 RPC/网络和能力不支持，能解释两个直接表现；L3 不提供容器拓扑，需现场生命周期证据补足。",
+          "symptom": "1001 表示 RPC 超过截止时间；36 表示请求能力不受支持。",
+          "root_cause": "RPC 未在期限内完成；当前通信后端、运行角色或接口能力不支持请求。",
+          "solution": "检查服务端可达性与超时，并核对新 Worker 的 URMA 后端和能力通告。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "解释依据",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致",
+          "env_diff": "curated 知识不单独证明容器重建",
+          "adaptation": "与 IP/PID 切换及原始日志联合使用",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 3,
+          "id": "experience:a0227481-5a5a-4b93-8fb7-de128596e844+f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": 4,
+          "match_logic": "L1 不提供本次错误码；L2 命中 Worker 生命周期与连接重建域；L3 命中远端 Worker 重启触发 URMA 连接重建的机制描述。",
+          "symptom": "Worker 重启需核对旧/新启动时间、地址、PID，并观察连接重建与 Jetty 状态。",
+          "root_cause": "远端 Worker 重启会使既有传输连接失效并触发重建。",
+          "solution": "同时检查 Worker 生命周期、客户端重连、URMA Jetty 重建以及 Kubernetes 退出事件。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "经验建议",
+          "phenomenon_fit": "高",
+          "log_fit": "中",
+          "rc_consistency": "与 curated 无冲突",
+          "env_diff": "经验库基于通用 Worker/URMA 日志模式，不是本次现场证据",
+          "adaptation": "用于指导反证和补采，不替代现场 API 证据",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "确认 192.168.219.85 对应的新 master Worker Pod 已 Ready，并检查 31501 RPC 监听、CreateMeta 与 URMA 能力通告。",
+          "让所有 Worker/Client 重新获取 master 地址，淘汰仍指向 192.168.219.83 的 RPC 路由、连接池与 URMA Jetty/instance 上下文。",
+          "在恢复流量前，对新实例执行小流量 SET 冒烟，确认不再出现 1001、36 与 worker returned no URMA info。"
+        ],
+        "long_term": [
+          "将 Worker Ready 门禁扩展为 RPC、CreateMeta、URMA 连接交换和 8 MiB SET 冒烟全部通过后才接流量。",
+          "持久化 Pod restartCount、Last State、Exit Code、OOMKilled、探针与节点驱逐事件，并建立 Pod IP/instance_id 变化驱动的旧连接主动失效机制。"
+        ],
+        "verification": [
+          "连续 30 分钟检查 SET 错误码 1001 与 36 均为 0，且无请求再访问 192.168.219.83:31501。",
+          "对 192.168.219.85 完成至少 100 次 8 MiB SET，确认 CreateMeta 与 Publish 全部成功。",
+          "补采 Kubernetes 事件并记录本次重启的 Reason/Exit Code；取不到时继续保持触发原因未知。"
+        ]
+      },
+      "source_code": null,
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "确认新 master Worker Ready 并清理所有旧 master 地址、RPC 连接和 URMA 上下文。",
+      "depends_on": "无",
+      "expected_effect": "停止访问旧实例并消除恢复窗口内的 1001/36。",
+      "verify": "30 分钟错误码归零，旧地址访问计数为 0。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补采 Kubernetes 容器退出与重启事件，确认触发原因。",
+      "depends_on": "集群事件与容器运行时日志可用",
+      "expected_effect": "将根因从容器重建进一步收敛到 OOM、探针、人工操作或驱逐。",
+      "verify": "Reason、Exit Code 与故障时间窗可对齐。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "GET 归因路径",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "detail": "sample_cnt=0；无 GET 归因子集，不能据此判定 GET 健康"
+          }
+        ],
+        "conclusion": "GET 独立调用 /stats/stages 返回 sample_cnt=0，归因数据不可用；未与 SET 混桶。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "客户端 SDK 段",
+            "pct": 80.0,
+            "cls": "s-warn"
+          },
+          {
+            "name": "未解释残差",
+            "pct": 20.0,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": null,
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "未命中 URMA_WAIT_TIMEOUT 文本近似桶"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": null,
+            "anomaly_rate": "100%（1/1）",
+            "fail_share": "20%（1/5）",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "1 条异常 trace；证据 P90/max=79.208ms，Client=96.001ms；无 P99，未补造"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": null,
+            "anomaly_rate": "0%（0/4）",
+            "fail_share": "80%（4/5）",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "4 条 trace；证据 P90/max=1.873ms，主要表现为返回 36，而非高时延"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": null,
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "无 trace 归入该桶"
+          }
+        ],
+        "conclusion": "SET 的 5 条样本中，1 条异常 trace 归入未解释残差，4 条返回 36 的 trace 归入客户端 SDK 段；写路径不产出 create/publish/URMA 细分，未编造阶段。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": "5",
+    "top_error_codes": [
+      {
+        "code": "36",
+        "name": "K_NOT_SUPPORTED",
+        "pct": 80.0,
+        "fault": "F01"
+      },
+      {
+        "code": "1001",
+        "name": "K_RPC_DEADLINE_EXCEEDED",
+        "pct": 20.0,
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "能力不支持",
+        "pct": 80.0,
+        "fault": "F01"
+      },
+      {
+        "domain": "RPC 截止时间超限",
+        "pct": 20.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.109",
+        "host": null,
+        "pct": 50.0,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.85",
+        "host": null,
+        "pct": 40.0,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.100",
+        "host": null,
+        "pct": 10.0,
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "12:10",
+        "level": 1,
+        "pct": 25.0,
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "12:11",
+        "level": 3,
+        "pct": 100.0,
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "lingqu-kvcache-worker-reboot-20261112",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本会话内完成",
+    "steps": [
+      {
+        "title": "资产与任务核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}"
+        ],
+        "result": "解析与诊断任务 successful"
+      },
+      {
+        "title": "GET/SET 独立组件分诊",
+        "api_calls": [
+          "POST /stats/stages (GET)",
+          "POST /stats/stages (SET)"
+        ],
+        "result": "GET 无样本；SET 5 条"
+      },
+      {
+        "title": "全量统计分布",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap"
+        ],
+        "result": "36×4、1001×1"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "旧地址超时与新实例能力缺失"
+      },
+      {
+        "title": "Curated 知识解读",
+        "api_calls": [
+          "GET /failure_mode/status_code/{code}",
+          "GET /failure_mode/{id}"
+        ],
+        "result": "状态码与故障模式完成核对"
+      },
+      {
+        "title": "经验与历史案例匹配",
+        "api_calls": [
+          "experience-skill 本地检索",
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}"
+        ],
+        "result": "命中已确认案例 UB-CASE-002602"
+      },
+      {
+        "title": "报告契约与渲染",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "待本步骤校验与渲染完成"
+      }
+    ]
+  }
+}

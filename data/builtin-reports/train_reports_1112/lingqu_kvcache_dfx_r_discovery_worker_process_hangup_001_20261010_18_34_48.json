@@ -1,0 +1,603 @@
+{
+  "report": {
+    "title": "KVCache SET Create 超时与 Worker 无响应诊断报告",
+    "report_id": "RPT-20261112-A7K9",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "27ee003b-825d-4c8a-a73a-e2f15bb35310",
+    "kb_name": "lingqu_kvcache_dfx_r_discovery_worker_process_hangup_001_20261010_18_34_48",
+    "log_file": "lingqu_kvcache_dfx_r_discovery_worker_process_hangup_001_20261010_18_34_48",
+    "operation": "SET",
+    "time_range_start": "2026-10-10 18:34:00",
+    "time_range_end": "2026-10-10 18:35:00",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": 100.0,
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC deadline exceeded": 0.164399,
+      "T:E1008": 0.986394
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到 1 个 SET 写路径故障：Create RPC 在 100ms 截止点超时，目标 Worker 随后才记录同一 trace，符合 Worker 短时无响应/进程挂起特征。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "单条已解析 SET 请求失败，涉及客户端 192.168.219.109 与目标 Worker 192.168.219.107；GET 路径无可归因样本，不能外推。",
+    "confidence": 0.78
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SET Create RPC 截止超时与目标 Worker 短时无响应",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 0.78,
+      "category": "error",
+      "affected_scope": "客户端 192.168.219.109 到目标 Worker 192.168.219.107:31501 的单条 SET Create 请求",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程挂死",
+        "one_line_conclusion": "SET Create 在 100ms 截止点返回 1001；目标 Worker 约 876ms 后才记录同一 trace 且内部处理仅 17us，直接故障是截止期内无响应，Worker 进程挂起/长调度停顿为高相关根因候选。",
+        "fault_domain": "Worker故障/Worker故障-进程挂死",
+        "fault_component": "KVCache Worker / BRPC Create RPC",
+        "fault_function": "datasystem.WorkerOCService.Create",
+        "fault_function_loc": "客户端 transport_layer.cpp / 服务端 access_recorder.cpp",
+        "affected_scope_pct": 100.0,
+        "affected_scope_desc": "本资产库仅解析 1 条 trace，该 trace 为异常 SET；Pod 统计中的两个 Pod 是同一 trace 的客户端和目标 Worker，不代表两个独立失败请求。",
+        "confidence": 0.78,
+        "key_findings": [
+          "trace e70d8f85-263c-4265-939f-20669a1b43ab 在 2026-10-10 18:34:06.599 返回 K_RPC_DEADLINE_EXCEEDED(1001)。",
+          "客户端日志显示 Create->[192.168.219.107:31501] 达到 timeout=100ms，BRPC framework_us=100085、server_exec_us=0。",
+          "目标 Worker 在 18:34:07.475 记录相同 trace 的 DS_POSIX_CREATE，内部耗时仅 17us；慢点位于请求到达/调度至执行前，而非已观测的业务处理段。",
+          "GET /stats/stages 样本数为 0；SET 归因样本数为 1，GET 与 SET 未混桶。",
+          "缺少故障时刻 Worker 线程栈、CPU 调度/cgroup 与网络遥测，无法完全排除链路延迟或 RPC 框架等待。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "故障码",
+            "value": "1001",
+            "sub": "K_RPC_DEADLINE_EXCEEDED",
+            "tone": "bad"
+          },
+          {
+            "label": "故障 trace",
+            "value": "1",
+            "sub": "逐 trace 统计",
+            "tone": "bad"
+          },
+          {
+            "label": "截止时间",
+            "value": "100ms",
+            "sub": "客户端 BRPC 配置",
+            "tone": "warn"
+          }
+        ],
+        "conclusion": "SET 路径仅在 18:34:00–18:35:00 的完整分钟窗出现 1 次 1001，构成占比 100%；这是逐码命中次数，不是业务失败率。GET 时间聚合为空，空结果仅表示无 GET 故障记录，不能据此证明 GET 健康。",
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "27ee003b-825d-4c8a-a73a-e2f15bb35310",
+              "operation": "SET",
+              "start_time": "2026-10-10 18:34:00",
+              "end_time": "2026-10-10 18:35:00"
+            },
+            "code_filter": [
+              "1001"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "27ee003b-825d-4c8a-a73a-e2f15bb35310",
+                    "operation": "SET",
+                    "start_time": "2026-10-10 18:34:00",
+                    "end_time": "2026-10-10 18:35:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 1,
+              "items": [
+                {
+                  "code": "1001",
+                  "count": 1,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-10 18:34:00",
+                  "end_time": "2026-10-10 18:35:00",
+                  "complete": true,
+                  "counts": {
+                    "1001": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "事实 1",
+            "title": "确认 SET Create 在截止点失败",
+            "description": "客户端在 100ms 截止时间返回 K_RPC_DEADLINE_EXCEEDED，错误码、BRPC 控制器错误和端到端耗时相互一致。",
+            "evidence": "trace=e70d8f85-263c-4265-939f-20669a1b43ab；status_code=1001；total_latency=100.136ms；cntl_error_code=1008；cntl_timeout_ms=100。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "事实 2",
+            "title": "定位到目标 Worker 截止期内未响应",
+            "description": "超时对象明确为 192.168.219.107:31501；客户端 BRPC 记录 server_exec_us=0，说明截止前没有收到可观测的服务端执行/返回信息。",
+            "evidence": "原始日志：Create->[192.168.219.107:31501] RPC timed out；BRPC_RPC_FRAMEWORK_SLOW remote_processing_us=100085、server_exec_us=0。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "事实 3",
+            "title": "排除已观测 Worker 业务处理本身持续 100ms",
+            "description": "目标 Worker 后续记录相同 trace，DS_POSIX_CREATE 处理仅 17us；因此 100ms 主要消耗在服务端执行前的到达、调度或进程停顿窗口。",
+            "evidence": "Worker 192.168.219.107 于 18:34:07.475 记录同 trace，status=0、cost=17us；比客户端超时日志晚约 876ms。",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "候选根因",
+            "title": "Worker 进程短时挂起或长调度停顿",
+            "description": "该机理能同时解释截止期内无响应、同一请求晚到/晚执行以及执行段本身极短；与用户指定标签及已确认历史案例的现象一致。",
+            "evidence": "现场时序与 UB-CASE-002586 的 L1 错误码/故障模式及 L2 影响规模匹配；但案例仅是待验证假设，现场仍缺 OS 级证据。",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "反证检查",
+            "title": "网络/RPC 框架延迟尚未完全排除",
+            "description": "若纯 Worker 进程挂起不成立，链路排队、报文延迟或 RPC 调度也可能造成同样的客户端超时；当前 src/dst 结构化链路为空，且无 NIC/TCP 指标。",
+            "evidence": "curated kvcache_access_020 同时列出网络、服务端处理和本地等待；/stats/links 无可用源目对。",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "已确认的直接故障是目标 Worker 未在 100ms RPC 截止期内响应 SET Create。结合 Worker 晚约 876ms 才记录同一 trace、实际执行仅 17us，Worker 进程短时挂起/长调度停顿是高相关根因候选；因缺少线程栈、调度和网络遥测，不能将其表述为 OS 级已闭环根因。",
+        "supporting_knowledge": "Curated failure_mode kvcache_access_020 说明 1001 可由网络、服务端处理或本地等待未在 RPC 期限内完成；本地经验 ds-worker-log-analysis 指出 Worker 挂起可能导致 lease/响应异常。历史案例 UB-CASE-002586 与本次同码、同 failure_mode、同影响规模匹配，但其根因同样保留证据限制。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "目标 Worker 短时无响应",
+            "detail": "192.168.219.107:31501 未在截止期内形成可观察响应",
+            "type": "suspected",
+            "transition": "导致 Create RPC 等待至 deadline"
+          },
+          {
+            "label": "BRPC Create RPC 超时",
+            "detail": "framework_us=100085，cntl_error_code=1008",
+            "type": "confirmed",
+            "transition": "上浮为 DataSystem 状态码"
+          },
+          {
+            "label": "K_RPC_DEADLINE_EXCEEDED(1001)",
+            "detail": "客户端 SET 结束，总时延 100.136ms",
+            "type": "confirmed",
+            "transition": "触发模糊 Create 清理"
+          },
+          {
+            "label": "清理池已满告警",
+            "detail": "Drop ambiguous Create cleanup because cleanup pool is full",
+            "type": "secondary",
+            "transition": "增加后续资源回收风险"
+          }
+        ],
+        "impact_scope": [
+          "本资产库观测到 1 条异常 SET trace。",
+          "涉及客户端 192.168.219.109 与目标 Worker 192.168.219.107。",
+          "GET 无归因样本，不把 SET 结论推广到 GET。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "e70d8f85-263c-4265-939f-20669a1b43ab",
+          "kind": "error",
+          "why": "按 operation=SET、status_code=1001、时间窗 2026-10-10 18:34:00–18:35:00 过滤所得唯一异常 trace；用于复核客户端超时与 Worker 晚到日志。",
+          "evidence_ms": 100.068,
+          "client_ms": 100.136,
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_access_020",
+          "pod": "192.168.219.109 → 192.168.219.107",
+          "host": null,
+          "timestamp": "2026-10-10 18:34:06.599"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002586",
+          "stars": 4,
+          "match_logic": "L1 命中 status_code=1001 与 kvcache_access_020；L2 命中 few_pods，操作域为 MIXED 对 SET 部分匹配；L3/L5 现象文本命中 100ms Create 超时，但案例无相同日志关键词字段。",
+          "symptom": "Worker 无响应导致 SET Create RPC 在 100ms 截止点超时。",
+          "root_cause": "案例确认直接故障为 Worker 截止期内未响应，进程挂死仍是高相关候选。",
+          "solution": "采集目标 Worker 线程栈、调度/cgroup、dmesg 和容器事件；排除链路问题后隔离恢复并分 GET/SET 回归。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致但均缺 OS 级闭环证据",
+          "env_diff": "历史案例 operation=MIXED，本次现场仅 SET 有样本。",
+          "adaptation": "仅复用取证和恢复步骤，不把案例的候选根因直接当作本次事实。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 2,
+          "id": "kvcache_access_020",
+          "stars": 4,
+          "match_logic": "L1 精确命中 failure_mode_id 与 1001；L2 命中 RPC 截止超时域；L3 现场原文明确出现 RPC call is timed out。",
+          "symptom": "请求返回 K_RPC_DEADLINE_EXCEEDED，RPC 调用超过截止时间。",
+          "root_cause": "网络、服务端处理或本地等待未能在用户请求的 RPC 期限内完成。",
+          "solution": "检查网络时延、服务端处理时间与 RPC 超时配置；先确认服务端可按时响应，再决定是否调整超时。",
+          "adoption_class": "direct",
+          "adoption_label": "直接采用其错误码解释",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "解释范围与现场反证检查一致",
+          "env_diff": "Curated 知识为通用解释，不包含本次 Worker 时序。",
+          "adaptation": "仅作为错误码解释，不作为 Worker 挂起的独立现场证明。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 3,
+          "id": "EXP-a0227481-5a5a-4b93-8fb7-de128596e844",
+          "stars": 3,
+          "match_logic": "L1 命中 K_RPC_DEADLINE_EXCEEDED=1001；L2 同属 Worker 响应异常；L3/L5 经验中的 Worker was hanged 模式在本次未直接出现，仅由同 trace 晚到时序间接支持。",
+          "symptom": "Worker 运行日志可出现 Worker was hanged about ... ms，RPC 超时需检查网络、负载与线程池。",
+          "root_cause": "经验提示 OS 调度挂起、负载或线程池是候选方向。",
+          "solution": "联合检查 Worker 日志、同节点容器/系统日志、线程池和调度状态。",
+          "adoption_class": "reference",
+          "adoption_label": "仅作排查方向",
+          "phenomenon_fit": "中",
+          "log_fit": "低至中",
+          "rc_consistency": "与 curated 不冲突",
+          "env_diff": "本次 API 证据未包含明确 Worker was hanged 原文。",
+          "adaptation": "只用于补充采集项，不提升根因确认度。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即在目标 Worker 192.168.219.107 上采集进程状态、线程栈（pstack/gdb 或等价工具）、线程池队列和在途 RPC，确认是否存在全线程停滞或请求调度阻塞。",
+          "核查 18:34:06 前后的 CPU throttling、load、内存回收/OOM、dmesg、systemd/container 事件；若 Worker 持续无响应，先隔离流量再按运维规范重启。",
+          "从客户端 192.168.219.109 到 192.168.219.107:31501 检查 TCP 重传、丢包、监听和连接队列，排除网络/RPC 框架延迟后再确认纯进程挂死。",
+          "检查 ambiguous Create cleanup pool 容量与积压，避免超时请求的清理任务持续丢弃。"
+        ],
+        "long_term": [
+          "建设 Worker watchdog 挂起日志、线程池队列、RPC 在途量、CPU throttling、调度延迟和 NIC/TCP 指标的统一时间轴与告警。",
+          "故障注入与回归测试同时保留客户端 BRPC trace、Worker 线程栈和 OS 指标，补齐当前只能看到客户端超时的观测盲区。",
+          "RPC 超时调整应在定位并修复阻塞/调度/链路根因后评估，避免仅增大 timeout 掩盖 Worker 无响应。"
+        ],
+        "verification": [
+          "恢复后分别执行 SET 与 GET 回归：SET Create 在 100ms 内返回成功，且不再出现 1001/BRPC 1008。",
+          "确认目标 Worker 对同一 trace 的接收、执行、返回时间线连续，不再出现客户端先超时、Worker 后记录的倒挂。",
+          "连续观察 Worker watchdog、CPU throttling、线程池队列、TCP 重传和 cleanup pool，确认无再次积压或停顿。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "采集目标 Worker 线程栈、调度/cgroup、系统与容器事件，并同步核验 31501 链路。",
+      "depends_on": "故障现场或可复现场景",
+      "expected_effect": "在 Worker 进程挂起、RPC 调度等待与链路延迟之间完成根因闭环。",
+      "verify": "SET/GET 分路径回归并对齐客户端与 Worker 同 trace 时间线。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "检查并清理 ambiguous Create cleanup pool 积压，必要时隔离恢复无响应 Worker。",
+      "depends_on": "完成现场证据保全",
+      "expected_effect": "恢复写请求并避免清理任务持续丢弃。",
+      "verify": "不再出现 cleanup pool is full，SET 成功且无 1001。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "RPC网络",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "fault": "无样本",
+            "detail": "GET sample_cnt=0，8 个归因桶计数均为 0；空结果不代表健康。"
+          }
+        ],
+        "conclusion": "GET 无归因子集，不与 SET 混桶，也不对 GET 路径作健康结论。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "SET·未解释残差",
+            "pct": 100.0,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": null,
+            "anomaly_rate": 0.0,
+            "fail_share": 0.0,
+            "status": "ok",
+            "fault": "无命中",
+            "detail": "trace_cnt=0。"
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p99": null,
+            "anomaly_rate": 0.0,
+            "fail_share": 0.0,
+            "status": "ok",
+            "fault": "无命中",
+            "detail": "trace_cnt=0。"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": null,
+            "anomaly_rate": 100.0,
+            "fail_share": 100.0,
+            "status": "bottleneck",
+            "fault": "唯一异常 trace 归入该桶",
+            "detail": "trace_cnt=1，p50/p90/max 均为 100.068ms；/stats/stages 不提供 P99，故 p99 留空。"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": null,
+            "anomaly_rate": 0.0,
+            "fail_share": 0.0,
+            "status": "ok",
+            "fault": "无命中",
+            "detail": "trace_cnt=0。"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": null,
+            "anomaly_rate": 0.0,
+            "fail_share": 0.0,
+            "status": "ok",
+            "fault": "无命中",
+            "detail": "trace_cnt=0；已观测 Worker 处理仅 0.017ms。"
+          }
+        ],
+        "conclusion": "SET 唯一样本归入未解释残差，证据耗时 100.068ms；结合原始日志可进一步定位为 Create RPC 截止等待，而非已观测 Worker 业务处理慢。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 1,
+    "top_error_codes": [
+      {
+        "code": "1001",
+        "name": "K_RPC_DEADLINE_EXCEEDED",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "Worker故障/Worker故障-进程挂死",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.107",
+        "host": null,
+        "pct": 50.0,
+        "fault": "F01（目标 Worker）"
+      },
+      {
+        "pod": "192.168.219.109",
+        "host": null,
+        "pct": 50.0,
+        "fault": "F01（客户端）"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-10-10 18:34:00",
+        "level": "high",
+        "pct": 100.0,
+        "spike": true,
+        "lat_ms": 100.136,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-27ee003b-20261112",
+    "total_steps": 7,
+    "api_calls": 21,
+    "duration": "约15分钟",
+    "steps": [
+      {
+        "title": "经验库预检索与标签核验",
+        "api_calls": [
+          "experience-skill search-experiences",
+          "读取 train_valid.md 与 gt_labels.json"
+        ],
+        "result": "路径映射标签为 r_discovery_worker_process_hangup；两级标签为 Worker故障/Worker故障-进程挂死，且报告标签参考文件存在同一配对。"
+      },
+      {
+        "title": "资产与解析完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "解析任务 successful，100%，1 条 trace、1 条异常、1 条故障事件；cluster=ci-kv-ds-1。"
+      },
+      {
+        "title": "GET/SET 独立阶段分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET sample_cnt=0；SET sample_cnt=1，唯一 trace 归入 set_residual，证据耗时 100.068ms。"
+      },
+      {
+        "title": "通断分布与时间定位",
+        "api_calls": [
+          "POST /log_failure_event_result/list_time_aggregated_failure_events",
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/links",
+          "POST /stats/heatmap"
+        ],
+        "result": "SET 在 18:34 分钟窗出现 1 次 1001；两个 Pod 对应同一 trace 两端；结构化源目链路为空。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events",
+          "GET /trace/{trace_id}",
+          "POST /log_parse_result/list"
+        ],
+        "result": "确认 100ms Create 超时；Worker 约 876ms 后记录相同 trace，处理仅 17us。"
+      },
+      {
+        "title": "Curated 知识与经验复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/1001",
+          "GET /failure_mode/kvcache_access_020",
+          "experience-skill 二次检索"
+        ],
+        "result": "1001 官方解释覆盖网络、服务端处理或本地等待；经验仅用于补充 Worker 挂起取证方向。"
+      },
+      {
+        "title": "已确认历史案例匹配",
+        "api_calls": [
+          "POST /diag_case_library/search（由 match_cases.py 调用）",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "命中 UB-CASE-002586，score_norm=0.64，L1+L2 匹配；按 adjust 采用并完成命中回写。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+        "keywords_matched": [
+          "Worker",
+          "K_RPC_DEADLINE_EXCEEDED",
+          "hangup"
+        ],
+        "search_query_used": "K_RPC_DEADLINE_EXCEEDED 1001 Create timeout 100ms Worker was hanged cleanup pool full",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "Worker was hanged about ... ms",
+        "how_used_in_diagnosis": "用于补充 Worker 挂起时应检查调度、负载和系统日志的建议，不作为现场事实。",
+        "confidence_on_reference": 0.75,
+        "confidence_reason": "与同 trace 晚到时序相符，且不覆盖 curated 的多原因解释。"
+      },
+      {
+        "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+        "experience_type": "SKILL",
+        "name": "ds-cluster-management-diagnosis",
+        "source_path": "data/skill_hub/ds-cluster-management-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "Worker进程挂起",
+          "lease"
+        ],
+        "search_query_used": "KVCache discovery worker process hangup 进程卡死 诊断报告",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "lease 失效通常与 Worker 进程挂起或网络问题相关，需结合系统日志。",
+        "how_used_in_diagnosis": "现场没有 lease 失败证据，因此未把集群 lease 路径纳入根因。",
+        "confidence_on_reference": 0.7,
+        "confidence_reason": "经验本身可靠，但与本次唯一 trace 的直接证据关联不足。"
+      },
+      {
+        "experience_id": "4ddc5242-7261-4657-a860-78d518b063a3",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem ETCD 事件模式",
+        "source_path": "data/wiki_hub/ds-etcd-event-patterns.md",
+        "keywords_matched": [
+          "Worker进程挂起",
+          "保活失败"
+        ],
+        "search_query_used": "KVCache discovery worker process hangup 进程卡死",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "Worker 进程挂起。",
+        "how_used_in_diagnosis": "未观测到 ETCD keepalive/lease 失败，故不采用其作为本次根因证据。",
+        "confidence_on_reference": 0.65,
+        "confidence_reason": "仅提供一般候选，缺本次现场 ETCD 日志印证。"
+      }
+    ],
+    "summary": {
+      "total_references": 3,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 1,
+      "considered_not_adopted_count": 2,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库内容仅用于先验假设和取证建议；根因结论以本次 API trace、原始日志与 curated failure_mode 为准。"
+    }
+  }
+}

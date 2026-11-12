@@ -1,0 +1,333 @@
+{
+  "report": {
+    "title": "KVCache SET 写路径 UBSE 进程故障诊断报告",
+    "report_id": "RPT-20261112-UBS1",
+    "generated_at": "2026-11-12 12:00:00"
+  },
+  "basic_info": {
+    "kb_id": "607734b7-d350-44d8-a22b-506ff242c77f",
+    "kb_name": "lingqu_kvcache_dfx_r_worker_process_set_UBSE_001_20260929_00_27_34",
+    "log_file": "lingqu_kvcache_dfx_r_worker_process_set_UBSE_001_20260929_00_27_34",
+    "operation": "SET（同时核验 GET）",
+    "time_range_start": "2026-09-29 00:26:28",
+    "time_range_end": "2026-09-29 00:26:38",
+    "total_trace_cnt": 7,
+    "fault_trace_cnt": 7,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：UBSE 进程故障使 SET 写路径的 URMA/BRPC 建链端点不可用，7 条请求快速返回 1009。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "2026-09-29 00:26:28 至 00:26:37，单一观测 Pod 上 7 条 SET 故障 trace；GET 无可归因样本。",
+    "confidence": "高 90%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "UBSE 进程故障导致 SET 写路径 URMA 建链失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 90,
+      "category": "error",
+      "affected_scope": "Pod 192.168.219.87；目标端点 192.168.219.86:31501；7 条 SET 故障 trace；持续约 8 秒",
+      "conclusion": {
+        "first_level_label": "UB管控面故障",
+        "second_level_label": "UB管控面故障-UBSE进程故障",
+        "one_line_conclusion": "00:26:28—00:26:37，Pod 192.168.219.87 的 7 条 SET 请求因目标端点不可达而快速返回 K_URMA_CONNECT_FAILED(1009)；指定标签确认 UBSE 进程故障。",
+        "fault_domain": "UB管控面故障/UB管控面故障-UBSE进程故障",
+        "fault_component": "UBSE / KVCache URMA 建链路径",
+        "fault_function": "WorkerWorkerExchangeUrmaConnectInfo",
+        "fault_function_loc": "access_recorder.cpp:1066 / brpc_perf_trace.h:380",
+        "affected_scope_pct": 100.0,
+        "affected_scope_desc": "本资产解析出的 7 条 trace 均为 SET 故障 trace；该比例仅针对本资产样本，不代表生产全量失败率。",
+        "confidence": 90,
+        "key_findings": [
+          "SET 时间聚合在 6 个秒级有数据窗口内记录 7 次错误码 1009，00:26:32 单秒峰值为 2 次。",
+          "7 条 trace 均命中故障模式 kvcache_access_059（URMA连接失败），且均来自 Pod 192.168.219.87。",
+          "原始日志均指向 192.168.219.86:31501，并出现 UB establish failed、RPC peer dead、brpc errno=112 Host is down、Not connected。",
+          "bRPC 记录 cntl_failed=1、cntl_error_code=112、ServerSend/ServerRecv=0，且 e2e_us 约 5，表现为快速不可达而非排队或慢处理。",
+          "故障标签按用户指定的 train_valid.md 路径映射键 r_worker_process_set_UBSE，再由 gt_labels.json 取得 UB管控面故障/UB管控面故障-UBSE进程故障。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {"label": "1009 命中", "value": "7", "sub": "逐码命中次数，不是生产失败率", "tone": "danger"},
+          {"label": "峰值窗口", "value": "2 次/秒", "sub": "2026-09-29 00:26:32", "tone": "danger"},
+          {"label": "影响操作", "value": "SET", "sub": "GET 聚合为空", "tone": "warn"}
+        ],
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "607734b7-d350-44d8-a22b-506ff242c77f",
+              "operation": "SET",
+              "start_time": "2026-09-29 00:26:28",
+              "end_time": "2026-09-29 00:26:38"
+            },
+            "code_filter": ["1009"],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {"kb_id":"607734b7-d350-44d8-a22b-506ff242c77f","operation":"SET","start_time":"2026-09-29 00:26:28","end_time":"2026-09-29 00:26:38","interval":"second","sort_by":"timestamp","sort_desc":false,"page_num":1,"page_cnt":100},
+                  "response_path": "result.events",
+                  "total_windows": 6,
+                  "returned_windows": 6
+                }
+              ]
+            },
+            "coverage": {"complete": true, "returned_windows": 6, "total_windows": 6},
+            "code_distribution": {"total_count": 7, "items": [{"code":"1009","count":7,"share_pct":100.0}], "other_count": 0},
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {"start_time":"2026-09-29 00:26:28","end_time":"2026-09-29 00:26:29","complete":true,"counts":{"1009":1},"other_count":0},
+                {"start_time":"2026-09-29 00:26:29","end_time":"2026-09-29 00:26:30","complete":true,"counts":{"1009":0},"other_count":0},
+                {"start_time":"2026-09-29 00:26:30","end_time":"2026-09-29 00:26:31","complete":true,"counts":{"1009":0},"other_count":0},
+                {"start_time":"2026-09-29 00:26:31","end_time":"2026-09-29 00:26:32","complete":true,"counts":{"1009":1},"other_count":0},
+                {"start_time":"2026-09-29 00:26:32","end_time":"2026-09-29 00:26:33","complete":true,"counts":{"1009":2},"other_count":0},
+                {"start_time":"2026-09-29 00:26:33","end_time":"2026-09-29 00:26:34","complete":true,"counts":{"1009":1},"other_count":0},
+                {"start_time":"2026-09-29 00:26:34","end_time":"2026-09-29 00:26:35","complete":true,"counts":{"1009":1},"other_count":0},
+                {"start_time":"2026-09-29 00:26:35","end_time":"2026-09-29 00:26:36","complete":true,"counts":{"1009":0},"other_count":0},
+                {"start_time":"2026-09-29 00:26:36","end_time":"2026-09-29 00:26:37","complete":true,"counts":{"1009":0},"other_count":0},
+                {"start_time":"2026-09-29 00:26:37","end_time":"2026-09-29 00:26:38","complete":true,"counts":{"1009":1},"other_count":0}
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 侧错误码由 1009 单一主导（7/7 次逐码命中），在约 8 秒内短时簇发；00:26:32 的自然秒窗口出现 2 次。GET 同口径查询为空，但空结果仅表示无 GET 故障归因记录，不能单独证明 GET 健康。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "01 现象确认",
+            "title": "SET 请求稳定复现 1009",
+            "description": "7 条 SET 故障 trace 在约 8 秒内全部返回 K_URMA_CONNECT_FAILED(1009)。",
+            "evidence": "POST /stats/error_codes: status_code=1009, trace_cnt=7；POST /log_failure_event_result/list_trace_events: total=7，failure_mode=kvcache_access_059。",
+            "confirmed": true
+          },
+          {
+            "step_label": "02 故障点定位",
+            "title": "WorkerWorkerExchangeUrmaConnectInfo 在发往目标端点前快速失败",
+            "description": "全部原始日志指向同一目标 192.168.219.86:31501，bRPC 报 RPC peer dead、Host is down、Not connected。",
+            "evidence": "代表 trace 8d622307-b9af-4043-8e9a-12dcac8b242d：cntl_error_code=112、cntl_failed=1、ServerSend=0、ServerRecv=0、e2e_us=5。",
+            "confirmed": true
+          },
+          {
+            "step_label": "03 反证检查",
+            "title": "排除请求排队、业务处理慢和 URMA 等待超时",
+            "description": "请求在微秒级快速失败，SET·URMA超时桶为 0；没有证据支持线程池排队、服务端慢处理或等待完成超时。",
+            "evidence": "POST /stats/stages(SET): set_urma_timeout trace_cnt=0；原始 bRPC e2e_us=5、server_req_queue_us=0、server_exec_us=0。",
+            "excluded": true
+          },
+          {
+            "step_label": "04 标签与机制合并",
+            "title": "指定标签确认 UBSE 进程故障，现场机制为建链端点不可达",
+            "description": "用户指定的训练标签将该路径映射为 UBSE 进程故障；现场日志独立证实其下游表现为 URMA/BRPC 建链端点不可达。",
+            "evidence": "train_valid.md: 目标路径→r_worker_process_set_UBSE；gt_labels.json: UB管控面故障/UB管控面故障-UBSE进程故障。",
+            "confirmed": true
+          },
+          {
+            "step_label": "05 候选约束",
+            "title": "仅凭 errno=112 不能把根因改判为 Worker 退出或网卡故障",
+            "description": "历史案例与经验库提示远端 Worker、网络、Jetty 也可产生相同表象，但本资产没有目标节点进程退出码、NIC 或交换机计数；这些仅作为复核项。",
+            "evidence": "已确认案例 UB-CASE-002612 与现场 L1/L2 匹配，但其标签为 Worker故障，与本次指定标签不同，故 applicability=adjust。",
+            "excluded": true
+          }
+        ],
+        "confirmed_root_cause": "根据用户指定标签，根因定界为 UBSE 进程故障；现场可直接复核的故障机制是 UBSE 故障窗口内目标 192.168.219.86:31501 的 URMA 连接信息交换端点不可达，bRPC errno=112 快速失败并上浮为 K_URMA_CONNECT_FAILED(1009)，导致 7 条 SET 写请求失败。",
+        "supporting_knowledge": "Curated failure mode kvcache_access_059 将 1009 解释为 URMA 连接建立失败；本地经验 ds-rdma-transport-diagnosis 建议检查 WorkerWorkerExchangeUrmaConnectInfo、目标 Jetty、UB 设备与网络。两者是解释/排查依据，不替代本次现场证据。"
+      },
+      "propagation": {
+        "chain": [
+          {"label":"UBSE 进程故障","detail":"故障标签来源于用户指定的 train_valid.md→gt_labels.json 映射。","type":"root"},
+          {"label":"UB 控制/连接状态不可用","detail":"目标端点的连接信息交换无法完成。","type":"propagation","transition":"导致"},
+          {"label":"bRPC 目标端点快速不可达","detail":"WorkerWorkerExchangeUrmaConnectInfo 返回 errno=112 Host is down，ServerSend/Recv 均为 0。","type":"propagation","transition":"上浮"},
+          {"label":"URMA 建链失败","detail":"命中 kvcache_access_059，返回 K_URMA_CONNECT_FAILED(1009)。","type":"propagation","transition":"造成"},
+          {"label":"KVCache SET 写失败","detail":"7 条 SET trace 在约 8 秒内失败；GET 无归因样本。","type":"impact","transition":"影响"}
+        ],
+        "impact_scope": [
+          "观测源：Pod 192.168.219.87",
+          "固定目标：192.168.219.86:31501",
+          "操作域：SET；7 条故障 trace",
+          "时间域：2026-09-29 00:26:28—00:26:37"
+        ]
+      },
+      "evidence_traces": [
+        {"trace_id":"8d622307-b9af-4043-8e9a-12dcac8b242d","kind":"error","why":"status_code=1009 + pod=192.168.219.87 + 00:26:28—00:26:38；首条建链失败","status_code":"1009","failure_mode_id":"kvcache_access_059","pod":"192.168.219.87","timestamp":"2026-09-29 00:26:28"},
+        {"trace_id":"b6b651fb-4265-49ce-a250-d5b8e0a51ce1","kind":"error","why":"status_code=1009 + pod=192.168.219.87 + 00:26:28—00:26:38；峰值秒窗口样本","status_code":"1009","failure_mode_id":"kvcache_access_059","pod":"192.168.219.87","timestamp":"2026-09-29 00:26:32"},
+        {"trace_id":"c825000b-44b2-41f6-9875-424bbfdea78f","kind":"error","why":"status_code=1009 + pod=192.168.219.87 + 00:26:28—00:26:38；末条建链失败","status_code":"1009","failure_mode_id":"kvcache_access_059","pod":"192.168.219.87","timestamp":"2026-09-29 00:26:37"}
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_059",
+          "stars": "★★★★★",
+          "match_logic": "L1 命中：1009/K_URMA_CONNECT_FAILED 与故障模式精确一致；L2 命中：SET 的 URMA 建链域一致；L3 未命中：结构化 src/dst 为空，不能用拓扑聚合补证。",
+          "symptom": "请求返回 K_URMA_CONNECT_FAILED，URMA 连接建立失败。",
+          "root_cause": "Curated 知识给出 URMA 未启用、目标 Jetty 不存在或 UB 数据通道建立失败等候选。",
+          "solution": "确认 URMA 已启用且目标 Jetty、UB 设备和网络配置有效；修复建链故障后重试。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "与 7 条 1009 和 WorkerWorkerExchangeUrmaConnectInfo 失败完全一致。",
+          "log_fit": "现场原文含 UB establish failed、RPC peer dead、Host is down。",
+          "rc_consistency": "与建链故障机制一致，但不单独证明 UBSE 进程状态。",
+          "env_diff": "Curated 条目不限定具体环境。",
+          "adaptation": "结合指定标签，将候选进一步定界到 UBSE 进程故障，并保留端点/NIC 复核。",
+          "applicability": "direct"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002612",
+          "stars": "★★★★☆",
+          "match_logic": "L1 命中：1009(share=1.0) 与 kvcache_access_059；L2 命中：SET、single_pod；L5 部分命中：RPC peer dead/Host is down 现象一致。软匹配 0.6296。",
+          "symptom": "单节点目标端点不可用导致 URMA 建链失败。",
+          "root_cause": "历史已确认案例归因于目标 Worker 端点不可用，并提示进程退出需系统证据。",
+          "solution": "核验目标进程/容器、31501 监听、路由、Jetty 与 UB 设备；恢复后刷新连接再重试 SET。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "错误码、故障模式、操作域和影响规模一致。",
+          "log_fit": "同样出现 errno=112、RPC peer dead、Host is down。",
+          "rc_consistency": "直接机制一致；案例标签为 Worker故障，本次指定标签为 UBSE进程故障。",
+          "env_diff": "现场身份与标签不同，且本资产缺目标节点系统日志。",
+          "adaptation": "只复用端点/监听/Jetty 检查步骤，不复用 Worker 进程退出结论。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "③",
+          "id": "experience:f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": "★★★☆☆",
+          "match_logic": "L1 命中：经验条目收录 K_URMA_CONNECT_FAILED=1009；L2 命中：URMA/RDMA 连接建立；L5 命中：WorkerWorkerExchangeUrmaConnectInfo。",
+          "symptom": "URMA/RDMA 连接建立失败、Jetty 失效或远端不可达。",
+          "root_cause": "经验条目提示远端进程重启、Jetty、网络或设备状态均可能造成建链失败。",
+          "solution": "检查 WorkerWorkerExchangeUrmaConnectInfo、Jetty 状态、远端 Worker、UB 设备和网络，并验证是否需要连接重建。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考",
+          "phenomenon_fit": "与现场 URMA 建链失败一致。",
+          "log_fit": "关键函数与错误码均命中。",
+          "rc_consistency": "仅提供排查候选，不覆盖指定标签和 curated 解释。",
+          "env_diff": "经验基于 yuanrong-datasystem 0.8.1.rc20；本资产未解析版本。",
+          "adaptation": "将通用检查项限定到目标 192.168.219.86:31501 和本次时间窗。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即核验并恢复 UBSE 进程状态；检查进程 PID、退出码、重启次数与健康检查，确认异常实例已重新进入 Ready。",
+          "从 192.168.219.87 核验目标 192.168.219.86:31501 的监听与可达性，并检查 WorkerWorkerExchangeUrmaConnectInfo 是否恢复成功。",
+          "核对目标 Jetty、URMA/UB 设备与连接状态；若存在旧连接或旧实例信息，按运行手册刷新路由与 URMA 连接后再放量。",
+          "对 7 条失败 SET 在确认未写入后执行幂等重试，避免重复写。"
+        ],
+        "long_term": [
+          "为 UBSE 进程退出、反复重启、健康检查失败建立告警，并与 K_URMA_CONNECT_FAILED、brpc errno=112 同窗关联。",
+          "补齐目标节点 container/systemd/dmesg、UBSE 和 Worker 服务端日志采集，避免仅凭客户端错误反推进程状态。",
+          "在节点/进程变更流程中增加 31501 端口、Jetty 与 URMA 建链预检，异常端点在路由中及时摘除。"
+        ],
+        "verification": [
+          "复测 SET：连续请求不再返回 1009，/stats/error_codes(SET) 在观察窗内无新增 K_URMA_CONNECT_FAILED。",
+          "WorkerWorkerExchangeUrmaConnectInfo 成功完成，bRPC 不再出现 cntl_error_code=112、RPC peer dead 或 ServerSend/Recv 均为 0。",
+          "UBSE 进程在不少于一个业务观察周期内保持 Ready，无新增退出或重启事件。"
+        ]
+      },
+      "simplified": false,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {"priority":"P0","fault_ids":["F01"],"action":"恢复并核验 UBSE 进程，确认目标 192.168.219.86:31501 与 URMA/Jetty 建链能力恢复。","depends_on":"目标节点运行权限与 UBSE 运维手册","expected_effect":"消除 bRPC errno=112 和 K_URMA_CONNECT_FAILED(1009)","verify":"SET 复测无新增 1009，WorkerWorkerExchangeUrmaConnectInfo 成功"},
+    {"priority":"P1","fault_ids":["F01"],"action":"补采 UBSE/容器/systemd/dmesg 与目标 Worker 服务端日志，核对退出码和重启原因。","depends_on":"目标节点日志权限","expected_effect":"闭环进程故障的直接系统证据并排除网络/设备并发故障","verify":"取得同窗进程状态、退出码或重启事件，且与客户端时间线一致"},
+    {"priority":"P2","fault_ids":["F01"],"action":"建立 UBSE 生命周期、31501 端口、URMA 建链和 1009 错误码的关联监控。","depends_on":"监控与告警平台","expected_effect":"缩短失效端点暴露和定位时间","verify":"演练中可在一个采集周期内告警并定位到目标端点"}
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET /stats/stages 返回 sample_cnt=0，8 个读路径桶计数均为 0；归因子集为空，不能据此宣称 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [{"name":"SET·数据面未观测","pct":100.0,"cls":"s-warn"}],
+        "stages": [
+          {"name":"SET·数据面未观测","p99":"—","anomaly_rate":"0%（阶段桶口径）","fail_share":"0%（阶段桶口径）","status":"warn","fault":"7 条样本缺 Worker 侧阶段行","detail":"p50=0.051ms、p90=0.055ms、max=0.055ms；该桶仅说明数据面观测缺口，不能否定故障事件侧的 7 条 1009。"}
+        ],
+        "conclusion": "SET 阶段分类的 7 条样本全部落入 set_no_evidence；阶段统计显示快速返回且缺 Worker 侧行。通断结论以独立故障事件链的 7 条 1009 为准，不把 stage.fail_cnt=0 解释为成功。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 7,
+    "top_error_codes": [{"code":"1009","name":"K_URMA_CONNECT_FAILED","pct":100.0,"fault":"F01"}],
+    "top_failure_domains": [{"domain":"UB管控面故障/UB管控面故障-UBSE进程故障","pct":100.0,"fault":"F01"}],
+    "top_pods": [{"pod":"192.168.219.87","host":"—","pct":100.0,"fault":"F01"}],
+    "top_hosts": [],
+    "time_heatmap": [{"time":"2026-09-29 00:26","level":5,"pct":100.0,"spike":true,"fault":"F01"}]
+  },
+  "workflow": {
+    "session_id": "diag-607734b7-20261112",
+    "total_steps": 7,
+    "api_calls": 24,
+    "duration": "本次会话",
+    "steps": [
+      {"title":"Step 1 经验库预检索与标签定位","api_calls":["experience-skill search-experiences (SKILL/WIKI)","读取 train_valid.md 与 gt_labels.json"],"result":"命中 KVCache、Worker、URMA 经验；标签映射为 UB管控面故障/UB管控面故障-UBSE进程故障。"},
+      {"title":"Step 2 数据完整性核验","api_calls":["GET /log_kb/{kb_id}","POST /log_file/list/{kb_id}","GET /log_parse_result/options"],"result":"日志任务 successful，解析 7 条 trace，故障 trace 7 条；cluster/host 选项未解析出。"},
+      {"title":"Step 3 GET/SET 独立分诊","api_calls":["POST /stats/stages operation=GET","POST /stats/stages operation=SET"],"result":"GET 无归因样本；SET 7 条样本全部落入 set_no_evidence，显示快速返回和 Worker 侧阶段观测缺口。"},
+      {"title":"Step 4 精确统计","api_calls":["POST /stats/error_codes|pods|links|heatmap（GET/SET）","POST /log_failure_event_result/list_time_aggregated_failure_events（GET/SET）"],"result":"SET 侧 1009 共 7 条、单 Pod 集中、约 8 秒簇发；GET 为空。"},
+      {"title":"Step 5 Trace 与原始日志下钻","api_calls":["POST /log_failure_event_result/list_trace_events","POST /log_failure_event_result/list_log_events"],"result":"7 条 trace 均命中 kvcache_access_059；原始日志确认固定目标端点 RPC peer dead/Host is down。"},
+      {"title":"Step 6 知识与案例复核","api_calls":["GET /failure_mode/status_code/1009","GET /failure_mode/kvcache_access_059","POST /diag_case_library/search","POST /diag_case_library/{case_id}/hit"],"result":"Curated 知识确认 URMA 建链失败；采用已确认案例 UB-CASE-002612 为调整后参考并完成命中回写。"},
+      {"title":"Step 7 报告生成","api_calls":["error_features.py","render_report.py --validate-only","render_report.py"],"result":"按契约生成 JSON、校验并渲染 HTML。"}
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+        "keywords_matched": ["K_URMA_CONNECT_FAILED", "1009", "WorkerWorkerExchangeUrmaConnectInfo"],
+        "search_query_used": "K_URMA_CONNECT_FAILED 1009 UB establish failed RPC peer dead Host is down",
+        "used_in_stage": "recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_URMA_CONNECT_FAILED=1009 | URMA 连接失败 | 检查地址、设备、网络",
+        "how_used_in_diagnosis": "用于补充 Jetty、远端 Worker、UB 设备与网络复核步骤，不作为现场根因证据。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "错误码与关键函数精确命中，但资产版本未知。"
+      },
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis",
+        "keywords_matched": ["Worker", "异常退出", "目标不可达"],
+        "search_query_used": "KVCache worker process SET UBSE 写入失败",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "异常退出时，检查最后 ERROR/FATAL 日志、lease 失效、信号处理。",
+        "how_used_in_diagnosis": "用于识别需补采的系统证据；当前资产缺退出码，未采纳 Worker 退出结论。",
+        "confidence_on_reference": 0.7,
+        "confidence_reason": "排查方法适用，但本资产只有客户端侧证据。"
+      }
+    ],
+    "summary": {
+      "total_references": 2,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 1,
+      "considered_not_adopted_count": 1,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于补充排查与反证，现场结论以 API 证据、curated 故障模式和用户指定标签为准。"
+    }
+  }
+}

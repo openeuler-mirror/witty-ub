@@ -1,0 +1,803 @@
+{
+  "report": {
+    "title": "KVCache Worker Pod 双重启诊断报告",
+    "report_id": "diag-6e5f30b7-9c6f-20261112-worker-double-reboot",
+    "generated_at": "2026-11-12 15:00:00"
+  },
+  "basic_info": {
+    "kb_id": "6e5f30b7-9c6f-47c1-b6f2-fd4bf78d783c",
+    "kb_name": "lingqu_kvcache_dfx_worker_pod_double_reboot_001_20260924_04_36_38",
+    "log_file": "lingqu_kvcache_dfx_worker_pod_double_reboot_001_20260924_04_36_38",
+    "operation": "GET / SET（独立分析）",
+    "time_range_start": "2026-09-24 04:33:00",
+    "time_range_end": "2026-09-24 04:42:59",
+    "total_trace_cnt": 34,
+    "fault_trace_cnt": 34,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "T:URMA_WRITE": 1.0
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到 1 个主故障：Worker Pod 容器实例发生重启/重建，伴随 GET/SET 客户端等待抬升及 URMA 写提交失败；重启触发原因和“双重启”次数仍需 Kubernetes 事件闭环。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "已解析 34 条异常 trace（GET 11、SET 23），覆盖多个 Worker/Client Pod；未形成结构化故障码事件。",
+    "confidence": "高 88%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Worker Pod 容器重启并引发恢复窗口读写等待与 URMA 写异常",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 88,
+      "category": "mixed",
+      "affected_scope": "ci-kv-ds-1；34 条异常 trace；多个 Worker/Client Pod",
+      "conclusion": {
+        "first_level_label": "容器故障",
+        "second_level_label": "容器故障-Worker容器重启",
+        "one_line_conclusion": "04:33—04:42 间 Worker 实例发生更替：ci-worker-master-1 从 192.168.219.98/PID 2639 变为 192.168.219.101/PID 68；同窗出现 34 条 GET/SET 时延异常和多条 URMA 写提交失败。",
+        "fault_domain": "容器故障/容器故障-Worker容器重启",
+        "fault_component": "KVCache Worker Pod 容器",
+        "fault_function": null,
+        "fault_function_loc": null,
+        "affected_scope_pct": "100（34/34 已解析异常 trace）",
+        "affected_scope_desc": "GET 11 条、SET 23 条；多 Pod 受影响",
+        "confidence": "高 88%",
+        "key_findings": [
+          "用户指定标签链路：train_valid.md 将该路径映射为 worker_pod_double_reboot，gt_labels.json 对应“容器故障/容器故障-Worker容器重启”。",
+          "ci-worker-master-1 日志中 Worker 从 192.168.219.98/PID 2639 更替为 192.168.219.101/PID 68，提供实例重建现场证据。",
+          "GET 11/11 条全部归入 cross_window，证据耗时 P90 31.429ms；Worker 窗口占比中位数仅 0.2%。",
+          "SET 23/23 条全部归入 set_client，证据耗时 P90 42.392ms、最大 54.216ms。",
+          "客户端现场日志多次出现 call urma_post_jetty_send_wr failed, ret: 4096；结构化错误码统计仍为 0，故不把 ret 4096等同为已解析业务状态码。",
+          "现有日志可确认至少一次 Worker 实例更替，但缺少 restartCount、lastState 与 Kubernetes Events，不能仅凭文件名确认精确重启次数或 OOM/驱逐/人工操作等触发原因。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "异常 trace",
+            "value": "34",
+            "sub": "GET 11 / SET 23",
+            "tone": "danger"
+          },
+          {
+            "label": "GET 证据 P90",
+            "value": "31.429ms",
+            "sub": "cross_window，非 P99",
+            "tone": "warn"
+          },
+          {
+            "label": "SET 证据 P90",
+            "value": "42.392ms",
+            "sub": "set_client，非 P99",
+            "tone": "danger"
+          },
+          {
+            "label": "SET 最大证据耗时",
+            "value": "54.216ms",
+            "sub": "客户端 SDK 段",
+            "tone": "danger"
+          }
+        ],
+        "stages": [
+          {
+            "name": "GET·Client/Worker 交叉窗口未细分",
+            "p50": "15.234ms",
+            "p90": "31.429ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "P90/P50=2.06",
+            "share": "100% 分类样本",
+            "status": "bottleneck",
+            "detail": "GET 11 条全部在该互斥桶；Worker 有窗口但干净，尚不能细分为网络/RPC排队/QueryMeta。",
+            "features": {
+              "operation": "GET",
+              "bucket_key": "cross_window",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "6e5f30b7-9c6f-47c1-b6f2-fd4bf78d783c",
+                  "log_id": "c3a9e5b1-c8c4-44cb-afda-c4209c3934f0",
+                  "operation": "GET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[5]"
+              },
+              "sample_cnt": 11,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（yuanrong us 覆盖子集），每条 trace 按最大互斥阶段归入唯一桶；URMA 超时为 anomaly_reason/content 文本匹配的近似口径；request_mode=unknown 的 trace 按现有列粗分定界（worker 窗口≥50% 总时延→data_worker，否则 cross_window），RPC 细分归因用 skill 脚本 brpc_stage_drill.py",
+              "trace_cnt": 11,
+              "normal_cnt": 0,
+              "anomalous_cnt": 11,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 15.234,
+                "p90_ms": 31.429,
+                "max_ms": 32.989,
+                "client_p50_ms": 15.234,
+                "client_p90_ms": 31.429
+              },
+              "tail_ratio_p90_p50": 2.063083,
+              "note": "粗分：request_mode=unknown，客户端等待主导（worker 侧窗口<50% 总时延）；11/11 条 worker 有窗口但干净，worker 窗口占比中位数 0.2%；RPC 细分归因（QueryMeta/RPC网络/RPC排队）用 skill 脚本 brpc_stage_drill.py（latency-analysis 阶段 4.5）",
+              "action": "数据访问父窗口扣除已知子阶段后仍较高；仅有明确 Local processing / remoteObjects=0 证据时才判为本地处理，否则保留未细分。",
+              "top_traces": [
+                {
+                  "trace_id": "7da7b469-286f-418d-b93b-72e2088b277f",
+                  "evidence_ms": 32.989,
+                  "client_ms": 32.989
+                },
+                {
+                  "trace_id": "7d872854-0fa7-4a2a-939a-dc88085a7ade",
+                  "evidence_ms": 31.429,
+                  "client_ms": 31.429
+                },
+                {
+                  "trace_id": "c401c40c-8385-4a36-9677-2815bb8ccce0",
+                  "evidence_ms": 30.446,
+                  "client_ms": 30.446
+                },
+                {
+                  "trace_id": "fe81970f-b42a-4d79-b871-5a89bbe7a32e",
+                  "evidence_ms": 29.438,
+                  "client_ms": 29.438
+                },
+                {
+                  "trace_id": "0fcf9f77-9599-4f63-a62c-b48e30b3d189",
+                  "evidence_ms": 28.779,
+                  "client_ms": 28.779
+                }
+              ]
+            }
+          },
+          {
+            "name": "SET·客户端 SDK 段",
+            "p50": "28.620ms",
+            "p90": "42.392ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "P90/P50=1.48",
+            "share": "100% 分类样本",
+            "status": "bottleneck",
+            "detail": "SET 23 条全部归入 set_client；该段包含等待数据面返回，不能据此单独认定 SDK 自身慢。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "6e5f30b7-9c6f-47c1-b6f2-fd4bf78d783c",
+                  "log_id": "c3a9e5b1-c8c4-44cb-afda-c4209c3934f0",
+                  "operation": "SET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 23,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 23,
+              "normal_cnt": 0,
+              "anomalous_cnt": 23,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 28.62,
+                "p90_ms": 42.392,
+                "max_ms": 54.216,
+                "client_p50_ms": 28.741,
+                "client_p90_ms": 42.488
+              },
+              "tail_ratio_p90_p50": 1.481202,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 23",
+              "action": "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 侧排队/重试与端到端 deadline，再看 Worker 侧是否已返回。",
+              "top_traces": [
+                {
+                  "trace_id": "3f529bab-1774-4aca-9849-86c58a1328d5",
+                  "evidence_ms": 54.216,
+                  "client_ms": 54.275
+                },
+                {
+                  "trace_id": "c6ba4c41-36f7-49d8-b825-bb7e695a7109",
+                  "evidence_ms": 45.989,
+                  "client_ms": 46.031
+                },
+                {
+                  "trace_id": "aab12c3b-b784-4ab7-828f-e7264c07f7a8",
+                  "evidence_ms": 42.392,
+                  "client_ms": 42.488
+                },
+                {
+                  "trace_id": "4e9ef827-36e4-4fce-b252-2e8f0783e80b",
+                  "evidence_ms": 40.19,
+                  "client_ms": 40.294
+                },
+                {
+                  "trace_id": "35058064-b85a-4611-aef6-6fb4b36d3a82",
+                  "evidence_ms": 38.533,
+                  "client_ms": 38.618
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 与 SET 两套归因口径均显示客户端等待主导：GET 为未细分交叉窗口，SET 为客户端 SDK 段。/stats/stages 不提供 P99，报告仅展示 P50/P90/max；两套桶未混合。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析任务成功且异常样本可用",
+            "description": "资产库包含 1 个日志文件，任务 successful；解析新增时延异常 34 个 trace。",
+            "evidence": "[GET /task/5c1276c1-dd9e-46c0-b001-1e685b089e72] status=successful；[POST /log_file/list] anomaly_cnt=34",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "② 生命周期证据",
+            "title": "Worker 实例 IP/PID 发生更替",
+            "description": "ci-worker-master-1 在 04:33 使用 192.168.219.98/PID 2639，04:42 已变为 192.168.219.101/PID 68，符合 Pod 容器实例重建后的进程与地址变化。",
+            "evidence": "[现场日志] ci-worker-master-1/kvcache.INFO.log 第1—8行",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "③ 影响定界",
+            "title": "读写异常均由客户端等待段主导",
+            "description": "GET 11 条全部归入 cross_window，SET 23 条全部归入 set_client；对应 P90 为 31.429ms 与 42.392ms。",
+            "evidence": "[POST /stats/stages] operation=GET/SET 独立响应",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "④ 关联证据",
+            "title": "同窗出现 URMA 写提交失败",
+            "description": "多个客户端向 192.168.235.165:31501 写入时出现 urma_post_jetty_send_wr failed, ret: 4096，说明恢复窗口存在数据面连接/Jetty 异常表现。",
+            "evidence": "[现场日志] ds_client_6934.INFO.log 与 ds_client_13950.INFO.log",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "排除已观测 URMA timeout 与 Worker handler 主导",
+            "description": "GET/SET 的 URMA timeout 桶均为 0，结构化故障码统计为 0；GET Worker 窗口占比中位数仅 0.2%，SET Worker 写处理桶为 0，故不能把故障归为已观测 timeout 或 Worker 业务执行慢。",
+            "evidence": "[POST /stats/stages] timeout/worker 桶为0；[POST /stats/error_codes] total=0",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑥ 根因收敛",
+            "title": "Worker Pod 容器重启/重建",
+            "description": "标签映射明确为 Worker 容器重启，现场 IP/PID 更替与之吻合；但缺 Kubernetes 生命周期证据，精确重启次数及触发原因仍未确认。",
+            "evidence": "[用户指定标签源] train_valid.md + gt_labels.json；[现场日志] Worker IP/PID 更替",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "Worker Pod 容器实例发生重启/重建；精确重启次数和触发原因待 Kubernetes restartCount、lastState 与 Events 核验。",
+        "supporting_knowledge": "本地经验 ds-worker-log-analysis 建议以 Worker 启动时间、容器/系统日志核验生命周期；ds-rdma-transport-diagnosis 说明远端 Worker 重启会触发 URMA 连接重建。历史案例 UB-CASE-002577 与 UB-CASE-002553 仅作为待验证对照。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Worker Pod 容器重启/重建",
+            "detail": "Worker IP/PID 更替；触发原因待查",
+            "type": "origin",
+            "transition": "连接与实例状态变化"
+          },
+          {
+            "label": "Client/Worker 连接恢复窗口",
+            "detail": "URMA 写提交 ret 4096；连接重建机制与现场表现相符",
+            "type": null,
+            "transition": "客户端等待抬升"
+          },
+          {
+            "label": "GET 交叉窗口等待",
+            "detail": "11 条，P90 31.429ms",
+            "type": "impact",
+            "transition": "读路径长尾"
+          },
+          {
+            "label": "SET 客户端段等待",
+            "detail": "23 条，P90 42.392ms，max 54.216ms",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "Worker 实例: 192.168.219.98/PID 2639 → 192.168.219.101/PID 68",
+          "GET: 11 条异常 trace",
+          "SET: 23 条异常 trace",
+          "结构化错误码: 0 类"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "7da7b469-286f-418d-b93b-72e2088b277f",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top1；仅代表该桶证据耗时最高，不代表总体严重度或普遍性。",
+          "evidence_ms": 32.989,
+          "client_ms": 32.989
+        },
+        {
+          "trace_id": "3f529bab-1774-4aca-9849-86c58a1328d5",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top1；仅代表该桶证据耗时最高，不代表总体严重度或普遍性。",
+          "evidence_ms": 54.216,
+          "client_ms": 54.275
+        },
+        {
+          "trace_id": "c6ba4c41-36f7-49d8-b825-bb7e695a7109",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top2；现场同 trace 出现 urma_post_jetty_send_wr failed, ret: 4096。",
+          "evidence_ms": 45.989,
+          "client_ms": 46.031
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002577",
+          "stars": "★★★★☆",
+          "match_logic": "L1：本次无结构化错误码/故障模式 ID，未命中；L2：GET、cross_window、Worker 生命周期异常匹配；L3：均为多 Worker/Client 拓扑但身份不参与匹配；L5：本次以 IP/PID 更替验证重启，历史为进程停止产出日志，部分匹配。",
+          "symptom": "Worker 生命周期异常伴随 GET 客户端等待。",
+          "root_cause": "历史案例为多 Worker 进程退出；本次现场为 Worker Pod 容器实例更替。",
+          "solution": "复用“先恢复 Worker、核验端口/路由、再复测 GET”的排查框架；不照搬其超时码结论。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "GET cross_window 客户端等待与 Worker 生命周期变化相符。",
+          "log_fit": "本次无历史案例中的 RPC 超时码。",
+          "rc_consistency": "同属 Worker 生命周期故障，容器级触发需单独确认。",
+          "env_diff": "历史为进程退出，本次标签与日志指向 Pod 容器重建。",
+          "adaptation": "补查 Kubernetes restartCount、退出码与 Events。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002553",
+          "stars": "★★★★☆",
+          "match_logic": "L1：本次未解析出 K_URMA_ERROR，未命中；L2：SET、set_client、多 Pod 影响匹配；L3：目标链路形态相似但不按 IP 匹配；L5：现场原文 call urma_post_jetty_send_wr failed, ret: 4096 精确命中。",
+          "symptom": "SET 写路径 URMA 提交失败并伴随客户端等待。",
+          "root_cause": "可确认直接异常为 URMA 写提交 ret 4096；底层物理原因不能由本次数据确定。",
+          "solution": "核验 Worker 重启后的 Jetty/连接重建、URMA 设备健康和目标实例 ID，恢复后再复测 SET。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "部分采用",
+          "phenomenon_fit": "SET 客户端段异常和 URMA 写失败一致。",
+          "log_fit": "关键原文精确匹配。",
+          "rc_consistency": "作为容器重启后的影响证据，不替代容器生命周期根因。",
+          "env_diff": "本次无结构化 1004 错误码。",
+          "adaptation": "仅复用数据面核验步骤，不采用网卡故障结论。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "③",
+          "id": "experience:f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": "★★★★☆",
+          "match_logic": "L1：通用经验无现场错误码；L2：Worker 生命周期与 URMA 连接恢复域匹配；L3：连接端点重建机制匹配；L5：现场 ret 4096 与 Jetty/连接异常方向一致，但未出现经验中的重连日志常量。",
+          "symptom": "远端 Worker 重启可使 URMA/Jetty 连接失效并进入重建。",
+          "root_cause": "经验仅解释机制，不作为本次重启触发原因证据。",
+          "solution": "检查 Jetty 状态、连接重建、URMA 驱动/设备日志，并观察是否自动恢复。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "建议已采用",
+          "phenomenon_fit": "实例更替与 URMA 写失败同窗。",
+          "log_fit": "未采到 TryReconnectRemoteWorker，故仅部分吻合。",
+          "rc_consistency": "支持传播机理，不证明重启次数。",
+          "env_diff": "经验版本为 0.8.1.rc20，本现场日志显示客户端 0.9.2。",
+          "adaptation": "以本现场接口与 Kubernetes 事件为准。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即查询相关 Worker Pod 的 restartCount、status.lastState.terminated.reason/exitCode、容器 ID 和 04:33—04:43 Kubernetes Events，确认是否确有两次重启以及触发原因。",
+          "核验新 Worker 实例的 31501/31502 监听、Client 注册、路由、共享内存与 URMA Jetty/连接重建状态；若连接仍陈旧，按运维流程重建连接或滚动恢复受影响客户端。",
+          "对 ret 4096 现场保全 URMA 驱动、设备、Jetty/CQE 和容器运行时日志，避免在证据采集前重复重启覆盖状态。"
+        ],
+        "long_term": [
+          "为 Worker Pod restartCount 增量、OOMKilled、Evicted、节点重启及短时间重复重启配置告警和事件留存。",
+          "为 Worker 重启恢复增加连接/路由就绪门禁与客户端重试退避，避免实例刚恢复时继续放大 GET/SET 等待。",
+          "将 Worker 实例 ID、容器 ID 与 URMA remoteInstanceId 纳入统一观测，便于识别陈旧连接。"
+        ],
+        "verification": [
+          "连续观察 30 分钟，restartCount 不再增加，Pod Ready 持续为 true，Kubernetes Events 无新增异常。",
+          "分别执行至少 100 次 GET 和 100 次 SET，独立统计；确认 cross_window/set_client 异常样本显著下降，且 P90/P99 回归业务基线。",
+          "确认不再出现 call urma_post_jetty_send_wr failed, ret: 4096，并抽查新实例对应 trace 的 Worker 侧处理和连接状态完整。"
+        ]
+      },
+      "source_code": null,
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补取 Worker Pod Kubernetes 生命周期证据，确认精确重启次数与 OOM/驱逐/节点/人工触发原因。",
+      "depends_on": "Kubernetes 集群只读权限",
+      "expected_effect": "把容器重启从现象级定界推进到触发原因闭环。",
+      "verify": "Events、restartCount、容器 ID 与 04:33—04:43 实例更替时间对齐。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验 Worker 注册、端口、路由及 URMA Jetty/连接已恢复后进行 GET/SET 独立复测。",
+      "depends_on": "P0 现场证据已保全",
+      "expected_effect": "消除陈旧连接与恢复窗口等待。",
+      "verify": "100 次 GET 与 100 次 SET 无 ret 4096，阶段异常显著下降。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—（接口不提供 P99）",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": "100",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "RPC网络",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "rpc_network 0 条。"
+          },
+          {
+            "name": "RPC排队",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "rpc_queue 0 条。"
+          },
+          {
+            "name": "QueryMeta",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "query_meta 0 条。"
+          },
+          {
+            "name": "URMA",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "urma 0 条。"
+          },
+          {
+            "name": "Data Worker服务端处理",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "data_worker 0 条。"
+          },
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "P90 31.429ms",
+            "anomaly_rate": "100%（11/11）",
+            "fail_share": null,
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "cross_window 11 条，P50 15.234ms，max 32.989ms；请求占比不是耗时占比。"
+          },
+          {
+            "name": "未解释残差",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "residual 0 条。"
+          },
+          {
+            "name": "URMA超时",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "urma_timeout 0 条；近似文本匹配口径。"
+          }
+        ],
+        "conclusion": "GET 11 条分类样本全部归入 cross_window，P90 31.429ms；Worker 窗口占比中位数 0.2%，但现有字段不足以进一步拆分 RPC 网络、排队或 QueryMeta。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—（接口不提供 P99）",
+        "share_bar": [
+          {
+            "name": "客户端SDK段",
+            "pct": "100",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "URMA超时",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "set_urma_timeout 0 条。"
+          },
+          {
+            "name": "数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "set_no_evidence 0 条。"
+          },
+          {
+            "name": "未解释残差",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "set_residual 0 条。"
+          },
+          {
+            "name": "客户端SDK段",
+            "p99": "P90 42.392ms",
+            "anomaly_rate": "100%（23/23）",
+            "fail_share": null,
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "set_client 23 条，P50 28.620ms，max 54.216ms；包含等待数据面返回。"
+          },
+          {
+            "name": "Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "set_worker 0 条。"
+          }
+        ],
+        "conclusion": "SET 23 条分类样本全部归入 set_client，P90 42.392ms；未编造 CREATE/PUBLISH/urma_processing_us 分段。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": "34",
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {
+        "domain": "容器故障/容器故障-Worker容器重启",
+        "pct": "100",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.97",
+        "host": "—",
+        "pct": "37.0（SET Pod出现次数口径）",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.165",
+        "host": "—",
+        "pct": "28.3（SET Pod出现次数口径）",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.157",
+        "host": "—",
+        "pct": "22.7（GET Pod出现次数口径）",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "04:33",
+        "level": "1",
+        "pct": "20",
+        "spike": false,
+        "lat_ms": "21.509",
+        "fault": "F01"
+      },
+      {
+        "time": "04:34",
+        "level": "1",
+        "pct": "20",
+        "spike": false,
+        "lat_ms": "8.892",
+        "fault": "F01"
+      },
+      {
+        "time": "04:35",
+        "level": "3",
+        "pct": "50",
+        "spike": false,
+        "lat_ms": "35.856",
+        "fault": "F01"
+      },
+      {
+        "time": "04:36",
+        "level": "3",
+        "pct": "50",
+        "spike": false,
+        "lat_ms": "38.618",
+        "fault": "F01"
+      },
+      {
+        "time": "04:37",
+        "level": "1",
+        "pct": "10",
+        "spike": false,
+        "lat_ms": "16.534",
+        "fault": "F01"
+      },
+      {
+        "time": "04:38",
+        "level": "1",
+        "pct": "10",
+        "spike": false,
+        "lat_ms": "22.870",
+        "fault": "F01"
+      },
+      {
+        "time": "04:41",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "lat_ms": "54.275",
+        "fault": "F01"
+      },
+      {
+        "time": "04:42",
+        "level": "4",
+        "pct": "80",
+        "spike": false,
+        "lat_ms": "32.989",
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-6e5f30b7-9c6f",
+    "total_steps": 7,
+    "api_calls": 24,
+    "duration": "本会话内完成",
+    "steps": [
+      {
+        "title": "Step 1 标签与描述核验",
+        "api_calls": [
+          "读取 train_valid.md",
+          "读取 gt_labels.json",
+          "读取 references/log_label.json"
+        ],
+        "result": "路径描述映射 worker_pod_double_reboot；标签为容器故障/容器故障-Worker容器重启。"
+      },
+      {
+        "title": "Step 2 经验库预检索",
+        "api_calls": [
+          "experience-skill SKILL/WIKI 检索"
+        ],
+        "result": "命中 Worker 生命周期与 RDMA/URMA 连接重建经验。"
+      },
+      {
+        "title": "Step 3 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务 successful，1 个日志文件，34 条异常 trace。"
+      },
+      {
+        "title": "Step 4 GET/SET 独立分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET cross_window 11 条；SET set_client 23 条；未混桶。"
+      },
+      {
+        "title": "Step 5 统计与 Trace 下钻",
+        "api_calls": [
+          "POST /log_parse_result/metrics/latency",
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /trace/list"
+        ],
+        "result": "无结构化错误码；定位 34 条异常 trace 及代表锚点。"
+      },
+      {
+        "title": "Step 6 现场日志与案例复核",
+        "api_calls": [
+          "本地日志只读核验",
+          "case-matching GET/SET 独立检索",
+          "案例命中回写"
+        ],
+        "result": "确认 Worker IP/PID 更替，并采用 UB-CASE-002577、UB-CASE-002553 作为调整后参考。"
+      },
+      {
+        "title": "Step 7 报告生成",
+        "api_calls": [
+          "latency_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "生成契约 JSON 并渲染 HTML。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+        "keywords_matched": [
+          "Worker",
+          "restart",
+          "异常退出",
+          "容器日志"
+        ],
+        "search_query_used": "KVCache worker Pod double reboot restart connectivity failure",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "分析 Worker 日志时应同时查看同节点的 `container.log` 和系统日志（如 dmesg、systemd）。",
+        "how_used_in_diagnosis": "用于形成补查容器事件、退出码和系统日志的建议，不作为现场证据。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "与现场 Worker IP/PID 更替事实一致，但触发原因尚未闭环。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "Worker restart",
+          "URMA",
+          "Jetty",
+          "连接重建"
+        ],
+        "search_query_used": "Worker restart URMA urma_post_jetty_send_wr failed ret 4096",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "传输层连接状态与 Worker 生命周期强相关，远端 Worker 重启会触发连接重建。",
+        "how_used_in_diagnosis": "用于解释实例更替后 URMA 写失败的传播候选，并形成连接重建核验步骤。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "现场同窗出现 Worker 实例更替与 URMA 写提交失败，但未采到重连常量。"
+      }
+    ],
+    "summary": {
+      "total_references": 2,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 2,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验仅用于机制解释与处置建议；根因和影响范围均以本次 API 与现场日志证据为准。"
+    }
+  }
+}

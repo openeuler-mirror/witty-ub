@@ -1,0 +1,760 @@
+{
+  "report": {
+    "title": "worker_process_bandwidth_limit KVCache 诊断报告",
+    "report_id": "train-8bf2f9f9-60e3-4c3d-a16c-8dd4d37867b0-20261112",
+    "generated_at": "2026-11-12 15:30:00"
+  },
+  "basic_info": {
+    "kb_id": "8bf2f9f9-60e3-4c3d-a16c-8dd4d37867b0",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_bandwidth_limit_001_20260929_04_00_55",
+    "log_file": "lingqu_kvcache_dfx_worker_process_bandwidth_limit_001_20260929_04_00_55",
+    "operation": "GET（SET 独立检查无样本）",
+    "time_range_start": "2026-09-29 03:58:43.737",
+    "time_range_end": "2026-09-29 03:59:13.468",
+    "total_trace_cnt": 13,
+    "fault_trace_cnt": 13,
+    "fault_ratio": "100.00（诊断样本口径）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Urma operation failed": 0.281034,
+      "T:URMA_WRITE": 0.959392,
+      "C:Out of memory": 0.024227
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：GET 数据面出现 12 条 K_URMA_ERROR，其中 11 条在 URMA 写提交边界返回 ret=4096，另有 1 条接收缓冲配额耗尽；同期还有 1 条独立的 20.066 ms 时延异常。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "12 条 GET trace 返回 1004，涉及 Client 192.168.235.152 与两个远端 Worker 192.168.189.90/192.168.219.86；另有 1 条无错误码的 GET 时延异常。",
+    "confidence": "高 90%（故障点）；带宽根因待验证"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "GET 数据面的 URMA 写提交失败与接收缓冲配额耗尽",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 90,
+      "category": "mixed",
+      "affected_scope": "2026-09-29 03:58:43.737–03:59:13.468；13 条 GET 诊断样本；3 个 Pod IP",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-带宽不足",
+        "one_line_conclusion": "GET 数据面在约 30 秒内发生 12 次 K_URMA_ERROR：11 条为 urma_post_jetty_send_wr ret=4096 并伴随 TCP fallback payload rejected，1 条为 UB 接收缓冲资源池达到 256 MiB 阈值；物理网卡带宽不足尚缺遥测证明。",
+        "fault_domain": "硬件故障/网卡故障-带宽不足",
+        "fault_component": "Client↔Worker URMA/UB 数据面与接收缓冲资源池",
+        "fault_function": "urma_post_jetty_send_wr / UB receive buffer preparation",
+        "fault_function_loc": "URMA_WRITE 提交边界；ResourcePool 内存配额检查",
+        "affected_scope_pct": "100.00（13 条诊断样本）",
+        "affected_scope_desc": "12 条错误 trace + 1 条单独时延异常；SET 无可归因样本",
+        "confidence": "高 90%（直接故障点）；物理带宽根因低置信",
+        "key_findings": [
+          "日志文件 overall_status=successful，解析、定界与 trace 上下文任务均 successful；资产数据可用。",
+          "GET /stats/stages sample_cnt=13，全部归入 cross_window：P50=0.346 ms、P90=0.427 ms、max=20.066 ms；仅 1 条被标记为时延异常。",
+          "GET 侧 status_code=1004 共 12 条 trace/12 个日志级事件，03:58 与 03:59 两个分钟窗各 6 次；SET 侧独立查询为 0。",
+          "全量 95 条故障日志显示：11/12 条错误 trace 含 call urma_post_jetty_send_wr failed, ret: 4096，且含 Worker-to-worker TCP fallback payload rejected。",
+          "剩余 1/12 条错误 trace 明确显示 Total allocated 268435456、required 8388608、threshold 268435456，UB receive buffer preparation 因资源池阈值失败。",
+          "20.066 ms 时延异常 trace 不含错误码；12 条 1004 trace 的端到端时延仅 0.127–0.427 ms，因此不能把两类现象直接认定为同一请求或因果链。",
+          "故障标签按用户指定的 train_valid.md 描述 worker_process_bandwidth_limit 对应 gt_labels.json 取值；现场未提供 NIC 吞吐、队列、drops 或交换机端口遥测，故不把带宽饱和写成已确认物理根因。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "8bf2f9f9-60e3-4c3d-a16c-8dd4d37867b0",
+              "operation": "GET",
+              "start_time": "2026-09-29 03:57:00",
+              "end_time": "2026-09-29 04:01:00"
+            },
+            "code_filter": [
+              "1004"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "8bf2f9f9-60e3-4c3d-a16c-8dd4d37867b0",
+                    "operation": "GET",
+                    "start_time": "2026-09-29 03:57:00",
+                    "end_time": "2026-09-29 04:01:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 12,
+              "items": [
+                {
+                  "code": "1004",
+                  "count": 12,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-09-29 03:57:00",
+                  "end_time": "2026-09-29 03:58:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 03:58:00",
+                  "end_time": "2026-09-29 03:59:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 6
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 03:59:00",
+                  "end_time": "2026-09-29 04:00:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 6
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 04:00:00",
+                  "end_time": "2026-09-29 04:01:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 侧 K_URMA_ERROR(1004) 共 12 次逐码命中，完整覆盖的两个 1 分钟有数据窗口各 6 次；该计数不是去重业务失败率。SET 侧独立查询无故障 trace，空结果不解释为 SET 健康。",
+        "metrics": [
+          {
+            "label": "主导错误码",
+            "value": "1004",
+            "sub": "K_URMA_ERROR · 12 次逐码命中",
+            "tone": "danger"
+          },
+          {
+            "label": "集中窗口",
+            "value": "03:58–04:00",
+            "sub": "连续两个分钟窗各 6 次",
+            "tone": "warn"
+          }
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "GET 最大总时延",
+            "value": "20.066 ms",
+            "sub": "唯一时延异常 trace",
+            "tone": "danger"
+          },
+          {
+            "label": "cross_window P90",
+            "value": "0.427 ms",
+            "sub": "非 P99；13 条分类样本",
+            "tone": "warn"
+          },
+          {
+            "label": "错误 trace 时延",
+            "value": "0.127–0.427 ms",
+            "sub": "12 条 1004 trace，均未标记时延异常",
+            "tone": "ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "GET·Client/Worker 交叉窗口未细分",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100% 分类样本",
+            "status": "bottleneck",
+            "detail": "13/13 条归入 cross_window；Worker 侧窗口相对干净，客户端等待主导。仅 max=20.066 ms 的 trace 异常，P90 仍为 0.427 ms。",
+            "features": {
+              "operation": "GET",
+              "bucket_key": "cross_window",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "8bf2f9f9-60e3-4c3d-a16c-8dd4d37867b0",
+                  "log_id": "0ac201aa-b0c0-40b9-9831-f2ab6f6f0cd2",
+                  "operation": "GET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[0]"
+              },
+              "sample_cnt": 13,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常；每条 trace 按最大互斥阶段归入唯一桶；request_mode=unknown 的 trace 按现有列粗分定界",
+              "trace_cnt": 13,
+              "normal_cnt": 12,
+              "anomalous_cnt": 1,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 7.692308,
+              "distribution": {
+                "p50_ms": 0.346,
+                "p90_ms": 0.427,
+                "max_ms": 20.066,
+                "client_p50_ms": 0.346,
+                "client_p90_ms": 0.427
+              },
+              "tail_ratio_p90_p50": 1.234104,
+              "note": "粗分：request_mode=unknown，客户端等待主导（worker 侧窗口<50% 总时延）；13/13 条 worker 有窗口但干净，worker 窗口占比中位数 8.0%；RPC 细分归因用 brpc_stage_drill.py",
+              "action": "数据访问父窗口扣除已知子阶段后仍较高；仅有明确 Local processing / remoteObjects=0 证据时才判为本地处理，否则保留未细分。",
+              "top_traces": [
+                {
+                  "trace_id": "13184093-0d20-4500-bfb5-98ee3640791d",
+                  "evidence_ms": 20.066,
+                  "client_ms": 20.066
+                },
+                {
+                  "trace_id": "811dc827-2b0d-43c1-807c-29acbf3977d8",
+                  "evidence_ms": 0.427,
+                  "client_ms": 0.427
+                },
+                {
+                  "trace_id": "373a91a7-4160-47cb-96c0-fa9bff053c32",
+                  "evidence_ms": 0.4,
+                  "client_ms": 0.4
+                },
+                {
+                  "trace_id": "687c08ad-5e2b-485e-9251-65fec5aee145",
+                  "evidence_ms": 0.396,
+                  "client_ms": 0.396
+                },
+                {
+                  "trace_id": "a4d71fe0-a8d2-47f2-818b-b69afd19b570",
+                  "evidence_ms": 0.38,
+                  "client_ms": 0.38
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "/stats/stages 不提供 P99，故不以 P90/max 冒充 P99。cross_window 结果说明客户端等待窗口未被细分，并不等同于已测得网络传输时延；错误 trace 与唯一时延异常 trace 不重合。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析链路完整",
+            "description": "1 个日志目录，解析、故障定界、上下文存储任务均 successful。",
+            "evidence": "GET /log_kb/{kb_id}；POST /log_file/list/{kb_id}；POST /task/list",
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作分诊",
+            "title": "故障证据集中在 GET",
+            "description": "GET sample_cnt=13、错误码 1004×12；SET sample_cnt=0 且错误统计为空。两套阶段口径独立。",
+            "evidence": "POST /stats/stages 与 /stats/error_codes，operation=GET/SET 各一次",
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 故障语义",
+            "title": "K_URMA_ERROR 上浮",
+            "description": "12 条 trace 命中 status_code=1004 与 kvcache_access_022；curated 知识将其定义为 URMA 传输或资源操作失败。",
+            "evidence": "POST /log_failure_event_result/list_trace_events；GET /failure_mode/status_code/1004；GET /failure_mode/kvcache_access_022",
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 主导现场机制",
+            "title": "URMA 写提交立即失败",
+            "description": "11/12 条错误 trace 原文出现 call urma_post_jetty_send_wr failed, ret: 4096，随后 GET 数据面、不可重试副本读与传输层逐级上浮。",
+            "evidence": "POST /log_failure_event_result/list_log_events：全量 12 trace、95 条日志",
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 次要现场机制",
+            "title": "接收缓冲配额耗尽",
+            "description": "1 条 trace 的 UB receive buffer preparation 失败，已分配 256 MiB，申请 8 MiB 时达到 256 MiB 阈值。",
+            "evidence": "trace=87a4e926-f99e-4686-8619-adabea5a4ec3；failure_mode=kvcache_runtime_1237",
+            "confirmed": true
+          },
+          {
+            "step_label": "⑥ 时延交叉验证",
+            "title": "错误与 20 ms 异常不在同一 trace",
+            "description": "唯一 20.066 ms 异常无错误码；12 条 1004 trace 均 is_anomalous=false，因此仅能判定时间相关，不能宣称因果。",
+            "evidence": "GET /trace/13184093-...；POST /trace/list(status_codes=[1004])",
+            "excluded": true
+          },
+          {
+            "step_label": "⑦ 物理根因边界",
+            "title": "网卡带宽不足尚未闭环",
+            "description": "现有证据无 NIC 吞吐、队列、丢包、CRC、端口速率或交换机拥塞数据；训练标签不能替代现场物理证据。",
+            "evidence": "当前 API 与原始日志证据范围",
+            "excluded": true
+          }
+        ],
+        "confirmed_root_cause": "已确认的直接故障点是 GET 数据面的 URMA 写请求提交失败：11 条 trace 在 urma_post_jetty_send_wr 返回 ret=4096 后逐级上浮为 K_URMA_ERROR(1004)；另有 1 条 trace 因 UB 接收缓冲资源池达到 256 MiB 阈值而失败。‘网卡带宽不足’按用户指定标签保留，但缺少物理层遥测，不能确认为 ret=4096 的底层原因。",
+        "supporting_knowledge": "curated kvcache_access_022/状态码1004支持 URMA 传输或资源操作失败解释；kvcache_runtime_1237支持逻辑配额耗尽。已确认案例 UB-CASE-002553 在 L1 命中1004与kvcache_access_022、L2部分命中多Pod，但其 SET 路径与本次 GET 不同，仅调整后采用。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "GET 远端对象读取",
+            "detail": "Client 192.168.235.152 从两个远端 Worker 读取对象，数据面使用 UB/URMA。",
+            "type": "source"
+          },
+          {
+            "label": "URMA 写提交失败",
+            "detail": "11 条 trace 在 urma_post_jetty_send_wr 返回 ret=4096。",
+            "type": "fault",
+            "transition": "主导分支"
+          },
+          {
+            "label": "接收缓冲配额失败",
+            "detail": "另 1 条 trace 在申请 8 MiB 接收缓冲时达到 256 MiB 阈值。",
+            "type": "fault",
+            "transition": "次要分支"
+          },
+          {
+            "label": "数据面与回退不可用",
+            "detail": "主导分支伴随 TCP fallback payload rejected；两分支均导致数据面操作失败。",
+            "type": "amplification",
+            "transition": "传输失败上浮"
+          },
+          {
+            "label": "GET 返回 K_URMA_ERROR",
+            "detail": "TransportGet DataPlane→Replica read→TransportLayer→Client access 逐级上浮 1004。",
+            "type": "impact",
+            "transition": "错误返回"
+          }
+        ],
+        "impact_scope": [
+          "12 条 GET 错误 trace，Client 为 192.168.235.152，远端 Worker 为 192.168.189.90 或 192.168.219.86。",
+          "错误集中在 03:58–04:00 的两个分钟窗，各 6 次。",
+          "SET 侧无样本；不把空结果解释为健康。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "13184093-0d20-4500-bfb5-98ee3640791d",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top1；Top 仅代表桶内证据耗时极值，不代表错误严重度",
+          "evidence_ms": 20.066,
+          "client_ms": 20.066,
+          "pod": "192.168.189.90 / 192.168.235.152",
+          "timestamp": "2026-09-29 03:58:43.737"
+        },
+        {
+          "trace_id": "373a91a7-4160-47cb-96c0-fa9bff053c32",
+          "kind": "error",
+          "why": "过滤条件 operation=GET + status_code=1004 + 03:57–04:01；原文命中 urma_post_jetty_send_wr ret:4096",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.189.90 / 192.168.235.152",
+          "timestamp": "2026-09-29 03:58:57.556"
+        },
+        {
+          "trace_id": "5ac4806f-f20c-4520-9a36-63117c8dbe74",
+          "kind": "error",
+          "why": "过滤条件 operation=GET + status_code=1004 + 03:57–04:01；另一远端 Worker 的 ret:4096 代表 trace",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.219.86 / 192.168.235.152",
+          "timestamp": "2026-09-29 03:58:56.206"
+        },
+        {
+          "trace_id": "87a4e926-f99e-4686-8619-adabea5a4ec3",
+          "kind": "error",
+          "why": "过滤条件 operation=GET + status_code=1004 + 03:57–04:01；唯一接收缓冲资源池阈值失败 trace",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_runtime_1237",
+          "pod": "192.168.189.90 / 192.168.235.152",
+          "timestamp": "2026-09-29 03:58:56.366"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002553",
+          "stars": 4,
+          "match_logic": "L1 命中 status_code=1004 与 failure_mode=kvcache_access_022；L2 部分命中 mixed/multi_pod，但案例主路径为 SET、本次为 GET，cross_window 不命中 set_client；L5 案例未结构化命中现场短语。",
+          "symptom": "历史案例出现 urma_post_jetty_send_wr ret=4096 并上浮 1004。",
+          "root_cause": "直接故障点同为 URMA 写提交失败；底层设备/资源原因未由案例替本次证明。",
+          "solution": "同步采集 NIC、URMA 设备/Jetty/驱动状态，解释 ret=4096。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "错误码与直接 API 边界相似。",
+          "log_fit": "本次 GET 路径与案例 SET 路径不同。",
+          "rc_consistency": "直接故障点一致、底层根因均未闭环",
+          "env_diff": "操作域不同，现场版本未知。",
+          "adaptation": "仅复用取证清单，不复用 SET 结论。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 2,
+          "id": "kvcache_access_022",
+          "stars": 4,
+          "match_logic": "L1 命中 K_URMA_ERROR(1004)；L2 命中 URMA/硬件域与 GET 数据面；L5 由本次 ret=4096 和资源池阈值日志细化。",
+          "symptom": "请求返回 K_URMA_ERROR，URMA 传输或资源操作失败。",
+          "root_cause": "URMA 库、设备、上下文、Jetty、内存段、事件或异步处理发生底层错误。",
+          "solution": "检查 URMA 库、设备、Jetty、内存段与事件状态。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "1004 与 failure_mode 完全一致。",
+          "log_fit": "现场包含 ret=4096 与配额耗尽两类明确信号。",
+          "rc_consistency": "一致但 curated 粒度较粗",
+          "env_diff": "curated 不区分本次两条分支。",
+          "adaptation": "分别核验提交失败和接收缓冲配额。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 3,
+          "id": "e9899a89-b310-4d51-9cc3-efa55131ed9b",
+          "stars": 3,
+          "match_logic": "L1 无特定1004映射；L2 命中 URMA/UMDK 资源域；L5 与现场 Resource allocation has reached the threshold limit 语义一致，但未命中 ret=4096。",
+          "symptom": "本地经验 umdk-queue-resource-diagnosis：ENOMEM 需区分系统内存与内部资源池耗尽。",
+          "root_cause": "经验仅支持资源配额排查方向，不能替代现场根因。",
+          "solution": "检查资源池用量、配额和创建/销毁统计。",
+          "adoption_class": "reference",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "与 1 条接收缓冲阈值失败相符。",
+          "log_fit": "现场明确给出 allocated/required/threshold。",
+          "rc_consistency": "方向一致",
+          "env_diff": "经验面向通用 UMDK 资源，现场是 KVCache 接收缓冲。",
+          "adaptation": "以本次 kvcache_runtime_1237 和资源池指标为准。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "对 192.168.189.90、192.168.219.86 与 192.168.235.152 同步检查 URMA 设备、端口、Jetty、JFC/CQ、驱动日志和 ret=4096 的 provider 定义；在定位前将 GET 流量迁移到已验证健康路径。",
+          "检查 192.168.235.152 对应进程的 UB 接收缓冲 ResourcePool：当前 256 MiB 阈值已满，确认占用对象、释放滞后与并发峰值；评估后释放泄漏资源或扩容配额。",
+          "核对 TCP fallback payload rejected 的具体 limiter/拒绝条件；确保 URMA 异常时 4 MiB 请求有可用且受控的降级路径。"
+        ],
+        "long_term": [
+          "为 urma_post_jetty_send_wr ret code、K_URMA_ERROR、TCP fallback 拒绝和接收缓冲 allocated/threshold 建立按源端、目标端、设备的联合告警。",
+          "补齐 Client/Worker 两端 NIC 吞吐、qdisc/队列、drops/errors/CRC、端口速率与交换机拥塞遥测，并与 trace_id 对齐，才能确认或排除‘网卡带宽不足’。",
+          "按对象大小和峰值并发建立 UB 接收缓冲容量基线，验证资源正常释放并设置提前量告警。"
+        ],
+        "verification": [
+          "使用相同 4 MiB/8 MiB GET 负载复测至少 30 分钟，status_code=1004、ret=4096、fallback rejected 和 buffer threshold 日志均为 0。",
+          "复测中确认 cross_window 最大值回到健康基线，且 GET P99 由独立指标 API 实测，不以 /stats/stages 的 P90/max 替代。",
+          "同步记录 NIC/交换机吞吐与丢包、URMA 资源计数和接收缓冲水位；仅在带宽饱和与故障随降载/扩容消失形成闭环后确认带宽根因。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "定位并恢复 URMA 写提交路径，解释 ret=4096。",
+      "depends_on": "保留三端设备、驱动、Jetty/JFC/CQ 与端口现场",
+      "expected_effect": "消除 11 条主导 1004 机制",
+      "verify": "同负载 30 分钟无 ret=4096/1004"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "释放或扩容 UB 接收缓冲资源池。",
+      "depends_on": "确认 256 MiB 阈值、占用者与释放路径",
+      "expected_effect": "消除 receive buffer preparation OOM",
+      "verify": "allocated 保持安全水位且无 threshold limit"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补采 NIC/交换机与 URMA 资源遥测。",
+      "depends_on": "可复现压测窗口",
+      "expected_effect": "确认或排除网卡带宽不足",
+      "verify": "形成 trace 对齐的吞吐、队列、丢包和资源计数证据"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": 100.0,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "GET·cross_window",
+            "p99": "—",
+            "anomaly_rate": "7.69%（异常标记）",
+            "fail_share": "100% 分类样本",
+            "status": "bottleneck",
+            "fault": "13/13 trace",
+            "detail": "P50=0.346 ms、P90=0.427 ms、max=20.066 ms；桶内异常标记比例不是业务失败率。"
+          }
+        ],
+        "conclusion": "GET 13 条分类样本全部落入 cross_window；/stats/stages 不提供 P99。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "SET 归因子集",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "fault": "无可归因样本",
+            "detail": "sample_cnt=0；空结果不等于 SET 健康。"
+          }
+        ],
+        "conclusion": "SET 五桶均为 0，不与 GET 混合计算。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 12,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "硬件故障/网卡故障-带宽不足",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.152",
+        "host": "未解析",
+        "pct": 100.0,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.90",
+        "host": "未解析",
+        "pct": 69.23,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.86",
+        "host": "未解析",
+        "pct": 30.77,
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-09-29 03:58:00",
+        "level": "high",
+        "pct": 50.0,
+        "spike": true,
+        "lat_ms": 20.066,
+        "fault": "F01"
+      },
+      {
+        "time": "2026-09-29 03:59:00",
+        "level": "high",
+        "pct": 50.0,
+        "spike": true,
+        "lat_ms": null,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-8bf2f9f9",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "单次离线诊断会话",
+    "steps": [
+      {
+        "title": "资产与解析完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "POST /task/list",
+          "GET /log_parse_result/options"
+        ],
+        "result": "1 个日志目录，3 个任务均 successful；anomaly_cnt=1，trace_failure_event_cnt=12。"
+      },
+      {
+        "title": "GET/SET 独立阶段分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET sample_cnt=13，全部归入 cross_window；SET sample_cnt=0。"
+      },
+      {
+        "title": "全量精确统计",
+        "api_calls": [
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/links",
+          "POST /stats/heatmap"
+        ],
+        "result": "GET 1004×12，3 个 Pod IP，两个分钟热点；SET 全部为空。"
+      },
+      {
+        "title": "Trace 与错误时间分布",
+        "api_calls": [
+          "POST /trace/list",
+          "GET /trace/{trace_id}",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events"
+        ],
+        "result": "1 条 20.066 ms 异常无错误码；12 条1004分布在两个分钟窗。"
+      },
+      {
+        "title": "原始日志与故障模式取证",
+        "api_calls": [
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events",
+          "GET /failure_mode/status_code/1004",
+          "GET /failure_mode/{id}"
+        ],
+        "result": "11 条 ret=4096+fallback rejected，1 条接收缓冲256MiB配额耗尽。"
+      },
+      {
+        "title": "本地经验与已确认案例匹配",
+        "api_calls": [
+          "experience-skill search-experiences",
+          "POST /diag_case_library/search",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "UB-CASE-002553 L1命中、L2部分命中，因SET/GET差异仅调整后采用；本地资源经验仅作建议。"
+      },
+      {
+        "title": "反证与标签边界",
+        "api_calls": [
+          "GET /trace/{trace_id}",
+          "POST /trace/list(status_codes=[1004])"
+        ],
+        "result": "错误 trace 与20ms异常不重合；训练标签按指定映射保留，但网卡带宽不足未获物理遥测证实。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "564dd96b-d802-4fab-829b-a6c18563e228",
+      "experience_type": "SKILL",
+      "name": "umdk-performance-degradation-diagnosis",
+      "source_path": "data/skill_hub/umdk-performance-degradation-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "带宽",
+        "时延",
+        "流控"
+      ],
+      "search_query_used": "KVCache worker process bandwidth limit 高时延 超时",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "带宽低于预期时，优先检查链路宽度、速率、重传和流控。",
+      "how_used_in_diagnosis": "用于制定 NIC/链路遥测补采建议，不作为现场根因。",
+      "confidence_on_reference": 0.7,
+      "confidence_reason": "方向通用，但本次无带宽指标闭环。"
+    },
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+      "keywords_matched": [
+        "Worker",
+        "日志分析"
+      ],
+      "search_query_used": "KVCache worker process bandwidth limit 高时延 超时",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "未观察到 Worker 退出、lease 失败或挂死证据。",
+      "content_quoted": "异常退出时，检查最后 ERROR/FATAL 日志、lease 失效、信号处理。",
+      "how_used_in_diagnosis": "作为 Worker 进程异常候选检查，现场不支持后排除。",
+      "confidence_on_reference": 0.6,
+      "confidence_reason": "流程可靠，但与本次现场机制不符。"
+    },
+    {
+      "experience_id": "e9899a89-b310-4d51-9cc3-efa55131ed9b",
+      "experience_type": "SKILL",
+      "name": "umdk-queue-resource-diagnosis",
+      "source_path": "data/skill_hub/umdk-queue-resource-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "Resource allocation",
+        "threshold limit",
+        "ENOMEM"
+      ],
+      "search_query_used": "K_URMA_ERROR urma_post_jetty_send_wr ret 4096 Resource allocation threshold limit",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "ENOMEM 需区分系统内存不足和 UMDK 内部资源池耗尽。",
+      "how_used_in_diagnosis": "用于建议核验接收缓冲资源池配额与泄漏。",
+      "confidence_on_reference": 0.85,
+      "confidence_reason": "与现场 allocated/required/threshold 原文一致。"
+    },
+    {
+      "experience_id": "ea08efaa-6f9a-4d5a-9aaf-8fcec731f9b3",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem 资源日志模式",
+      "source_path": "data/wiki_hub/ds-resource-log-patterns.md",
+      "keywords_matched": [
+        "resource.log",
+        "资源瓶颈"
+      ],
+      "search_query_used": "K_URMA_ERROR urma_post_jetty_send_wr ret 4096 Resource allocation threshold limit",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "资源日志（resource.log）定时输出 Worker 运行时关键资源信息，包括共享内存、Spill 磁盘、线程池、队列、缓存命中率等。",
+      "how_used_in_diagnosis": "用于建议补采资源水位和线程池指标。",
+      "confidence_on_reference": 0.75,
+      "confidence_reason": "适合容量复核，但不是本次已取得证据。"
+    }
+  ]
+}

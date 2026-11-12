@@ -1,0 +1,1288 @@
+{
+  "report": {
+    "title": "扩缩容期间多 Worker 退出或端点离线诊断报告",
+    "report_id": "report-ecc6d5a8-F01-20261112",
+    "generated_at": "2026-11-12"
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis",
+        "keywords_matched": [
+          "Worker",
+          "异常退出",
+          "lease"
+        ],
+        "search_query_used": "KVCache Worker 进程退出 lease 重平衡 RDMA transport hash ring 元数据",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Worker 进程退出时可能触发 lease 失效，导致集群重平衡。",
+        "how_used_in_diagnosis": "用于制定退出原因和系统生命周期日志补采项，不作为现场事实。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与 Worker 生命周期调查方向直接相关，但现场未采到 lease 和退出信号。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+        "keywords_matched": [
+          "Worker 生命周期",
+          "连接重建",
+          "远端重启"
+        ],
+        "search_query_used": "KVCache Worker 进程退出 lease 重平衡 RDMA transport hash ring 元数据",
+        "used_in_stage": "stage_5_knowledge",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "传输层连接状态与 Worker 生命周期强相关，远端 Worker 重启会触发连接重建。",
+        "how_used_in_diagnosis": "用于建议刷新 transport snapshot 与连接状态，不提升根因确认度。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "机制与现场 peer dead 一致，但本次没有独立 URMA 故障证据。"
+      },
+      {
+        "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+        "experience_type": "SKILL",
+        "name": "ds-hash-ring-metadata-diagnosis",
+        "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis",
+        "keywords_matched": [
+          "hash ring",
+          "节点上下线",
+          "元数据迁移"
+        ],
+        "search_query_used": "KVCache Worker 进程退出 lease 重平衡 RDMA transport hash ring 元数据",
+        "used_in_stage": "recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "缩容完成后，原节点数据会迁移到其他节点，需要确认迁移完成再下线节点。",
+        "how_used_in_diagnosis": "用于扩缩容顺序和 ring 收敛闸门建议。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与扩缩容场景直接相关，现场未保存 ring 版本响应。"
+      },
+      {
+        "experience_id": "4ddc5242-7261-4657-a860-78d518b063a3",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem ETCD 事件模式",
+        "source_path": "data/wiki_hub/ds-etcd-event-patterns.md",
+        "keywords_matched": [
+          "ETCD",
+          "lease",
+          "节点下线"
+        ],
+        "search_query_used": "Worker 退出 ETCD lease 错误模式 hash ring",
+        "used_in_stage": "recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "节点从集群移除，可能触发元数据迁移或副本恢复。",
+        "how_used_in_diagnosis": "用于补采 ETCD lease/watch 时间线的建议。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "适合验证下线传播，但当前现场没有 ETCD 日志。"
+      },
+      {
+        "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Worker 错误模式",
+        "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+        "keywords_matched": [
+          "Worker",
+          "K_NOT_READY",
+          "系统日志"
+        ],
+        "search_query_used": "Worker 退出 ETCD lease 错误模式 hash ring",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Worker 异常退出前通常有 ERROR 或 FATAL 日志，但 kill -9 或 OOM killer 终止时可能没有。",
+        "how_used_in_diagnosis": "用于检查证据边界；未用其候选原因替代现场证据。",
+        "confidence_on_reference": 0.75,
+        "confidence_reason": "能解释日志缺口，但不能区分 OOM、信号或主动退出。"
+      }
+    ],
+    "summary": {
+      "total_references": 5,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 4,
+      "considered_not_adopted_count": 1,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于调查路径和处置建议；现场事实仍来自本次 API 响应与代表 trace。"
+    }
+  },
+  "basic_info": {
+    "kb_id": "ecc6d5a8-0200-473d-88e6-689805170c4a",
+    "kb_name": "lingqu_kvcache_dfx_worker_multi_node_exit_scale_ub_fault_001_20261013_20_25_30",
+    "log_file": "lingqu_kvcache_dfx_worker_multi_node_exit_scale_ub_fault_001_20261013_20_25_30 (log_id ce2566d0-cabb-4f8f-86fa-111f6abe2cc0, 1548512 bytes)",
+    "operation": "GET / SET",
+    "time_range_start": "2026-10-13 20:26:00",
+    "time_range_end": "2026-10-13 20:43:00",
+    "total_trace_cnt": 844,
+    "fault_trace_cnt": 8,
+    "fault_ratio": "0.95",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Not ready": 0.307326,
+      "T:E2001": 0.921397,
+      "T:F06BD4E5A65DAABBCBFAA0CAEC536382": 0.236152,
+      "C:RPC deadline exceeded": 0.000193,
+      "C:No available worker for routing": 0.003481,
+      "C:RPC peer dead": 0.004642,
+      "T:E112": 0.027851,
+      "C:Metadata owner unavailable": 0.000774
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障 F01：扩缩容期间多个 Worker 退出或端点离线，未收敛的路由与健康快照同时影响 GET 和 SET。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "集群 czs-kv-ds；844 条分类 trace，GET 775 条、SET 69 条；解析异常标记 8 条。",
+    "confidence": "高 90%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "多 Worker 退出或端点离线导致读写路由与元数据服务不可用",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 90,
+      "category": "mixed",
+      "affected_scope": "czs-kv-ds；GET 775 条、SET 69 条；涉及 192.168.219.110、192.168.235.184、192.168.189.125、192.168.235.186",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程退出",
+        "one_line_conclusion": "2026-10-13 20:26-20:43，czs-kv-ds 扩缩容期多个 Worker 退出或端点离线，路由/健康快照未及时收敛，导致 GET 未就绪、筛空和超时，并导致 SET 无可用 Worker及 metadata owner 不可用。",
+        "fault_domain": "Worker故障/Worker故障-进程退出",
+        "fault_component": "KVCache Worker、客户端路由与 metadata owner",
+        "affected_scope_pct": "100",
+        "affected_scope_desc": "本次 GET/SET 分类样本均携带故障码；其中 8 条带解析异常标记",
+        "confidence": "高 90%",
+        "key_findings": [
+          "GET 逐码命中 775 次：K_NOT_READY(8) 771 次，K_NO_AVAILABLE_WORKER(37) 3 次，K_RPC_DEADLINE_EXCEEDED(1001) 1 次。",
+          "SET 逐码命中 69 次：K_NO_AVAILABLE_WORKER(37) 65 次，K_METADATA_OWNER_UNAVAILABLE(39) 4 次。",
+          "trace ff5e5136... 的 QueryAndGet 达到 100ms deadline；trace 2824d74f... 连续 stale route retry 后路由筛空。",
+          "SET 的 4 条 set_worker trace 均带异常标记，Worker 证据耗时 P90 3.933ms，Client P90 4.336ms。",
+          "现场确认端点失活、Worker not ready 与路由筛空；缺少退出码、OOMKilled、信号和系统生命周期日志，不能判定具体退出触发原因。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "ecc6d5a8-0200-473d-88e6-689805170c4a",
+              "operation": "GET",
+              "start_time": "2026-10-13 20:28:00",
+              "end_time": "2026-10-13 20:43:00",
+              "cluster_name": "czs-kv-ds"
+            },
+            "code_filter": [
+              "8",
+              "37",
+              "1001"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "ecc6d5a8-0200-473d-88e6-689805170c4a",
+                    "operation": "GET",
+                    "start_time": "2026-10-13 20:28:00",
+                    "end_time": "2026-10-13 20:43:00",
+                    "cluster_name": "czs-kv-ds",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 10
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 9,
+                  "returned_windows": 9
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 9,
+              "total_windows": 9
+            },
+            "code_distribution": {
+              "total_count": 775,
+              "items": [
+                {
+                  "code": "8",
+                  "count": 771,
+                  "share_pct": 99.483871
+                },
+                {
+                  "code": "37",
+                  "count": 3,
+                  "share_pct": 0.387097
+                },
+                {
+                  "code": "1001",
+                  "count": 1,
+                  "share_pct": 0.129032
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-13 20:28:00",
+                  "end_time": "2026-10-13 20:29:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 18,
+                    "37": 0,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:29:00",
+                  "end_time": "2026-10-13 20:30:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 103,
+                    "37": 0,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:30:00",
+                  "end_time": "2026-10-13 20:31:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 39,
+                    "37": 0,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:31:00",
+                  "end_time": "2026-10-13 20:32:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:32:00",
+                  "end_time": "2026-10-13 20:33:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:33:00",
+                  "end_time": "2026-10-13 20:34:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:34:00",
+                  "end_time": "2026-10-13 20:35:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:35:00",
+                  "end_time": "2026-10-13 20:36:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:36:00",
+                  "end_time": "2026-10-13 20:37:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:37:00",
+                  "end_time": "2026-10-13 20:38:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 106,
+                    "37": 0,
+                    "1001": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:38:00",
+                  "end_time": "2026-10-13 20:39:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 148,
+                    "37": 1,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:39:00",
+                  "end_time": "2026-10-13 20:40:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 53,
+                    "37": 0,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:40:00",
+                  "end_time": "2026-10-13 20:41:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 59,
+                    "37": 0,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:41:00",
+                  "end_time": "2026-10-13 20:42:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 151,
+                    "37": 0,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:42:00",
+                  "end_time": "2026-10-13 20:43:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 94,
+                    "37": 2,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "ecc6d5a8-0200-473d-88e6-689805170c4a",
+              "operation": "SET",
+              "start_time": "2026-10-13 20:26:00",
+              "end_time": "2026-10-13 20:41:00",
+              "cluster_name": "czs-kv-ds"
+            },
+            "code_filter": [
+              "37",
+              "39"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "ecc6d5a8-0200-473d-88e6-689805170c4a",
+                    "operation": "SET",
+                    "start_time": "2026-10-13 20:26:00",
+                    "end_time": "2026-10-13 20:41:00",
+                    "cluster_name": "czs-kv-ds",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 10
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 5,
+                  "returned_windows": 5
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 5,
+              "total_windows": 5
+            },
+            "code_distribution": {
+              "total_count": 69,
+              "items": [
+                {
+                  "code": "37",
+                  "count": 65,
+                  "share_pct": 94.202899
+                },
+                {
+                  "code": "39",
+                  "count": 4,
+                  "share_pct": 5.797101
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-13 20:26:00",
+                  "end_time": "2026-10-13 20:27:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 1,
+                    "39": 4
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:27:00",
+                  "end_time": "2026-10-13 20:28:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 8,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:28:00",
+                  "end_time": "2026-10-13 20:29:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:29:00",
+                  "end_time": "2026-10-13 20:30:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:30:00",
+                  "end_time": "2026-10-13 20:31:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:31:00",
+                  "end_time": "2026-10-13 20:32:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:32:00",
+                  "end_time": "2026-10-13 20:33:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:33:00",
+                  "end_time": "2026-10-13 20:34:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:34:00",
+                  "end_time": "2026-10-13 20:35:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:35:00",
+                  "end_time": "2026-10-13 20:36:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:36:00",
+                  "end_time": "2026-10-13 20:37:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 13,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:37:00",
+                  "end_time": "2026-10-13 20:38:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 21,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:38:00",
+                  "end_time": "2026-10-13 20:39:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:39:00",
+                  "end_time": "2026-10-13 20:40:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 20:40:00",
+                  "end_time": "2026-10-13 20:41:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 22,
+                    "39": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 与 SET 按操作分开统计。GET 逐码命中 775 次，以 8 为主，20:37-20:43 再次集中并夹杂 1001/37；SET 逐码命中 69 次，以 37 为主，4 次 39 全部位于 20:26-20:27。计数是逐码命中次数，不是业务失败率。"
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "GET 最大证据耗时",
+            "value": "100.191ms",
+            "sub": "cross_window；无 P99",
+            "tone": "danger"
+          },
+          {
+            "label": "SET Worker P90",
+            "value": "3.933ms",
+            "sub": "4 条均带异常标记",
+            "tone": "warn"
+          },
+          {
+            "label": "SET Client P90",
+            "value": "4.336ms",
+            "sub": "同桶 Client 总时延对照",
+            "tone": "warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "GET·Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100% 分类样本",
+            "status": "bottleneck",
+            "detail": "775/775 未触达数据面；只可表述客户端/Worker 交叉窗口未细分，不归因到具体物理阶段。",
+            "features": {
+              "operation": "GET",
+              "bucket_key": "cross_window",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "ecc6d5a8-0200-473d-88e6-689805170c4a",
+                  "log_id": "ce2566d0-cabb-4f8f-86fa-111f6abe2cc0",
+                  "operation": "GET"
+                },
+                "response_path": "result.items[5]"
+              },
+              "sample_cnt": 775,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（yuanrong us 覆盖子集），每条 trace 按最大互斥阶段归入唯一桶；URMA 超时为 anomaly_reason/content 文本匹配的近似口径；request_mode=unknown 的 trace 按现有列粗分定界（worker 窗口≥50% 总时延→data_worker，否则 cross_window），RPC 细分归因用 skill 脚本 brpc_stage_drill.py",
+              "trace_cnt": 775,
+              "normal_cnt": 771,
+              "anomalous_cnt": 4,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 0.516129,
+              "distribution": {
+                "p50_ms": 0.136,
+                "p90_ms": 0.167,
+                "max_ms": 100.191,
+                "client_p50_ms": 0.136,
+                "client_p90_ms": 0.167
+              },
+              "tail_ratio_p90_p50": 1.227941,
+              "note": "粗分：request_mode=unknown，客户端等待主导（worker 侧窗口<50% 总时延）；775/775 条未触达数据面（worker 窗口列空）；RPC 细分归因（QueryMeta/RPC网络/RPC排队）用 skill 脚本 brpc_stage_drill.py（latency-analysis 阶段 4.5）",
+              "action": "数据访问父窗口扣除已知子阶段后仍较高；仅有明确 Local processing / remoteObjects=0 证据时才判为本地处理，否则保留未细分。",
+              "top_traces": [
+                {
+                  "trace_id": "ff5e5136-65b7-4ece-a39d-3fd542e57684",
+                  "evidence_ms": 100.191,
+                  "client_ms": 100.191
+                },
+                {
+                  "trace_id": "2824d74f-960c-48f4-a06c-44c71a9536f0",
+                  "evidence_ms": 89.663,
+                  "client_ms": 89.663
+                },
+                {
+                  "trace_id": "e48ea6d2-5d5f-4a3c-a70e-fba11801b2b6",
+                  "evidence_ms": 89.657,
+                  "client_ms": 89.657
+                },
+                {
+                  "trace_id": "e3253022-decb-4529-b7e2-dece9caed972",
+                  "evidence_ms": 89.616,
+                  "client_ms": 89.616
+                },
+                {
+                  "trace_id": "21aad71f-6f98-4b0e-a17a-f5b60ab89b01",
+                  "evidence_ms": 0.526,
+                  "client_ms": 0.526
+                }
+              ]
+            }
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "94.202899% 分类样本",
+            "status": "ok",
+            "detail": "65 条无 Worker 数据面行，P50 0.068ms、P90 0.185ms；不能据此判断 Worker 端正常或缓慢。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_no_evidence",
+              "metric_name": "Client 总时延（数据面未观测）",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "ecc6d5a8-0200-473d-88e6-689805170c4a",
+                  "log_id": "ce2566d0-cabb-4f8f-86fa-111f6abe2cc0",
+                  "operation": "SET"
+                },
+                "response_path": "result.items[1]"
+              },
+              "sample_cnt": 69,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 65,
+              "normal_cnt": 65,
+              "anomalous_cnt": 0,
+              "bucket_share_pct": 94.202899,
+              "anomalous_ratio_pct": 0.0,
+              "distribution": {
+                "p50_ms": 0.068,
+                "p90_ms": 0.185,
+                "max_ms": 0.311,
+                "client_p50_ms": 0.068,
+                "client_p90_ms": 0.185
+              },
+              "tail_ratio_p90_p50": 2.720588,
+              "note": "local_worker_internal_us 与 worker_access_latency_us 均空（该 trace 无 Worker 侧行），证据取总时延；家族构成：DS_KV_CLIENT_SET 65",
+              "action": "客户端段独占且缺数据面证据：按 trace_id 复核 Worker 侧是否真的未打印，区分本地命中与观测缺口，勿直接判为 Worker 端慢。",
+              "top_traces": [
+                {
+                  "trace_id": "25284cc6-0323-4c80-b76b-1fe3fd024ae9",
+                  "evidence_ms": 0.311,
+                  "client_ms": 0.311
+                },
+                {
+                  "trace_id": "45670587-5ae4-48da-b7b6-6bf2a17f8fce",
+                  "evidence_ms": 0.309,
+                  "client_ms": 0.309
+                },
+                {
+                  "trace_id": "345e883a-a387-472a-a00c-2c68559e771d",
+                  "evidence_ms": 0.248,
+                  "client_ms": 0.248
+                },
+                {
+                  "trace_id": "56a9ba1a-8278-489d-9b75-b6d966dffb91",
+                  "evidence_ms": 0.206,
+                  "client_ms": 0.206
+                },
+                {
+                  "trace_id": "9e2e8458-e58e-46c1-b496-52192ae6ee0e",
+                  "evidence_ms": 0.201,
+                  "client_ms": 0.201
+                }
+              ]
+            }
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "5.797101% 分类样本",
+            "status": "bottleneck",
+            "detail": "4 条均带异常标记；证据 P50 3.86ms、P90/max 3.933ms，Client P50/P90 4.269/4.336ms。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_worker",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "ecc6d5a8-0200-473d-88e6-689805170c4a",
+                  "log_id": "ce2566d0-cabb-4f8f-86fa-111f6abe2cc0",
+                  "operation": "SET"
+                },
+                "response_path": "result.items[4]"
+              },
+              "sample_cnt": 69,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 4,
+              "normal_cnt": 0,
+              "anomalous_cnt": 4,
+              "bucket_share_pct": 5.797101,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 3.86,
+                "p90_ms": 3.933,
+                "max_ms": 3.933,
+                "client_p50_ms": 4.269,
+                "client_p90_ms": 4.336
+              },
+              "tail_ratio_p90_p50": 1.018912,
+              "note": "有 Worker 侧行且 local_worker_internal_us > sdk_processing_us，证据取 Worker 端写处理耗时；家族构成：DS_KV_CLIENT_SET 4",
+              "action": "Worker 端 CREATE/PUBLISH 处理主导：排查元数据落盘、buffer 准备、锁竞争与远端 Worker 调度。",
+              "top_traces": [
+                {
+                  "trace_id": "6052c85a-d1e8-45f9-9602-1c9fb7f8188f",
+                  "evidence_ms": 3.933,
+                  "client_ms": 4.336
+                },
+                {
+                  "trace_id": "ca3ec72d-7996-423a-b1e9-f9808c20dfb8",
+                  "evidence_ms": 3.911,
+                  "client_ms": 4.331
+                },
+                {
+                  "trace_id": "44888136-44bb-482f-9d36-6ca8479748f6",
+                  "evidence_ms": 3.86,
+                  "client_ms": 4.269
+                },
+                {
+                  "trace_id": "1bfdc365-b4bb-4962-9dd8-b78348970b0f",
+                  "evidence_ms": 3.85,
+                  "client_ms": 4.258
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 的 775 条样本全部落入 cross_window，且均未触达数据面，只能定位为客户端/Worker 交叉窗口未细分；SET 的 65 条未观测数据面，另 4 条集中在 Worker 写处理。/stats/stages 不提供 P99，也没有独立健康基线，因此不推算 P99 或放大倍数。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 现象观察",
+            "title": "读写路径同时出现 Worker 不可用语义",
+            "description": "GET 以 8 为主并夹杂 37/1001；SET 以 37 为主并有 4 条 39，形成同一扩缩容窗口内的读写混合故障。",
+            "evidence": "[error_features.py] GET/SET 时间聚合响应离线提取；[status_*.json] curated 错误码解释。",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "② 直接证据",
+            "title": "对端端点死亡且 Worker 未就绪",
+            "description": "SET metadata RPC 明确出现 RPC peer dead、brpc errno=112 Host is down；GET 现场出现 Worker not ready。",
+            "evidence": "[raw/log_events.json] trace ca3ec72d...、ff5e5136...、07d8873a...。",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "③ 传播验证",
+            "title": "路由与健康快照未及时收敛",
+            "description": "GET 连续刷新 stale route 后 All workers filtered or excluded；SET 65 条返回无可用 Worker，4 条因 owner 端点不可达返回 39。",
+            "evidence": "[raw/log_events.json] trace 2824d74f...；[raw/error_codes_set.json] 37=65、39=4。",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "④ 反证边界",
+            "title": "不判定 OOM、SIGKILL 或主动退出",
+            "description": "现有资产没有容器退出码、restartCount、OOMKilled、coredump、systemd/dmesg 或明确信号记录；这些只能作为待验证触发原因。",
+            "evidence": "[当前证据文件范围] 仅含 KVCache 应用与诊断 API 结果，无系统生命周期日志。",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 确认根因",
+            "title": "Worker 生命周期变化叠加路由未收敛",
+            "description": "扩缩容过程中多个 KVCache Worker 退出或端点离线，路由/健康快照未及时收敛，使 GET 命中未就绪/筛空/超时路径，SET 命中无可用 Worker 或失活 metadata owner。",
+            "evidence": "现场端点失活、Worker not ready、路由筛空三类证据相互闭环；历史案例仅提供处置复用，不作为现场事实。",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "多个Worker退出或端点离线，路由快照未收敛",
+        "supporting_knowledge": "curated: kvcache_access_008/054/036/020 与 runtime_2395/400/1377/2295/2303/247；经验库仅支撑调查和治理方向。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Worker退出或端点离线",
+            "detail": "扩缩容窗口，多端点生命周期变化",
+            "type": "origin",
+            "transition": "健康与路由未收敛"
+          },
+          {
+            "label": "可用Worker集合失真",
+            "detail": "not ready、stale route、owner失活",
+            "type": null,
+            "transition": "请求命中旧状态",
+            "branches": [
+              {
+                "label": "GET 读路径",
+                "nodes": [
+                  {
+                    "label": "Worker未就绪",
+                    "detail": "8×771",
+                    "type": "impact",
+                    "transition": "少量重试/超时"
+                  },
+                  {
+                    "label": "路由筛空或超时",
+                    "detail": "37×3，1001×1",
+                    "type": "impact"
+                  }
+                ]
+              },
+              {
+                "label": "SET 写路径",
+                "nodes": [
+                  {
+                    "label": "无可用Worker",
+                    "detail": "37×65",
+                    "type": "impact",
+                    "transition": "owner RPC失联"
+                  },
+                  {
+                    "label": "发布结果未知",
+                    "detail": "39×4",
+                    "type": "impact"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "impact_scope": [
+          "集群: czs-kv-ds",
+          "时间: 2026-10-13 20:26:00-20:43:00",
+          "GET: 775 条分类 trace",
+          "SET: 69 条分类 trace",
+          "明确失活目标: 192.168.235.186:31501"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "ff5e5136-65b7-4ece-a39d-3fd542e57684",
+          "kind": "latency",
+          "why": "GET cross_window 桶内证据耗时 Top1；100ms QueryAndGet deadline，代表极端证据耗时而非严重度排序。",
+          "evidence_ms": 100.191,
+          "client_ms": 100.191,
+          "status_code": "1001"
+        },
+        {
+          "trace_id": "2824d74f-960c-48f4-a06c-44c71a9536f0",
+          "kind": "latency",
+          "why": "GET cross_window 桶内证据耗时 Top2；stale route 重试后返回37，代表极端证据耗时而非严重度排序。",
+          "evidence_ms": 89.663,
+          "client_ms": 89.663,
+          "status_code": "37",
+          "failure_mode_id": "kvcache_access_054",
+          "pod": "192.168.219.110",
+          "timestamp": "2026-10-13 20:42:45"
+        },
+        {
+          "trace_id": "07d8873a-2968-4169-9bea-595d4233a8a6",
+          "kind": "error",
+          "why": "过滤条件 status_code=8 + pod=192.168.219.110 + 20:42:00-20:43:00；现场 Worker not ready。",
+          "status_code": "8",
+          "failure_mode_id": "kvcache_access_008",
+          "pod": "192.168.219.110",
+          "timestamp": "2026-10-13 20:42:45"
+        },
+        {
+          "trace_id": "6052c85a-d1e8-45f9-9602-1c9fb7f8188f",
+          "kind": "latency",
+          "why": "SET set_worker 桶内证据耗时 Top1；仅代表该桶极端证据耗时，不代表总体节点集中度。",
+          "evidence_ms": 3.933,
+          "client_ms": 4.336,
+          "status_code": "39"
+        },
+        {
+          "trace_id": "1bfdc365-b4bb-4962-9dd8-b78348970b0f",
+          "kind": "latency",
+          "why": "SET set_worker 桶内证据耗时 Top4；status39 与 metadata owner 端点失活链路可复核。",
+          "evidence_ms": 3.85,
+          "client_ms": 4.258,
+          "status_code": "39",
+          "failure_mode_id": "kvcache_access_036",
+          "pod": "192.168.219.110"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002599",
+          "stars": 5,
+          "match_logic": "L1 命中 37/39/1001 与 kvcache_access_054/036/020；L2 命中 MIXED、few_pods，GET/SET 均可迁移；L3 未提供结构化拓扑；L5 原文命中 All workers filtered、Host is down、peer dead。",
+          "symptom": "历史已确认案例同样在扩缩容窗口出现路由筛空、metadata owner 不可达和 GET/SET 混合故障。",
+          "root_cause": "历史案例根因为多 Worker 退出/端点离线叠加路由未收敛；本次现场直接支持端点失活和路由未收敛，但缺退出信号/OOM证据。",
+          "solution": "复用恢复或彻底摘除 Worker、迁移 owner、刷新路由与 transport snapshot、谨慎处理39写请求的处置。",
+          "adoption_class": "direct",
+          "adoption_label": "直接采用",
+          "phenomenon_fit": "GET/SET、错误码与关键日志原文高度一致。",
+          "log_fit": "All workers filtered / Host is down / RPC peer dead 均命中。",
+          "rc_consistency": "机制一致；退出触发类型仍需本次系统日志闭环。",
+          "env_diff": "历史证据不能替代本次现场退出信号。",
+          "adaptation": "只复用处置，不引用历史端点、计数或退出触发原因。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 2,
+          "id": "curated:kvcache_access_008/054/036/020",
+          "stars": 5,
+          "match_logic": "L1 完整命中 8/37/39/1001 及对应 access/runtime failure modes；L2 指向 Worker 未就绪、路由筛空和 owner 不可用；L3 无独立拓扑聚合，不作拓扑结论。",
+          "symptom": "curated 状态码语义与现场四类错误逐项对应。",
+          "root_cause": "知识解释列出组件未就绪、健康过滤、owner 进程异常/网络/路由过期和 RPC deadline 候选；现场只采纳有日志支持的分支。",
+          "solution": "检查 Worker 健康、路由与 owner 端点，并对39先确认发布结果。",
+          "adoption_class": "direct",
+          "adoption_label": "直接采用",
+          "phenomenon_fit": "错误码与日志链一致。",
+          "log_fit": "Worker not ready、All workers filtered、Host is down、deadline exceeded。",
+          "rc_consistency": "与现场直接机制一致。",
+          "env_diff": "curated 是机制知识，不是本次现场事实。",
+          "adaptation": "用代表 trace 选择候选分支，不泛化到未观测原因。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 3,
+          "id": "experience:worker-lifecycle-ring-transport",
+          "stars": 4,
+          "match_logic": "L1 经验库不提供本次错误码计数；L2 命中 Worker 生命周期、lease/重平衡、连接重建和 ring 收敛；L3 仅给调查方向，未命中本次结构化拓扑。",
+          "symptom": "Worker 退出可引发 lease、连接和 ring/迁移状态变化。",
+          "root_cause": "作为调查假设和治理建议，不作为现场根因证据。",
+          "solution": "补采 ERROR/FATAL、容器/系统、ETCD lease/watch、ring 版本和连接重建日志。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "与扩缩容和端点失活机制相关。",
+          "log_fit": "当前缺经验条目建议检查的系统和 ETCD 日志。",
+          "rc_consistency": "方向一致但未现场闭环。",
+          "env_diff": "经验版本与本次部署信息未核对。",
+          "adaptation": "仅采用采集项与收敛闸门建议。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "恢复或彻底摘除已退出/离线 Worker，确认 31501 监听、健康检查和 metadata owner 可用。",
+          "刷新客户端与存活 Worker 的路由和 transport snapshot，清除指向失活端点的旧状态。",
+          "对 SET 返回 39 的对象先查询发布结果，再决定是否重试，避免结果未知时重复写。"
+        ],
+        "long_term": [
+          "将扩缩容顺序固化为 owner/副本迁移→ring/健康收敛→终止 Worker，并设置自动收敛闸门。",
+          "关联采集容器退出码、restartCount、OOMKilled、coredump、systemd/dmesg、ETCD lease/watch、ring 版本和连接重建事件。"
+        ],
+        "verification": [
+          "GET/SET 分离复测，确认 8/37/39/1001 在完整观察窗内归零。",
+          "确认所有 Worker 31501 监听和健康状态正常，路由/transport snapshot 不再包含失活实例。",
+          "确认 ring 版本和 owner/副本迁移已收敛，并核对39对应对象最终发布状态。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复或彻底摘除离线 Worker，并确认 31501 与健康状态。",
+      "depends_on": "Worker/Pod 运维权限",
+      "expected_effect": "停止向失活端点路由请求。",
+      "verify": "所有目标端点监听正常或已从健康路由移除。"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "刷新客户端、Worker 路由与 transport snapshot。",
+      "depends_on": "Worker 状态稳定",
+      "expected_effect": "消除 stale route、Worker not ready 和筛空。",
+      "verify": "GET/SET 不再出现 8 和 37。"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核对 status39 对象发布结果后再补偿写入。",
+      "depends_on": "对象状态查询能力",
+      "expected_effect": "避免未知结果下重复写。",
+      "verify": "4 条39对应对象状态均已确认。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补采容器、系统、ETCD 和 Worker 生命周期证据。",
+      "depends_on": "节点与编排平台日志权限",
+      "expected_effect": "区分 OOM、SIGKILL、主动退出或编排终止。",
+      "verify": "形成退出码、信号、lease/watch 与端点失活的统一时间线。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "为扩缩容增加迁移与收敛闸门。",
+      "depends_on": "扩缩容控制面改造",
+      "expected_effect": "避免 owner/ring/健康未收敛时终止 Worker。",
+      "verify": "故障注入下 GET/SET 错误码不再出现且迁移完成后才下线。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": "100",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "0.516129%",
+            "fail_share": null,
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "775/775 未触达数据面；P50 0.136ms、P90 0.167ms、max 100.191ms。"
+          }
+        ],
+        "conclusion": "GET 全部落入未细分交叉窗口；不得把该桶宣称为具体网络、队列或 Worker 物理阶段。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "数据面未观测",
+            "pct": "94.202899",
+            "cls": "s-ok"
+          },
+          {
+            "name": "Worker写处理",
+            "pct": "5.797101",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "65 条；P50 0.068ms、P90 0.185ms、max 0.311ms。"
+          },
+          {
+            "name": "Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "100%",
+            "fail_share": null,
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "4 条；P50 3.86ms、P90/max 3.933ms；Client P90 4.336ms。"
+          }
+        ],
+        "conclusion": "SET 仅按实测桶展示，不编造 CREATE、PUBLISH 或 URMA 子阶段；4 条异常集中在 Worker 写处理桶。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": "844",
+    "top_error_codes": [
+      {
+        "code": "8",
+        "name": "K_NOT_READY",
+        "pct": "91.350711",
+        "fault": "F01"
+      },
+      {
+        "code": "37",
+        "name": "K_NO_AVAILABLE_WORKER",
+        "pct": "8.056872",
+        "fault": "F01"
+      },
+      {
+        "code": "39",
+        "name": "K_METADATA_OWNER_UNAVAILABLE",
+        "pct": "0.473934",
+        "fault": "F01"
+      },
+      {
+        "code": "1001",
+        "name": "K_RPC_DEADLINE_EXCEEDED",
+        "pct": "0.118483",
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "9288a95e-6c4e-4e1c-b66a-2de2222cb496",
+    "total_steps": 7,
+    "api_calls": 37,
+    "duration": "基于已保存证据离线复核",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences (SKILL/WIKI)"
+        ],
+        "result": "采用 Worker 生命周期、transport 与 hash ring 调查建议；明确经验不是现场证据。"
+      },
+      {
+        "title": "Step 2 资产与解析状态",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}"
+        ],
+        "result": "overall_status=successful；文件1548512字节；anomaly_cnt=8；trace_failure_event_cnt=844。"
+      },
+      {
+        "title": "Step 3 GET/SET 分离统计",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET",
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/heatmap"
+        ],
+        "result": "GET 775 条归 cross_window；SET 65 条 set_no_evidence、4 条 set_worker。"
+      },
+      {
+        "title": "Step 4 Trace 与日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认 Worker not ready、All workers filtered、RPC deadline、peer dead/Host is down。"
+      },
+      {
+        "title": "Step 5 Curated 与案例复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/{code}",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/824f0b39-224b-48a4-901b-a2cf24915a7a"
+        ],
+        "result": "采纳已确认 UB-CASE-002599 的处置；不把历史证据当现场事实。"
+      },
+      {
+        "title": "Step 6 离线特征提取",
+        "api_calls": [
+          "latency_features.py GET/SET",
+          "error_features.py GET/SET"
+        ],
+        "result": "从保存的 stages 与时间聚合请求/响应生成特征，未手工拼装。"
+      },
+      {
+        "title": "Step 7 报告契约校验与渲染",
+        "api_calls": [
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "待执行契约校验、正式渲染和 HTML 区块自检。"
+      }
+    ]
+  }
+}

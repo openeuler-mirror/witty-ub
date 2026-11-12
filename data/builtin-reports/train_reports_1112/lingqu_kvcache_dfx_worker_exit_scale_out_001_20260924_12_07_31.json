@@ -1,0 +1,711 @@
+{
+  "report": {
+    "title": "KVCache Worker 进程退出与扩容恢复期通断故障诊断报告",
+    "report_id": "diag-64ea0c72-worker-exit-20261112",
+    "generated_at": "2026-11-12 00:00:00",
+    "fault_type": "connectivity"
+  },
+  "basic_info": {
+    "kb_id": "64ea0c72-7671-4156-8e24-bdf39152720b",
+    "kb_name": "lingqu_kvcache_dfx_worker_exit_scale_out_001_20260924_12_07_31",
+    "log_file": "lingqu_kvcache_dfx_worker_exit_scale_out_001_20260924_12_07_31",
+    "operation": "GET / SET（分开统计）",
+    "time_range_start": "2026-09-24 12:05:00",
+    "time_range_end": "2026-09-24 12:10:00",
+    "total_trace_cnt": 11,
+    "fault_trace_cnt": 6,
+    "fault_ratio": "54.55",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Urma connect failed": 0.139601,
+      "T:E112": 0.837606,
+      "C:RPC deadline exceeded": 0.0698,
+      "T:URMA_WRITE": 0.523504
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：Worker 进程退出并以新 PID 恢复，旧端点失联触发 GET 超时，并在恢复期伴随 SET URMA 写提交失败。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "12:05–12:10 范围内 11 条 trace 中记录 6 条故障 trace；GET 1 条、SET 5 条，故障路径涉及 3 个 Pod IP。",
+    "confidence": "高 92%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Worker 进程退出导致旧端点 RPC/URMA 链路失活",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 92,
+      "category": "error",
+      "affected_scope": "ci-kv-ds-1；12:06 GET 超时 1 条，12:08 SET URMA 错误 5 条；故障路径涉及 3 个 Pod IP",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程退出",
+        "one_line_conclusion": "Worker 192.168.189.91 的进程 PID 从 13413 切换为 13797；切换窗口内旧端点返回 E112 Host is down，随后 GET 返回 1001，恢复期 SET 集中返回 1004。",
+        "fault_domain": "Worker故障/Worker故障-进程退出",
+        "fault_component": "KVCache Worker 生命周期与 Worker-Worker URMA 连接",
+        "fault_function": "WorkerWorkerExchangeUrmaConnectInfo / urma_post_jetty_send_wr",
+        "fault_function_loc": "data_plane_executor.cpp:80 / urma_manager.cpp:2592",
+        "affected_scope_pct": "54.55",
+        "affected_scope_desc": "11 条 trace 中 6 条有故障事件；GET 与 SET 均受影响",
+        "confidence": "高 92%",
+        "key_findings": [
+          "同一 Worker 地址 192.168.189.91 在 12:05 使用 PID 13413、12:08 使用 PID 13797，确认进程发生退出并重新拉起；现有日志未包含退出信号、OOM 或容器退出码。",
+          "12:06:40 的 GET trace 反复出现 RPC peer dead、brpc errno=112 Host is down、Urma connect failed，重试耗尽 10ms deadline 后返回 1001。",
+          "12:08:45–12:08:53 的 5 条 SET trace 均返回 1004，原文一致为 urma_post_jetty_send_wr failed, ret: 4096，目标为 192.168.235.173:31501。",
+          "GET/SET 阶段口径独立：GET 唯一样本归入 data_worker；SET 10 条样本全部归入 set_client，未发现 URMA timeout 桶命中。",
+          "SET 错误与 Worker 恢复在时间上相邻且符合连接重建机理；但缺少 remoteInstance/Jetty 状态变更证据，故仅确认直接 URMA 提交失败，不把底层 ret=4096 原因进一步定性为硬件故障。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "64ea0c72-7671-4156-8e24-bdf39152720b",
+              "operation": "GET",
+              "start_time": "2026-09-24 12:05:00",
+              "end_time": "2026-09-24 12:10:00"
+            },
+            "code_filter": [
+              "1001"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "64ea0c72-7671-4156-8e24-bdf39152720b",
+                    "operation": "GET",
+                    "start_time": "2026-09-24 12:05:00",
+                    "end_time": "2026-09-24 12:10:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 1,
+              "items": [
+                {
+                  "code": "1001",
+                  "count": 1,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-09-24 12:05:00",
+                  "end_time": "2026-09-24 12:06:00",
+                  "complete": true,
+                  "counts": {
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:06:00",
+                  "end_time": "2026-09-24 12:07:00",
+                  "complete": true,
+                  "counts": {
+                    "1001": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:07:00",
+                  "end_time": "2026-09-24 12:08:00",
+                  "complete": true,
+                  "counts": {
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:08:00",
+                  "end_time": "2026-09-24 12:09:00",
+                  "complete": true,
+                  "counts": {
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:09:00",
+                  "end_time": "2026-09-24 12:10:00",
+                  "complete": true,
+                  "counts": {
+                    "1001": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "64ea0c72-7671-4156-8e24-bdf39152720b",
+              "operation": "SET",
+              "start_time": "2026-09-24 12:05:00",
+              "end_time": "2026-09-24 12:10:00"
+            },
+            "code_filter": [
+              "1004"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "64ea0c72-7671-4156-8e24-bdf39152720b",
+                    "operation": "SET",
+                    "start_time": "2026-09-24 12:05:00",
+                    "end_time": "2026-09-24 12:10:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 5,
+              "items": [
+                {
+                  "code": "1004",
+                  "count": 5,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-09-24 12:05:00",
+                  "end_time": "2026-09-24 12:06:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:06:00",
+                  "end_time": "2026-09-24 12:07:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:07:00",
+                  "end_time": "2026-09-24 12:08:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:08:00",
+                  "end_time": "2026-09-24 12:09:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 5
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:09:00",
+                  "end_time": "2026-09-24 12:10:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "错误码按操作隔离统计：GET 的 1001 在 12:06 单点出现 1 次；SET 的 1004 在 12:08 一分钟内集中出现 5 次。计数为逐码命中次数，不是业务失败率。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析与诊断任务完整",
+            "description": "日志文件 overall_status=successful、progress=100%，解析 11 条 trace，故障定界产出 6 条故障 trace。",
+            "evidence": "POST /log_file/list/{kb_id}；POST /task/list",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 生命周期证据",
+            "title": "同一 Worker 地址发生 PID 切换",
+            "description": "192.168.189.91 在 12:05:56 的服务日志 PID 为 13413，12:08:43 恢复后的服务日志 PID 为 13797；两段之间无优雅退出记录。",
+            "evidence": "ci-worker-worker2-1/kvcache.INFO.log 现场日志",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ GET 失联证据",
+            "title": "旧端点返回 E112 Host is down",
+            "description": "12:06:40，客户端访问 192.168.189.91:31501 时四次出现 RPC peer dead、Host is down、Not connected，副本重试耗尽后返回 1001。",
+            "evidence": "trace_id=1e9030b4-c274-4d4e-aacd-9e24fd25fb67；POST /log_failure_event_result/list_log_events",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ SET 直接故障",
+            "title": "URMA 写提交集中失败",
+            "description": "12:08 的 5 条 SET 均在 urma_post_jetty_send_wr 返回 ret 4096，并上浮为 1004；目标 CREATE 已完成，失败发生在客户端 URMA 写提交。",
+            "evidence": "status_code=1004；failure_mode=kvcache_access_022；urma_manager.cpp:2592",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "不支持将 ret 4096 直接归为硬件故障",
+            "description": "现场没有端口 BAD、链路 down、丢包、CQE、驱动或 DDM 证据；因此排除“已确认 UB 硬件故障”的过度归因。SET 与进程恢复期相关，但连接重建细节仍需验证。",
+            "evidence": "现场日志关键词反查；/stats/stages 的 set_urma_timeout=0",
+            "excluded": true,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "Worker 192.168.189.91 进程在 12:05:56–12:08:43 之间退出并以新 PID 恢复，使旧 RPC/URMA 服务端点及既有连接短时失活；GET 对旧端点访问失败并耗尽 deadline。恢复期 SET 的直接失败点是 URMA WR 提交 ret=4096，其与连接重建的因果关系高度相关但尚缺底层状态证据。",
+        "supporting_knowledge": "Curated：1001/kvcache_access_020、1004/kvcache_access_022、kvcache_runtime_391/403/406；本地经验：ds-worker-log-analysis、ds-rdma-transport-diagnosis；已确认案例：UB-CASE-002609、UB-CASE-002553。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Worker 进程退出",
+            "detail": "192.168.189.91；PID 13413 消失，后以 PID 13797 恢复",
+            "type": "origin",
+            "transition": "旧 31501 端点与既有连接失活"
+          },
+          {
+            "label": "Worker-Worker RPC/URMA 建链失败",
+            "detail": "E112 Host is down / RPC peer dead / Not connected",
+            "type": null,
+            "transition": "副本读取反复重试"
+          },
+          {
+            "label": "GET deadline 耗尽",
+            "detail": "10ms 预算；round=4 后返回 1001",
+            "type": "impact",
+            "transition": "恢复期连接状态尚需收敛"
+          },
+          {
+            "label": "SET URMA WR 提交失败",
+            "detail": "5 条请求集中返回 ret=4096 → 1004；与退出恢复期相关性高，底层原因待核验",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群：ci-kv-ds-1",
+          "故障 Worker 地址：192.168.189.91:31501",
+          "GET 故障：1001 × 1",
+          "SET 故障：1004 × 5",
+          "故障路径涉及 3 个 Pod IP"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "1e9030b4-c274-4d4e-aacd-9e24fd25fb67",
+          "kind": "error",
+          "why": "GET：status_code=1001 + pod=192.168.219.97/192.168.235.173 + 12:06:00–12:07:00；E112 peer dead",
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_access_020",
+          "pod": "192.168.219.97",
+          "timestamp": "2026-09-24 12:06:40"
+        },
+        {
+          "trace_id": "63353ffc-4c0a-4551-befa-313333b1d677",
+          "kind": "error",
+          "why": "SET：status_code=1004 + pod=192.168.219.97/192.168.235.173 + 12:08:00–12:09:00；WR ret=4096",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.219.97",
+          "timestamp": "2026-09-24 12:08:45"
+        },
+        {
+          "trace_id": "224a96f4-bb2d-4f24-a210-6a19b0821540",
+          "kind": "error",
+          "why": "SET：status_code=1004 + pod=192.168.189.78/192.168.235.173 + 12:08:00–12:09:00；第二源端复现",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.189.78",
+          "timestamp": "2026-09-24 12:08:50"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002609",
+          "rank": 1,
+          "stars": 5,
+          "match_logic": "L1 命中 1001/kvcache_access_020，且同一案例还覆盖 1004/kvcache_access_022；L2 命中 Worker 退出后旧端点与 RPC/URMA 连接失活的故障域，操作域为 MIXED；L3 拓扑仅作现场来源不参与匹配；L5 本次 PID 切换、RPC peer dead、Host is down、WR ret=4096 与案例机理一致。",
+          "symptom": "Worker PID 更换窗口内旧端点失联，GET 返回超时且 SET 返回 URMA 错误。",
+          "root_cause": "Worker 进程退出使旧服务端点和既有 RPC/URMA 连接失活。",
+          "solution": "恢复 Worker，摘除旧路由，刷新 RPC/URMA 连接，并补查容器退出原因。",
+          "phenomenon_fit": "与本次 GET+SET 双路径表现及 PID 切换高度一致。",
+          "log_fit": "本次同样出现 RPC peer dead、Host is down 和 urma_post_jetty_send_wr failed。",
+          "rc_consistency": "一致；本次现场证据独立确认 PID 切换与旧端点失联。",
+          "env_diff": "版本与部署配置未取得，不能假设完全同构。",
+          "adaptation": "需按本资产的 Worker 地址、路由与 Jetty 状态执行核验。",
+          "applicability": "adjust"
+        },
+        {
+          "id": "UB-CASE-002553",
+          "rank": 2,
+          "stars": 4,
+          "match_logic": "L1 命中 1004 与 kvcache_access_022；L2 命中 set_client 桶、multi_pod 影响规模及 SET/MIXED 操作域；L3 拓扑未参与；L5 命中 call urma_post_jetty_send_wr failed, ret: 4096。该案例只能解释 SET 直接故障，不能单独证明 Worker 退出。",
+          "symptom": "SET 写路径 URMA WR 提交失败并返回 1004。",
+          "root_cause": "直接故障点为 urma_post_jetty_send_wr ret=4096，底层设备/资源原因未确认。",
+          "solution": "采集两端 URMA、Jetty、端口和驱动状态，避免无证据定性硬件故障。",
+          "phenomenon_fit": "SET 错误码、函数与返回值完全一致。",
+          "log_fit": "原文短语与 ret 值一致。",
+          "rc_consistency": "作为直接故障机制一致，但不是本事件 Worker 退出主根因的替代解释。",
+          "env_diff": "目标端点和时间窗不同，且无物理层指标。",
+          "adaptation": "仅复用底层取证清单，不复用案例标签。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即核验 192.168.189.91 对应 Worker 容器/进程状态、31501 监听与新 PID 13797 的健康状态；确认旧实例已从路由和 transport snapshot 摘除。",
+          "刷新客户端与存活 Worker 到新实例的 RPC/URMA 连接；核验 remoteInstanceId、Jetty 重建及 WorkerWorkerExchangeUrmaConnectInfo 成功后再恢复流量。",
+          "补采故障窗口的容器 restartCount、lastState.terminated.reason/exitCode、OOMKilled、SIGTERM/SIGKILL、coredump、dmesg/systemd 事件，定位进程退出的直接触发源。",
+          "对 SET ret=4096 同步采集源端和目标端 URMA 设备、Jetty、端口、驱动及队列状态；在取得物理证据前不要按网卡或 UB 端口故障更换硬件。"
+        ],
+        "long_term": [
+          "在扩容/滚动变更流程增加摘流、迁移完成、hash ring/路由收敛、旧端点删除、RPC/URMA 连接重建和回归请求全部通过的健康闸门。",
+          "建立 Worker PID/启动时间、容器终止原因、31501 端口、ETCD lease、路由快照、RPC peer dead、1001/1004 的统一时间线告警。",
+          "保留 Worker、容器运行时与系统日志，配置退出原因和 coredump 自动归档，消除仅有客户端 peer-dead 证据的观测盲区。",
+          "为 URMA WR ret=4096 建立按源端、目标端、remoteInstanceId 和设备维度的可观测性，记录 Jetty 状态与 provider 返回含义。"
+        ],
+        "verification": [
+          "连续 30 分钟确认 GET 1001 与 SET 1004 均为 0，且不再出现 RPC peer dead、Host is down、Not connected 或 WR ret=4096。",
+          "确认新 Worker PID 稳定、31501 监听正常、客户端与 Worker-Worker 建链成功，路由/transport snapshot 中不存在旧实例。",
+          "分别执行 GET 与 SET 回归：GET 不再耗尽 10ms deadline；SET 的 8MiB 写入可完成 CREATE、URMA 数据写入和 PUBLISH。",
+          "演练一次受控 Worker 重启/扩容，验证摘流、路由收敛和连接重建闸门可以阻断旧端点请求。"
+        ]
+      },
+      "simplified": false,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复并核验退出 Worker，新旧实例路由摘除与 RPC/URMA 连接重建。",
+      "depends_on": "容器与路由管理权限",
+      "expected_effect": "消除旧端点访问和恢复期 WR 提交失败",
+      "verify": "GET 1001、SET 1004 归零，建链与 8MiB SET 回归通过"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补采退出原因与 URMA ret=4096 的系统/设备证据。",
+      "depends_on": "容器事件、dmesg、URMA 管理工具",
+      "expected_effect": "闭环进程退出触发源并区分连接状态与硬件异常",
+      "verify": "取得 exitCode/reason 或明确标注证据缺口；ret=4096 对应状态可解释"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "为扩容/重启增加摘流、路由和连接收敛健康闸门。",
+      "depends_on": "发布流程改造",
+      "expected_effect": "避免旧端点在变更窗口继续承接业务",
+      "verify": "受控演练中无 peer-dead、1001、1004"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "Data Worker服务端处理",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Data Worker服务端处理",
+            "p99": "—",
+            "anomaly_rate": "100.0%",
+            "fail_share": "100.0%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "1/1 trace；证据耗时 P50/P90/max 均 10.574ms，Client 对照 10.584ms；接口不提供 P99。"
+          }
+        ],
+        "conclusion": "GET 样本 1 条，独立归入 data_worker；旧端点失联后重试耗尽 deadline。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "SET·客户端SDK段",
+            "pct": "100.0",
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "50.0%",
+            "fail_share": "100.0%",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "10/10 trace；success_cnt=5、fail_cnt=5；证据耗时 P50=0.336ms、P90=24.860ms、max=44.308ms；接口不提供 P99。"
+          }
+        ],
+        "conclusion": "SET 样本 10 条，独立归入 set_client；5 条 1004 直接故障与 5 条成功长尾并存，未命中 set_urma_timeout。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 6,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": "83.33",
+        "fault": "F01"
+      },
+      {
+        "code": "1001",
+        "name": "K_RPC_DEADLINE_EXCEEDED",
+        "pct": "16.67",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "Worker故障/Worker故障-进程退出",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.97 → 192.168.235.173",
+        "host": "未解析",
+        "pct": "66.67",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.78 → 192.168.235.173",
+        "host": "未解析",
+        "pct": "16.67",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.97 ↔ 192.168.189.91",
+        "host": "未解析",
+        "pct": "16.67",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "12:06",
+        "level": 2,
+        "pct": "16.67",
+        "spike": "GET 1001 ×1",
+        "lat_ms": "10.584",
+        "fault": "F01"
+      },
+      {
+        "time": "12:08",
+        "level": 5,
+        "pct": "83.33",
+        "spike": "SET 1004 ×5",
+        "lat_ms": "0.331–0.356",
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-worker-exit-scale-out-20260924",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "资产库与数据完整性核验",
+        "api_calls": [
+          "POST /log_kb/list",
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "POST /task/list",
+          "GET /log_parse_result/options"
+        ],
+        "result": "资产唯一命中；日志 overall_status=successful；解析与定界任务完成。"
+      },
+      {
+        "title": "GET/SET 组件定位",
+        "api_calls": [
+          "POST /stats/stages (GET)",
+          "POST /stats/stages (SET)"
+        ],
+        "result": "GET 归入 data_worker；SET 归入 set_client；两套桶未混合。"
+      },
+      {
+        "title": "故障分布统计",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap（GET/SET）"
+        ],
+        "result": "GET 主码 1001×1；SET 主码 1004×5；热点分别为 12:06 与 12:08。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list（GET/SET）",
+          "POST /log_failure_event_result/list_trace_events（GET/SET）",
+          "POST /log_failure_event_result/list_log_events",
+          "POST /log_parse_result/list"
+        ],
+        "result": "取得 6 条故障 trace，确认 E112 peer-dead、deadline 耗尽和 URMA WR ret=4096。"
+      },
+      {
+        "title": "Curated 知识解读",
+        "api_calls": [
+          "GET /failure_mode/status_code/1001",
+          "GET /failure_mode/status_code/1004",
+          "GET /failure_mode/{id}"
+        ],
+        "result": "状态码与故障模式解释与现场错误上浮路径一致。"
+      },
+      {
+        "title": "经验与历史案例核对",
+        "api_calls": [
+          "experience-skill 两轮检索",
+          "POST /diag_case_library/search（GET/SET）",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "采用 UB-CASE-002609 为主参考、UB-CASE-002553 为 SET 直接故障参考；均回到现场证据核验。"
+      },
+      {
+        "title": "反证与结论",
+        "api_calls": [
+          "现场 Worker 日志 PID 时间线核对"
+        ],
+        "result": "确认 Worker 退出/重启；因缺少端口/驱动证据，未将 1004 过度归因为硬件故障。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis",
+      "keywords_matched": [
+        "Worker",
+        "进程退出",
+        "异常退出"
+      ],
+      "search_query_used": "KVCache Worker 进程退出 扩容 scale out",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_evidence",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "异常退出时，检查最后 ERROR/FATAL 日志、lease 失效、信号处理。",
+      "how_used_in_diagnosis": "用于核对 Worker 生命周期与 PID 切换；最终结论仍由本次现场日志确认。",
+      "confidence_on_reference": 0.9,
+      "confidence_reason": "与同地址 PID 切换及 peer-dead 现场证据一致。"
+    },
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+      "keywords_matched": [
+        "URMA",
+        "Worker 生命周期",
+        "连接重建"
+      ],
+      "search_query_used": "status_code 1001 1004 kvcache_access_020 kvcache_access_022 Worker exiting unhealthy",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "传输层连接状态与 Worker 生命周期强相关，远端 Worker 重启会触发连接重建。",
+      "how_used_in_diagnosis": "用于提出恢复后核验 Jetty 与 Worker-Worker 连接重建的建议。",
+      "confidence_on_reference": 0.88,
+      "confidence_reason": "与 1004 WR 提交失败及 Worker PID 切换时间关系相符。"
+    },
+    {
+      "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+      "experience_type": "SKILL",
+      "name": "ds-kv-cache-diagnosis",
+      "source_path": "data/skill_hub/ds-kv-cache-diagnosis",
+      "keywords_matched": [
+        "status_code",
+        "1001",
+        "GET"
+      ],
+      "search_query_used": "status_code 1001 1004 kvcache_access_020 kvcache_access_022 Worker exiting unhealthy",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "未采用其通用 1001 根因列表作为结论；本报告以 curated 状态码解释和本次 E112/PID 现场证据为准。",
+      "content_quoted": "高耗时请求可能由资源不足、远端访问、网络延迟或 LRU 淘汰导致。",
+      "how_used_in_diagnosis": "仅作为候选检查清单，未进入最终根因。",
+      "confidence_on_reference": 0.6,
+      "confidence_reason": "内容通用，区分度低于 curated 与现场证据。"
+    }
+  ]
+}

@@ -538,6 +538,56 @@ class TestProcessHandlerRemoveTask:
         assert lock.release_count == 1
 
 
+class TestProcessHandlerWatchdog:
+    def test_collect_hung_tasks_kills_and_releases_slot(self, monkeypatch):
+        monkeypatch.setattr(process_handle_module.time, "monotonic", lambda: 1000.0)
+        process = _FakeRemovableProcess(pid=4321, alive=True, join_kills=True)
+        killed = []
+        monkeypatch.setattr(os, "getpgid", lambda pid: pid)
+        monkeypatch.setattr(
+            os, "killpg", lambda pgid, sig: killed.append((pgid, sig))
+        )
+        _patch_process_pool(monkeypatch, tasks={"hung": process}, max_processes=5)
+        monkeypatch.setattr(ProcessHandler, "max_runtime_seconds", 60)
+        monkeypatch.setattr(ProcessHandler, "_task_started_at", {"hung": 100.0})
+
+        hung = ProcessHandler.collect_hung_tasks()
+
+        assert hung == {"hung": 900.0}
+        assert killed == [(4321, signal.SIGTERM)]
+        assert ProcessHandler.tasks == {}
+        assert ProcessHandler._task_started_at == {}
+        assert process.closed is True
+
+    def test_collect_hung_tasks_keeps_running_within_timeout(self, monkeypatch):
+        monkeypatch.setattr(process_handle_module.time, "monotonic", lambda: 1000.0)
+        process = _FakeRemovableProcess(pid=4321, alive=True)
+        _patch_process_pool(monkeypatch, tasks={"fresh": process}, max_processes=5)
+        monkeypatch.setattr(ProcessHandler, "max_runtime_seconds", 60)
+        monkeypatch.setattr(ProcessHandler, "_task_started_at", {"fresh": 980.0})
+
+        assert ProcessHandler.collect_hung_tasks() == {}
+        assert "fresh" in ProcessHandler.tasks
+        assert process.closed is False
+
+    def test_collect_hung_tasks_disabled_when_zero(self, monkeypatch):
+        _patch_process_pool(monkeypatch, tasks={"t": _FakeRemovableProcess()})
+        monkeypatch.setattr(ProcessHandler, "max_runtime_seconds", 0)
+
+        assert ProcessHandler.collect_hung_tasks() == {}
+
+    def test_live_task_ids_returns_only_alive(self, monkeypatch):
+        _patch_process_pool(
+            monkeypatch,
+            tasks={
+                "live": _FakeRemovableProcess(alive=True),
+                "dead": _FakeRemovableProcess(alive=False),
+            },
+        )
+
+        assert ProcessHandler.live_task_ids() == {"live"}
+
+
 class _FakePGManager:
     def __init__(self):
         self.initialize_calls = []

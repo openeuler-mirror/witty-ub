@@ -75,6 +75,16 @@ class TaskConfig(BaseModel):
     cpu_limit: int = Field(default=64, ge=1, description="任务使用CPU核数")
     max_concurrent_tasks: int = Field(default=9, ge=1, description="后台任务最大并发数，超出部分排队")
     parse_workers: int = Field(default=4, ge=1, description="每个解析任务的扫描子进程上限")
+    task_timeout_seconds: int = Field(
+        default=3600,
+        ge=0,
+        description="后台任务硬超时(秒)：超时强制终止并自动重试，防止挂死子进程永久占用并发槽；0 表示关闭看门狗",
+    )
+    stale_running_grace_seconds: int = Field(
+        default=60,
+        ge=0,
+        description="RUNNING 任务连续无对应存活进程达到该秒数后回收重试",
+    )
 
 
 class ModelConfig(BaseModel):

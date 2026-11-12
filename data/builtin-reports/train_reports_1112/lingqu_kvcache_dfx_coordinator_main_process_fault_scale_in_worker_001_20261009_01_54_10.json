@@ -1,0 +1,690 @@
+{
+  "report": {
+    "title": "KVCache Coordinator 主进程故障缩容场景诊断报告",
+    "report_id": "train-diag-4c63a135-20261112",
+    "generated_at": "2026-11-12T00:00:00+08:00"
+  },
+  "basic_info": {
+    "kb_id": "4c63a135-6689-48a9-8db8-f30c08e578e1",
+    "kb_name": "lingqu_kvcache_dfx_coordinator_main_process_fault_scale_in_worker_001_20261009_01_54_10",
+    "log_file": "429cd342-9b26-4c79-a183-118874582d62 / lingqu_kvcache_dfx_coordinator_main_process_fault_scale_in_worker_001_20261009_01_54_10",
+    "operation": "GET（SET 独立核验无样本）",
+    "time_range_start": "2026-10-09 01:54:54",
+    "time_range_end": "2026-10-09 01:55:32",
+    "total_trace_cnt": 79,
+    "fault_trace_cnt": 79,
+    "fault_ratio": 100.0,
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Not ready": 0.234141,
+      "T:E2001": 0.936565,
+      "T:E3DE4734462F4B679B89B616A5108021": 0.260815
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：缩容期间 Coordinator 主进程异常退出，集群未完成状态收敛，导致两个 Worker 持续未就绪并使 79 条 GET 请求返回 K_NOT_READY(8)。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "GET 路径在 38 秒观测窗内持续失败；3 个客户端 Pod 受影响，SET 侧没有样本，不能外推写路径健康或故障。",
+    "confidence": 0.9
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Coordinator 主进程异常退出引发缩容期 Worker 未就绪",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 0.9,
+      "category": "error",
+      "affected_scope": "3 个客户端 Pod、2 个元数据 owner Worker；79 条 GET 故障 trace",
+      "conclusion": {
+        "first_level_label": "Coordinator故障",
+        "second_level_label": "Coordinator故障-进程异常退出",
+        "one_line_conclusion": "故障标签确认 Coordinator 主进程异常退出；现场观测到缩容期两个 Worker 持续返回 K_NOT_READY，79 条 GET 全部失败。",
+        "fault_domain": "Coordinator故障/Coordinator故障-进程异常退出",
+        "fault_component": "KVCache Coordinator / Worker 状态管理",
+        "fault_function": "缩容协调、Worker 健康状态收敛与 ValidateWorkerState",
+        "fault_function_loc": "worker_oc_service_impl.cpp:2022",
+        "affected_scope_pct": 100.0,
+        "affected_scope_desc": "本资产库已解析的 79 条 trace 均为 GET 故障 trace；该比例仅代表已解析资产范围，不是业务全量失败率。",
+        "confidence": 0.9,
+        "key_findings": [
+          "训练标签映射 coordinator_main_process_fault_scale_in_worker 对应 Coordinator故障/Coordinator故障-进程异常退出。",
+          "GET 侧 79 条 trace 全部命中状态码 8，时间聚合逐码命中 79 次；SET 侧无 trace、无故障码。",
+          "原始日志在 192.168.235.141 与 192.168.189.67 上重复出现 validate worker state failed / Worker not ready。",
+          "故障持续于 2026-10-09 01:54:54 至 01:55:31，5 秒合并窗峰值为 13 次逐码命中。",
+          "端到端耗时仅 0.119~0.215ms，故障不是高时延或 URMA 超时，而是服务状态拒绝。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "GET逐码命中",
+            "value": "79",
+            "sub": "K_NOT_READY(8)，非去重业务失败率",
+            "tone": "bad"
+          },
+          {
+            "label": "SET逐码命中",
+            "value": "0",
+            "sub": "该范围无 SET 数据，空结果不等于健康",
+            "tone": "neutral"
+          }
+        ],
+        "conclusion": "GET 的错误码构成由 K_NOT_READY(8) 100% 主导，共 79 次逐码命中；在完整的 33 个有数据秒桶中持续出现。5 秒合并展示窗峰值为 13 次。SET 查询为空，仅说明本资产范围没有 SET 故障样本。",
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "4c63a135-6689-48a9-8db8-f30c08e578e1",
+              "operation": "GET",
+              "start_time": "2026-10-09 01:54:54",
+              "end_time": "2026-10-09 01:55:32"
+            },
+            "code_filter": [
+              "8"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "4c63a135-6689-48a9-8db8-f30c08e578e1",
+                    "operation": "GET",
+                    "start_time": "2026-10-09 01:54:54",
+                    "end_time": "2026-10-09 01:55:32",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 33,
+                  "returned_windows": 33
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 33,
+              "total_windows": 33
+            },
+            "code_distribution": {
+              "total_count": 79,
+              "items": [
+                {
+                  "code": "8",
+                  "count": 79,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 5,
+              "windows": [
+                {
+                  "start_time": "2026-10-09 01:54:54",
+                  "end_time": "2026-10-09 01:54:59",
+                  "complete": true,
+                  "counts": {
+                    "8": 12
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 01:54:59",
+                  "end_time": "2026-10-09 01:55:04",
+                  "complete": true,
+                  "counts": {
+                    "8": 6
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 01:55:04",
+                  "end_time": "2026-10-09 01:55:09",
+                  "complete": true,
+                  "counts": {
+                    "8": 12
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 01:55:09",
+                  "end_time": "2026-10-09 01:55:14",
+                  "complete": true,
+                  "counts": {
+                    "8": 10
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 01:55:14",
+                  "end_time": "2026-10-09 01:55:19",
+                  "complete": true,
+                  "counts": {
+                    "8": 13
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 01:55:19",
+                  "end_time": "2026-10-09 01:55:24",
+                  "complete": true,
+                  "counts": {
+                    "8": 11
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 01:55:24",
+                  "end_time": "2026-10-09 01:55:29",
+                  "complete": true,
+                  "counts": {
+                    "8": 10
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 01:55:29",
+                  "end_time": "2026-10-09 01:55:32",
+                  "complete": true,
+                  "counts": {
+                    "8": 5
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "4c63a135-6689-48a9-8db8-f30c08e578e1",
+              "operation": "SET",
+              "start_time": "2026-10-09 01:54:54",
+              "end_time": "2026-10-09 01:55:32"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "4c63a135-6689-48a9-8db8-f30c08e578e1",
+                    "operation": "SET",
+                    "start_time": "2026-10-09 01:54:54",
+                    "end_time": "2026-10-09 01:55:32",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 0,
+                  "returned_windows": 0
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 0,
+              "total_windows": 0
+            },
+            "code_distribution": {
+              "total_count": 0,
+              "items": [],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 38,
+              "windows": [
+                {
+                  "start_time": "2026-10-09 01:54:54",
+                  "end_time": "2026-10-09 01:55:32",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "证据 1",
+            "title": "确认数据完整性",
+            "description": "日志文件解析任务 successful，进度 100%，定界产出 79 个故障 trace。",
+            "evidence": "/log_file/list 返回 overall_status=successful、trace_failure_event_cnt=79。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "证据 2",
+            "title": "区分 GET/SET",
+            "description": "GET /stats/stages 有 79 条样本；SET /stats/stages 样本数为 0。",
+            "evidence": "GET sample_cnt=79，SET sample_cnt=0；禁止跨操作混桶。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "证据 3",
+            "title": "识别直接故障点",
+            "description": "两个 Worker 在 ValidateWorkerState 阶段拒绝服务，客户端 QueryAndGet 随后失败。",
+            "evidence": "worker_oc_service_impl.cpp:2022: validate worker state failed；status_code=8；failure_mode=kvcache_runtime_2395。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "证据 4",
+            "title": "排除网络与慢请求主导",
+            "description": "网络残差、服务端排队均为 0，GET 最大耗时仅 0.215ms，URMA 超时桶为 0。",
+            "evidence": "/stats/stages: cross_window 79，p90=0.173ms，max=0.215ms；urma_timeout trace_cnt=0。",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "根因",
+            "title": "Coordinator 主进程异常退出导致缩容状态未收敛",
+            "description": "用户指定的训练标签映射确认 Coordinator 进程异常退出；现场的 Worker not ready 与 curated K_NOT_READY 解释一致，表明协调/恢复状态尚未进入服务态。",
+            "evidence": "gt_labels.json 映射 + 79 条现场 K_NOT_READY + 两个 meta owner Worker 未就绪。",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "缩容过程中 Coordinator 主进程异常退出，导致集群协调与 Worker 健康状态未及时收敛；两个元数据 owner Worker 持续处于未就绪状态，GET 在状态校验阶段返回 K_NOT_READY(8)。",
+        "supporting_knowledge": "Curated kvcache_runtime_2395 指明 ValidateWorkerState 在 IsHealthy() 为 false 或 reconFlag_ 未及时获取时返回 K_NOT_READY；本地经验 ds-cluster-management-diagnosis 提醒 Metastore 模式下主节点异常会影响整个集群。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Coordinator 主进程异常退出",
+            "detail": "训练标签确认的注入故障，发生于 Worker 缩容场景。",
+            "type": "root"
+          },
+          {
+            "label": "协调/恢复状态未收敛",
+            "detail": "Worker 健康状态或 reconFlag_ 未进入可服务条件。",
+            "type": "state"
+          },
+          {
+            "label": "Worker 状态校验失败",
+            "detail": "192.168.235.141 与 192.168.189.67 重复输出 Worker not ready。",
+            "type": "failure"
+          },
+          {
+            "label": "元数据 QueryAndGet 失败",
+            "detail": "客户端访问两个 meta owner 时收到 code=8。",
+            "type": "propagation"
+          },
+          {
+            "label": "GET 请求失败",
+            "detail": "79 条 GET trace 均携带 K_NOT_READY；3 个客户端 Pod 受影响。",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "GET：79 条故障 trace，3 个客户端 Pod",
+          "Worker：2 个元数据 owner 返回未就绪",
+          "SET：无样本，影响未知"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "6c85730c-dd9e-47d5-a45c-d9917915c22a",
+          "kind": "error",
+          "why": "status_code=8 + GET + 2026-10-09 01:54:54~01:55:32；同时为 GET·cross_window 桶内证据耗时 Top（仅代表该桶证据耗时最极端请求）",
+          "evidence_ms": 0.215,
+          "client_ms": 0.215,
+          "status_code": "8",
+          "failure_mode_id": "kvcache_runtime_2395",
+          "pod": "192.168.219.82 / 192.168.235.141",
+          "timestamp": "2026-10-09 01:55:11.645"
+        },
+        {
+          "trace_id": "00c9e6b4-7716-4525-9398-0a5b5c08fd51",
+          "kind": "error",
+          "why": "status_code=8 + GET + 192.168.235.140；原始日志完整呈现 Worker 状态校验失败到客户端 Get 失败的传播链",
+          "evidence_ms": 0.119,
+          "client_ms": 0.119,
+          "status_code": "8",
+          "failure_mode_id": "kvcache_access_008",
+          "pod": "192.168.235.140 / 192.168.235.141",
+          "timestamp": "2026-10-09 01:55:05.085"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "kvcache_runtime_2395",
+          "rank": 1,
+          "stars": 5,
+          "match_logic": "L1 命中 K_NOT_READY(8) 与 failure_mode；L2 命中 Worker 状态校验/GET；L3 现场日志命中 ValidateWorkerState 与 Worker not ready。",
+          "symptom": "工作节点校验时组件未就绪。",
+          "root_cause": "IsHealthy() 为 false 或 reconFlag_ 未在请求超时内获取。",
+          "solution": "检查健康状态、恢复流程与 reconFlag_ 持有情况，必要时评估超时设置。",
+          "adoption_class": "direct",
+          "adoption_label": "curated 直接采用",
+          "phenomenon_fit": "完全匹配",
+          "log_fit": "完全匹配",
+          "rc_consistency": "与现场一致",
+          "env_diff": "无关键差异",
+          "adaptation": "结合本场景优先检查 Coordinator 退出后的状态收敛。",
+          "applicability": "direct"
+        },
+        {
+          "id": "a494ffb0-d7ee-4342-9de3-76f8288bd80f",
+          "rank": 2,
+          "stars": 4,
+          "match_logic": "L1 命中 status_code=8；L2 命中扩缩容、few_pods 与 MIXED 对 GET 的部分操作域；L5 命中 Worker not ready。案例根因为 Worker 退出，与本次 Coordinator 标签不同。",
+          "symptom": "扩缩容期 Worker 服务端点失活并出现 Worker not ready。",
+          "root_cause": "历史案例为 Worker 端点失活，不能替代本次 Coordinator 退出证据。",
+          "solution": "复核进程、RPC 监听、路由刷新和所有 Worker Ready 状态。",
+          "adoption_class": "adjust",
+          "adoption_label": "已确认案例，调整后参考",
+          "phenomenon_fit": "较高",
+          "log_fit": "较高",
+          "rc_consistency": "仅传播结果一致",
+          "env_diff": "根因组件不同",
+          "adaptation": "仅复用 Ready/路由收敛验证项，不复用 Worker 退出根因。",
+          "applicability": "adjust"
+        },
+        {
+          "id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+          "rank": 3,
+          "stars": 3,
+          "match_logic": "L1 无具体错误码匹配；L2 命中集群管理与扩缩容；L3 建议同时核对 Master/Worker 日志，但本次 Coordinator 日志为空。",
+          "symptom": "扩缩容触发节点状态变化与元数据迁移。",
+          "root_cause": "经验指出 Metastore 主节点异常可能影响整个集群，仅作先验解释。",
+          "solution": "检查缩容任务、节点状态、主节点健康及源/目标 Worker 日志。",
+          "adoption_class": "adjust",
+          "adoption_label": "本地经验建议",
+          "phenomenon_fit": "中等",
+          "log_fit": "部分匹配",
+          "rc_consistency": "与现场影响链一致",
+          "env_diff": "经验为通用流程",
+          "adaptation": "以 API 现场证据和 curated 模式为准。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "恢复或拉起 Coordinator 主进程，确认主进程稳定且不再退出；保留退出码、容器 lastState 与系统 OOM/信号记录。",
+          "暂停继续缩容；逐个确认 192.168.235.141、192.168.189.67 的 Worker Ready、IsHealthy 与 reconFlag_ 已释放，再恢复流量。",
+          "刷新/重建元数据 owner 路由，并对 GET 做小流量重试，避免在 Worker not ready 期间持续放大失败。"
+        ],
+        "long_term": [
+          "为 Coordinator 主进程增加存活、退出原因和自动拉起监控，扩缩容控制面增加幂等与断点恢复。",
+          "将缩容流程固化为：摘流量→确认迁移与路由收敛→确认 Worker 可安全下线→停止进程；Coordinator 异常时自动中止。",
+          "补齐 Coordinator 日志采集与状态事件解析；本资产的 Coordinator 日志文件为空，无法从本地日志还原退出信号。"
+        ],
+        "verification": [
+          "复测 GET：连续窗口内 status_code=8 归零，Worker not ready 与 validate worker state failed 不再出现。",
+          "分别复测 GET 与 SET；SET 必须新采样验证，不能用本次空结果代替健康结论。",
+          "核对所有 Worker 的 hash ring/路由版本一致、缩容任务完成且 Coordinator 进程在观察期内无重启。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复 Coordinator 并停止继续缩容，确认两个 Worker 重新 Ready。",
+      "depends_on": "获取 Coordinator 退出状态与当前进程状态",
+      "expected_effect": "停止新增 K_NOT_READY 并恢复 GET 服务",
+      "verify": "GET status_code=8 在连续观察窗归零"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "复核路由/hash ring 与元数据 owner 收敛。",
+      "depends_on": "Coordinator 与 Worker 均稳定",
+      "expected_effect": "消除旧 owner 与未就绪 Worker 路由",
+      "verify": "各节点 ring 版本一致且 QueryAndGet 成功"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补齐 Coordinator 退出日志与扩缩容审计。",
+      "depends_on": "日志采集配置变更",
+      "expected_effect": "后续可直接闭环退出信号、退出码与缩容任务时序",
+      "verify": "演练时可检索完整 Coordinator 生命周期日志"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": 100.0,
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": null,
+            "anomaly_rate": 0.0,
+            "fail_share": 0.0,
+            "status": "warn",
+            "fault": "79 条均未触达可细分数据面",
+            "detail": "p50=0.148ms，p90=0.173ms，max=0.215ms；状态码故障与时延异常口径独立。"
+          }
+        ],
+        "conclusion": "GET 79 条样本全部归入 cross_window；证据耗时很低，主问题为状态拒绝而非慢请求。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "SET 无归因样本；空结果不等于健康。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 79,
+    "top_error_codes": [
+      {
+        "code": "8",
+        "name": "K_NOT_READY",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "Coordinator故障/Coordinator故障-进程异常退出",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.140",
+        "host": "—",
+        "pct": 37.974684,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.82",
+        "host": "—",
+        "pct": 31.64557,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.66",
+        "host": "—",
+        "pct": 30.379747,
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-10-09 01:54:00",
+        "level": 1,
+        "pct": 15.189873,
+        "spike": false,
+        "lat_ms": null,
+        "fault": "F01"
+      },
+      {
+        "time": "2026-10-09 01:55:00",
+        "level": 5,
+        "pct": 84.810127,
+        "spike": true,
+        "lat_ms": null,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-4c63a135",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本次会话",
+    "steps": [
+      {
+        "title": "经验预检索",
+        "api_calls": [
+          "experience-skill search-experiences: SKILL/WIKI"
+        ],
+        "result": "命中集群管理、Hash Ring、Worker K_NOT_READY 经验；仅作先验。"
+      },
+      {
+        "title": "数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务 successful，79 条故障 trace；options 未解析出 host/cluster。"
+      },
+      {
+        "title": "GET/SET 独立组件分诊",
+        "api_calls": [
+          "POST /stats/stages GET",
+          "POST /stats/stages SET"
+        ],
+        "result": "GET 79 条，SET 0 条；GET 全部 cross_window，URMA timeout 为 0。"
+      },
+      {
+        "title": "精确统计分布",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap GET/SET"
+        ],
+        "result": "GET 状态码 8 共 79 条，3 个客户端 Pod；SET 空。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "GET /trace/{id}",
+          "POST /log_failure_event_result/list_log_events",
+          "POST /log_failure_event_result/list_trace_events"
+        ],
+        "result": "还原 Worker 状态校验→Metadata→TransportLayer→Access 的失败传播链。"
+      },
+      {
+        "title": "知识与案例核对",
+        "api_calls": [
+          "GET /failure_mode/status_code/8",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search",
+          "POST /diag_case_library/{id}/hit"
+        ],
+        "result": "curated 与现场一致；已确认案例仅调整后参考，未用历史根因替代现场。"
+      },
+      {
+        "title": "报告契约处理",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "错误分布由保存的真实时间聚合响应离线提取；JSON 执行统一契约校验。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+      "experience_type": "SKILL",
+      "name": "ds-cluster-management-diagnosis",
+      "source_path": "data/skill_hub/ds-cluster-management-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "coordinator",
+        "scale down",
+        "Worker not ready"
+      ],
+      "search_query_used": "KVCache coordinator main process fault scale_in_worker worker 缩容 故障",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "Metastore 方式下，主节点异常会影响整个集群，需要重点监控主节点健康。",
+      "how_used_in_diagnosis": "用于提出主节点异常可能影响 Worker 状态收敛的先验假设，最终由现场 K_NOT_READY 核对。",
+      "confidence_on_reference": 0.75,
+      "confidence_reason": "与现场多 Worker 未就绪一致，但不是现场证据。"
+    },
+    {
+      "experience_id": "1f2d9b46-3f6e-4b84-b26f-d7b48793b555",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem Hash Ring 模式",
+      "source_path": "data/wiki_hub/ds-hash-ring-patterns.md",
+      "keywords_matched": [
+        "scale down",
+        "缩容",
+        "hash ring"
+      ],
+      "search_query_used": "KVCache coordinator main process fault scale_in_worker worker 缩容 故障",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "hash ring 版本不一致是路由错误和数据不一致的根本原因，需要优先确认。",
+      "how_used_in_diagnosis": "用于形成恢复后核对 ring/路由版本一致性的验证建议。",
+      "confidence_on_reference": 0.7,
+      "confidence_reason": "与缩容场景相关，但本次未取得 ring 版本现场证据。"
+    },
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+      "keywords_matched": [
+        "K_NOT_READY",
+        "Worker not ready"
+      ],
+      "search_query_used": "K_NOT_READY 8 Worker not ready coordinator scale down 扩缩容",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "K_NOT_READY=8 | 资源未就绪 | 检查依赖服务（ETCD/Metastore/RocksDB）",
+      "how_used_in_diagnosis": "用于补充依赖服务核查方向；错误码正式解释以 curated 接口为准。",
+      "confidence_on_reference": 0.8,
+      "confidence_reason": "与 curated K_NOT_READY 和现场日志一致。"
+    }
+  ]
+}
