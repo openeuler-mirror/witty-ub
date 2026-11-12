@@ -27,8 +27,11 @@ from latency.schemas.log import (
     SparseLogParseResultDataclass,
 )
 from latency.schemas.request import (
+    ASSET_NAME_MAX_LENGTH,
     CreateLogKnowledgeRequest,
+    ListLogKnowledgeRequest,
     RunBrpcDiagnosisRequest,
+    UpdateLogKnowledgeRequest,
 )
 
 
@@ -114,6 +117,25 @@ class TestCreateLogKnowledgeRequest:
         """合法 name 去除首尾空白后保存。"""
         req = CreateLogKnowledgeRequest(name="  知识名称  ", description="知识描述")
         assert req.name == "知识名称"
+
+    @pytest.mark.parametrize(
+        "request_factory",
+        [
+            lambda name: CreateLogKnowledgeRequest(name=name, description="知识描述"),
+            lambda name: UpdateLogKnowledgeRequest(name=name),
+            lambda name: ListLogKnowledgeRequest(name=name),
+        ],
+    )
+    def test_asset_name_length_limit(self, request_factory):
+        """创建、编辑和查询资产库名称统一限制为 200 个字符。"""
+        request_factory("知" * ASSET_NAME_MAX_LENGTH)
+
+        with pytest.raises(ValidationError) as exc_info:
+            request_factory("知" * (ASSET_NAME_MAX_LENGTH + 1))
+
+        error = exc_info.value.errors()[0]
+        assert error["type"] == "string_too_long"
+        assert error["ctx"]["max_length"] == ASSET_NAME_MAX_LENGTH
 
 
 class TestFailureModeModel:

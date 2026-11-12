@@ -161,6 +161,11 @@ _DTYPE_OF[_RANK_COLUMN] = pl.Int64
 _DTYPE_OF["__info_cat"] = pl.UInt8
 _DTYPE_OF["urma_sched_us"] = pl.Float64
 
+# URMA occasionally prints a negative scheduling delay through an unsigned
+# integer, producing values in the upper half of uint64 (most commonly
+# UINT64_MAX).  They are invalid measurements rather than real latencies.
+_URMA_SCHED_INVALID_MIN = 1 << 63
+
 # ---------------------------------------------------------------------------
 # 1. 列式正则：与 regex/kvcache_log.py 同语义，仅把位置捕获组补上命名
 #    （命名不改变匹配语义；str.extract_groups 要求全部捕获组已命名）
@@ -752,11 +757,17 @@ def _urma(frame: pl.LazyFrame) -> tuple[pl.LazyFrame, dict[str, pl.Expr], pl.Exp
     values = _base_values(elapsed, None)
     values["src"] = src.fill_null("")
     values["dst"] = dst.fill_null("")
-    # urma_sched_us：按优先级 coalesce 五个调度字段（单位已是微秒，无需换算）
-    values["urma_sched_us"] = (
+    # urma_sched_us：按优先级 coalesce 五个调度字段（单位已是微秒，无需换算）。
+    # 先以 UInt64 精确判断边界，避免 2^63-1 转 Float64 后舍入为 2^63。
+    sched_us = (
         pl.coalesce([pl.col("s_wd"), pl.col("s_ws1"), pl.col("s_ws2"),
                      pl.col("s_ws3"), pl.col("s_ws4")])
-        .cast(pl.Float64, strict=False)
+        .cast(pl.UInt64, strict=False)
+    )
+    values["urma_sched_us"] = (
+        pl.when(sched_us < pl.lit(_URMA_SCHED_INVALID_MIN, dtype=pl.UInt64))
+        .then(sched_us.cast(pl.Float64))
+        .otherwise(_lit_none(pl.Float64))
     )
     return frame, values, valid
 

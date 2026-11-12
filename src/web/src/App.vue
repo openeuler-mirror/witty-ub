@@ -8011,6 +8011,68 @@ const getRoleChipTooltip = (roles: string[]) => {
   return labels.length > 1 ? `角色：\n${labels.join('\n')}` : `角色：${labels[0]}`
 }
 
+const faultRoleTooltipRef = ref<HTMLElement | null>(null)
+const faultRoleTooltip = reactive({
+  visible: false,
+  ready: false,
+  text: '',
+  background: '#1f2937',
+  left: 0,
+  top: 0,
+})
+let faultRoleTooltipRequestId = 0
+
+const hideFaultRoleTooltip = () => {
+  faultRoleTooltipRequestId += 1
+  faultRoleTooltip.visible = false
+  faultRoleTooltip.ready = false
+}
+
+const showFaultRoleTooltip = (event: MouseEvent, roles: string[]) => {
+  const target = event.currentTarget
+  if (!(target instanceof HTMLElement)) return
+
+  const anchorRect = target.getBoundingClientRect()
+  const primaryRole = roles[0] ?? 'other'
+  const requestId = ++faultRoleTooltipRequestId
+
+  faultRoleTooltip.text = getRoleChipTooltip(roles)
+  faultRoleTooltip.background =
+    roles.length > 1
+      ? '#1f2937'
+      : primaryRole === 'other'
+        ? '#4b5563'
+        : (ROLE_CHIP_COLOR[primaryRole] ?? '#4b5563')
+  faultRoleTooltip.left = 0
+  faultRoleTooltip.top = 0
+  faultRoleTooltip.ready = false
+  faultRoleTooltip.visible = true
+
+  void nextTick(() => {
+    if (requestId !== faultRoleTooltipRequestId || !faultRoleTooltip.visible) return
+
+    const tooltip = faultRoleTooltipRef.value
+    if (!tooltip) return
+
+    const viewportWidth = document.documentElement.clientWidth
+    const viewportHeight = document.documentElement.clientHeight
+    const margin = 8
+    const gap = 8
+    const tooltipWidth = tooltip.offsetWidth
+    const tooltipHeight = tooltip.offsetHeight
+    const centeredLeft = anchorRect.left + (anchorRect.width - tooltipWidth) / 2
+    const maxLeft = Math.max(margin, viewportWidth - tooltipWidth - margin)
+    const aboveTop = anchorRect.top - tooltipHeight - gap
+
+    faultRoleTooltip.left = Math.min(Math.max(margin, centeredLeft), maxLeft)
+    faultRoleTooltip.top =
+      aboveTop >= margin
+        ? aboveTop
+        : Math.min(anchorRect.bottom + gap, viewportHeight - tooltipHeight - margin)
+    faultRoleTooltip.ready = true
+  })
+}
+
 const getRoleChipClass = (chip: { roles: string[] }) =>
   chip.roles.length > 1 ? 'role-chip-multi' : `role-chip-${chip.roles[0]}`
 
@@ -15691,6 +15753,8 @@ onMounted(() => {
   serviceHealthTimer = window.setInterval(() => void loadServiceHealth(), 30_000)
   window.addEventListener('resize', resizeLatencyCharts)
   window.addEventListener('resize', updateDetailLatencyLeftOverflow)
+  window.addEventListener('resize', hideFaultRoleTooltip)
+  window.addEventListener('scroll', hideFaultRoleTooltip, true)
   if (typeof ResizeObserver !== 'undefined' && assetDetailRef.value) {
     assetDetailResizeObserver = new ResizeObserver(resizeLatencyCharts)
     assetDetailResizeObserver.observe(assetDetailRef.value)
@@ -15715,6 +15779,8 @@ onBeforeUnmount(() => {
   brpcFaultTimelineRequestController = null
   window.removeEventListener('resize', resizeLatencyCharts)
   window.removeEventListener('resize', updateDetailLatencyLeftOverflow)
+  window.removeEventListener('resize', hideFaultRoleTooltip)
+  window.removeEventListener('scroll', hideFaultRoleTooltip, true)
   assetDetailResizeObserver?.disconnect()
   assetDetailResizeObserver = null
   document.removeEventListener('click', handleStatusCodePopoverOutsideClick)
@@ -18865,6 +18931,8 @@ onBeforeUnmount(() => {
                                 :class="getRoleChipClass(chip)"
                                 :style="getRoleChipStyle(chip)"
                                 :data-roles="getRoleChipTooltip(chip.roles)"
+                                @mouseenter="showFaultRoleTooltip($event, chip.roles)"
+                                @mouseleave="hideFaultRoleTooltip"
                               >
                                 {{ chip.ip }}
                               </span>
@@ -21101,7 +21169,7 @@ onBeforeUnmount(() => {
 
           <label class="form-field">
             <span>资产库名称</span>
-            <input v-model="dialog.name" type="text" maxlength="80" autocomplete="off" />
+            <input v-model="dialog.name" type="text" maxlength="200" autocomplete="off" />
           </label>
 
           <label class="form-field">
@@ -21135,7 +21203,7 @@ onBeforeUnmount(() => {
 
           <label class="form-field">
             <span>名称</span>
-            <input v-model="queryDialog.name" type="text" maxlength="80" autocomplete="off" />
+            <input v-model="queryDialog.name" type="text" maxlength="200" autocomplete="off" />
           </label>
 
           <label class="form-field">
@@ -24278,5 +24346,21 @@ onBeforeUnmount(() => {
       @changed="bumpWorkbench"
       @open-report="openReportFromCase"
     />
+    <Teleport to="body">
+      <div
+        v-if="faultRoleTooltip.visible"
+        ref="faultRoleTooltipRef"
+        class="fault-role-tooltip"
+        :style="{
+          left: `${faultRoleTooltip.left}px`,
+          top: `${faultRoleTooltip.top}px`,
+          background: faultRoleTooltip.background,
+          visibility: faultRoleTooltip.ready ? 'visible' : 'hidden',
+        }"
+        role="tooltip"
+      >
+        {{ faultRoleTooltip.text }}
+      </div>
+    </Teleport>
   </div>
 </template>

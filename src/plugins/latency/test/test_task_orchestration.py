@@ -221,6 +221,7 @@ class _FakeRemovableProcess:
 def _patch_process_pool(
     monkeypatch,
     tasks=None,
+    startup_events=None,
     lock=None,
     max_processes=2,
     event_wait=True,
@@ -243,6 +244,7 @@ def _patch_process_pool(
 
     monkeypatch.setattr(process_handle_module, "multiprocessing", _FakeSpawnContext)
     monkeypatch.setattr(ProcessHandler, "tasks", dict(tasks or {}))
+    monkeypatch.setattr(ProcessHandler, "startup_events", dict(startup_events or {}))
     monkeypatch.setattr(ProcessHandler, "lock", lock or _FakeLock())
     monkeypatch.setattr(ProcessHandler, "max_processes", max_processes)
     return created
@@ -268,6 +270,7 @@ class TestProcessHandlerAddTask:
         # master：child_nice 随 kwargs 传给子进程
         assert process.kwargs == {"k": 1, "child_nice": 0}
         assert ProcessHandler.tasks["t-1"] is process
+        assert ProcessHandler.startup_events == {}
 
     def test_add_task_lock_timeout_returns_false(self, monkeypatch):
         lock = _FakeLock(acquire_result=False)
@@ -324,6 +327,22 @@ class TestProcessHandlerAddTask:
 
         assert ProcessHandler.add_task("t-1", _sample_target) is True
         assert "t-1" in ProcessHandler.tasks
+        # 超时后仍要保活 Event，否则慢启动子进程在
+        # SemLock._rebuild 时会因 /dev/shm/sem.* 已被 unlink 而退出。
+        assert ProcessHandler.startup_events["t-1"] is created[0].args[0]
+
+    def test_two_ready_timeouts_keep_independent_events_alive(self, monkeypatch):
+        created = _patch_process_pool(
+            monkeypatch, max_processes=2, event_wait=False
+        )
+
+        assert ProcessHandler.add_task("t-1", _sample_target) is True
+        assert ProcessHandler.add_task("t-2", _sample_target) is True
+
+        assert set(ProcessHandler.startup_events) == {"t-1", "t-2"}
+        assert ProcessHandler.startup_events["t-1"] is created[0].args[0]
+        assert ProcessHandler.startup_events["t-2"] is created[1].args[0]
+        assert created[0].args[0] is not created[1].args[0]
 
 
 class TestProcessHandlerHasCapacity:
@@ -335,13 +354,17 @@ class TestProcessHandlerHasCapacity:
         dead = _FakeRemovableProcess(alive=False)
         live = _FakeRemovableProcess(alive=True)
         _patch_process_pool(
-            monkeypatch, tasks={"dead": dead, "live": live}, max_processes=2
+            monkeypatch,
+            tasks={"dead": dead, "live": live},
+            startup_events={"dead": object(), "live": object()},
+            max_processes=2,
         )
 
         assert ProcessHandler.has_capacity() is True
         assert dead.closed is True
         assert "dead" not in ProcessHandler.tasks
         assert "live" in ProcessHandler.tasks
+        assert set(ProcessHandler.startup_events) == {"live"}
 
     def test_has_capacity_false_when_pool_full(self, monkeypatch):
         live = _FakeRemovableProcess(alive=True)
@@ -362,11 +385,16 @@ class TestProcessHandlerRemoveTask:
 
     def test_remove_task_dead_process_closes_and_pops(self, monkeypatch):
         dead = _FakeRemovableProcess(alive=False)
-        _patch_process_pool(monkeypatch, tasks={"t-1": dead})
+        _patch_process_pool(
+            monkeypatch,
+            tasks={"t-1": dead},
+            startup_events={"t-1": object()},
+        )
 
         assert ProcessHandler.remove_task("t-1") is True
         assert dead.closed is True
         assert ProcessHandler.tasks == {}
+        assert ProcessHandler.startup_events == {}
 
     def test_remove_task_kills_owned_process_group(self, monkeypatch):
         process = _FakeRemovableProcess(pid=4321, alive=True, join_kills=True)
