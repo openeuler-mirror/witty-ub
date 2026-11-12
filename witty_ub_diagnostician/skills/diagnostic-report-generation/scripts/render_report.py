@@ -23,6 +23,7 @@ import argparse
 import html as html_lib
 from html.parser import HTMLParser
 import json
+import math
 import os
 import re
 import sys
@@ -49,6 +50,23 @@ STAGE_STATUS_ENUM = ("ok", "warn", "bottleneck")
 SHARE_CLS_ENUM = ("s-ok", "s-warn", "s-bottleneck")
 TRACE_KIND_ENUM = ("latency", "error")
 EVIDENCE_TRACES_MAX = 5
+
+# 报告数据层的置信度统一为 0~1 浮点数。以下映射只用于兼容存量报告中
+# 没有数值的定性写法；新报告仍必须直接产出数值。
+CONFIDENCE_LABELS = {
+    "veryhigh": 0.95,
+    "极高": 0.95,
+    "high": 0.90,
+    "高": 0.90,
+    "mediumhigh": 0.80,
+    "中高": 0.80,
+    "medium": 0.60,
+    "中": 0.60,
+    "low": 0.30,
+    "低": 0.30,
+    "verylow": 0.10,
+    "极低": 0.10,
+}
 
 # 清理旧报告时保留的状态：已确认报告是案例与证据锚点回指的原文。
 CLEANUP_PROTECTED_STATUS = "confirmed"
@@ -87,6 +105,86 @@ def _as_num(value):
         return float(str(value).strip().rstrip("%").replace(",", ""))
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_confidence(value):
+    """把存量置信度写法转成 0~1 float；无法识别时返回原值供校验报错。"""
+    if value is None or isinstance(value, bool):
+        return value
+
+    number = None
+    has_percent = False
+    if isinstance(value, (int, float)):
+        number = float(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return value
+        has_percent = "%" in text or "％" in text
+        numeric_text = text.replace(",", "")
+        match = re.search(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)", numeric_text)
+        if match:
+            residual = numeric_text[:match.start()] + numeric_text[match.end():]
+            residual = re.sub(r"[%％\s_:\-()（）\[\]]+", "", residual).lower()
+            allowed_residuals = set(CONFIDENCE_LABELS) | {"confidence", "置信", "置信度"}
+            if residual and residual not in allowed_residuals:
+                return value
+            number = float(match.group(0))
+        else:
+            label = re.sub(r"[\s_\-]+", "", text).lower()
+            return CONFIDENCE_LABELS.get(label, value)
+    else:
+        return value
+
+    if not math.isfinite(number):
+        return value
+    if has_percent or number > 1:
+        number /= 100
+    if 0 <= number <= 1:
+        return round(number, 2)
+    return value
+
+
+def _normalize_confidences(value):
+    """递归归一化所有 confidence / confidence_on_reference 字段。"""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in ("confidence", "confidence_on_reference"):
+                value[key] = _coerce_confidence(child)
+            else:
+                _normalize_confidences(child)
+    elif isinstance(value, list):
+        for child in value:
+            _normalize_confidences(child)
+
+
+def _check_confidences(value, path, errors):
+    """报告内所有置信度字段必须在归一化后满足同一数值契约。"""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_path = f"{path}.{key}" if path else key
+            if key in ("confidence", "confidence_on_reference"):
+                if child is None:
+                    continue
+                if isinstance(child, bool) or not isinstance(child, (int, float)):
+                    errors.append(
+                        f"{child_path}: 必须是 0~1 数值（存量 high/高/高90% 会自动兼容转换）"
+                    )
+                elif not math.isfinite(float(child)) or not 0 <= float(child) <= 1:
+                    errors.append(f"{child_path}: 必须在 0~1 范围内")
+            else:
+                _check_confidences(child, child_path, errors)
+    elif isinstance(value, list):
+        for i, child in enumerate(value):
+            _check_confidences(child, f"{path}[{i}]", errors)
+
+
+def _format_confidence(value) -> str:
+    """HTML 展示统一为百分比；数据层仍保留 0~1 float。"""
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "—"
+    pct = round(float(value) * 100)
+    return f"{pct}%"
 
 
 def _check_enum(path, value, enum, errors, required=True):
@@ -388,6 +486,7 @@ def normalize_compat(data):
     """
     if not isinstance(data, dict):
         return data
+    _normalize_confidences(data)
     targets = [data]
     faults = data.get("faults")
     if isinstance(faults, list):
@@ -414,6 +513,8 @@ def validate(data) -> tuple[list[str], list[str]]:
 
     if not isinstance(data, dict):
         raise Fatal("数据根节点必须是 JSON 对象", "检查 JSON 最外层是否为 { }")
+
+    _check_confidences(data, "", errors)
 
     for key in REQUIRED_TOP:
         if not isinstance(data.get(key), dict):
@@ -687,6 +788,7 @@ fault_relations[]{from,to,type,confidence,evidence}
 action_plan[]{priority,fault_ids,action,depends_on,expected_effect,verify}
 statistics{stage_breakdown|stage_breakdowns,heatmap_metric,dist_total,top_error_codes,top_failure_domains,top_pods,top_hosts,time_heatmap}
 workflow{session_id,total_steps,api_calls,duration,steps[]}
+置信度：所有 confidence / confidence_on_reference 均为 0~1 JSON number（最多两位小数，如 0.9）；HTML 统一显示为百分比；禁止新产出 high/高/90/"90%"/"高90%"
 枚举：role=primary|secondary|independent; status=confirmed|suspected|excluded; severity=P1|P2|P3
      category=error|latency|mixed; stage.status=ok|warn|bottleneck; share_bar.cls=s-ok|s-warn|s-bottleneck
      fault_relations.type=causes|common_cause|independent|correlated; evidence_traces[].kind=latency|error
@@ -731,7 +833,7 @@ time_heatmap[]{time,level,pct,spike,lat_ms,fault}
 GET/SET 阶段清单（报告阶段名 ↔ 字段 ↔ 阈值）：references/REPORT_BLOCKS.md""",
     "workflow": "session_id,total_steps,api_calls,duration,steps[]{title,api_calls[],result}",
     "source_code": "component,failure_mode_id,call_chain[]{function,file,line,role,role_label,call_site,code[]{num,text,highlight,ellipsis},analysis},fix_suggestion",
-    "incident": "one_line_conclusion,fault_count,primary_fault_id,secondary_fault_count,independent_fault_count,overall_impact,confidence",
+    "incident": "one_line_conclusion,fault_count,primary_fault_id,secondary_fault_count,independent_fault_count,overall_impact,confidence（0~1 JSON number，页面显示为百分比）",
     "action_plan": "priority,fault_ids[],action,depends_on,expected_effect,verify",
 }
 
@@ -894,6 +996,7 @@ def render_report_html(data: dict, template_path: Path, data_path: Path) -> str:
         lstrip_blocks=False,
     )
     env.filters["safe_report_html"] = lambda value: Markup(_safe_report_html(value))
+    env.filters["confidence_pct"] = _format_confidence
     try:
         return env.get_template(template_path.name).render(**data)
     except Exception as exc:  # 模板语法/结构问题：给出模板侧定位

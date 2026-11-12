@@ -121,6 +121,13 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 **新报告必须直接使用渲染契约字段名产出数据**，不允许沿用历史旧字段结构；旧结构只是
 渲染器 `normalize_compat` 兼容转换的兜底输入（针对存量报告自动映射，不改变 Agent 生成口径）：
 
+**置信度统一口径**：报告内所有名为 `confidence` 或 `confidence_on_reference` 的字段，
+数据层一律使用 **0~1 的 JSON number**，最多保留两位小数（例如 `0.9`），禁止新产出
+`high`、`高`、`90`、`"90%"`、`"高90%"` 等字符串或百分制数值。HTML 展示层统一转为
+百分比（`0.9` 显示为 `90%`）。渲染器仅为存量报告兼容 `high/medium/low`、
+`高/中/低`、百分制数字及带百分号写法并归一化；纯定性存量值固定映射为
+`high/高=0.90`、`medium/中=0.60`、`low/低=0.30`，无法识别的文本会被校验拒绝。
+
 | 板块 | 渲染契约字段（必须产出） | 旧结构（仅兜底，禁止新报告使用） |
 |------|------------------------|----------------------------------|
 | 根因分析 | `root_cause.reasoning_chain[]{step_label,title,description,evidence}`、`root_cause.confirmed_root_cause`、`root_cause.supporting_knowledge` | `root_cause{primary, hypotheses[]{cause,evidence}, reasoning}` |

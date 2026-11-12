@@ -35,7 +35,7 @@
   "role": "primary",
   "status": "confirmed",
   "severity": "P1",
-  "confidence": 92,
+  "confidence": 0.92,
   "category": "mixed",
   "affected_scope": "host-101 / pod-worker-3；67.6% 故障 trace；12:03-12:11",
   "conclusion": {"first_level_label": null, "second_level_label": null},
@@ -56,6 +56,8 @@
 - `role`: `primary` 主故障 / `secondary` 次生故障 / `independent` 独立故障
 - `status`: `confirmed` 已确认 / `suspected` 疑似（候选假设，模板有专门提示条）/ `excluded` 已排除
 - `severity`: `P1` / `P2` / `P3`
+- `confidence`: 统一为 `0.0~1.0` 的 JSON number，最多两位小数；页面自动显示为百分比。
+  新报告不得填写 `high`、`高`、`92`、`"92%"` 或 `"高92%"`。
 - `category`（故障类型，控制档案头标签）：`error` 错误/通断类（连接失败、错误码突增）/ `latency` 时延类（P99 超阈、慢调用，可无报错）/ `mixed` 时延与错误并存且同源（如丢包既导致慢又导致超时错误）。
 
 ### error 块（通断故障分布，错误类/mixed 有证据时填写）
@@ -163,7 +165,7 @@ GET/SET 各一套，展示 Top 错误码构成和时间窗 × 错误码热力表
   "secondary_fault_count": 1,
   "independent_fault_count": 1,
   "overall_impact": "3421 条故障 trace，波及 2 台 host、3 个 pod",
-  "confidence": "高 88%"
+  "confidence": 0.88
 }
 ```
 
@@ -253,7 +255,7 @@ GET/SET 各一套，展示 Top 错误码构成和时间窗 × 错误码热力表
   "fault_function_loc": "src/transport/tcp_connector.cpp:161",
   "affected_scope_pct": "67.6",
   "affected_scope_desc": "pod-worker-3 集中",
-  "confidence": "高 92%",
+  "confidence": 0.92,
   "key_findings": [
     "错误码 -1002 (RPC不可用) 占比 44.5%，为绝对主导错误码",
     "故障集中在 pod-worker-3 (host-101)，占 67.6%，其他 pod 正常",
@@ -640,7 +642,7 @@ SET 走 CREATE/PUBLISH 写路径，**可用字段与 GET 不同**，阶段表按
 - `fault_function`: 仅当能从 failure_mode 或 BRPC node 获取时填写，否则省略；
   渲染为卡片下方全宽函数定位条，长函数名自动换行不溢出
 - `fault_function_loc`: 可选，格式 `源文件:行号`（如 `src/transport/tcp_connector.cpp:161`），与函数名同行
-- `confidence`: 文字+数字（如"高 92%"），与根因分析置信度一致
+- `confidence`: `0.0~1.0` 数值（如 `0.92`），与根因分析置信度一致；页面自动显示为百分比
 - `key_findings`: 3~5 条，每条是客观事实，非主观推测
 
 ## 板块 3：解决方案

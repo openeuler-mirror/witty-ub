@@ -1092,12 +1092,12 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
       <div class="hero-metric"><div class="hero-metric-label">识别故障</div><div class="hero-metric-value">{{ inc.fault_count }} 个</div></div>
       <div class="hero-metric"><div class="hero-metric-label">主故障</div><div class="hero-metric-value mono">{{ inc.primary_fault_id }}</div></div>
       <div class="hero-metric"><div class="hero-metric-label">次生 / 独立</div><div class="hero-metric-value">{{ inc.secondary_fault_count }} / {{ inc.independent_fault_count }}</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">综合置信度</div><div class="hero-metric-value">{{ inc.confidence or '—' }}</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">综合置信度</div><div class="hero-metric-value">{{ inc.confidence | confidence_pct }}</div></div>
       {% else %}
       <div class="hero-metric"><div class="hero-metric-label">故障域</div><div class="hero-metric-value">{{ f0.conclusion.fault_domain }}</div></div>
       <div class="hero-metric"><div class="hero-metric-label">故障组件</div><div class="hero-metric-value">{{ f0.conclusion.fault_component }}</div></div>
       <div class="hero-metric"><div class="hero-metric-label">影响范围</div><div class="hero-metric-value">{% if f0.conclusion.affected_scope_pct %}{{ f0.conclusion.affected_scope_pct }}%{% else %}—{% endif %}</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">诊断置信度</div><div class="hero-metric-value">{{ f0.conclusion.confidence or '—' }}</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">诊断置信度</div><div class="hero-metric-value">{{ f0.conclusion.confidence | confidence_pct }}</div></div>
       {% endif %}
     </div>
   </div>
@@ -1123,7 +1123,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
     <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">{{ c.fault_domain }}</div></div>
     <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">{{ c.fault_component }}</div></div>
     <div class="conclusion-card"><div class="card-label">影响范围</div><div class="card-value">{% if c.affected_scope_pct %}{{ c.affected_scope_pct }}%{% else %}—{% endif %}</div>{% if c.affected_scope_desc %}<div class="card-sub">{{ c.affected_scope_desc }}</div>{% endif %}</div>
-    <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">{{ c.confidence or '—' }}</div></div>
+    <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">{{ c.confidence | confidence_pct }}</div></div>
   </div>
   {% endif %}
   {% if c.fault_function %}
@@ -1700,14 +1700,14 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
         <div class="conclusion-card"><div class="card-label">识别故障</div><div class="card-value">{{ inc.fault_count }} 个</div><div class="card-sub">主故障 1 · 次生 {{ inc.secondary_fault_count }} · 独立 {{ inc.independent_fault_count }}</div></div>
         <div class="conclusion-card"><div class="card-label">主故障</div><div class="card-value mono">{{ inc.primary_fault_id }}</div><div class="card-sub">{{ pns.p.title }}</div></div>
         <div class="conclusion-card"><div class="card-label">总体影响范围</div><div class="card-value" style="font-size:12.5px;line-height:1.5;">{{ inc.overall_impact or '—' }}</div></div>
-        <div class="conclusion-card"><div class="card-label">综合置信度</div><div class="card-value">{{ inc.confidence or '—' }}</div></div>
+        <div class="conclusion-card"><div class="card-label">综合置信度</div><div class="card-value">{{ inc.confidence | confidence_pct }}</div></div>
       </div>
       {% else %}
       <div class="conclusion-cards">
         <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">{{ f0.conclusion.fault_domain }}</div></div>
         <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">{{ f0.conclusion.fault_component }}</div></div>
         <div class="conclusion-card"><div class="card-label">影响范围</div><div class="card-value">{% if f0.conclusion.affected_scope_pct %}{{ f0.conclusion.affected_scope_pct }}%{% else %}—{% endif %}</div>{% if f0.conclusion.affected_scope_desc %}<div class="card-sub">{{ f0.conclusion.affected_scope_desc }}</div>{% endif %}</div>
-        <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">{{ f0.conclusion.confidence or '—' }}</div></div>
+        <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">{{ f0.conclusion.confidence | confidence_pct }}</div></div>
       </div>
       {% if f0.conclusion.fault_function %}
       <div class="conclusion-func">
@@ -1743,7 +1743,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
           <td><span class="chip chip-status-{{ f.status }}">{% if f.status == 'confirmed' %}已确认{% elif f.status == 'suspected' %}疑似{% elif f.status == 'excluded' %}已排除{% else %}{{ f.status }}{% endif %}</span></td>
           <td>{% if f.severity %}<span class="chip chip-sev-{{ f.severity }}">{{ f.severity }}</span>{% else %}<span class="text-gray">—</span>{% endif %}</td>
           <td class="roster-scope">{{ f.affected_scope or '—' }}</td>
-          <td class="mono">{% if f.confidence is number %}{{ f.confidence }}%{% else %}{{ f.confidence or '—' }}{% endif %}</td>
+          <td class="mono">{{ f.confidence | confidence_pct }}</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -1757,7 +1757,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
         <span class="rel-link">
           <span class="rel-line"></span>
           <span class="rel-type-tag">{% if r.type == 'causes' %}导致{% elif r.type == 'common_cause' %}同根因{% elif r.type == 'independent' %}相互独立{% elif r.type == 'correlated' %}时间相关{% else %}{{ r.type }}{% endif %}</span>
-          {% if r.confidence is number %}<span class="rel-conf">置信 {{ (r.confidence * 100) | round | int }}%</span>{% else %}<span class="rel-conf">置信 {{ r.confidence }}</span>{% endif %}
+          <span class="rel-conf">置信 {{ r.confidence | confidence_pct }}</span>
           <span class="rel-arrow">&#9654;</span>
         </span>
         <a class="rel-node" href="#fault-{{ r.to }}">{{ r.to }}</a>
@@ -1924,7 +1924,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
           <span class="chip chip-role-{{ f.role }}">{% if f.role == 'primary' %}主故障{% elif f.role == 'secondary' %}次生故障{% else %}独立故障{% endif %}</span>
           <span class="chip chip-status-{{ f.status }}">{% if f.status == 'confirmed' %}已确认{% elif f.status == 'suspected' %}疑似{% elif f.status == 'excluded' %}已排除{% else %}{{ f.status }}{% endif %}</span>
           {% if f.severity %}<span class="chip chip-sev-{{ f.severity }}">{{ f.severity }}</span>{% endif %}
-          {% if f.confidence %}<span class="chip chip-conf">置信 {% if f.confidence is number %}{{ f.confidence }}%{% else %}{{ f.confidence }}{% endif %}</span>{% endif %}
+          {% if f.confidence is defined and f.confidence is not none %}<span class="chip chip-conf">置信 {{ f.confidence | confidence_pct }}</span>{% endif %}
         </span>
         <span class="fa-ctrl"><span class="fa-hint"></span><span class="fa-chevron" aria-hidden="true">&#9656;</span></span>
         {% if f.conclusion and f.conclusion.one_line_conclusion %}<span class="fa-oneline">{{ f.conclusion.one_line_conclusion }}</span>{% endif %}

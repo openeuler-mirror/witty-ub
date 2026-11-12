@@ -43,6 +43,47 @@ def report_data() -> dict:
 
 
 class RenderReportCliTest(unittest.TestCase):
+    def test_confidence_values_are_normalized_to_zero_one_numbers(self):
+        data = report_data()
+        data["faults"][0]["confidence"] = "high"
+        data["faults"][0]["conclusion"]["confidence"] = "高90%"
+        data["incident_summary"] = {"confidence": 90}
+        data["fault_relations"] = [{"confidence": "高"}]
+
+        render_report.normalize_compat(data)
+
+        self.assertEqual(data["faults"][0]["confidence"], 0.9)
+        self.assertEqual(data["faults"][0]["conclusion"]["confidence"], 0.9)
+        self.assertEqual(data["incident_summary"]["confidence"], 0.9)
+        self.assertEqual(data["fault_relations"][0]["confidence"], 0.9)
+        errors, _ = render_report.validate(data)
+        self.assertFalse([error for error in errors if "confidence" in error])
+
+    def test_unknown_confidence_text_is_rejected(self):
+        data = report_data()
+        data["faults"][0]["conclusion"]["confidence"] = "大概90%"
+
+        render_report.normalize_compat(data)
+        errors, _ = render_report.validate(data)
+
+        self.assertTrue(any("confidence" in error and "0~1" in error for error in errors))
+
+    def test_rendered_confidence_is_always_a_percentage(self):
+        data = report_data()
+        data["faults"][0]["confidence"] = 0.9
+        data["faults"][0]["conclusion"]["confidence"] = 0.9
+        render_report.normalize_compat(data)
+
+        html = render_report.render_report_html(
+            data,
+            render_report.DEFAULT_TEMPLATE,
+            Path("confidence-test.json"),
+        )
+
+        self.assertIn("诊断置信度</div><div class=\"hero-metric-value\">90%</div>", html)
+        self.assertNotIn("置信 high", html)
+        self.assertNotIn("高90%", html)
+
     def test_validate_only_does_not_load_template_or_write_files(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
