@@ -47,7 +47,7 @@ witty-ub 部署管理器
   config [--backend URL]    前端节点配置后端地址，自动重渲染并重启 web
   config --show             查看当前角色与连接配置
   clean                     一键清理（交互选择范围）
-  start                     systemctl start 本机角色的服务
+  start                     启动本机角色的服务，并导入后端内置定界报告
   stop                      systemctl stop 本机角色的服务
   restart                   systemctl restart 本机角色的服务
   status                    systemctl status 本机角色的服务
@@ -529,6 +529,46 @@ wait_backend_ready() {
     return 1
 }
 
+# RPM 内置定界报告与导入状态全部保存在 /var/witty-ub 下。导入命令本身
+# 具有哈希幂等语义：压缩包未变化时会直接跳过，升级替换压缩包后才重新导入。
+import_builtin_reports() {
+    local archive="${WITTY_DIR}/builtin-reports/builtin-diagnostic-reports.zip"
+    local state="${WITTY_DIR}/builtin-reports/import-state.json"
+    local python="${WITTY_LATENCY_DIR}/.venv/bin/python"
+
+    [ -f "$archive" ] || {
+        _err "内置定界报告压缩包不存在: $archive"
+        return 1
+    }
+    [ -x "$python" ] || {
+        _err "Python venv 不存在: $python"
+        return 1
+    }
+    _load_pg_credentials || {
+        _err "无法加载 PostgreSQL 凭据，内置定界报告导入失败"
+        return 1
+    }
+    [ -n "${PG_PASSWORD:-}" ] || {
+        _err "PostgreSQL 密码为空，内置定界报告导入失败"
+        return 1
+    }
+
+    mkdir -p "${WITTY_DIR}/builtin-reports" "${WITTY_DIR}/reports"
+    export PG_PASSWORD
+    export WITTY_REPORT_DIR="${WITTY_DIR}/reports"
+    export PYTHONPATH="${WITTY_DIR}${PYTHONPATH:+:$PYTHONPATH}"
+
+    _info "检查并导入内置定界报告..."
+    "$python" -m latency.access.builtin_reports_cli \
+        --archive "$archive" \
+        --state "$state" \
+        --operator builtin-reports || {
+        _err "内置定界报告导入失败"
+        return 1
+    }
+    _log "内置定界报告部署完成"
+}
+
 # 同时检查两种经验，并经过 Nginx 反代验证，避免页面 200 掩盖 API 502。
 wait_experience_ready() {
     local i
@@ -578,7 +618,10 @@ do_start() {
         return 1
     }
 
-    [ "$WITTY_ROLE" = "frontend" ] || wait_backend_ready || return 1
+    if [ "$WITTY_ROLE" != "frontend" ]; then
+        wait_backend_ready || return 1
+        import_builtin_reports || return 1
+    fi
     if [ "$WITTY_ROLE" != "backend" ]; then
         wait_experience_ready || return 1
         sleep 1
