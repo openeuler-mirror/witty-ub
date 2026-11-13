@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal, ROUND_HALF_UP
 import html as html_lib
 from html.parser import HTMLParser
 import json
@@ -105,6 +106,33 @@ def _as_num(value):
         return float(str(value).strip().rstrip("%").replace(",", ""))
     except (TypeError, ValueError):
         return None
+
+
+def _format_frontend_latency(value):
+    """Match App.vue formatLatencyTooltipValue for a total_latency value in ms."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number):
+        return None
+    if number == 0:
+        return "0"
+
+    def fixed(candidate):
+        # JS Number.toFixed chooses the larger integer on an exact tie. Python's
+        # native formatting uses ties-to-even, so round the exact IEEE float with
+        # ROUND_HALF_UP to preserve App.vue behavior at boundary values too.
+        rounded = Decimal.from_float(candidate).quantize(
+            Decimal("0.001"), rounding=ROUND_HALF_UP
+        )
+        return f"{rounded:.3f}"
+
+    value_us = number * 1000
+    if float(fixed(number)) != 0:
+        return f"{fixed(number)} ms"
+    if float(fixed(value_us)) != 0:
+        return f"{fixed(value_us)} us"
+    return f"{fixed(value_us * 1000)} ns"
 
 
 def _coerce_confidence(value):
@@ -316,6 +344,65 @@ def _check_latency(path, latency, errors):
     if not isinstance(latency, dict):
         errors.append(f"{path}: 必须是对象")
         return
+    metrics = latency.get("metrics") or []
+    if not isinstance(metrics, list):
+        errors.append(f"{path}.metrics: 必须是数组")
+    else:
+        overview_requests = {}
+        for i, metric in enumerate(metrics):
+            if not isinstance(metric, dict):
+                continue
+            label = str(metric.get("label") or "").lower()
+            expected_mode = None
+            if "p99.99" in label or "p9999" in label:
+                expected_mode = "p9999"
+            elif "平均时延" in label or "均值" in label:
+                expected_mode = "avg"
+            if expected_mode is None:
+                continue
+            source = metric.get("source")
+            request = source.get("request") if isinstance(source, dict) else None
+            p = f"{path}.metrics[{i}]"
+            if not isinstance(source, dict) or source.get("endpoint") != "/log_parse_result/metrics/latency":
+                errors.append(f"{p}.source: AVG/P99.99 必须记录 metrics/latency 同源请求")
+                continue
+            if not isinstance(request, dict):
+                errors.append(f"{p}.source.request: 必须是对象")
+                continue
+            if request.get("sample_mode") != expected_mode:
+                errors.append(f"{p}.source.request.sample_mode: 必须为 {expected_mode}")
+            if request.get("bucket_seconds") != 3600:
+                errors.append(f"{p}.source.request.bucket_seconds: 报告页头必须为 3600")
+            for field in ("kb_id", "log_id", "operation", "start_time", "end_time"):
+                if not request.get(field):
+                    errors.append(f"{p}.source.request.{field}: AVG/P99.99 同源请求必填")
+            if source.get("response_path") != "result.metrics[0].total_latency":
+                errors.append(
+                    f"{p}.source.response_path: 必须为 result.metrics[0].total_latency"
+                )
+            if source.get("returned_points") != 1:
+                errors.append(f"{p}.source.returned_points: AVG/P99.99 必须恰好为 1")
+            observed = source.get("observed_total_latency_ms")
+            expected_value = _format_frontend_latency(observed)
+            if expected_value is None:
+                errors.append(
+                    f"{p}.source.observed_total_latency_ms: 必须逐字保存接口返回的有限数值"
+                )
+            elif metric.get("value") != expected_value:
+                errors.append(
+                    f"{p}.value: 必须按前端格式显示为 {expected_value!r}"
+                )
+            overview_requests[expected_mode] = request
+        if set(overview_requests) == {"avg", "p9999"}:
+            normalized = []
+            for mode in ("avg", "p9999"):
+                request = dict(overview_requests[mode])
+                request.pop("sample_mode", None)
+                normalized.append(request)
+            if normalized[0] != normalized[1]:
+                errors.append(
+                    f"{path}.metrics: AVG/P99.99 请求除 sample_mode 外必须完全一致"
+                )
     stages = latency.get("stages")
     if stages is None:
         return
@@ -462,6 +549,25 @@ def _compat_latency(lat):
     """旧结构 stages{p50,p90,max,share_pct} → 契约补充 p99/baseline/ratio/share。"""
     if not isinstance(lat, dict) or not lat:
         return lat
+    # AVG/P99.99 卡片不信任模型手写的展示文本：直接用保存的接口原值，按
+    # App.vue formatLatencyTooltipValue 的规则生成，保证报告和趋势图 tooltip 一致。
+    for metric in lat.get("metrics") or []:
+        if not isinstance(metric, dict):
+            continue
+        source = metric.get("source")
+        if not isinstance(source, dict):
+            continue
+        request = source.get("request")
+        if (
+            source.get("endpoint") == "/log_parse_result/metrics/latency"
+            and isinstance(request, dict)
+            and request.get("sample_mode") in ("avg", "p9999")
+        ):
+            display_value = _format_frontend_latency(
+                source.get("observed_total_latency_ms")
+            )
+            if display_value is not None:
+                metric["value"] = display_value
     for st in lat.get("stages") or []:
         if not isinstance(st, dict):
             continue
@@ -798,7 +904,8 @@ workflow{session_id,total_steps,api_calls,duration,steps[]}
     "basic_info": "kb_id,kb_name,log_file,operation,time_range_start,time_range_end,total_trace_cnt,fault_trace_cnt,fault_ratio,parse_ok,diagnosis_ok",
     "conclusion": """first_level_label,second_level_label,one_line_conclusion,fault_domain,fault_component,fault_function,fault_function_loc,affected_scope_pct,affected_scope_desc,confidence,key_findings[]
 first_level_label / second_level_label：一级/二级标签，新报告必填 string|null，取值及配对见 references/log_label.json；按诊断证据语义匹配，未知层级填 null，一级 null 时二级也须 null；fault_domain 必须与两级标签一致（填写 一级/二级，两级均 null 时同步 null），不得自由填写域文本""",
-    "latency": """metrics[]{label,value,sub,tone},stages[]{name,p99,baseline,ratio,share,status,detail,features?},conclusion
+    "latency": """metrics[]{label,value,sub,tone,source?},stages[]{name,p99,baseline,ratio,share,status,detail,features?},conclusion
+metrics 中平均时延/P99.99 卡片强制 source={endpoint:'/log_parse_result/metrics/latency',request{kb_id,log_id,operation,start_time,end_time,bucket_seconds:3600,sample_mode:avg|p9999},response_path:'result.metrics[0].total_latency',returned_points:1,observed_total_latency_ms:<接口原值>}；两次请求除 sample_mode 外相同且响应均为单桶；value 由渲染器按前端 tooltip 规则自动生成（ms/us/ns，固定 3 位）
 features：从已有 /stats/stages 响应提取的互斥归因桶快照，不等同于物理阶段；旧字段保留
 features{operation,bucket_key,metric_name,source{endpoint,request,response_path},sample_cnt,truncated,sample_note,
  trace_cnt,normal_cnt,anomalous_cnt,bucket_share_pct,anomalous_ratio_pct,

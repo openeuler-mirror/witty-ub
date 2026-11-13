@@ -261,6 +261,14 @@ heatmap `window_size` 可选 `1m`/`10m`/`1h`，缺省自动选窗（跨度 ≤2h
 | `host` / `src_ip` / `dst_ip` / `pod_ip` | str \| None | None | 过滤维度 |
 | `sample_mode` | `"none"` `"max"` `"avg"` `"min"` `"p99"` `"p95"` `"p9999"` | `"p99"` | 降采样策略 |
 | `max_points` | int | 1000 | 1 ~ 5000；`-1` = 全量（仅确需完整数据时用） |
+| `bucket_seconds` | int | 60 | 预聚合桶粒度：1/10/60/600/3600；报告页头 AVG/P99.99 固定显式传 3600 |
+
+`avg` 是桶内全量有效 trace 的算术平均值；`p9999` 与
+`perf_analyze/kvcache_trace_report.py::compute_percentile` 一致，使用有序数组
+`(n-1)×0.9999` 位置的线性插值。报告页头仅在 `bucket_seconds=3600` 且响应恰好
+一个桶时把 `metrics[0].total_latency` 原值保存为报告 source 的
+`observed_total_latency_ms`，由渲染器按前端 tooltip 规则显示，从而与前端 1 小时
+尺度的单点值和显示精度一致。
 
 ---
 

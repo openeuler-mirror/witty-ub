@@ -122,8 +122,18 @@ uv run experience-skill search-experiences \
 
 `kb_id` + `log_id`（= 阶段一 `log_file.id`，勿用文件名/路径/任务 ID）必传，
 首次请求就同时传；`operation` 读写分开观察；`sample_mode` 按 `p99`（尖峰）/
-`ave`（趋势）/`max`（最坏）选取；`max_points` 默认 1000，细粒度可提至 5000，
+`avg`（趋势）/`max`（最坏）选取；`max_points` 默认 1000，细粒度可提至 5000，
 仅确需完整数据时用 `-1`。
+
+**报告页头 AVG / P99.99 的统一口径（强制）**：需要在诊断报告中展示“平均时延”或
+“P99.99 时延”时，必须分别调用本接口，两个请求除 `sample_mode=avg|p9999` 外其余
+字段逐字相同，并显式传 `bucket_seconds=3600`、同一 `kb_id` / `log_id` /
+`operation` / `start_time` / `end_time`。只有两次响应都恰好返回 **1 个时间桶**时，
+才可把 `metrics[0].total_latency` 原始数值写入报告 source 的
+`observed_total_latency_ms`；卡片文本由报告渲染器按前端相同规则生成，不自行重算、
+不对桶点再平均，也不跨日志文件合并。该值与前端“关键时延指标趋势”选择“1小时”且汇聚为
+一个点时完全同源。响应多于一个桶时不得冒充全窗口 AVG/P99.99；应缩小报告时间窗，
+或明确按桶展示而不填写全局卡片。
 
 **GET/SET 对比分析**：
 - 分别查询 GET 和 SET 的指标，对比时延差异
@@ -240,7 +250,8 @@ uv run experience-skill search-experiences \
 - `POST /log_parse_result/metrics/latency`：`kb_id` 必填；`operation` 只能
   GET/SET；`log_id` 必传（= `log_file.id`，不得改用文件名、路径、任务 ID）；
   有多个相关日志文件时逐文件查询并标明结果归属，不得任取一个代表整个
-  知识库；`max_points` 只能 `-1` 或 1~5000 的整数。
+  知识库；`max_points` 只能 `-1` 或 1~5000 的整数；报告页头 AVG/P99.99
+  必须显式传 `bucket_seconds=3600` 并遵守上面的单桶规则。
 - `POST /diag_case_library/search`（及降级的 `POST /diagnosis_case/search`）的 `fault_type`
   只能是 `latency`、`connectivity`、`mixed` 或 `unknown`。
 

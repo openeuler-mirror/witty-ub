@@ -96,15 +96,16 @@ _BUCKET_SECONDS_TABLES: dict[int, Any] = {
 }
 
 # 请求采样模式 → 统计表 mode 字符串。
-#   avg→median：统计表的中位代表行与前端"均值"曲线语义对齐（文档化差异）。
+#   avg 直读桶内全量 trace 的算术平均值（不再映射 median）。
 #   none→p99：与旧实现"none 按 p99 处理"语义一致。
 #   min / p95：统计表无对应模式，且回退实时 SQL 已删除 → 直接 400 拒绝。
 _STATS_MODE_MAP: dict[SampleMode, str] = {
     SampleMode.NONE: "p99",
     SampleMode.MAX: "pmax",
-    SampleMode.AVG: "median",
+    SampleMode.AVG: "avg",
     SampleMode.P99: "p99",
-    SampleMode.P9999: "p9999",
+    # New key prevents serving legacy ordinal-rank rows as linear P99.99.
+    SampleMode.P9999: "p9999l",
 }
 
 

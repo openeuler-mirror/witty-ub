@@ -93,6 +93,16 @@ GET/SET 各一套，展示 Top 错误码构成和时间窗 × 错误码热力表
 }
 ```
 
+`metrics[]` 中若使用“平均时延”或“P99.99 时延”，必须遵守 SKILL.md 的单桶同源
+规则：分别复制 `/log_parse_result/metrics/latency` 在 `bucket_seconds=3600`、
+`sample_mode=avg|p9999` 下唯一返回点的 `total_latency`，并在 `sub` 中标注
+`1小时桶 / operation / log_id`。卡片还必须携带不渲染但参与契约校验的
+`source={endpoint,request,response_path,returned_points,observed_total_latency_ms}`，其中
+`response_path` 固定为 `result.metrics[0].total_latency`，`returned_points` 固定为
+`1`，`observed_total_latency_ms` 逐字保存该返回点的原始 `total_latency` 数值。渲染器
+会用这个原始值按前端 tooltip 相同的 ms/us/ns、固定 3 位规则生成 `value`；多桶、
+跨文件或请求范围不一致时不得填写这两项。
+
 `conclusion` 支持 `p/br/strong/b/em/i/u/s/code/pre/blockquote/ul/ol/li` 安全格式标签，
 所有属性都会被移除。其他标签只移除标签并保留正文；`script/style/iframe`
 等主动内容元素连同内容删除，不会以转义标签的形式显示。
