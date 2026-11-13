@@ -204,9 +204,10 @@ docker run -d \
   --restart unless-stopped \
   --network witty-ub-network \
   -p 9990:9988 \
-  -e RAG_WORKERS=4 \
+  -e RAG_WORKERS=1 \
   -v "${RAG_CONFIG_FILE}:/rag-service/rag_core/config.toml:ro" \
   -v /opt/witty-rag/logs:/rag-service/logs \
+  -v /opt/witty-rag/files:/rag-service/rag_core/file \
   "${WITTY_RAG_CORE_IMAGE}"
 ```
 

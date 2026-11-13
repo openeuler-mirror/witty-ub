@@ -177,11 +177,19 @@ if [ -z "${WITTY_RAG_CORE_IMAGE:-}" ]; then
 fi
 WITTY_RAG_MCP_IMAGE="${WITTY_RAG_MCP_IMAGE:-hub-harbor.oepkgs.net/neocopilot/witty-rag-core:mcp}"
 WITTY_RAG_CORE_HOST_PORT="${WITTY_RAG_CORE_HOST_PORT:-9990}"
-RAG_WORKERS="${RAG_WORKERS:-4}"
+# Task slots live in process memory. Multiple Uvicorn workers can claim a task
+# in one process and deinit it in another, leaking the original process slot.
+# Keep one API scheduler process; document parsing still uses [task].cpu_limit
+# child processes (4 by default).
+RAG_WORKERS="${RAG_WORKERS:-1}"
 RAG_CONFIG_FILE="${RAG_CONFIG_FILE:-${SCRIPT_DIR}/../rag-core.toml}"
 RAG_RUNTIME_DIR="${RAG_RUNTIME_DIR:-/opt/witty-rag}"
 RAG_RUNTIME_CONFIG="${RAG_RUNTIME_DIR}/config/config.toml"
 RAG_LOG_DIR="${RAG_RUNTIME_DIR}/logs"
+# RAG Core stores uploaded source documents here until parsing finishes. Keep
+# it outside the service container so a routine container rebuild cannot leave
+# database tasks pointing at vanished file_upload/<doc_id> files.
+RAG_FILE_DIR="${RAG_RUNTIME_DIR}/files"
 
 if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
     log_error "Docker 不可用，请先安装并启动 Docker。"
@@ -301,7 +309,7 @@ log_ok "openGauss 已就绪并启用 accept_empty_str"
 
 # Keep model and service settings supplied by the user, but force both RAG
 # database sections to use the dedicated openGauss container.
-mkdir -p "$(dirname "$RAG_RUNTIME_CONFIG")" "$RAG_LOG_DIR"
+mkdir -p "$(dirname "$RAG_RUNTIME_CONFIG")" "$RAG_LOG_DIR" "$RAG_FILE_DIR"
 RAG_CONFIG_OLD_SHA="$(sha256sum "$RAG_RUNTIME_CONFIG" 2>/dev/null | awk '{print $1}' || true)"
 export RAG_RENDER_SOURCE="$RAG_CONFIG_FILE"
 export RAG_RENDER_TARGET="$RAG_RUNTIME_CONFIG"
@@ -460,11 +468,20 @@ else
     fi
 fi
 
+RAG_CORE_PATCH_FILE_RESOLVED="${RAG_CORE_PATCH_FILE:-${SCRIPT_DIR}/../patches/rag-core/process_handler.py}"
+
+rag_core_patch_is_current() {
+    [ -f "$RAG_CORE_PATCH_FILE_RESOLVED" ] || return 0
+    [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" \
+        --format '{{range .Mounts}}{{if eq .Destination "/rag-service/rag_core/task/process_handler.py"}}{{.Source}}{{end}}{{end}}' \
+        2>/dev/null)" = "$RAG_CORE_PATCH_FILE_RESOLVED" ]
+}
+
 start_rag_core_container() {
     # 本地补丁：修复「解析子进程退出后任务槽位不回收」导致的解析永久被拒问题。
     # 镜像内置版本缺少该修复，故以只读挂载方式覆盖对应文件。
     local -a rag_patch_mount=()
-    local rag_patch_file="${RAG_CORE_PATCH_FILE:-${SCRIPT_DIR}/../patches/rag-core/process_handler.py}"
+    local rag_patch_file="$RAG_CORE_PATCH_FILE_RESOLVED"
     if [ -f "$rag_patch_file" ]; then
         rag_patch_mount=(-v "${rag_patch_file}:/rag-service/rag_core/task/process_handler.py:ro")
         log_info "应用 RAG Core 槽位回收补丁: ${rag_patch_file}"
@@ -480,6 +497,7 @@ start_rag_core_container() {
         -e RAG_WORKERS="$RAG_WORKERS" \
         -v "${RAG_RUNTIME_CONFIG}:/rag-service/rag_core/config.toml:ro" \
         -v "${RAG_LOG_DIR}:/rag-service/logs" \
+        -v "${RAG_FILE_DIR}:/rag-service/rag_core/file" \
         -v "${RAG_ACCESS_KEY_SECRET_DIR}:/run/secrets/witty-rag:ro" \
         "${rag_patch_mount[@]+"${rag_patch_mount[@]}"}" \
         "$WITTY_RAG_MCP_IMAGE" >/dev/null
@@ -489,6 +507,8 @@ start_rag_core_container() {
 if docker container inspect "$WITTY_RAG_CORE_CONTAINER" >/dev/null 2>&1; then
     if [ "$(docker inspect -f '{{.State.Running}}' "$WITTY_RAG_CORE_CONTAINER")" = "true" ] &&
         [ "$RAG_CONFIG_CHANGED" != true ] &&
+        rag_core_patch_is_current &&
+        [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/rag-service/rag_core/file"}}yes{{end}}{{end}}' 2>/dev/null)" = "yes" ] &&
         [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/witty-rag"}}yes{{end}}{{end}}' 2>/dev/null)" = "yes" ] &&
         docker exec "$WITTY_RAG_CORE_CONTAINER" \
             curl -fsS --max-time 3 http://127.0.0.1:9988/health_check >/dev/null 2>&1 &&
