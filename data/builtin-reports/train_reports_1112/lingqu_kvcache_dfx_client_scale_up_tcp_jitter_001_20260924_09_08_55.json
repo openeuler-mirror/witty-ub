@@ -1,0 +1,928 @@
+{
+  "report": {
+    "title": "KVCache SET 写路径 TCP/bRPC 抖动诊断报告",
+    "report_id": "diag-f48853f9-044d-4acc-b721-7a176dcd3285-20261112",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "f48853f9-044d-4acc-b721-7a176dcd3285",
+    "kb_name": "lingqu_kvcache_dfx_client_scale_up_tcp_jitter_001_20260924_09_08_55",
+    "log_file": "lingqu_kvcache_dfx_client_scale_up_tcp_jitter_001_20260924_09_08_55",
+    "operation": "GET / SET（独立分析）",
+    "time_range_start": "2026-09-24 09:05:00",
+    "time_range_end": "2026-09-24 09:07:59",
+    "total_trace_cnt": 15,
+    "fault_trace_cnt": 6,
+    "fault_ratio": "40.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "T:URMA_WRITE": 1.0
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个疑似主故障：SET 写路径在 scale-up 窗口发生 Client→Worker TCP/bRPC 短时抖动，伴随 5 条 RPC 截止超时和 1 条 URMA 写提交失败；GET 无可归因样本。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "15 条 SET trace 中 6 条被标记为时延异常；异常跨 4 个 Pod IP，集中于 09:05 分钟窗口。",
+    "confidence": "高（逻辑链路抖动）；中（物理网卡/交换路径根因待计数器确认）"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SET 写路径 TCP/bRPC 响应抖动与截止超时",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": "85%",
+      "category": "mixed",
+      "affected_scope": "SET 写路径；4 个 Pod IP；09:05–09:07 短时簇发",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-抖动",
+        "one_line_conclusion": "09:05–09:07，SET Create/Publish 在多个 Worker 目的端出现约 100ms deadline 超时；代表 trace 的服务端执行仅 0.03ms而网络残差 81.525ms，指向 Client→Worker TCP/bRPC 响应路径短时抖动。",
+        "fault_domain": "硬件故障/网卡故障-抖动",
+        "fault_component": "Client→Worker TCP/bRPC 响应路径（伴随 URMA 数据面子症状）",
+        "fault_function": "WorkerOCService.Create/Publish；urma_post_jetty_send_wr",
+        "fault_function_loc": "brpc_perf_trace.h:380；urma_manager.cpp:2592",
+        "affected_scope_pct": "40.00",
+        "affected_scope_desc": "15 条 SET trace 中 6 条时延异常；涉及 4 个 Pod IP；GET 归因样本为 0，不能判断 GET 健康。",
+        "confidence": "高 85%（逻辑链路）；物理故障点待补证",
+        "key_findings": [
+          "GET /stats/stages 返回 sample_cnt=0，说明缺 GET 归因子集，不代表 GET 健康。",
+          "SET /stats/stages 共 15 条样本：set_residual 5 条且均异常，证据 P50 100.077ms、P90 100.649ms；set_client 10 条中 1 条异常。",
+          "错误码精确聚合为 1004 共 10 条、1001 共 5 条；逐码命中数不是业务失败率，其中 6 条 trace 被时延侧标记异常。",
+          "trace b196... 的 Create network_residual_us=81525、server_exec_us=30，随后 Publish 在剩余 19ms deadline 超时，排除 Worker 业务执行慢为主因。",
+          "trace dbe29... 出现 urma_post_jetty_send_wr ret=4096 并返回 K_URMA_ERROR(1004)，属于伴随的传输层子症状。",
+          "故障标签按用户指定的 train_valid.md 路径描述 client_scale_up_tcp_jitter 映射 gt_labels.json，取硬件故障/网卡故障-抖动；标签不替代现场物理层计数器证据。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET 时延异常",
+            "value": "6 / 15",
+            "sub": "40.00%",
+            "tone": "bad"
+          },
+          {
+            "label": "RPC deadline trace",
+            "value": "5",
+            "sub": "K_RPC_DEADLINE_EXCEEDED(1001)",
+            "tone": "bad"
+          },
+          {
+            "label": "最高 Client 总时延",
+            "value": "100.985ms",
+            "sub": "trace b196...",
+            "tone": "bad"
+          },
+          {
+            "label": "GET 归因样本",
+            "value": "0",
+            "sub": "数据缺失，不作健康结论",
+            "tone": "warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·未解释残差",
+            "p50": "100.077ms",
+            "p90": "100.649ms",
+            "p99": null,
+            "baseline": null,
+            "ratio": null,
+            "share": "33.33% 样本",
+            "status": "bottleneck",
+            "detail": "5/5 均为异常；原始 bRPC 行将主要等待定位到 Create/Publish 响应路径，/stats/stages 不提供 P99。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_residual",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "f48853f9-044d-4acc-b721-7a176dcd3285",
+                  "log_id": "759b96e8-81f3-427a-8924-ba176e022376",
+                  "operation": "SET",
+                  "sample_cap": 5000
+                },
+                "response_path": "result.items[2]"
+              },
+              "sample_cnt": 15,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 5,
+              "normal_cnt": 0,
+              "anomalous_cnt": 5,
+              "bucket_share_pct": 33.333333,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 100.077,
+                "p90_ms": 100.649,
+                "max_ms": 100.649,
+                "client_p50_ms": 100.136,
+                "client_p90_ms": 100.985
+              },
+              "tail_ratio_p90_p50": 1.005716,
+              "note": "total_latency_us − (sdk_processing_us + local_worker_internal_us) ≥ +0.5ms，证据取残差；家族构成：DS_KV_CLIENT_SET 5",
+              "action": "写路径未被 SDK 段与 Worker 段覆盖：优先补齐 CREATE/PUBLISH 分段观测（create_latency/publish_latency 当前解析路径不产出）。",
+              "top_traces": [
+                {
+                  "trace_id": "b1961653-731e-4457-8ef2-81e997c5d037",
+                  "evidence_ms": 100.649,
+                  "client_ms": 100.985
+                },
+                {
+                  "trace_id": "c896433b-a065-49bf-bed8-a1c76d9de9bb",
+                  "evidence_ms": 100.083,
+                  "client_ms": 100.144
+                },
+                {
+                  "trace_id": "af33442c-6b2d-473c-bced-b1520077b8d7",
+                  "evidence_ms": 100.077,
+                  "client_ms": 100.135
+                },
+                {
+                  "trace_id": "0393f256-a5f7-4604-a339-10f76e9064fd",
+                  "evidence_ms": 100.075,
+                  "client_ms": 100.136
+                },
+                {
+                  "trace_id": "e4fe4c66-9209-4fe0-91e0-1214e909889c",
+                  "evidence_ms": 100.063,
+                  "client_ms": 100.131
+                }
+              ]
+            }
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p50": "0.343ms",
+            "p90": "0.369ms",
+            "p99": null,
+            "baseline": null,
+            "ratio": null,
+            "share": "66.67% 样本",
+            "status": "warn",
+            "detail": "10 条样本中 1 条异常；异常 trace dbe29... 的 SDK 段证据耗时 64.607ms，并上浮 K_URMA_ERROR(1004)。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "f48853f9-044d-4acc-b721-7a176dcd3285",
+                  "log_id": "759b96e8-81f3-427a-8924-ba176e022376",
+                  "operation": "SET",
+                  "sample_cap": 5000
+                },
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 15,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 10,
+              "normal_cnt": 9,
+              "anomalous_cnt": 1,
+              "bucket_share_pct": 66.666667,
+              "anomalous_ratio_pct": 10.0,
+              "distribution": {
+                "p50_ms": 0.343,
+                "p90_ms": 0.369,
+                "max_ms": 64.607,
+                "client_p50_ms": 0.356,
+                "client_p90_ms": 0.394
+              },
+              "tail_ratio_p90_p50": 1.075802,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 10",
+              "action": "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 侧排队/重试与端到端 deadline，再看 Worker 侧是否已返回。",
+              "top_traces": [
+                {
+                  "trace_id": "dbe29e95-2035-4ef2-a540-4d412c708aba",
+                  "evidence_ms": 64.607,
+                  "client_ms": 64.624
+                },
+                {
+                  "trace_id": "aec44772-5a56-4495-a216-a86a69c56c8d",
+                  "evidence_ms": 0.369,
+                  "client_ms": 0.394
+                },
+                {
+                  "trace_id": "5249a4d6-7a77-4f88-8edc-57b32f7e5ca6",
+                  "evidence_ms": 0.35,
+                  "client_ms": 0.368
+                },
+                {
+                  "trace_id": "c1a4fc70-786d-4de9-aecd-c90f3a58ab11",
+                  "evidence_ms": 0.349,
+                  "client_ms": 0.383
+                },
+                {
+                  "trace_id": "297a9c7c-a909-457e-bb54-2fab63cbc987",
+                  "evidence_ms": 0.347,
+                  "client_ms": 0.373
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "异常集中在 SET 写路径。主导异常是约 100ms 的 Create/Publish 截止等待；Worker 服务端执行证据很小。GET 归因数据为空，不能用来作读路径健康对照。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据核验",
+            "title": "解析完整但 GET 归因缺失",
+            "description": "日志任务 successful，解析 15 条 trace、6 条时延异常；GET 桶 sample_cnt=0。",
+            "evidence": "GET /log_file/list；POST /stats/stages operation=GET",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作定界",
+            "title": "异常只在 SET 写路径形成证据",
+            "description": "SET 15 条样本中 6 条异常，时间热点集中在 09:05–09:07。",
+            "evidence": "POST /stats/stages operation=SET；POST /stats/heatmap operation=SET",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 阶段定位",
+            "title": "Create/Publish 响应等待而非 Worker 执行慢",
+            "description": "代表 trace b196... 的 Create network residual 为 81.525ms，而 server_exec 仅 0.030ms；随后 Publish 在 19ms 剩余期限超时。",
+            "evidence": "原始 ds_client_17174.INFO.log 第47–49行；trace b196...",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 子症状核验",
+            "title": "存在一条 URMA 写提交失败",
+            "description": "trace dbe29... 的 urma_post_jetty_send_wr 返回 4096并上浮 1004，但主导 5 条异常为 RPC deadline。",
+            "evidence": "原始日志 urma_manager.cpp:2592；GET /failure_mode/status_code/1004",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "排除单一 Worker 处理慢，保留物理层待验证",
+            "description": "超时跨多个目标 Worker，且可见服务端执行耗时很小；但缺少 NIC/交换机 drop、retrans、RTT P99 计数，不能把物理网卡芯片或具体端口写成已确认根因。",
+            "evidence": "POST /trace/list topology；原始 BRPC_RPC_FRAMEWORK_SLOW；链路统计因 src/dst 为空无法聚合",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "已确认到逻辑故障边界：Client→多个 Worker 的 TCP/bRPC Create/Publish 响应路径发生短时抖动并触发 100ms deadline；具体物理网卡、端口或交换路径仍需 NIC/TCP 计数器复核。",
+        "supporting_knowledge": "后端 curated：1001 表示 RPC deadline，1004 表示 URMA 传输/资源操作失败；已确认历史案例 UB-CASE-002559 与本次 L1 错误码及 L2 SET/set_residual 特征匹配，但仅作待验证参考。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Client→Worker 响应路径短时抖动",
+            "detail": "09:05–09:07，跨多个 Worker 目的端",
+            "type": "origin",
+            "transition": "bRPC 响应等待抬升"
+          },
+          {
+            "label": "Create/Publish RPC 达到 deadline",
+            "detail": "5 条异常约 100ms；代表 trace network residual 81.525ms",
+            "type": null,
+            "transition": "错误上浮为 1001",
+            "branches": [
+              {
+                "label": "RPC 分支",
+                "nodes": [
+                  {
+                    "label": "K_RPC_DEADLINE_EXCEEDED",
+                    "detail": "5 条 trace",
+                    "type": "impact",
+                    "transition": "SET 返回失败"
+                  }
+                ]
+              },
+              {
+                "label": "URMA 子症状",
+                "nodes": [
+                  {
+                    "label": "urma_post_jetty_send_wr ret=4096",
+                    "detail": "1 条时延异常 trace",
+                    "type": "impact",
+                    "transition": "上浮 K_URMA_ERROR(1004)"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "label": "KVCache SET 写异常",
+            "detail": "15 条 SET trace 中 6 条时延异常",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "操作: SET",
+          "Pod IP: 4 个",
+          "时间窗: 2026-09-24 09:05–09:07"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "b1961653-731e-4457-8ef2-81e997c5d037",
+          "kind": "latency",
+          "why": "SET·未解释残差桶内证据耗时 Top；代表该桶阶段证据最极端请求，不代表总体严重度排序。",
+          "evidence_ms": 100.649,
+          "client_ms": 100.985,
+          "status_code": "1001",
+          "pod": "192.168.219.97 ↔ 192.168.189.91",
+          "timestamp": "2026-09-24 09:05:52.905"
+        },
+        {
+          "trace_id": "c896433b-a065-49bf-bed8-a1c76d9de9bb",
+          "kind": "latency",
+          "why": "SET·未解释残差桶内证据耗时 Top；Create RPC 达到 100ms deadline。",
+          "evidence_ms": 100.083,
+          "client_ms": 100.144,
+          "status_code": "1001",
+          "pod": "192.168.219.97 ↔ 192.168.189.91",
+          "timestamp": "2026-09-24 09:05:57.840"
+        },
+        {
+          "trace_id": "dbe29e95-2035-4ef2-a540-4d412c708aba",
+          "kind": "latency",
+          "why": "SET·客户端SDK段桶内证据耗时 Top；代表该桶阶段证据最极端请求，并命中 1004 URMA 写提交失败。",
+          "evidence_ms": 64.607,
+          "client_ms": 64.624,
+          "status_code": "1004",
+          "pod": "192.168.219.97 ↔ 192.168.235.170",
+          "timestamp": "2026-09-24 09:05:51.349"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002559",
+          "stars": 4,
+          "match_logic": "L1 命中 1001/1004；L2 命中 SET 与 set_residual；L3 身份拓扑不比较，仅同为多 Worker 响应路径；L5 命中 RPC call is timed out/BRPC_RPC_FRAMEWORK_SLOW。",
+          "symptom": "SET Create/Publish 在多个 Worker 目的端出现约 100ms 截止超时。",
+          "root_cause": "历史案例认为 TCP/bRPC 响应路径间歇抖动，物理链路需计数器复核。",
+          "solution": "同步采集 NIC/TCP 计数器与 RTT P99，按 trace 时间对齐；必要时迁移链路做 A/B 复测。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "高",
+          "env_diff": "IP 与现场不同，且本次样本更小",
+          "adaptation": "沿用方法，不复用历史 IP；对本次 4 个 Pod IP 采集同窗计数器。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 2,
+          "id": "EXP-SKILL-f9f70f4d",
+          "stars": 4,
+          "match_logic": "L1 命中 1001/1004 解释；L2 命中传输层；L3 无案例拓扑；L5 与 RPC timeout、URMA write failure 日志一致。",
+          "symptom": "RPC deadline 与 URMA 通用错误并存。",
+          "root_cause": "经验建议检查网络、负载、线程池及 URMA 设备/链路。",
+          "solution": "同时采集对端 Worker、URMA 驱动/设备和系统日志。",
+          "adoption_class": "adjust",
+          "adoption_label": "建议",
+          "phenomenon_fit": "中",
+          "log_fit": "高",
+          "rc_consistency": "中",
+          "env_diff": "通用经验，无本次现场计数器",
+          "adaptation": "只采用排查清单，不把经验结论当现场事实。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 3,
+          "id": "CURATED-STATUS-1001-1004",
+          "stars": 5,
+          "match_logic": "L1 精确命中后端状态码 1001 与 1004；L2/L3 不提供；L5 与现场原始错误文本一致。",
+          "symptom": "1001=RPC 超过截止时间；1004=URMA 传输或资源操作失败。",
+          "root_cause": "状态码只能限定故障边界，不能单独确认物理网卡。",
+          "solution": "结合阶段分解与链路计数器继续定界。",
+          "adoption_class": "reference",
+          "adoption_label": "官方解释",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "中",
+          "env_diff": "仅状态码语义",
+          "adaptation": "与 trace 阶段证据联合使用。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在 192.168.219.97 与目标 Worker 192.168.189.91/192.168.235.170 同步采集 ethtool -S、ip -s link、nstat -az、ss -ti，并与 09:05–09:07 trace 时间对齐。",
+          "对 Client→Worker:31501 持续采集 RTT 分布、TCP retrans/drop 与短时抓包；若单 NIC/端口指标异常，先迁移 Client 或切换交换端口做 A/B 复测。",
+          "检查 dbe29... 所在链路的 URMA Jetty、CQ/事件、设备和端口状态，确认 ret=4096 的 provider/驱动语义。"
+        ],
+        "long_term": [
+          "建立 NIC drop/error、TCP retrans、RTT P99、KV SET 1001/1004 与 trace_id 的同时间轴监控。",
+          "补齐 SET Create/Publish 的 bRPC 收发与服务端时间戳观测，避免 timeout 无响应时全部吸收到 set_residual。",
+          "仅将提高 RPC deadline 作为容错评估，不作为根治；优先定位链路抖动或调度来源。"
+        ],
+        "verification": [
+          "相同 scale-up 负载复测至少 30 分钟，确认 1001/1004 不再出现且 SET P99 稳定。",
+          "故障前后对比 RTT P99、TCP retrans、NIC drop/CRC 计数；若修复有效，应与 SET deadline trace 同步归零或显著下降。",
+          "分别复测 GET 与 SET；GET 必须补齐可归因样本后单独判定，禁止用本报告的 SET 结果代替。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补采 Client 与目标 Worker 的 NIC/TCP 指标并按 trace 对时",
+      "depends_on": "现场节点仍可访问",
+      "expected_effect": "确认或排除物理网卡/交换路径抖动",
+      "verify": "异常窗内 drop/retrans/RTT P99 是否与 1001 trace 同步跳升"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "对异常链路做迁移或端口切换 A/B 复测",
+      "depends_on": "完成指标采集",
+      "expected_effect": "隔离具体 NIC/端口/路径",
+      "verify": "相同负载下 SET 1001/1004 与 P99 是否恢复"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET /stats/stages sample_cnt=0（缺 yuanrong us 字段），不作健康结论，也不与 SET 混桶。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "SET·客户端SDK段",
+            "pct": "66.67",
+            "cls": "s-warn"
+          },
+          {
+            "name": "SET·未解释残差",
+            "pct": "33.33",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·未解释残差",
+            "p99": null,
+            "anomaly_rate": "100.00%",
+            "fail_share": "83.33%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "trace_cnt=5，P90 证据耗时 100.649ms；P99 不可由 /stats/stages 提供。"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": null,
+            "anomaly_rate": "10.00%",
+            "fail_share": "16.67%",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "trace_cnt=10，P90 证据耗时 0.369ms，max 64.607ms。"
+          }
+        ],
+        "conclusion": "SET 的 6 条时延异常中 5 条归入未解释残差并在原始 bRPC 行定位到 Create/Publish 响应等待，1 条归入客户端 SDK 段并伴随 URMA 写提交失败。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 15,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": "66.67",
+        "fault": "F01"
+      },
+      {
+        "code": "1001",
+        "name": "K_RPC_DEADLINE_EXCEEDED",
+        "pct": "33.33",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "SET Client→Worker 传输/响应路径",
+        "pct": "100.00",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.170",
+        "host": null,
+        "pct": "73.33",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.97",
+        "host": null,
+        "pct": "66.67",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.78",
+        "host": null,
+        "pct": "33.33",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.91",
+        "host": null,
+        "pct": "26.67",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "09:05",
+        "level": "high",
+        "pct": "40.00",
+        "spike": true,
+        "lat_ms": 100.985,
+        "fault": "F01"
+      },
+      {
+        "time": "09:06",
+        "level": "medium",
+        "pct": "26.67",
+        "spike": false,
+        "lat_ms": 0.394,
+        "fault": "F01"
+      },
+      {
+        "time": "09:07",
+        "level": "medium",
+        "pct": "33.33",
+        "spike": false,
+        "lat_ms": 0.356,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-f48853f9",
+    "total_steps": 6,
+    "api_calls": 23,
+    "duration": "本次会话",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences（SKILL/WIKI）"
+        ],
+        "result": "形成 KVCache、Client、传输层候选，均作为先验而非现场事实。"
+      },
+      {
+        "title": "资产与数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务 successful；15 条 trace、6 条时延异常；集群 ci-kv-ds-1。"
+      },
+      {
+        "title": "GET/SET 独立阶段分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET",
+          "POST /log_parse_result/metrics/latency"
+        ],
+        "result": "GET 无归因样本；SET 15 条样本中 6 条异常，禁止跨 operation 混桶。"
+      },
+      {
+        "title": "分布与代表 trace 下钻",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /trace/list",
+          "GET /trace/{trace_id}"
+        ],
+        "result": "定位 1001/1004、4 个 Pod IP、09:05 热点及 3 条代表 trace。"
+      },
+      {
+        "title": "知识与案例交叉验证",
+        "api_calls": [
+          "GET /failure_mode/status_code/1001|1004",
+          "POST /diag_case_library/search",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "采纳 UB-CASE-002559 为调整后参考，已回写命中；物理网卡点仍待现场指标验证。"
+      },
+      {
+        "title": "报告生成与校验",
+        "api_calls": [
+          "latency_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "阶段特征由脚本提取；最终 JSON 通过统一契约校验后交付。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+        "experience_type": "SKILL",
+        "name": "ds-hash-ring-metadata-diagnosis",
+        "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "诊断"
+        ],
+        "search_query_used": "KVCache client scale up TCP jitter 高时延 P99 网络抖动",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "scale down 任务必须在 scale up 完成之前执行，否则恢复可能失败。",
+        "how_used_in_diagnosis": "现场未出现元数据迁移状态机异常，未采用。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "与本次主导故障路径不一致，未采用"
+      },
+      {
+        "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+        "experience_type": "SKILL",
+        "name": "ds-client-log-analysis",
+        "source_path": "data/skill_hub/ds-client-log-analysis/skill_def.md",
+        "keywords_matched": [
+          "诊断"
+        ],
+        "search_query_used": "KVCache client scale up TCP jitter 高时延 P99 网络抖动",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "结合访问日志分析接口错误码、耗时和重试情况。",
+        "how_used_in_diagnosis": "用于按 trace 串联 Client 运行日志与访问日志。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "与现场日志和后端聚合证据一致"
+      },
+      {
+        "experience_id": "a43dcf67-d3bb-4fb5-99ba-e47e6343ea7d",
+        "experience_type": "SKILL",
+        "name": "ds-shared-memory-diagnosis",
+        "source_path": "data/skill_hub/ds-shared-memory-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "诊断"
+        ],
+        "search_query_used": "KVCache client scale up TCP jitter 高时延 P99 网络抖动",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "fd 传递失败不会导致 Client 注册失败，但会关闭零拷贝通道。",
+        "how_used_in_diagnosis": "现场无 fd 传递失败证据，未采用。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "与本次主导故障路径不一致，未采用"
+      },
+      {
+        "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+        "experience_type": "SKILL",
+        "name": "ds-kv-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "诊断"
+        ],
+        "search_query_used": "KVCache SET Create Publish RPC deadline TCP jitter URMA post_jetty_send_wr",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "超时可能原因：Worker 负载高、网络延迟、远端 Worker 访问慢。",
+        "how_used_in_diagnosis": "用于提出网络与 Worker 负载候选并由阶段证据排除 Worker 处理慢。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "与现场日志和后端聚合证据一致"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "RPC"
+        ],
+        "search_query_used": "KVCache SET Create Publish RPC deadline TCP jitter URMA post_jetty_send_wr",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_RPC_DEADLINE_EXCEEDED=1001 | RPC 超时 | 检查网络、负载、线程池",
+        "how_used_in_diagnosis": "用于形成网卡、线程调度与 Worker 负载的复核清单。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "与现场日志和后端聚合证据一致"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "URMA"
+        ],
+        "search_query_used": "RPC deadline TCP jitter URMA write failed",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+        "how_used_in_diagnosis": "用于补充 1004 子症状的设备与链路检查建议。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "与现场日志和后端聚合证据一致"
+      },
+      {
+        "experience_id": "16a80c45-8dd6-4c90-bebb-920dc6d06878",
+        "experience_type": "WIKI",
+        "name": "UMDK URMA 性能测试工具 urma_perftest 使用指南",
+        "source_path": "data/wiki_hub/umdk-urma-perftest-guide.md",
+        "keywords_matched": [
+          "URMA"
+        ],
+        "search_query_used": "RPC deadline TCP jitter URMA write failed",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "urma_perftest 是 URMA 提供的性能测试工具，用于测量带宽、时延、消息速率等指标。",
+        "how_used_in_diagnosis": "本次主导异常为 TCP/bRPC deadline，URMA 仅一条子症状，未作为首要复测工具。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "与本次主导故障路径不一致，未采用"
+      },
+      {
+        "experience_id": "862f89c4-27af-4ac8-90b9-266f48ff6b32",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 共享内存日志模式",
+        "source_path": "data/wiki_hub/ds-shared-memory-patterns.md",
+        "keywords_matched": [
+          "TCP"
+        ],
+        "search_query_used": "KVCache client scale up TCP jitter 高时延 P99 网络抖动",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Client 尝试连接到 Worker 的 fd 传递端点（SCMTCP 或 UDS）。",
+        "how_used_in_diagnosis": "现场无共享内存通道异常，未采用。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "与本次主导故障路径不一致，未采用"
+      },
+      {
+        "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 访问日志模式",
+        "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+        "keywords_matched": [
+          "TCP",
+          "URMA"
+        ],
+        "search_query_used": "KVCache client scale up TCP jitter 高时延 P99 网络抖动",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "网络/传输层异常（URMA 连接失效、TCP 拥塞）。",
+        "how_used_in_diagnosis": "用于构建网络/传输层候选，最终由现场 trace 验证逻辑响应路径抖动。",
+        "confidence_on_reference": 0.75,
+        "confidence_reason": "与现场日志和后端聚合证据一致"
+      },
+      {
+        "experience_id": "4cceeb69-c022-4e21-a00a-f440f681132e",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Client 错误模式",
+        "source_path": "data/wiki_hub/ds-client-error-patterns.md",
+        "keywords_matched": [
+          "TCP"
+        ],
+        "search_query_used": "KVCache client scale up TCP jitter 高时延 P99 网络抖动",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "检查 Worker 配置是否启用 SCMTCP 或 UDS。",
+        "how_used_in_diagnosis": "现场异常与 SCMTCP/UDS 配置无直接证据关联，未采用。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "与本次主导故障路径不一致，未采用"
+      },
+      {
+        "experience_id": "b552a989-d3a9-4e0d-83dd-efe3c5bc9e2c",
+        "experience_type": "SKILL",
+        "name": "ds-object-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-object-cache-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "诊断"
+        ],
+        "search_query_used": "KVCache SET Create Publish RPC deadline TCP jitter URMA post_jetty_send_wr",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Object Cache 提供对象发布/获取接口（Create/Put/Publish/Get/Delete/Seal/GIncreaseRef/GDecreaseRef 等）。",
+        "how_used_in_diagnosis": "本次入口是 KV SET，未采用 Object Cache 通用流程。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "与本次主导故障路径不一致，未采用"
+      },
+      {
+        "experience_id": "e9c85879-f805-4594-9888-55304c09e952",
+        "experience_type": "SKILL",
+        "name": "umdk-urma-cr-log-analysis",
+        "source_path": "data/skill_hub/umdk-urma-cr-log-analysis/skill_def.md",
+        "keywords_matched": [
+          "URMA"
+        ],
+        "search_query_used": "KVCache SET Create Publish RPC deadline TCP jitter URMA post_jetty_send_wr",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "过滤包含 urma_create_cr、urma_destroy_cr、urma_cr_set_cfg、urma_cr_query 等关键字的日志。",
+        "how_used_in_diagnosis": "现场无 CR 创建或配置错误，未采用。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "与本次主导故障路径不一致，未采用"
+      },
+      {
+        "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+        "experience_type": "SKILL",
+        "name": "umdk-link-failure-diagnosis",
+        "source_path": "data/skill_hub/umdk-link-failure-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "URMA"
+        ],
+        "search_query_used": "KVCache SET Create Publish RPC deadline TCP jitter URMA post_jetty_send_wr",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "链路故障是 URMA 常见问题之一，表现为端口状态变化、重传超时、建链失败等。",
+        "how_used_in_diagnosis": "现场没有 PORT_DOWN、ACK_TIMEOUT 等 URMA 链路事件，未采用为根因。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "与本次主导故障路径不一致，未采用"
+      },
+      {
+        "experience_id": "92401341-c3f6-400c-a079-c7ad95c86759",
+        "experience_type": "WIKI",
+        "name": "UMDK URPC 错误日志模式",
+        "source_path": "data/wiki_hub/umdk-urpc-error-log-patterns.md",
+        "keywords_matched": [
+          "RPC",
+          "URMA"
+        ],
+        "search_query_used": "RPC deadline TCP jitter URMA write failed",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "URPC_ERR_TRANSPORT_ERR | 传输层错误 | URMA 返回失败",
+        "how_used_in_diagnosis": "现场未观测 URPC_ERR_TRANSPORT_ERR，未采用。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "与本次主导故障路径不一致，未采用"
+      },
+      {
+        "experience_id": "d068a8f2-0422-4cdf-91db-8541070e1c96",
+        "experience_type": "WIKI",
+        "name": "UMDK URMA CR 操作状态码日志模式",
+        "source_path": "data/wiki_hub/umdk-urma-cr-status-log-patterns.md",
+        "keywords_matched": [
+          "URMA"
+        ],
+        "search_query_used": "RPC deadline TCP jitter URMA write failed",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "URMA 中 urma_status_t 枚举定义了用户态 API 的通用返回状态。",
+        "how_used_in_diagnosis": "现场不是 CR 操作失败，未采用。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "与本次主导故障路径不一致，未采用"
+      },
+      {
+        "experience_id": "1af1c583-204d-4538-ab34-e166258aa3c7",
+        "experience_type": "WIKI",
+        "name": "UMDK URMA 管理工具 urma_admin 使用指南",
+        "source_path": "data/wiki_hub/umdk-urma-admin-tools.md",
+        "keywords_matched": [
+          "URMA"
+        ],
+        "search_query_used": "RPC deadline TCP jitter URMA write failed",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "urma_admin 是 URMA 提供的用户态管理工具，用于查询设备属性、端口状态、TP 信息、拓扑、UPI 等。",
+        "how_used_in_diagnosis": "可作后续补证工具，但当前未执行，未用于结论。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "与本次主导故障路径不一致，未采用"
+      }
+    ],
+    "summary": {
+      "total_references": 16,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 5,
+      "considered_not_adopted_count": 11,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "已记录诊断前后两轮检索的全部唯一命中；经验仅用于候选与建议，现场结论以 API 和原始日志为准。"
+    }
+  }
+}

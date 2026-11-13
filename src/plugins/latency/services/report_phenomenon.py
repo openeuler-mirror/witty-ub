@@ -686,11 +686,8 @@ def extract_report(
             if report_id.startswith(HISTORICAL_REPORT_PREFIX)
             else (_text(basic.get("kb_id")) or kb_dir)
         ),
-        kb_name=(
-            None
-            if report_id.startswith(HISTORICAL_REPORT_PREFIX)
-            else _text(basic.get("kb_name"))
-        ),
+        # kb_name（= log_file.name）对历史导入报告同样保留，供回溯来源日志。
+        kb_name=_text(basic.get("kb_name")),
         title=_safe_clean(scrubber, _text(report.get("title"))),
         generated_at=_text(report.get("generated_at")),
         operation=operation,

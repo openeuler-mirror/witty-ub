@@ -1,0 +1,771 @@
+{
+  "report": {
+    "title": "KVCache 缩容场景 TCP 带宽不足诊断报告",
+    "report_id": "diag-df679a2c-20261112-153956",
+    "generated_at": "2026-11-12 15:39:56 +08:00"
+  },
+  "basic_info": {
+    "kb_id": "df679a2c-6a76-4b3a-a060-9423ba1d0f73",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_scale_in_tcp_bandwidth_limit_001_20261011_08_56_16",
+    "log_file": "/home/witty-ub-logs/data/train/lingqu_kvcache_dfx_worker_process_scale_in_tcp_bandwidth_limit_001_20261011_08_56_16",
+    "operation": "MIXED（GET/SET 独立分析）",
+    "time_range_start": "2026-10-11 08:56:09",
+    "time_range_end": "2026-10-11 09:01:43",
+    "total_trace_cnt": 43,
+    "fault_trace_cnt": 43,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Key not found": 1.0
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别出两个时间不重叠且未证实因果的故障：主故障为 GET 客户端网络等待长尾，独立故障为 SET 在本地 UB 发送端全端口 BAD 时快速失败。",
+    "fault_count": 2,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 1,
+    "overall_impact": "43 条 trace：2 条 GET 时延异常，41 条 SET 命中状态码 2007；涉及 4 个 Pod IP。",
+    "confidence": "中高 84%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "GET 客户端至 Worker 网络等待长尾",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 82,
+      "category": "latency",
+      "affected_scope": "2026-10-11 09:01:41~09:01:43；客户端 192.168.235.150 到两个 Meta Worker 的 2 条 GET trace",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-带宽不足",
+        "one_line_conclusion": "两条 GET 的 17.281ms/24.679ms 时延几乎全部滞留在客户端等待窗口，Worker 处理仅 0.031ms/0.066ms；固定训练标签为网卡带宽不足，但缺少 NIC 吞吐与队列遥测，物理点位仍需复核。",
+        "fault_domain": "硬件故障/网卡故障-带宽不足",
+        "fault_component": "客户端至远端 Worker 的 TCP/数据传输边界",
+        "fault_function": "GET QueryAndGet / 数据传输等待",
+        "fault_function_loc": null,
+        "affected_scope_pct": "4.65",
+        "affected_scope_desc": "2/43 条 trace；同一客户端访问两个不同 Meta Worker 均出现长尾",
+        "confidence": "中高 82%",
+        "key_findings": [
+          "GET /stats/stages 的 2/2 样本全部归入 cross_window，P90 与最大证据耗时均为 24.679ms，未截断。",
+          "trace d7c225b1... 的 Client 总时延 24.679ms，Worker 窗口仅 0.066ms；trace 00ea0669... 为 17.281ms 对 0.031ms。",
+          "两个异常 trace 分别指向 Meta Worker 192.168.219.75 与 192.168.189.100，共用客户端 192.168.235.150，故障边界优先收敛到客户端公共网络/传输路径。",
+          "原始目录没有新版 bRPC perf 行，无法继续把 cross_window 拆成 RPC 网络、排队或 QueryMeta。",
+          "资产训练标签按用户要求固定为“硬件故障/网卡故障-带宽不足”；现场日志仅支持网络等待边界，尚未直接测得带宽饱和。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "GET 最大时延",
+            "value": "24.679ms",
+            "sub": "cross_window 桶内证据耗时 Top1",
+            "tone": "danger"
+          },
+          {
+            "label": "GET 桶 P90",
+            "value": "24.679ms",
+            "sub": "样本 2 条；接口不提供 P99",
+            "tone": "warn"
+          },
+          {
+            "label": "Worker 窗口",
+            "value": "0.031~0.066ms",
+            "sub": "仅占端到端约 0.18%~0.27%",
+            "tone": "ok"
+          },
+          {
+            "label": "异常 GET",
+            "value": "2/2",
+            "sub": "阶段归因样本未截断",
+            "tone": "danger"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker 交叉窗口未细分（cross_window）",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100.0%（2/2）",
+            "status": "bottleneck",
+            "detail": "主阶段证据 P50=17.281ms、P90=max=24.679ms；Worker 窗口中位占比约 0.2%，客户端等待主导。"
+          },
+          {
+            "name": "Worker 处理窗口（反证）",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "—",
+            "status": "ok",
+            "detail": "两条代表 trace 的 Worker 窗口分别为 0.066ms 和 0.031ms，不支持 Worker 业务处理慢。"
+          }
+        ],
+        "conclusion": "额外耗时集中在客户端等待边界，Worker 处理为微秒级。由于无健康基线和 NIC/交换机遥测，报告不补造 P99、放大倍数或带宽利用率；物理“带宽不足”按固定标签呈现，但仍需现场复测闭环。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "S1",
+            "title": "确认异常窗口",
+            "description": "两条异常 GET 集中在 09:01:41~09:01:43。",
+            "evidence": "GET /trace 与 /log_parse_result/list 返回 17.281ms、24.679ms，is_anomalous=true。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S2",
+            "title": "定位主导阶段",
+            "description": "2/2 GET 均归入 cross_window，客户端等待主导。",
+            "evidence": "/stats/stages(operation=GET)：cross_window trace_cnt=2、fail_cnt=2、P90=24.679ms。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S3",
+            "title": "排除 Worker 内部慢处理",
+            "description": "Worker 窗口远小于客户端总时延。",
+            "evidence": "代表 trace 的 worker_access_latency_us 为 66us 与 31us。",
+            "excluded": true
+          },
+          {
+            "step_label": "S4",
+            "title": "收敛到公共网络/传输边界",
+            "description": "同一客户端访问两个不同 Meta Worker 均异常，更符合客户端公共路径问题。",
+            "evidence": "客户端 Pod 均为 192.168.235.150；对端分别为 192.168.219.75、192.168.189.100。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S5",
+            "title": "保留物理根因限制",
+            "description": "带宽不足与当前等待形态相容，但日志没有吞吐、drop、retransmit、qdisc 或交换机计数。",
+            "evidence": "聚合链路 src/dst 为空；bRPC drill 扫描 15 个文件但 0 条 perf 行。",
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "已确认的直接瓶颈位于客户端 192.168.235.150 到远端 Worker 的公共网络/数据传输等待边界；按用户指定训练真值，故障标签固定为网卡带宽不足。具体是 NIC 速率受限、队列拥塞还是交换路径瓶颈，现有日志不能继续细分。",
+        "supporting_knowledge": "已确认历史案例 UB-CASE-002623 同样表现为 cross_window 客户端等待主导、Worker 微秒级处理；该案例仅作为待验证类比，不替代本次 trace 证据。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "网卡/TCP 公共路径容量或排队受限（待遥测确认）",
+            "detail": "固定训练标签指向带宽不足；现场仅确认公共传输边界等待。",
+            "type": "root"
+          },
+          {
+            "label": "客户端数据传输等待",
+            "detail": "sdk_processing_us 达 17.250ms/24.613ms，而 Worker 仅 31us/66us。",
+            "type": "effect"
+          },
+          {
+            "label": "GET 端到端长尾",
+            "detail": "两条 GET 被标记为异常，最大 24.679ms。",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "客户端 Pod 192.168.235.150",
+          "Meta Worker 192.168.219.75 与 192.168.189.100",
+          "GET 读路径 2 条 trace"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "d7c225b1-513f-4501-99d3-3cebf6f1923d",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top1；这是证据耗时排序，不代表总体严重度",
+          "evidence_ms": 24.679,
+          "client_ms": 24.679
+        },
+        {
+          "trace_id": "00ea0669-2187-4bb7-895b-48dd2256119c",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top2；这是证据耗时排序，不代表总体严重度",
+          "evidence_ms": 17.281,
+          "client_ms": 17.281
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002623",
+          "stars": 4,
+          "match_logic": "L1：无错误码/故障模式可比；L2：cross_window(share=1.0)、few_pods 与 MIXED 中 GET 操作命中；L3：均为单客户端访问多个远端 Worker 的公共路径形态；L5：本次缺少 TransportGet 原文，未命中。",
+          "symptom": "客户端至远端 Worker 的 TCP 网卡链路时延高，Worker 处理正常。",
+          "root_cause": "历史案例收敛到客户端侧以太网/TCP 公共路径；具体物理点位仍需网卡与交换路径遥测。",
+          "solution": "同步采集 NIC error/drop、TCP retransmit、qdisc/队列和交换机端口计数，并做受控大对象 GET 复测。",
+          "phenomenon_fit": "cross_window 与 Worker 微秒级窗口高度一致。",
+          "log_fit": "本次没有历史案例中的 TransportGet data_transfer 日志，只能匹配到阶段桶。",
+          "rc_consistency": "方向一致，但本次物理带宽不足尚无直接遥测。",
+          "env_diff": "版本与网卡配置未知。",
+          "adaptation": "先采集本资产的 NIC/TCP/交换机证据再采用物理处置。",
+          "applicability": "reference"
+        },
+        {
+          "rank": 2,
+          "id": "experience:ds-rdma-transport-diagnosis",
+          "stars": 3,
+          "match_logic": "L1：无错误码直接命中；L2：传输层/TCP 性能下降方向相关；L3：经验要求双端日志核对，本次仅部分满足；L5：未观测到连接重建或 Jetty 失效关键词。",
+          "symptom": "本地经验指出高速传输失败回退 TCP 时可能出现性能下降，并建议同时核对传输配置与双端日志。",
+          "root_cause": "仅作为排查假设，不能据此断言本次发生 URMA 回退。",
+          "solution": "核对 enable_transport_fallback、传输类型、双端 Worker 日志与网络遥测。",
+          "phenomenon_fit": "与传输层等待方向相符。",
+          "log_fit": "本次未出现 URMA 连接重建签名。",
+          "rc_consistency": "只支持补充检查，不作为现场根因。",
+          "env_diff": "经验基于 yuanrong-datasystem 0.8.1.rc20，现场版本未知。",
+          "adaptation": "仅执行只读核验，不直接按回退故障处置。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在客户端 192.168.235.150 所在节点立即核查 qdisc/tc 限速、网卡协商速率/双工、队列积压与驱动错误；若存在异常限速规则，在变更审批后移除或恢复基线。",
+          "同步采集客户端至 192.168.219.75、192.168.189.100 的 ping/TCP RTT、重传与丢包，并抓取两端 ip -s link、ethtool -S、nstat、ss -ti 及交换机端口计数。",
+          "业务允许时将 GET 流量迁移到健康节点或备用路径，观察长尾是否立即回落。"
+        ],
+        "long_term": [
+          "按对象大小建立 GET P50/P90/P99、NIC 吞吐、队列、重传和交换机端口利用率的统一基线与告警。",
+          "为网络限速、qdisc/netem、网卡速率与交换机 QoS 变更建立审计和自动回归验证。",
+          "补齐新版 bRPC perf 阶段日志，使 cross_window 可继续拆分为 RPC 网络、排队和 QueryMeta。"
+        ],
+        "verification": [
+          "以相同 8MiB GET 负载连续复测不少于 30 分钟，确认 P99 回到健康基线且不再出现 cross_window 异常。",
+          "确认 NIC/交换机吞吐未触顶、drop/error/retransmit 无同步增长，且两个目标 Worker 的 Worker 窗口仍维持微秒级。"
+        ]
+      }
+    },
+    {
+      "id": "F02",
+      "title": "SET 本地 UB 发送端全端口 BAD 快速失败",
+      "role": "independent",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 94,
+      "category": "error",
+      "affected_scope": "2026-10-11 08:56:09~08:56:59；客户端 Pod 192.168.235.172；41 条 SET",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-带宽不足",
+        "one_line_conclusion": "41 条 SET 在进入 Worker 数据面前因客户端本地 UB 发送端 all ports are BAD 返回 2007；直接机制已确认，物理带宽不足标签按用户指定真值固定，日志本身未测得带宽饱和。",
+        "fault_domain": "硬件故障/网卡故障-带宽不足",
+        "fault_component": "客户端本地 UB 发送端健康状态",
+        "fault_function": "SET access precheck",
+        "fault_function_loc": "access_recorder.cpp:1066",
+        "affected_scope_pct": "95.35",
+        "affected_scope_desc": "41/43 条 trace，全部集中在 Pod 192.168.235.172",
+        "confidence": "高 94%（直接机制）/ 中 60%（物理触发）",
+        "key_findings": [
+          "状态码 2007 与 failure_mode kvcache_access_067 命中 41 条 SET，错误码构成 100%。",
+          "41 条原始日志均为“Client-local UB endpoint unavailable: all ports are BAD”。",
+          "SET /stats/stages 的 41/41 样本归入 set_no_evidence，P90=0.002ms、max=0.003ms，说明在 Worker 数据面前快速返回。",
+          "curated 知识将 2007 解释为本地 UB 发送端被隔离、未就绪或健康检查判定不可用。",
+          "现有日志没有 NIC 吞吐/队列证据，不能把 all ports BAD 单独等同于带宽饱和。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "状态码 2007",
+            "value": "41",
+            "sub": "逐码命中次数，不等于业务失败率",
+            "tone": "danger"
+          },
+          {
+            "label": "错误码构成",
+            "value": "100%",
+            "sub": "完整 1 分钟查询范围内仅 2007",
+            "tone": "danger"
+          },
+          {
+            "label": "集中窗口",
+            "value": "08:56",
+            "sub": "08:56:00~08:57:00",
+            "tone": "warn"
+          },
+          {
+            "label": "影响 Pod",
+            "value": "1",
+            "sub": "192.168.235.172",
+            "tone": "warn"
+          }
+        ],
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "df679a2c-6a76-4b3a-a060-9423ba1d0f73",
+              "operation": "SET",
+              "start_time": "2026-10-11 08:56:00",
+              "end_time": "2026-10-11 08:57:00"
+            },
+            "code_filter": [
+              "2007"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "df679a2c-6a76-4b3a-a060-9423ba1d0f73",
+                    "operation": "SET",
+                    "start_time": "2026-10-11 08:56:00",
+                    "end_time": "2026-10-11 08:57:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 41,
+              "items": [
+                {
+                  "code": "2007",
+                  "count": 41,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-11 08:56:00",
+                  "end_time": "2026-10-11 08:57:00",
+                  "complete": true,
+                  "counts": {
+                    "2007": 41
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 在 08:56 单分钟窗持续出现 41 次状态码 2007，构成占比 100%。计数是逐码命中次数，不称为去重失败请求数或业务失败率。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "S1",
+            "title": "确认错误集中",
+            "description": "41 次 2007 全部集中在 08:56 单窗口。",
+            "evidence": "/stats/error_codes 与时间聚合均返回 41。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S2",
+            "title": "确认直接机制",
+            "description": "本地 UB 发送端全部端口被判为 BAD。",
+            "evidence": "代表日志逐字显示 Client-local UB endpoint unavailable: all ports are BAD。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S3",
+            "title": "定位失败边界",
+            "description": "请求在 Worker 数据面前快速失败。",
+            "evidence": "set_no_evidence=41/41，P90=0.002ms，set_worker=0。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S4",
+            "title": "排除 Worker 内部慢处理",
+            "description": "无 Worker 数据面行且微秒级返回，不支持 Worker 内部执行变慢。",
+            "evidence": "SET 阶段数据面未观测；总时延 0.001~0.003ms。",
+            "excluded": true
+          },
+          {
+            "step_label": "S5",
+            "title": "保留物理触发候选",
+            "description": "curated 解释还包括隔离、未就绪和健康检查异常；没有 NIC 遥测区分带宽不足。",
+            "evidence": "failure_mode kvcache_access_067；src/dst 与 host 未解析。",
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "客户端 Pod 192.168.235.172 的本地 UB 发送端在故障窗口被判定为全端口 BAD，使 SET 在进入 Worker 数据面前快速返回 K_URMA_WORKER_UNAVAILABLE(2007)。物理带宽不足是用户固定标签，尚需端口/NIC 遥测确认其与 BAD 状态的触发关系。",
+        "supporting_knowledge": "Curated failure_mode kvcache_access_067 与状态码 2007 的症状、直接根因均与现场原始日志一致。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "本地 UB 发送端全端口 BAD",
+            "detail": "健康检查认为发送 Worker 不可用。",
+            "type": "root"
+          },
+          {
+            "label": "SET 数据面未进入",
+            "detail": "无 Worker 侧观测，客户端微秒级快速返回。",
+            "type": "effect"
+          },
+          {
+            "label": "K_URMA_WORKER_UNAVAILABLE(2007)",
+            "detail": "08:56 单窗口逐码命中 41 次。",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "客户端 Pod 192.168.235.172",
+          "SET 写路径 41 条 trace",
+          "2026-10-11 08:56:09~08:56:59"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "243649a9-4fd3-4cc2-9794-615b4b2ad563",
+          "kind": "error",
+          "why": "status_code=2007 + pod=192.168.235.172 + 08:56:00~08:57:00 代表日志",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.235.172",
+          "timestamp": "2026-10-11 08:56:19"
+        },
+        {
+          "trace_id": "4f4fb0dc-5f20-4c51-a94e-f1705bdaaeb2",
+          "kind": "error",
+          "why": "status_code=2007 + pod=192.168.235.172 + 08:56:00~08:57:00，SET 最大客户端耗时样本之一",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.235.172",
+          "timestamp": "2026-10-11 08:56:53"
+        },
+        {
+          "trace_id": "6726acf6-cf87-4653-824f-130bd26a0418",
+          "kind": "error",
+          "why": "status_code=2007 + pod=192.168.235.172 + 08:56:00~08:57:00 末段代表日志",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.235.172",
+          "timestamp": "2026-10-11 08:56:58"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "failure_mode:kvcache_access_067",
+          "stars": 5,
+          "match_logic": "L1：状态码 2007 与 failure_mode kvcache_access_067 精确命中；L2：SET、单 Pod、数据面前快速失败命中；L3：本地发送端边界命中；L5：原文 all ports are BAD 精确命中。",
+          "symptom": "请求返回 K_URMA_WORKER_UNAVAILABLE，本地 URMA 发送 Worker 不可用。",
+          "root_cause": "客户端本地 UB 发送端被隔离、未就绪或健康检查判定不可用。",
+          "solution": "检查客户端本地 UB 发送端隔离、初始化和健康状态；恢复发送端或切换可用传输路径。",
+          "phenomenon_fit": "与 41 条现场日志完全一致。",
+          "log_fit": "状态码、故障模式与原文均精确命中。",
+          "rc_consistency": "直接机制一致；物理触发仍待区分。",
+          "env_diff": "curated 知识不限定具体网卡型号。",
+          "adaptation": "结合本资产 NIC、端口与健康检查遥测定位触发源。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 2,
+          "id": "UB-CASE-002638",
+          "stars": 4,
+          "match_logic": "L1：2007(share=1.0) 与 kvcache_access_067 精确命中；L2：SET、single_pod 命中，阶段桶未直接命中案例指纹；L3：客户端本地发送端相同；L5：all ports are BAD 精确命中。",
+          "symptom": "客户端本地 UB 发送端全端口 BAD，SET 快速返回 2007。",
+          "root_cause": "直接机制为发送端全端口 BAD；历史案例也明确物理网卡触发缺少遥测闭环。",
+          "solution": "恢复端口 GOOD、刷新发送连接，并补采 NIC/系统/交换机端口证据。",
+          "phenomenon_fit": "错误码、故障模式、单 Pod 集中与快速失败高度一致。",
+          "log_fit": "关键原文完全一致。",
+          "rc_consistency": "直接根因一致，具体物理标签不同且均需遥测。",
+          "env_diff": "历史案例标签为网卡闪断，本资产固定标签为带宽不足。",
+          "adaptation": "不可照搬闪断结论；需用吞吐、队列和端口计数验证带宽不足。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "核验 192.168.235.172 所在节点的 UB/NIC 端口状态、隔离标志、初始化阶段和健康检查结果；恢复端口 GOOD 后刷新或重建发送连接。",
+          "业务允许时切换到已验证可用的传输路径；对失败 SET 先确认幂等性和写入结果，再受控重试。",
+          "同步核对 qdisc/tc 限速、NIC 吞吐与队列、端口速率协商及交换机 QoS，验证固定“带宽不足”标签对应的物理触发。"
+        ],
+        "long_term": [
+          "建立 UB 端口 BAD/GOOD、健康检查原因、NIC 吞吐/队列、TCP 重传与连接恢复时延的关联告警。",
+          "完善缩容期间的摘流、路由收敛、发送端健康闸门与备用路径切换流程。"
+        ],
+        "verification": [
+          "恢复后确认 UB 端口持续 GOOD，连续 SET 复测不再出现 2007，且 Worker 数据面日志恢复可见。",
+          "在同等写负载下确认 NIC/交换机带宽未触顶、队列无持续积压，并完成缩容场景回归。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [
+    {
+      "from": "F01",
+      "to": "F02",
+      "type": "independent",
+      "confidence": 88,
+      "evidence": "F02 发生于 08:56 且仅影响 SET；F01 发生于 09:01 且仅影响 GET，两者相隔约 5 分钟、trace 不重合，现有证据不足以建立因果。"
+    }
+  ],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01",
+        "F02"
+      ],
+      "action": "同步采集客户端节点 NIC/UB 端口、qdisc/tc、TCP、交换机端口与健康检查遥测，并核对缩容时序。",
+      "depends_on": "具备节点与交换机只读权限",
+      "expected_effect": "区分带宽饱和、队列拥塞、端口 BAD、隔离和初始化异常。",
+      "verify": "形成同一时间轴，能解释 08:56 的 2007 与 09:01 的 GET 等待是否同源。"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F02"
+      ],
+      "action": "恢复 UB/NIC 端口 GOOD 并刷新发送连接，确认幂等性后重试失败 SET。",
+      "depends_on": "完成故障现场保全",
+      "expected_effect": "消除 2007 快速失败。",
+      "verify": "连续 SET 无 2007，Worker 数据面行恢复。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "移除异常限速/拥塞因素或迁移健康路径后执行 8MiB GET 压测。",
+      "depends_on": "已定位并审批网络变更",
+      "expected_effect": "GET 长尾回落。",
+      "verify": "30 分钟 P99 回到健康基线，cross_window 不再出现异常。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "cross_window",
+            "pct": 100.0,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker 交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "100.0%（2/2）",
+            "fail_share": "100.0%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "P50=17.281ms，P90=max=24.679ms；接口不提供 P99。"
+          }
+        ],
+        "conclusion": "GET 2/2 样本均由客户端等待主导，Worker 窗口仅占约 0.2%。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "set_no_evidence",
+            "pct": 100.0,
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "0%（时延标记）",
+            "fail_share": "2007×41",
+            "status": "warn",
+            "fault": "F02",
+            "detail": "41/41 无 Worker 数据面行；Client 总时延 P90=0.002ms、max=0.003ms。"
+          }
+        ],
+        "conclusion": "SET 阶段表与 GET 独立；时延标记为正常不否定故障侧 41 条状态码 2007。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 43,
+    "top_error_codes": [
+      {
+        "code": "2007",
+        "name": "K_URMA_WORKER_UNAVAILABLE",
+        "pct": 95.35,
+        "fault": "F02"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "硬件故障/网卡故障-带宽不足（固定标签）",
+        "pct": 100.0,
+        "fault": "F01/F02"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.172",
+        "host": "—",
+        "pct": 95.35,
+        "fault": "F02"
+      },
+      {
+        "pod": "192.168.235.150",
+        "host": "—",
+        "pct": 4.65,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.75",
+        "host": "—",
+        "pct": 2.33,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.100",
+        "host": "—",
+        "pct": 2.33,
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-10-11 08:56",
+        "level": "high",
+        "pct": 95.35,
+        "spike": true,
+        "lat_ms": null,
+        "fault": "F02"
+      },
+      {
+        "time": "2026-10-11 09:01",
+        "level": "warn",
+        "pct": 4.65,
+        "spike": true,
+        "lat_ms": 24.679,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-df679a2c-20261112-153956",
+    "total_steps": 7,
+    "api_calls": 28,
+    "duration": "约 18 分钟",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill search SKILL/WIKI"
+        ],
+        "result": "命中传输层、Hash Ring 与 Worker 日志经验，仅作为假设和检查清单。"
+      },
+      {
+        "title": "资产与解析完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "单日志目录解析成功，43 条 trace，任务 successful。"
+      },
+      {
+        "title": "GET/SET 独立阶段分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 2/2 cross_window；SET 41/41 set_no_evidence，未跨操作混桶。"
+      },
+      {
+        "title": "统计分布与时间窗",
+        "api_calls": [
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/links",
+          "POST /stats/heatmap"
+        ],
+        "result": "2007×41；SET 集中 08:56 单 Pod；GET 异常在 09:01。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "GET /trace/{id}",
+          "POST /log_parse_result/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认 GET 客户端等待主导和 SET all ports are BAD 原文。"
+      },
+      {
+        "title": "Curated 知识与历史案例核验",
+        "api_calls": [
+          "GET /failure_mode/status_code/2007",
+          "GET /failure_mode/kvcache_access_067",
+          "POST /diag_case_library/search"
+        ],
+        "result": "直接机制与 curated 一致；历史案例仅在现场证据核对后采纳。"
+      },
+      {
+        "title": "反证与报告生成",
+        "api_calls": [
+          "bRPC stage drill",
+          "error_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "排除 Worker 内部慢处理；保留物理带宽不足遥测缺口。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+      "keywords_matched": [
+        "KVCache",
+        "TCP",
+        "传输层"
+      ],
+      "search_query_used": "KVCache worker process scale in TCP bandwidth limit 高时延 通断",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "URMA/RDMA 连接建立失败时，如果 enable_transport_fallback=true，通常会回退到 TCP，但性能会下降。",
+      "how_used_in_diagnosis": "作为传输配置与双端日志核验清单，未据此认定发生回退。",
+      "confidence_on_reference": 0.7,
+      "confidence_reason": "与传输等待方向相关，但本次无回退日志。"
+    },
+    {
+      "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+      "experience_type": "SKILL",
+      "name": "ds-hash-ring-metadata-diagnosis",
+      "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis",
+      "keywords_matched": [
+        "scale down",
+        "缩容"
+      ],
+      "search_query_used": "KVCache worker process scale in TCP bandwidth limit 高时延 通断",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "未观测到 Hash Ring 版本不一致或迁移失败签名，未用于根因。",
+      "content_quoted": "缩容完成后，原节点数据会迁移到其他节点，需要确认迁移完成再下线节点。",
+      "how_used_in_diagnosis": "作为缩容背景候选检查，因现场无对应签名而排除。",
+      "confidence_on_reference": 0.4,
+      "confidence_reason": "流程相关但现场证据不命中。"
+    }
+  ]
+}

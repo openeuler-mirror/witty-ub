@@ -1165,6 +1165,41 @@ def print_fatal(exc: Fatal) -> int:
 
 
 # --------------------------------------------------------------------------- #
+LOG_SEMANTIC_TIMEOUT = 30
+
+
+def attach_log_semantic_profile(data: dict, kb_id=None) -> None:
+    """把「日志语义错误码轮廓」写入 basic_info，使文档固定携带该字段。
+
+    - ``basic_info`` 已带非空轮廓：跳过（尊重文档既有内容）。
+    - 需要 WITTY_API_BASE 与 kb_id（参数优先，其次 ``basic_info.kb_id``）。
+    尽力而为：任何网络/解析失败只在 stderr 提示，不影响报告生成。
+    """
+    basic = data.get("basic_info")
+    if not isinstance(basic, dict) or basic.get("log_semantic_profile"):
+        return
+    resolved_kb = kb_id or basic.get("kb_id")
+    base = (os.environ.get("WITTY_API_BASE") or "").strip().rstrip("/")
+    if not resolved_kb or not base:
+        return
+    try:
+        payload = json.dumps({"kb_id": resolved_kb}).encode("utf-8")
+        request = urllib.request.Request(
+            f"{base}/log_failure_event_result/log_semantic_profile",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=LOG_SEMANTIC_TIMEOUT) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        result = body.get("result") if isinstance(body, dict) else None
+        profile = result.get("profile") if isinstance(result, dict) else None
+        if isinstance(profile, dict) and profile:
+            basic["log_semantic_profile"] = profile
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        print(f"  ⚠ 未附加日志语义码轮廓：{exc}", file=sys.stderr)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(add_help=True, description="渲染诊断报告 HTML")
     parser.add_argument("data", nargs="?", help="报告数据 JSON 文件")
@@ -1202,6 +1237,7 @@ def main(argv=None) -> int:
         # knowledge_matches{title,summary}、stages{p50,p90,max}）→ 契约结构，
         # 转换后再校验与渲染，保证关键区块不因字段名不一致而留白。
         normalize_compat(data)
+        attach_log_semantic_profile(data, args.kb_id)
         if args.allow_incomplete:
             # 一线数据允许字段不全：契约问题降级为提示，缺失区块按模板默认呈现。
             errors, warnings = validate(data)

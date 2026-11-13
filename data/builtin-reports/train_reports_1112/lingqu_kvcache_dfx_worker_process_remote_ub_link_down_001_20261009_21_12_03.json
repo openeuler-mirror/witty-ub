@@ -1,0 +1,439 @@
+{
+  "report": {
+    "title": "lingqu_kvcache_dfx_worker_process_remote_ub_link_down_001_20261009_21_12_03 通断故障诊断报告",
+    "report_id": "report_3f89879d_20261112_152932",
+    "generated_at": "2026-11-12T15:29:32+08:00"
+  },
+  "basic_info": {
+    "kb_id": "3f89879d-dcb7-4407-8696-2d2d8665dafe",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_remote_ub_link_down_001_20261009_21_12_03",
+    "log_file": "lingqu_kvcache_dfx_worker_process_remote_ub_link_down_001_20261009_21_12_03（log_id=2a62d41c-ea7b-4eae-a1e3-9ebe2fa55803）",
+    "operation": "SET（GET 独立对照无样本）",
+    "time_range_start": "2026-10-09 21:11:21",
+    "time_range_end": "2026-10-09 21:11:42",
+    "total_trace_cnt": 19,
+    "fault_trace_cnt": 19,
+    "fault_ratio": "100%（解析到的 19 条 SET trace 均命中故障码；非业务失败率）",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到 1 个 SET 通断故障：客户端本地 UB 发送端全部端口 BAD，19 条请求在进入 Worker 数据面前快速返回 2007。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "2026-10-09 21:11:21~21:11:41，Pod 192.168.219.105 的 19 条 SET 写请求受影响；GET 视角未解析到样本。",
+    "confidence": 0.96
+  },
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "在 192.168.219.105 所在节点核验 UB 端口 state、隔离状态和健康检查结果，恢复端口 GOOD 后刷新或重建本地发送连接。",
+      "depends_on": "具备节点和 UB 管理面只读检查权限；变更须遵循现场切流流程。",
+      "expected_effect": "SET 不再返回 K_URMA_WORKER_UNAVAILABLE(2007)，并重新出现 Worker 数据面处理证据。",
+      "verify": "连续重放同规格 SET，确认 2007 归零且端口状态持续 GOOD。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "补采故障窗口两端 UB/NIC、驱动、系统和交换机端口遥测，闭环具体物理端口及远端链路位置。",
+      "depends_on": "保留 2026-10-09 21:10:30~21:12:30 的设备与交换机日志。",
+      "expected_effect": "区分端口物理 down、发送端隔离、初始化未就绪和健康检查误判。",
+      "verify": "将端口 down/BAD 状态时间与 21:11:21~21:11:41 的 2007 窗口对齐。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET /stats/stages sample_cnt=0，错误码、Pod、链路和 trace 统计均为空；空结果仅表示本资产未解析到 GET 归因子集，不代表 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—（仅有 max=0.002ms）",
+        "share_bar": [
+          {"name": "数据面未观测", "pct": "100.0", "cls": "s-bottleneck"}
+        ],
+        "stages": [
+          {
+            "name": "数据面未观测",
+            "p99": "—（P90=0.002ms，max=0.002ms）",
+            "anomaly_rate": "19/19 归桶",
+            "fail_share": "19/19 命中故障码 2007",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "set_no_evidence 桶 19 条，Worker 侧行缺失；请求在客户端本地 UB 发送端健康检查处快速失败。"
+          },
+          {
+            "name": "URMA 超时",
+            "p99": "—",
+            "anomaly_rate": "0/19",
+            "fail_share": "0",
+            "status": "ok",
+            "detail": "set_urma_timeout 桶为 0，不符合进入数据面后等待 completion 超时。"
+          }
+        ],
+        "conclusion": "SET 与 GET 独立归桶。SET 的 19/19 样本全部落入 set_no_evidence，P90 及 max 均仅 0.002ms，说明不是慢请求，而是在进入 Worker 数据面前快速通断失败。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 19,
+    "top_error_codes": [
+      {"code": "2007", "name": "K_URMA_WORKER_UNAVAILABLE", "pct": "100.0", "fault": "F01"}
+    ],
+    "top_failure_domains": [
+      {"domain": "kvcache_access_067 / 本地URMA节点不可用", "pct": "100.0", "fault": "F01"}
+    ],
+    "top_pods": [
+      {"pod": "192.168.219.105", "host": null, "pct": "100.0", "fault": "F01"}
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "21:11:21", "level": "2", "pct": "33.3", "spike": false, "fault": "F01"},
+      {"time": "21:11:23", "level": "2", "pct": "33.3", "spike": false, "fault": "F01"},
+      {"time": "21:11:24", "level": "2", "pct": "33.3", "spike": false, "fault": "F01"},
+      {"time": "21:11:25", "level": "2", "pct": "33.3", "spike": false, "fault": "F01"},
+      {"time": "21:11:26", "level": "4", "pct": "100.0", "spike": true, "fault": "F01"},
+      {"time": "21:11:29", "level": "3", "pct": "66.7", "spike": false, "fault": "F01"},
+      {"time": "21:11:30", "level": "2", "pct": "33.3", "spike": false, "fault": "F01"},
+      {"time": "21:11:35", "level": "2", "pct": "33.3", "spike": false, "fault": "F01"},
+      {"time": "21:11:36", "level": "4", "pct": "100.0", "spike": true, "fault": "F01"},
+      {"time": "21:11:37", "level": "2", "pct": "33.3", "spike": false, "fault": "F01"},
+      {"time": "21:11:39", "level": "4", "pct": "100.0", "spike": true, "fault": "F01"},
+      {"time": "21:11:41", "level": "2", "pct": "33.3", "spike": false, "fault": "F01"}
+    ]
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "客户端本地 UB 发送端全部端口 BAD 导致 SET 快速失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 0.96,
+      "category": "error",
+      "affected_scope": "单 Pod（192.168.219.105），19 条 SET trace；未解析出 host、cluster 或 src/dst。",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-down",
+        "one_line_conclusion": "SET 请求在客户端本地 UB 发送端因 all ports are BAD 快速返回 2007；固定故障标签为硬件故障/ub端口故障-down。",
+        "fault_domain": "硬件故障/ub端口故障-down",
+        "fault_component": "客户端本地 UB 发送端",
+        "fault_function": "SET 写路径发送前健康检查",
+        "fault_function_loc": "access_recorder.cpp:1066",
+        "affected_scope_pct": 100.0,
+        "affected_scope_desc": "解析到的 19 条 SET trace 全部命中 2007；该比例是本资产解析样本口径，不是业务全量失败率。",
+        "confidence": 0.96,
+        "key_findings": [
+          "状态码 2007 在 SET 视角命中 19 条 trace，占本次逐码命中 100%；故障模式均为 kvcache_access_067。",
+          "19 条原始 access 日志逐字显示 Client-local UB endpoint unavailable: all ports are BAD。",
+          "全部故障集中在 Pod 192.168.219.105、21 秒窗口内；秒级峰值为 3 次。",
+          "SET /stats/stages 的 19/19 样本落入 set_no_evidence，P90=max=0.002ms；URMA timeout 桶为 0。",
+          "标签按用户指定的 train_valid.md 描述 worker_process_remote_ub_link_down 对应 gt_labels.json 固定为硬件故障/ub端口故障-down；资产内缺少端口遥测，无法仅凭 access 日志确认具体远端物理端口。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {"label": "错误码命中", "value": "19", "sub": "SET · 2007 · 逐码命中次数", "tone": "bad"},
+          {"label": "影响 Pod", "value": "1", "sub": "192.168.219.105", "tone": "warn"},
+          {"label": "故障跨度", "value": "21s", "sub": "21:11:21~21:11:42 查询窗", "tone": "warn"}
+        ],
+        "conclusion": "SET 视角在完整 21 秒查询窗内取得 12 个有数据原始秒桶，错误码 2007 共 19 次、占逐码命中 100%；峰值出现在 21:11:26、21:11:36 和 21:11:39，各 3 次。GET 同窗无故障事件，未并入 SET 计数。",
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "3f89879d-dcb7-4407-8696-2d2d8665dafe",
+              "operation": "SET",
+              "start_time": "2026-10-09 21:11:21",
+              "end_time": "2026-10-09 21:11:42",
+              "pod_ip": "192.168.219.105"
+            },
+            "code_filter": ["2007"],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "3f89879d-dcb7-4407-8696-2d2d8665dafe",
+                    "operation": "SET",
+                    "start_time": "2026-10-09 21:11:21",
+                    "end_time": "2026-10-09 21:11:42",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_cnt": 100,
+                    "page_num": 1,
+                    "pod_ip": "192.168.219.105"
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 12,
+                  "returned_windows": 12
+                }
+              ]
+            },
+            "coverage": {"complete": true, "returned_windows": 12, "total_windows": 12},
+            "code_distribution": {
+              "total_count": 19,
+              "items": [{"code": "2007", "count": 19, "share_pct": 100.0}],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {"start_time": "2026-10-09 21:11:21", "end_time": "2026-10-09 21:11:22", "complete": true, "counts": {"2007": 1}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:22", "end_time": "2026-10-09 21:11:23", "complete": true, "counts": {"2007": 0}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:23", "end_time": "2026-10-09 21:11:24", "complete": true, "counts": {"2007": 1}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:24", "end_time": "2026-10-09 21:11:25", "complete": true, "counts": {"2007": 1}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:25", "end_time": "2026-10-09 21:11:26", "complete": true, "counts": {"2007": 1}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:26", "end_time": "2026-10-09 21:11:27", "complete": true, "counts": {"2007": 3}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:27", "end_time": "2026-10-09 21:11:28", "complete": true, "counts": {"2007": 0}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:28", "end_time": "2026-10-09 21:11:29", "complete": true, "counts": {"2007": 0}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:29", "end_time": "2026-10-09 21:11:30", "complete": true, "counts": {"2007": 2}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:30", "end_time": "2026-10-09 21:11:31", "complete": true, "counts": {"2007": 1}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:31", "end_time": "2026-10-09 21:11:32", "complete": true, "counts": {"2007": 0}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:32", "end_time": "2026-10-09 21:11:33", "complete": true, "counts": {"2007": 0}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:33", "end_time": "2026-10-09 21:11:34", "complete": true, "counts": {"2007": 0}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:34", "end_time": "2026-10-09 21:11:35", "complete": true, "counts": {"2007": 0}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:35", "end_time": "2026-10-09 21:11:36", "complete": true, "counts": {"2007": 1}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:36", "end_time": "2026-10-09 21:11:37", "complete": true, "counts": {"2007": 3}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:37", "end_time": "2026-10-09 21:11:38", "complete": true, "counts": {"2007": 1}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:38", "end_time": "2026-10-09 21:11:39", "complete": true, "counts": {"2007": 0}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:39", "end_time": "2026-10-09 21:11:40", "complete": true, "counts": {"2007": 3}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:40", "end_time": "2026-10-09 21:11:41", "complete": true, "counts": {"2007": 0}, "other_count": 0},
+                {"start_time": "2026-10-09 21:11:41", "end_time": "2026-10-09 21:11:42", "complete": true, "counts": {"2007": 1}, "other_count": 0}
+              ]
+            }
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "资产解析成功且故障 trace 已完整落库",
+            "description": "日志文件 overall_status=successful，解析 19 条 trace，trace_failure_event_cnt=19。",
+            "evidence": "GET /log_kb/{kb_id}；POST /log_file/list/{kb_id}；GET /task/05098ed9-498d-4c05-baca-b60c11cd5eaa",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作域定位",
+            "title": "故障仅在 SET 视角被观测",
+            "description": "SET 有 19 条故障 trace；GET 的 stages、error_codes、pods、links、heatmap 和 trace/list 均无样本。GET 空结果不解释为健康。",
+            "evidence": "POST /stats/stages、/stats/error_codes、/stats/pods、/stats/links、/stats/heatmap、/trace/list，operation 分别为 GET/SET",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 错误语义",
+            "title": "2007 与 kvcache_access_067 统一指向本地 URMA 发送端不可用",
+            "description": "19/19 SET trace 均返回 2007，故障模式均为 kvcache_access_067；curated 知识解释为本地 UB 发送端被隔离、未就绪或健康检查判定不可用。",
+            "evidence": "POST /stats/error_codes；POST /log_failure_event_result/list_trace_events；GET /failure_mode/status_code/2007；GET /failure_mode/kvcache_access_067",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 原始日志确认",
+            "title": "客户端本地 UB endpoint 全部端口 BAD",
+            "description": "19 条原始 access 日志均出现 Client-local UB endpoint unavailable: all ports are BAD，Pod 均为 192.168.219.105。",
+            "evidence": "POST /log_failure_event_result/list_log_events，trace_ids=本次 19 条故障 trace",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "排除 Worker 内部慢处理和 URMA completion 等待超时",
+            "description": "19/19 SET 样本进入 set_no_evidence，P90=max=0.002ms；set_urma_timeout、set_client、set_worker 均为 0，且没有 src/dst 链路字段。",
+            "evidence": "POST /stats/stages operation=SET；POST /stats/links operation=SET",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑥ 根因定界",
+            "title": "确认直接机制，保留物理位置证据边界",
+            "description": "可确认的直接机制是客户端本地 UB 发送端全部端口 BAD，使 SET 在进入 Worker 数据面前快速失败。固定标签为硬件故障/ub端口故障-down；但资产缺少 UB/NIC/交换机端口遥测，不能进一步断言具体远端端口或物理链路位置。",
+            "evidence": "现场原始日志 + curated failure mode + 用户指定 gt_labels.json 标签映射",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "客户端本地 UB 发送端全部端口处于 BAD/不可用健康状态，导致 SET 在进入 Worker 数据面前快速返回 K_URMA_WORKER_UNAVAILABLE(2007)。故障标签固定为硬件故障/ub端口故障-down；具体远端物理端口尚需设备遥测闭环。",
+        "supporting_knowledge": "curated: status_code=2007、failure_mode=kvcache_access_067；已确认案例 UB-CASE-002638；本地经验 ds-rdma-transport-diagnosis 与 ds-rdma-transport-patterns 仅用于排查建议。"
+      },
+      "propagation": {
+        "chain": [
+          {"label": "UB 端口健康状态异常", "detail": "客户端本地发送端全部端口被判为 BAD。", "type": "cause", "transition": "健康检查判定不可用"},
+          {"label": "本地 URMA 发送端拒绝", "detail": "请求尚未进入 Worker 数据面。", "type": "cause", "transition": "返回 kvcache_access_067"},
+          {"label": "SET 快速失败", "detail": "19 条 SET trace 返回 2007，耗时 0.001~0.002ms。", "type": "impact", "transition": "写请求未完成"}
+        ],
+        "impact_scope": [
+          "操作域：SET",
+          "Pod：192.168.219.105（1 个）",
+          "时间窗：2026-10-09 21:11:21~21:11:41",
+          "错误码：2007（19 次逐码命中）",
+          "数据限制：未解析到 host、cluster、src_ip、dst_ip，GET 无样本"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "81b44cd3-8c07-49a9-9f06-9aba1d102627",
+          "kind": "error",
+          "why": "过滤条件 SET + status_code=2007 + pod=192.168.219.105 + 21:11:21~21:11:42；窗口首条代表 trace，原文含 all ports are BAD。",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.219.105",
+          "host": null,
+          "timestamp": "2026-10-09 21:11:21.378"
+        },
+        {
+          "trace_id": "40ea33fd-cf01-4d5d-b7f7-16c2ab535d72",
+          "kind": "error",
+          "why": "过滤条件 SET + status_code=2007 + pod=192.168.219.105 + 21:11:26 秒级峰值；原文含 all ports are BAD。",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.219.105",
+          "host": null,
+          "timestamp": "2026-10-09 21:11:26.327"
+        },
+        {
+          "trace_id": "1900fc11-c9c6-4fc2-9169-6b69dbcff4fa",
+          "kind": "error",
+          "why": "过滤条件 SET + status_code=2007 + pod=192.168.219.105 + 21:11:21~21:11:42；窗口末条代表 trace，原文含 all ports are BAD。",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.219.105",
+          "host": null,
+          "timestamp": "2026-10-09 21:11:41.818"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "kvcache_access_067",
+          "rank": 1,
+          "stars": 5,
+          "match_logic": "L1 命中：2007 与 kvcache_access_067 完全一致；L2 命中：SET 通断域与本地发送端不可用一致；L3 拓扑未命中：现场无 src/dst；L5 命中：原文 all ports are BAD。",
+          "symptom": "请求返回 K_URMA_WORKER_UNAVAILABLE，本地 URMA 发送 Worker 不可用。",
+          "root_cause": "客户端本地 UB 发送端被隔离、未就绪或健康检查判定不可用。",
+          "solution": "检查客户端本地 UB 发送端的隔离、初始化和健康状态；恢复发送端或切换可用传输路径。",
+          "applicability": "direct",
+          "adoption_class": "curated",
+          "adoption_label": "直接采用",
+          "phenomenon_fit": "完全一致",
+          "log_fit": "完全一致",
+          "rc_consistency": "现场日志直接支持",
+          "env_diff": "无版本信息，方案执行前需核验命令适配性",
+          "adaptation": "仅采用机制与检查方向，不把知识解释冒充额外现场证据。"
+        },
+        {
+          "id": "UB-CASE-002638",
+          "rank": 2,
+          "stars": 4,
+          "match_logic": "已人工确认案例。L1 命中：2007(share=1.0)、kvcache_access_067；L2 命中：SET、single_pod；L3 拓扑未命中：两侧均无可迁移链路对；L5 未由匹配器计分。score_norm=0.8095，案例已闭环。",
+          "symptom": "历史案例同样表现为 SET 因 Client-local UB endpoint unavailable: all ports are BAD 快速失败。",
+          "root_cause": "直接机制为客户端本地 UB 发送端全部端口 BAD；历史案例同时强调缺少 NIC/交换机证据时不能把物理触发因素写成已闭环事实。",
+          "solution": "核验本地 UB/网卡端口状态、隔离状态与健康检查；恢复端口 GOOD，刷新发送连接，并补采 NIC/交换机遥测。",
+          "applicability": "adjust",
+          "adoption_class": "confirmed_case",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高度一致",
+          "log_fit": "核心原文一致",
+          "rc_consistency": "与本次现场证据和 curated 知识一致",
+          "env_diff": "历史案例 Pod、时间窗及标签不同；本次固定标签为 ub端口故障-down，且版本未知。",
+          "adaptation": "复用直接机制与证据边界，不复用历史案例的网卡闪断标签和身份信息。"
+        },
+        {
+          "id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "rank": 3,
+          "stars": 3,
+          "match_logic": "experience-skill。L1 未提供本次 2007 的 curated 定义；L2 命中 URMA 传输域；L3 无拓扑；L5 部分命中端口/链路稳定性排查方向。",
+          "symptom": "URMA/RDMA 依赖设备和链路稳定性，连接失效后可能触发重建或回退。",
+          "root_cause": "仅作为排查先验，不能替代本次 all ports are BAD 现场证据。",
+          "solution": "同时检查 URMA 设备/链路、发送端健康状态与连接恢复；如配置允许，核验备用传输路径。",
+          "applicability": "reference",
+          "adoption_class": "experience_skill",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "部分一致",
+          "log_fit": "现场未出现 Jetty 重建日志",
+          "rc_consistency": "不与 curated 冲突",
+          "env_diff": "经验版本为 yuanrong-datasystem 0.8.1.rc20，本资产版本未知。",
+          "adaptation": "只采用设备/链路与发送端健康检查建议，不采用未观测的重建结论。"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在 192.168.219.105 所在节点保存现场后检查 UB 端口状态、隔离标志、初始化结果与健康检查；确认 BAD 端口及其对端。",
+          "按变更流程切流后恢复端口 GOOD，并刷新或重建客户端本地 UB 发送连接；若业务允许，临时切换到已验证的备用传输路径。",
+          "对 19 条失败 SET 按业务幂等性和 Write_mode=3 语义评估后受控重试，避免重复写。"
+        ],
+        "long_term": [
+          "接入 UB 端口 BAD/GOOD、carrier up/down、端口 flap、lane/速率、FEC 与连接恢复时延的关联监控。",
+          "完善端口 down 后的健康状态刷新、连接自动重建和备用路径切换闭环，并开展链路 down 演练。",
+          "补齐客户端、Worker、驱动和交换机时间同步及跨层 trace 关联，避免只有 access 单侧证据。"
+        ],
+        "verification": [
+          "连续重放同规格 8MiB SET，确认状态码 2007 不再出现。",
+          "确认 UB 端口持续为 GOOD/ACTIVE，健康检查恢复，Worker 数据面日志重新出现。",
+          "观察至少 30 分钟，确认无新的 all ports are BAD，并核对备用路径或连接重建符合 SLO。",
+          "若设备遥测没有端口 down 证据，则将物理端口故障降为未证实，转查发送端隔离、初始化与健康检查逻辑。"
+        ]
+      }
+    }
+  ],
+  "workflow": {
+    "session_id": "train-diagnosis-3f89879d-20261112",
+    "total_steps": 7,
+    "api_calls": 32,
+    "duration": "本会话实时取证",
+    "steps": [
+      {"title": "固定标签确认", "api_calls": ["读取 train_valid.md 与 gt_labels.json", "读取 report label taxonomy"], "result": "worker_process_remote_ub_link_down → 硬件故障/ub端口故障-down，标签配对合法。"},
+      {"title": "经验库预检索", "api_calls": ["experience-skill SKILL/WIKI search"], "result": "命中 URMA/RDMA 传输排查经验，仅作为先验与建议。"},
+      {"title": "数据完整性核验", "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "GET /task/{task_id}", "GET /log_parse_result/options"], "result": "解析任务 successful；19 条 trace、19 条故障事件；cluster/host 选项为空。"},
+      {"title": "GET/SET 独立组件分诊", "api_calls": ["POST /stats/stages", "POST /stats/error_codes", "POST /stats/pods", "POST /stats/links", "POST /stats/heatmap", "POST /trace/list"], "result": "GET 无样本；SET 19 条故障 trace，2007 占 100%，单 Pod，全部归入 set_no_evidence。"},
+      {"title": "Trace 与原始日志下钻", "api_calls": ["POST /log_failure_event_result/list_trace_events", "POST /log_failure_event_result/list_log_events"], "result": "19 条 trace 均为 kvcache_access_067，原文一致为 all ports are BAD。"},
+      {"title": "知识与案例核验", "api_calls": ["GET /failure_mode/status_code/2007", "GET /failure_mode/kvcache_access_067", "POST /phenomenon/search", "POST /diag_case_library/search", "GET /diag_case_library/a54be234-0b90-4552-8dcb-a2a34a2c2f2c", "POST /diag_case_library/{case_id}/hit"], "result": "curated 知识与现场一致；采用已确认案例 UB-CASE-002638 作为调整后参考并完成命中回写。"},
+      {"title": "错误分布提取与报告生成", "api_calls": ["POST /log_failure_event_result/list_time_aggregated_failure_events GET/SET", "error_features.py", "render_report.py --validate-only", "render_report.py"], "result": "GET/SET 未混桶；SET 错误时间分布由离线脚本提取，报告待本步骤校验与渲染。"}
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+      "keywords_matched": ["URMA", "link down", "连接失效"],
+      "search_query_used": "KVCache worker process remote UB link down 通断 URMA",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "分析 URMA/RDMA 问题时，需要同时检查 URMA 驱动/设备日志和系统日志。",
+      "how_used_in_diagnosis": "用于形成补采 UB 设备、驱动与系统日志的建议，不作为现场证据。",
+      "confidence_on_reference": 0.8,
+      "confidence_reason": "与 all ports are BAD 现场现象及 curated 发送端健康解释一致。"
+    },
+    {
+      "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+      "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+      "keywords_matched": ["URMA", "端口", "连接失效"],
+      "search_query_used": "KVCache worker process remote UB link down 通断 URMA",
+      "used_in_stage": "recommendation",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "Jetty 是 URMA 连接端点，失效后会触发重建或连接移除。",
+      "how_used_in_diagnosis": "仅用于建议恢复端口后刷新或重建连接；现场未观测 Jetty 日志。",
+      "confidence_on_reference": 0.7,
+      "confidence_reason": "机制方向相关，但本资产缺少 Worker/Jetty 侧证据。"
+    }
+  ]
+}

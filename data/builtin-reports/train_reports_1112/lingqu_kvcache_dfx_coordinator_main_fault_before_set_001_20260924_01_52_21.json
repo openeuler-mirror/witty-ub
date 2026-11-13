@@ -1,0 +1,533 @@
+{
+  "report": {
+    "title": "lingqu_kvcache_dfx_coordinator_main_fault_before_set_001 SET 写路径诊断报告",
+    "report_id": "TRAIN-DIAG-3f48ea8c-coordinator-main-before-set-001",
+    "generated_at": "2026-11-12T11:27:16+08:00"
+  },
+  "basic_info": {
+    "kb_id": "3f48ea8c-7e99-43fc-84c3-2e9d8ebad941",
+    "kb_name": "lingqu_kvcache_dfx_coordinator_main_fault_before_set_001_20260924_01_52_21",
+    "log_file": "8496253c-ceab-4aad-b3e0-0203584db403",
+    "operation": "GET / SET（独立口径）",
+    "time_range_start": "2026-09-24 01:50:00",
+    "time_range_end": "2026-09-24 01:54:00",
+    "total_trace_cnt": 10,
+    "fault_trace_cnt": 10,
+    "fault_ratio": "100%（仅指已解析的 10 条 SET 异常样本）",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：训练标签指定 Coordinator 主进程在 SET 前异常退出；现场 10 条 SET 均成功但客户端 Create/Publish RPC 等待形成 19.082–55.297ms 长尾。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "GET 无样本；SET 在 01:50–01:54 的 10 条已解析请求全部被标记为时延异常，但 status_code 均为 0。",
+    "confidence": "中高 82%（分类由指定标签确认，日志未保留 Coordinator 退出信号）"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Coordinator 主进程退出背景下 SET 客户端 RPC 等待升高",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 82,
+      "category": "latency",
+      "affected_scope": "集群 ci-kv-ds-1；客户端 192.168.219.97 与数据/元数据 Worker 192.168.235.165；10 条 SET 样本",
+      "conclusion": {
+        "first_level_label": "Coordinator故障",
+        "second_level_label": "Coordinator故障-进程异常退出",
+        "one_line_conclusion": "2026-09-24 01:50–01:54，指定训练标签确认 Coordinator 主进程在 SET 前异常退出；10 条 8MiB SET 均成功，但客户端 Create/Publish RPC 等待使 P99 达 55.017ms。",
+        "fault_domain": "Coordinator故障/Coordinator故障-进程异常退出",
+        "fault_component": "KVCache Coordinator 与 SET 元数据控制路径",
+        "fault_function": "SET Create/Publish 元数据 RPC",
+        "fault_function_loc": null,
+        "affected_scope_pct": "100",
+        "affected_scope_desc": "10/10 已解析 SET 样本被标为时延异常；不代表全量业务失败率",
+        "confidence": "中高 82%",
+        "key_findings": [
+          "数据完整性核验通过：日志文件 overall_status=successful，解析得到 10 条 trace、10 条异常。",
+          "GET 口径无样本；SET 口径 10 条样本全部落入 set_client 桶，P90=52.090ms、max=55.254ms。",
+          "SET 聚合 P99=55.017ms、均值=36.607ms；四个分钟窗均有异常，峰值窗为 01:50–01:51，P99=55.202ms。",
+          "访问日志显示 status_code=0，client.rpc.create_total 与 client.rpc.publish_total 各占主要等待；Worker 内部 CREATE/PUBLISH 仅 7–96μs 量级。",
+          "故障标签来自 gt_labels.json 中 coordinator_main_fault_before_set；Coordinator 日志文件为空，未保留退出信号、退出码或堆栈，因此具体崩溃机理仍有证据缺口。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET 总时延 P99",
+            "value": "55.017ms",
+            "sub": "10 条 SET 样本；max 55.297ms",
+            "tone": "danger"
+          },
+          {
+            "label": "SET 客户端段 P90",
+            "value": "52.090ms",
+            "sub": "set_client 互斥归因桶；max 55.254ms",
+            "tone": "danger"
+          },
+          {
+            "label": "Worker 内部处理",
+            "value": "42–96μs",
+            "sub": "local_worker_internal_us；明显低于客户端等待",
+            "tone": "good"
+          },
+          {
+            "label": "错误码",
+            "value": "0",
+            "sub": "10 条 SET 均返回 OK；本次表现为成功请求长尾",
+            "tone": "neutral"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p99": null,
+            "baseline": null,
+            "ratio": null,
+            "share": "100%（10/10 分类样本）",
+            "status": "bottleneck",
+            "detail": "由 /stats/stages 的 SET 独立口径定位：P50=34.014ms、P90=52.090ms、max=55.254ms；接口不提供阶段 P99，未以 P90 冒充 P99。"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": null,
+            "baseline": null,
+            "ratio": null,
+            "share": "0%（0/10 分类样本）",
+            "status": "ok",
+            "detail": "无 trace 归入 Worker 主导桶；原始 access 行的 CREATE/PUBLISH 处理为微秒量级。"
+          }
+        ],
+        "conclusion": "SET 长尾由客户端 SDK 等待窗口主导，细分日志进一步显示 Create/Publish RPC 各占主要时间；Worker 内部执行很短。GET 无数据，不能外推 GET 路径。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据可用性",
+            "title": "解析任务成功且异常样本存在",
+            "description": "资产仅含 1 个日志文件，任务 successful，解析 10 条 trace，避免把空聚合误判为健康。",
+            "evidence": "GET /log_kb、POST /log_file/list、GET /task：overall_status=successful，anomaly_cnt=10。",
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作域隔离",
+            "title": "异常仅出现在 SET 观测样本",
+            "description": "GET 的 /stats/stages、metrics 与异常明细均为空；SET 有 10 条异常，读写路径未混桶。",
+            "evidence": "/stats/stages(GET) sample_cnt=0；/stats/stages(SET) sample_cnt=10。",
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 阶段定位",
+            "title": "SET 客户端 SDK 等待主导",
+            "description": "10 条 SET 全部归入 set_client，客户端段 P90 52.090ms，而 Worker 内部处理为几十微秒。",
+            "evidence": "set_client trace_cnt=10、P50=34.014ms、P90=52.090ms、max=55.254ms；set_worker trace_cnt=0。",
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 原始日志核对",
+            "title": "Create/Publish RPC 等待而非 Worker 执行耗时",
+            "description": "10 条客户端 access 行均为 OK，latencySummary 中 create_total/publish_total 为毫秒级；Worker CREATE/PUBLISH access 为微秒级且 UpdateMeta finished。",
+            "evidence": "例如 trace b6a1...：总时延 55.297ms，create_total=25.869ms、publish_total=29.043ms；Worker CREATE=7μs、PUBLISH=36μs。",
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 标签定界",
+            "title": "采用用户指定训练标签识别 Coordinator 主进程退出",
+            "description": "train_valid.md 将该目录映射到 coordinator_main_fault_before_set，gt_labels.json 将其映射为 Coordinator故障/进程异常退出。",
+            "evidence": "外部标签证据：train_valid.md 第66行；gt_labels.json 第206–208行。Coordinator INFO 文件为空，无法从现场日志复核退出码。",
+            "confirmed": true
+          },
+          {
+            "step_label": "⑥ 反证检查",
+            "title": "未发现 URMA/网络故障或 Worker 慢处理证据",
+            "description": "错误码统计为空、URMA timeout 桶为 0、所有请求成功；历史网络案例仅 L2 阶段相似，缺少 L1 错误码和 L5 丢包/CQE 证据，未采用。",
+            "evidence": "/stats/error_codes(SET) total=0；set_urma_timeout trace_cnt=0；failure event GET/SET 均 total=0。",
+            "excluded": true,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "按用户指定的训练标签，本次故障定界为 Coordinator 主进程在 SET 前异常退出；现场日志可确认其伴随 SET Create/Publish RPC 等待长尾，但因 Coordinator 日志为空，无法进一步确认退出信号、崩溃函数或为何仍可通过重定向完成写入。",
+        "supporting_knowledge": "本地经验 ds-kv-cache-diagnosis 与 ds-client-log-analysis 仅用于确认 SET/access 日志的分析口径；根因分类来自用户指定标签，不由经验库或历史案例替代。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Coordinator 主进程异常退出",
+            "detail": "由用户指定训练标签确认；现场 Coordinator INFO 为空，缺少退出堆栈。",
+            "type": "root"
+          },
+          {
+            "label": "SET 元数据 RPC 等待增加",
+            "detail": "客户端 create_total/publish_total 为 4.846–29.043ms 量级；Worker 日志可见 redirect: 1。",
+            "type": "observed",
+            "transition": "标签所示控制面故障与现场元数据重定向同时出现，但现有日志不足以单独证明因果强度。"
+          },
+          {
+            "label": "SET 成功请求长尾",
+            "detail": "10 条 SET 均 status_code=0，端到端 19.082–55.297ms，P99=55.017ms。",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "操作域：SET；GET 无样本，不能判断是否受影响。",
+          "观测节点：客户端 192.168.219.97、Worker 192.168.235.165，集群 ci-kv-ds-1。",
+          "业务结果：样本内无写失败，影响表现为写请求时延长尾。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "b6a1b030-c34b-4a7a-9609-e47829066b19",
+          "kind": "latency",
+          "why": "SET·客户端SDK段桶内证据耗时 Top 1；该排序代表桶内证据耗时，不等同于故障严重度或普遍性。",
+          "evidence_ms": 55.254,
+          "client_ms": 55.297,
+          "pod": "192.168.219.97 / 192.168.235.165",
+          "timestamp": "2026-09-24 01:50:34.263"
+        },
+        {
+          "trace_id": "e1990614-2ece-48ad-bcc2-37ef7ff25525",
+          "kind": "latency",
+          "why": "SET·客户端SDK段桶内证据耗时 Top 2；用于核对 Create/Publish RPC 等待。",
+          "evidence_ms": 52.09,
+          "client_ms": 52.186,
+          "pod": "192.168.219.97 / 192.168.235.165",
+          "timestamp": "2026-09-24 01:52:27.416"
+        },
+        {
+          "trace_id": "345c87f3-4f38-4c84-9b05-41d3e4c97cba",
+          "kind": "latency",
+          "why": "SET·客户端SDK段桶内证据耗时 Top 3；Worker 同 trace 显示 UpdateMeta finished。",
+          "evidence_ms": 45.704,
+          "client_ms": 45.761,
+          "pod": "192.168.219.97 / 192.168.235.165",
+          "timestamp": "2026-09-24 01:50:33.827"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002545",
+          "rank": 1,
+          "stars": 2,
+          "match_logic": "L1 不命中：本次无错误码/URMA失败；L2 命中：SET、set_client、few_pods；L3 拓扑仅同为链路对；L5 部分命中 create_total，但本次无丢包证据。",
+          "symptom": "历史案例表现为 SET 客户端 RPC 等待膨胀。",
+          "root_cause": "历史案例根因为客户端网卡丢包；本次现场未观测丢包、CQE 或 URMA 错误，不能迁移该根因。",
+          "solution": "仅保留网络计数器核验作为排除项，不直接采用其网卡处置方案。",
+          "adoption_class": "not_recommended",
+          "adoption_label": "不建议直接采用",
+          "phenomenon_fit": "阶段现象部分相似",
+          "log_fit": "仅 create_total 关键词相似",
+          "rc_consistency": "根因不一致",
+          "env_diff": "本次由指定标签定界为 Coordinator 进程退出，且无网络错误证据。",
+          "adaptation": "如后续出现 NIC 错误计数增量，再重新评估。",
+          "applicability": "not_recommended"
+        },
+        {
+          "id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+          "rank": 2,
+          "stars": 3,
+          "match_logic": "L1 无错误码可匹配；L2 命中 KV SET/access 日志分析口径；L3 未提供拓扑根因；L5 命中 DS_KV_CLIENT_SET 与 status_code=0。",
+          "symptom": "经验建议按 action、StatusCode 与耗时分析 KV Cache 请求。",
+          "root_cause": "该经验不包含本次 Coordinator 退出结论，仅支撑日志解读方法。",
+          "solution": "继续按 trace_id 联查 Client 与 Worker，并核对 Coordinator 生命周期日志。",
+          "adoption_class": "reference",
+          "adoption_label": "方法参考",
+          "phenomenon_fit": "KV SET 慢调用口径吻合",
+          "log_fit": "DS_KV_CLIENT_SET、status_code=0",
+          "rc_consistency": "不冲突但不证明根因",
+          "env_diff": "经验版本为 0.8.1.rc20，本次日志显示 Client 0.9.2。",
+          "adaptation": "仅采用通用日志串联方法，不采用版本特定结论。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "恢复并核验 Coordinator 主进程/主节点健康：确认进程、Pod、主备角色和服务端口均正常，再执行同规格 8MiB SET 复测。",
+          "补采 Coordinator 退出前后的容器事件、退出码、core dump 与系统日志；当前 INFO 文件为空，不能据此确定崩溃函数。",
+          "在故障窗口按 trace_id 继续核对 Create/Publish 元数据 RPC、redirect/failover 路径，确认是否因主节点退出触发重定向等待。"
+        ],
+        "long_term": [
+          "为 Coordinator 进程退出、主备切换和不可用时长建立独立告警，并与 SET P99、create_total、publish_total 指标联动。",
+          "确保 Coordinator 生命周期日志和 core 文件持久化，避免进程退出后只留下空日志文件。",
+          "对主节点异常退出场景开展故障演练，验证 SET 在 failover 期间的时延预算、重试与幂等行为。"
+        ],
+        "verification": [
+          "连续执行同样 8MiB、Write_mode=3 的 SET 请求，确认 status_code 持续为 0，SET P99 回落至基线并不再出现 set_client 全量归桶。",
+          "确认 Coordinator 主节点稳定、无重启/退出事件，主备状态在观察期内不再切换。",
+          "对比复测前后 client.rpc.create_total 与 client.rpc.publish_total，确认等待不再达到本次 25–29ms 峰值。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复并核验 Coordinator 主进程与主备角色，补采退出码/core/容器事件。",
+      "depends_on": "Coordinator 运维与容器平台权限",
+      "expected_effect": "消除控制面退出状态并补齐根因证据。",
+      "verify": "Coordinator 稳定运行且无新增退出事件。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "执行同规格 8MiB SET 对照复测并跟踪 Create/Publish RPC 分段。",
+      "depends_on": "Coordinator 恢复",
+      "expected_effect": "确认 SET 长尾是否随 Coordinator 恢复消失。",
+      "verify": "SET P99 回落，set_client 不再覆盖全部样本。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET 归因子集为空（sample_cnt=0）；空结果仅表示本资产无 GET 样本，不表示 GET 路径健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": 55.017,
+        "share_bar": [
+          {
+            "name": "SET·客户端SDK段",
+            "pct": 100.0,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p99": null,
+            "anomaly_rate": 100.0,
+            "fail_share": null,
+            "status": "bottleneck",
+            "fault": "10/10 样本归入该桶",
+            "detail": "P90=52.090ms，max=55.254ms；阶段接口不提供 P99。"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": null,
+            "anomaly_rate": 0.0,
+            "fail_share": null,
+            "status": "ok",
+            "fault": "0/10 样本归入该桶",
+            "detail": "Worker 内部处理仅几十微秒。"
+          }
+        ],
+        "conclusion": "SET 与 GET 独立归桶；SET 样本全部由客户端 SDK 等待主导。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 10,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {
+        "domain": "Coordinator故障-进程异常退出（指定训练标签）",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "01:50",
+        "level": 4,
+        "pct": 20.0,
+        "spike": true,
+        "lat_ms": 55.202,
+        "fault": "F01"
+      },
+      {
+        "time": "01:51",
+        "level": 3,
+        "pct": 40.0,
+        "spike": false,
+        "lat_ms": 37.517,
+        "fault": "F01"
+      },
+      {
+        "time": "01:52",
+        "level": 4,
+        "pct": 30.0,
+        "spike": true,
+        "lat_ms": 51.976,
+        "fault": "F01"
+      },
+      {
+        "time": "01:53",
+        "level": 3,
+        "pct": 10.0,
+        "spike": false,
+        "lat_ms": 34.542,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-3f48ea8c",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本次会话",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences (SKILL/WIKI)"
+        ],
+        "result": "命中 KV Cache、Client 与 access 日志分析经验，作为方法参考。"
+      },
+      {
+        "title": "资产与数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务 successful，1 个日志文件，10 条异常 trace。"
+      },
+      {
+        "title": "GET/SET 独立阶段分诊",
+        "api_calls": [
+          "POST /stats/stages (GET)",
+          "POST /stats/stages (SET)"
+        ],
+        "result": "GET 无样本；SET 10 条全部归入 set_client。"
+      },
+      {
+        "title": "趋势与拓扑取证",
+        "api_calls": [
+          "POST /log_parse_result/metrics/latency",
+          "POST /aggregated_event/list",
+          "POST /aggregated_event/list_time_window",
+          "POST /stats/error_codes|pods|links|heatmap"
+        ],
+        "result": "SET P99=55.017ms，异常持续 4 个分钟窗，单一源目对。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /log_parse_result/list",
+          "本地日志只读核对"
+        ],
+        "result": "10 条 SET 均 OK，Create/Publish RPC 等待主导，Worker 内部处理短。"
+      },
+      {
+        "title": "历史案例匹配与反证",
+        "api_calls": [
+          "POST /diag_case_library/search（由 match_cases.py 调用）"
+        ],
+        "result": "候选仅 L2 阶段相似；缺少网络/URMA L1、L5 证据，均未采纳。"
+      },
+      {
+        "title": "标签映射与报告校验",
+        "api_calls": [
+          "train_valid.md + gt_labels.json",
+          "render_report.py --validate-only"
+        ],
+        "result": "标签按用户指定映射为 Coordinator故障/Coordinator故障-进程异常退出。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+        "experience_type": "SKILL",
+        "name": "ds-kv-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "KVCache",
+          "SET",
+          "写入"
+        ],
+        "search_query_used": "KVCache SET coordinator main fault before set 写入故障",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "分析 KV Cache 日志需要关注访问日志中的 DS_KV_CLIENT_* action、StatusCode、耗时和请求参数。",
+        "how_used_in_diagnosis": "用于确定 SET access 日志、状态码和耗时的核对方法，不作为根因证据。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "方法与本次 access 日志字段一致，但经验版本低于现场版本。"
+      },
+      {
+        "experience_id": "7dbeec2d-870a-4f3f-8135-6acfa4fa0754",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem KV Cache 接口日志模式",
+        "source_path": "data/wiki_hub/ds-kv-api-patterns.md",
+        "keywords_matched": [
+          "DS_KV_CLIENT_SET",
+          "Write_mode"
+        ],
+        "search_query_used": "KVCache SET coordinator main fault before set 写入故障",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "DS_KV_CLIENT_SET | 设置/写入值",
+        "how_used_in_diagnosis": "用于确认 DS_KV_CLIENT_SET 属于写操作，保持 GET/SET 分析隔离。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与现场 action 完全一致。"
+      },
+      {
+        "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+        "experience_type": "SKILL",
+        "name": "ds-client-log-analysis",
+        "source_path": "data/skill_hub/ds-client-log-analysis/skill_def.md",
+        "keywords_matched": [
+          "client",
+          "access",
+          "trace_id"
+        ],
+        "search_query_used": "SET client.rpc.create_total client.rpc.publish_total redirect Coordinator",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "分析 Client 日志时，应同时获取对应 Worker 日志和访问日志。",
+        "how_used_in_diagnosis": "按 trace_id 联查 Client/Worker，验证等待在客户端 RPC 而非 Worker 执行。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "联查方法被本次相同 trace 的两侧日志验证。"
+      },
+      {
+        "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 访问日志模式",
+        "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+        "keywords_matched": [
+          "status_code",
+          "cost",
+          "Write_mode"
+        ],
+        "search_query_used": "SET client.rpc.create_total client.rpc.publish_total redirect Coordinator",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "访问日志记录每一次访问客户端/服务端的请求，每个请求一条日志。",
+        "how_used_in_diagnosis": "用于解释 status_code=0 与 cost 字段，确认本次是成功请求长尾。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "字段定义与本次 access 日志一致。"
+      }
+    ],
+    "summary": {
+      "total_references": 4,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 4,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于日志分析方法和字段解释；Coordinator 退出分类来自用户指定训练标签，现场事实仍以 API 与原始日志为准。"
+    }
+  }
+}

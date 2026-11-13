@@ -1,0 +1,1527 @@
+{
+  "report": {
+    "title": "KVCache 远端 UB 端口中断导致 SET 通断故障诊断报告",
+    "report_id": "diag-e45ad324-remote-ub-port-down-20261112",
+    "generated_at": "2026-11-12 12:41:22"
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+        "experience_type": "SKILL",
+        "name": "umdk-link-failure-diagnosis",
+        "source_path": "data/skill_hub/umdk-link-failure-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "UB",
+          "port down",
+          "URMA"
+        ],
+        "search_query_used": "KVCache remote UB all port down URMA timeout 通断",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "出现 PORT_DOWN 时，优先检查物理连接和对端状态。",
+        "how_used_in_diagnosis": "用于形成端口状态、对端与物理链路核验建议。",
+        "confidence_on_reference": 0.72,
+        "confidence_reason": "方向与 URMA 写发送失败相符，但现场无 PORT_DOWN 原文。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "K_URMA_ERROR",
+          "1004",
+          "TCP fallback"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+        "how_used_in_diagnosis": "用于补充 URMA 设备、Jetty、链路和 TCP 回退检查项。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与 curated 1004 解释及现场 send WR 失败一致。"
+      },
+      {
+        "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+        "experience_type": "SKILL",
+        "name": "ds-cluster-management-diagnosis",
+        "source_path": "data/skill_hub/ds-cluster-management-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "remote",
+          "down"
+        ],
+        "search_query_used": "KVCache remote UB all port down URMA timeout 通断",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Submit scale down task of ... with traceid ...",
+        "how_used_in_diagnosis": "未发现扩缩容或控制面事件，未采用。",
+        "confidence_on_reference": 0.2,
+        "confidence_reason": "现场证据集中于 URMA 数据面写发送。"
+      },
+      {
+        "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+        "experience_type": "SKILL",
+        "name": "ds-hash-ring-metadata-diagnosis",
+        "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "remote",
+          "down"
+        ],
+        "search_query_used": "KVCache remote UB all port down URMA timeout 通断",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Submit async task to migrate meta.",
+        "how_used_in_diagnosis": "无元数据迁移证据，未采用。",
+        "confidence_on_reference": 0.15,
+        "confidence_reason": "同 trace 的 Worker CREATE 成功，故障边界在 URMA 写发送。"
+      },
+      {
+        "experience_id": "e9c85879-f805-4594-9888-55304c09e952",
+        "experience_type": "SKILL",
+        "name": "umdk-urma-cr-log-analysis",
+        "source_path": "data/skill_hub/umdk-urma-cr-log-analysis/skill_def.md",
+        "keywords_matched": [
+          "URMA",
+          "ret"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "如果日志中出现 udriver return fail，必须同时检查 dmesg 中的内核日志。",
+        "how_used_in_diagnosis": "现场没有 CR 创建或 udriver return fail 模式，未采用其根因分支。",
+        "confidence_on_reference": 0.25,
+        "confidence_reason": "与现场 send WR 提交失败不是同一日志模式。"
+      },
+      {
+        "experience_id": "4ddc5242-7261-4657-a860-78d518b063a3",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem ETCD 事件模式",
+        "source_path": "data/wiki_hub/ds-etcd-event-patterns.md",
+        "keywords_matched": [
+          "down"
+        ],
+        "search_query_used": "KVCache remote UB all port down URMA timeout 通断",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Submit scale down task of ... with traceid ...",
+        "how_used_in_diagnosis": "无 ETCD/scale-down 现场证据，未采用。",
+        "confidence_on_reference": 0.1,
+        "confidence_reason": "现场故障码与日志均指向 URMA 数据面。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "K_URMA_ERROR",
+          "1004",
+          "fallback"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+        "how_used_in_diagnosis": "用于校验 1004 的排查方向并补充回退路径检查。",
+        "confidence_on_reference": 0.88,
+        "confidence_reason": "与 curated 知识和现场日志一致。"
+      },
+      {
+        "experience_id": "1af1c583-204d-4538-ab34-e166258aa3c7",
+        "experience_type": "WIKI",
+        "name": "UMDK URMA 管理工具 urma_admin 使用指南",
+        "source_path": "data/wiki_hub/umdk-urma-admin-tools.md",
+        "keywords_matched": [
+          "URMA",
+          "port"
+        ],
+        "search_query_used": "KVCache remote UB all port down URMA timeout 通断",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "urma_admin port show | 显示所有端口状态",
+        "how_used_in_diagnosis": "用于制定恢复前后的端口状态核验步骤。",
+        "confidence_on_reference": 0.78,
+        "confidence_reason": "可直接验证当前应用日志缺失的端口状态。"
+      },
+      {
+        "experience_id": "16a80c45-8dd6-4c90-bebb-920dc6d06878",
+        "experience_type": "WIKI",
+        "name": "UMDK URMA 性能测试工具 urma_perftest 使用指南",
+        "source_path": "data/wiki_hub/umdk-urma-perftest-guide.md",
+        "keywords_matched": [
+          "URMA",
+          "PORT_DOWN"
+        ],
+        "search_query_used": "KVCache remote UB all port down URMA timeout 通断",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "是否有 URMA_EVENT_PORT_DOWN 或 ELR_ERR",
+        "how_used_in_diagnosis": "用于建议修复后做 URMA 链路复测。",
+        "confidence_on_reference": 0.65,
+        "confidence_reason": "适合验证，但本次未提供工具实测结果。"
+      },
+      {
+        "experience_id": "7212dc72-ac75-4803-a6bf-5f1625216a01",
+        "experience_type": "WIKI",
+        "name": "UMDK URMA 错误日志模式",
+        "source_path": "data/wiki_hub/umdk-urma-error-log-patterns.md",
+        "keywords_matched": [
+          "URMA",
+          "error"
+        ],
+        "search_query_used": "KVCache remote UB all port down URMA timeout 通断",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "CheckConnectionStable failed, remoteAddress=<ip:port>, rc=code: [Urma needs to connect]",
+        "how_used_in_diagnosis": "现场未命中连接稳定性或重连日志模式，未采用。",
+        "confidence_on_reference": 0.3,
+        "confidence_reason": "本次直接命中 urma_post_jetty_send_wr 返回 4096。"
+      },
+      {
+        "experience_id": "a43dcf67-d3bb-4fb5-99ba-e47e6343ea7d",
+        "experience_type": "SKILL",
+        "name": "ds-shared-memory-diagnosis",
+        "source_path": "data/skill_hub/ds-shared-memory-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "TCP"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "SCMTCP 用于跨节点（或同节点 TCP），UDS 用于同节点 Unix Domain Socket。",
+        "how_used_in_diagnosis": "现场无共享内存或 fd 传递错误，未采用。",
+        "confidence_on_reference": 0.1,
+        "confidence_reason": "错误发生在 URMA WRITE 发送边界。"
+      },
+      {
+        "experience_id": "a97a8e58-94b9-4f35-b97c-bf2534f5ce40",
+        "experience_type": "SKILL",
+        "name": "ds-performance-degradation-diagnosis",
+        "source_path": "data/skill_hub/ds-performance-degradation-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "fallback",
+          "TCP",
+          "URMA"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "传输层回退 TCP 会显著降低吞吐，应优先保证 URMA/RDMA 稳定。",
+        "how_used_in_diagnosis": "用于补充高速链路恢复优先级和回退容量风险。",
+        "confidence_on_reference": 0.7,
+        "confidence_reason": "现场明确记录 TCP fallback 被 limiter 拒绝。"
+      },
+      {
+        "experience_id": "b18b84cb-872d-46d2-be91-97791fabc2a3",
+        "experience_type": "SKILL",
+        "name": "ds-stream-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-stream-cache-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "URMA",
+          "TCP"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "远端 producer/consumer 依赖 URMA/RDMA 或 TCP 传输。",
+        "how_used_in_diagnosis": "本次为 KV SET 而非 Stream Cache，未采用。",
+        "confidence_on_reference": 0.1,
+        "confidence_reason": "业务操作域不一致。"
+      },
+      {
+        "experience_id": "862f89c4-27af-4ac8-90b9-266f48ff6b32",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 共享内存日志模式",
+        "source_path": "data/wiki_hub/ds-shared-memory-patterns.md",
+        "keywords_matched": [
+          "TCP"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Client 尝试连接到 Worker 的 fd 传递端点（SCMTCP 或 UDS）。",
+        "how_used_in_diagnosis": "无共享内存通道故障证据，未采用。",
+        "confidence_on_reference": 0.1,
+        "confidence_reason": "现场日志明确是 URMA WRITE。"
+      },
+      {
+        "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 访问日志模式",
+        "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+        "keywords_matched": [
+          "URMA",
+          "access log"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "网络/传输层异常（URMA 连接失效、TCP 拥塞）。",
+        "how_used_in_diagnosis": "用于辅助解释访问日志中的传输层故障边界。",
+        "confidence_on_reference": 0.6,
+        "confidence_reason": "方向相符，但根因仍以现场 API 和 curated 知识为准。"
+      },
+      {
+        "experience_id": "7d5778d5-400a-47b9-baed-6c63d66a4514",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 日志格式说明",
+        "source_path": "data/wiki_hub/ds-log-format.md",
+        "keywords_matched": [
+          "payload"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "data_size | 16 | Publish 请求接收到的 Payload 大小",
+        "how_used_in_diagnosis": "日志字段已由解析 API 给出，无需额外采用格式解释。",
+        "confidence_on_reference": 0.35,
+        "confidence_reason": "不影响根因排序。"
+      },
+      {
+        "experience_id": "d068a8f2-0422-4cdf-91db-8541070e1c96",
+        "experience_type": "WIKI",
+        "name": "UMDK URMA CR 操作状态码日志模式",
+        "source_path": "data/wiki_hub/umdk-urma-cr-status-log-patterns.md",
+        "keywords_matched": [
+          "URMA",
+          "ret"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "udriver return fail",
+        "how_used_in_diagnosis": "现场无 CR/udriver 日志模式，未采用。",
+        "confidence_on_reference": 0.15,
+        "confidence_reason": "与 send WR 提交边界不一致。"
+      }
+    ],
+    "summary": {
+      "total_references": 17,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 7,
+      "considered_not_adopted_count": 10,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "已记录诊断前后两轮经验检索的全部唯一命中；经验仅用于提出检查项和建议，根因事实仍以本次 API 与原始日志证据为准。"
+    }
+  },
+  "basic_info": {
+    "kb_id": "e45ad324-ddd9-444c-9e60-676c1e34badc",
+    "kb_name": "lingqu_kvcache_dfx_remote_ub_all_port_down_001_20261009_08_35_52",
+    "log_file": "lingqu_kvcache_dfx_remote_ub_all_port_down_001_20261009_08_35_52",
+    "operation": "SET（GET 独立核验无故障命中）",
+    "time_range_start": "2026-10-09 08:35:47",
+    "time_range_end": "2026-10-09 08:36:52",
+    "total_trace_cnt": 28,
+    "fault_trace_cnt": 28,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：远端 UB 端口中断使 SET 的 URMA 写发送持续失败，且大对象 TCP 回退不可用。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "28/28 条已解析 SET trace 返回 1004，固定影响 192.168.235.151 → 192.168.219.90:31501 写路径；GET 无故障命中。",
+    "confidence": "高 88%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "远端 UB 端口中断导致 SET 的 URMA WRITE 提交失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 88,
+      "category": "error",
+      "affected_scope": "SET · 192.168.235.151 → 192.168.219.90:31501 · 28 条故障 trace · 08:35:47–08:36:52",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-down",
+        "one_line_conclusion": "远端 UB 端口中断使 28 条 SET 的 URMA WRITE 在 send WR 边界返回 ret=4096，并因 TCP 回退容量限制最终上浮 K_URMA_ERROR(1004)。",
+        "fault_domain": "硬件故障/ub端口故障-down",
+        "fault_component": "远端 UB 端口 / URMA 数据面",
+        "fault_function": "urma_post_jetty_send_wr",
+        "fault_function_loc": "access_recorder.cpp:1066（调用失败上浮点）",
+        "affected_scope_pct": "100%（28/28 条已解析 SET trace）",
+        "affected_scope_desc": "单一 Client→Worker 写路径；源端两个 srcChipId（1/2）均失败，目标 192.168.219.90:31501；GET 未检出同类故障。",
+        "confidence": "88%",
+        "key_findings": [
+          "SET 独立口径下 28 条 trace 全部命中 1004 与 kvcache_access_022；GET 错误码统计为 0。",
+          "原始日志逐条记录 call urma_post_jetty_send_wr failed, ret: 4096，源 192.168.235.151、目标 192.168.219.90:31501。",
+          "8 MiB SET 在 URMA 失败后尝试 TCP fallback，但 8 MiB 不小于 1 MiB limiter，降级路径被拒绝。",
+          "同 trace 的 Worker DS_POSIX_CREATE 返回 0，削弱 Worker 进程退出、对象创建失败作为首要根因的解释。",
+          "远端 UB 全端口 down 的具体物理范围来自用户指定训练标签；应用日志直接确认的是 URMA 写发送边界失败，仍建议用端口遥测闭环。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "e45ad324-ddd9-444c-9e60-676c1e34badc",
+              "operation": "GET",
+              "start_time": "2026-10-09 08:35:00",
+              "end_time": "2026-10-09 08:37:00"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "e45ad324-ddd9-444c-9e60-676c1e34badc",
+                    "start_time": "2026-10-09 08:35:00",
+                    "end_time": "2026-10-09 08:37:00",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100,
+                    "operation": "GET"
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 0,
+                  "returned_windows": 0
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 0,
+              "total_windows": 0
+            },
+            "code_distribution": {
+              "total_count": 0,
+              "items": [],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 3,
+              "windows": [
+                {
+                  "start_time": "2026-10-09 08:35:00",
+                  "end_time": "2026-10-09 08:35:03",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:03",
+                  "end_time": "2026-10-09 08:35:06",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:06",
+                  "end_time": "2026-10-09 08:35:09",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:09",
+                  "end_time": "2026-10-09 08:35:12",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:12",
+                  "end_time": "2026-10-09 08:35:15",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:15",
+                  "end_time": "2026-10-09 08:35:18",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:18",
+                  "end_time": "2026-10-09 08:35:21",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:21",
+                  "end_time": "2026-10-09 08:35:24",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:24",
+                  "end_time": "2026-10-09 08:35:27",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:27",
+                  "end_time": "2026-10-09 08:35:30",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:30",
+                  "end_time": "2026-10-09 08:35:33",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:33",
+                  "end_time": "2026-10-09 08:35:36",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:36",
+                  "end_time": "2026-10-09 08:35:39",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:39",
+                  "end_time": "2026-10-09 08:35:42",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:42",
+                  "end_time": "2026-10-09 08:35:45",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:45",
+                  "end_time": "2026-10-09 08:35:48",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:48",
+                  "end_time": "2026-10-09 08:35:51",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:51",
+                  "end_time": "2026-10-09 08:35:54",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:54",
+                  "end_time": "2026-10-09 08:35:57",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:57",
+                  "end_time": "2026-10-09 08:36:00",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:00",
+                  "end_time": "2026-10-09 08:36:03",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:03",
+                  "end_time": "2026-10-09 08:36:06",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:06",
+                  "end_time": "2026-10-09 08:36:09",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:09",
+                  "end_time": "2026-10-09 08:36:12",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:12",
+                  "end_time": "2026-10-09 08:36:15",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:15",
+                  "end_time": "2026-10-09 08:36:18",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:18",
+                  "end_time": "2026-10-09 08:36:21",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:21",
+                  "end_time": "2026-10-09 08:36:24",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:24",
+                  "end_time": "2026-10-09 08:36:27",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:27",
+                  "end_time": "2026-10-09 08:36:30",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:30",
+                  "end_time": "2026-10-09 08:36:33",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:33",
+                  "end_time": "2026-10-09 08:36:36",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:36",
+                  "end_time": "2026-10-09 08:36:39",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:39",
+                  "end_time": "2026-10-09 08:36:42",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:42",
+                  "end_time": "2026-10-09 08:36:45",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:45",
+                  "end_time": "2026-10-09 08:36:48",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:48",
+                  "end_time": "2026-10-09 08:36:51",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:51",
+                  "end_time": "2026-10-09 08:36:54",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:54",
+                  "end_time": "2026-10-09 08:36:57",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:57",
+                  "end_time": "2026-10-09 08:37:00",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "e45ad324-ddd9-444c-9e60-676c1e34badc",
+              "operation": "SET",
+              "start_time": "2026-10-09 08:35:00",
+              "end_time": "2026-10-09 08:37:00"
+            },
+            "code_filter": [
+              "1004"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "e45ad324-ddd9-444c-9e60-676c1e34badc",
+                    "start_time": "2026-10-09 08:35:00",
+                    "end_time": "2026-10-09 08:37:00",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100,
+                    "operation": "SET"
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 22,
+                  "returned_windows": 22
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 22,
+              "total_windows": 22
+            },
+            "code_distribution": {
+              "total_count": 28,
+              "items": [
+                {
+                  "code": "1004",
+                  "count": 28,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 3,
+              "windows": [
+                {
+                  "start_time": "2026-10-09 08:35:00",
+                  "end_time": "2026-10-09 08:35:03",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:03",
+                  "end_time": "2026-10-09 08:35:06",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:06",
+                  "end_time": "2026-10-09 08:35:09",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:09",
+                  "end_time": "2026-10-09 08:35:12",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:12",
+                  "end_time": "2026-10-09 08:35:15",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:15",
+                  "end_time": "2026-10-09 08:35:18",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:18",
+                  "end_time": "2026-10-09 08:35:21",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:21",
+                  "end_time": "2026-10-09 08:35:24",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:24",
+                  "end_time": "2026-10-09 08:35:27",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:27",
+                  "end_time": "2026-10-09 08:35:30",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:30",
+                  "end_time": "2026-10-09 08:35:33",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:33",
+                  "end_time": "2026-10-09 08:35:36",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:36",
+                  "end_time": "2026-10-09 08:35:39",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:39",
+                  "end_time": "2026-10-09 08:35:42",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:42",
+                  "end_time": "2026-10-09 08:35:45",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:45",
+                  "end_time": "2026-10-09 08:35:48",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:48",
+                  "end_time": "2026-10-09 08:35:51",
+                  "complete": true,
+                  "counts": {
+                    "1004": 3
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:51",
+                  "end_time": "2026-10-09 08:35:54",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:54",
+                  "end_time": "2026-10-09 08:35:57",
+                  "complete": true,
+                  "counts": {
+                    "1004": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:35:57",
+                  "end_time": "2026-10-09 08:36:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:00",
+                  "end_time": "2026-10-09 08:36:03",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:03",
+                  "end_time": "2026-10-09 08:36:06",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:06",
+                  "end_time": "2026-10-09 08:36:09",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:09",
+                  "end_time": "2026-10-09 08:36:12",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:12",
+                  "end_time": "2026-10-09 08:36:15",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:15",
+                  "end_time": "2026-10-09 08:36:18",
+                  "complete": true,
+                  "counts": {
+                    "1004": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:18",
+                  "end_time": "2026-10-09 08:36:21",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:21",
+                  "end_time": "2026-10-09 08:36:24",
+                  "complete": true,
+                  "counts": {
+                    "1004": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:24",
+                  "end_time": "2026-10-09 08:36:27",
+                  "complete": true,
+                  "counts": {
+                    "1004": 3
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:27",
+                  "end_time": "2026-10-09 08:36:30",
+                  "complete": true,
+                  "counts": {
+                    "1004": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:30",
+                  "end_time": "2026-10-09 08:36:33",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:33",
+                  "end_time": "2026-10-09 08:36:36",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:36",
+                  "end_time": "2026-10-09 08:36:39",
+                  "complete": true,
+                  "counts": {
+                    "1004": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:39",
+                  "end_time": "2026-10-09 08:36:42",
+                  "complete": true,
+                  "counts": {
+                    "1004": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:42",
+                  "end_time": "2026-10-09 08:36:45",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:45",
+                  "end_time": "2026-10-09 08:36:48",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:48",
+                  "end_time": "2026-10-09 08:36:51",
+                  "complete": true,
+                  "counts": {
+                    "1004": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:51",
+                  "end_time": "2026-10-09 08:36:54",
+                  "complete": true,
+                  "counts": {
+                    "1004": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:54",
+                  "end_time": "2026-10-09 08:36:57",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 08:36:57",
+                  "end_time": "2026-10-09 08:37:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 在查询窗内未检出故障码；SET 独立口径下取得 28 次错误码命中，全部为 1004（K_URMA_ERROR），分布于 2026-10-09 08:35:47–08:36:52。计数为时间聚合接口的逐码命中次数，不是业务失败率；GET 空结果仅表示该解析口径无命中，不等于 GET 路径已被证明健康。",
+        "metrics": [
+          {
+            "label": "SET 故障 trace",
+            "value": "28",
+            "sub": "全部命中 1004",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "1004",
+            "sub": "K_URMA_ERROR · 逐码命中占比 100%",
+            "tone": "danger"
+          },
+          {
+            "label": "故障时间窗",
+            "value": "66s",
+            "sub": "08:35:47–08:36:52",
+            "tone": "warn"
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "01",
+            "title": "确认数据可用",
+            "description": "日志文件 overall_status=successful，任务进度 100%，解析 28 条 trace 并产生 28 条故障 trace。",
+            "evidence": "GET /log_kb；POST /log_file/list；GET /task/7d60b2d8-7cd7-47d6-ac08-f5c3ab7a7c3d。",
+            "confirmed": true
+          },
+          {
+            "step_label": "02",
+            "title": "隔离 GET 与 SET",
+            "description": "GET 的 stages、错误码和 heatmap 均无命中；SET 有 28 条 1004。两种操作未混桶。",
+            "evidence": "POST /stats/stages(GET/SET)；POST /stats/error_codes(GET/SET)；秒级时间聚合。",
+            "confirmed": true
+          },
+          {
+            "step_label": "03",
+            "title": "定位 URMA 写发送边界",
+            "description": "28 条故障均为 K_URMA_ERROR(1004)/kvcache_access_022，代表日志明确记录 urma_post_jetty_send_wr ret=4096。",
+            "evidence": "trace_id=e6f95127-f5aa-45f1-a22b-4c42be80bb02、f2f01e7a-22b1-4886-bb7d-707a95596bd4、e18aca92-cb23-4bc0-960c-c463ff217777。",
+            "confirmed": true
+          },
+          {
+            "step_label": "04",
+            "title": "确认固定故障路径",
+            "description": "故障事件均从 192.168.235.151 指向 192.168.219.90:31501；srcChipId 1/2 均出现失败，符合远端数据面不可用而非单一源芯片局部故障。",
+            "evidence": "POST /log_failure_event_result/list_trace_events 与 list_log_events。",
+            "confirmed": true
+          },
+          {
+            "step_label": "05",
+            "title": "识别放大因素",
+            "description": "URMA 主路径失败后，8 MiB 请求的 TCP fallback 被 1 MiB limiter 拒绝，故没有可用降级通道。",
+            "evidence": "原始日志：fallback tcp payload rejected by limiter: client->worker payload 8388608 bytes is not smaller than the limit 1048576 bytes。",
+            "confirmed": true
+          },
+          {
+            "step_label": "06",
+            "title": "反证检查",
+            "description": "同 trace 的 Worker DS_POSIX_CREATE 状态码为 0；SET 证据耗时 P90 仅 0.341ms、max 0.364ms，未显示 Worker 慢处理或超时主导。",
+            "evidence": "list_log_events 与 /stats/stages(SET)；但端口 down 的全端口范围仍需设备遥测直接证明。",
+            "excluded": true
+          }
+        ],
+        "confirmed_root_cause": "用户指定故障标签为远端 UB 全端口 down；本次现场应用证据确认其上浮机理为固定 Client→Worker 路径上的 URMA WRITE send WR 提交失败（ret=4096），并因 8 MiB 请求超过 1 MiB TCP fallback limiter 而无法降级，最终返回 K_URMA_ERROR(1004)。",
+        "supporting_knowledge": "Curated 状态码 1004 与 failure_mode=kvcache_access_022 均解释为 URMA 传输/设备/Jetty/事件等底层错误；已确认历史案例 UB-CASE-002552 在 1004、kvcache_access_022、SET、大对象 fallback 拒绝方面高度一致，但其物理分类为带宽不足，故仅调整后复用处置思路。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "远端 UB 端口 down",
+            "detail": "目标侧 UB 数据面不可用；具体端口状态需由设备遥测复核。",
+            "type": "root"
+          },
+          {
+            "label": "URMA WRITE 提交失败",
+            "detail": "urma_post_jetty_send_wr 返回 ret=4096，固定指向 192.168.219.90:31501。",
+            "type": "failure",
+            "transition": "URMA 数据面不可用使 send WR 无法提交"
+          },
+          {
+            "label": "TCP 降级被拒",
+            "detail": "8 MiB payload 超过 1 MiB fallback limiter。",
+            "type": "amplifier",
+            "transition": "主路径失败后无可用降级通道"
+          },
+          {
+            "label": "SET 返回 1004",
+            "detail": "28 条写请求上浮 K_URMA_ERROR，GET 未检出同类故障。",
+            "type": "impact",
+            "transition": "传输失败暴露给业务"
+          }
+        ],
+        "impact_scope": [
+          "SET 写路径",
+          "192.168.235.151 → 192.168.219.90:31501",
+          "28 条故障 trace",
+          "8 MiB 大对象无法 TCP 回退"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "e6f95127-f5aa-45f1-a22b-4c42be80bb02",
+          "kind": "error",
+          "why": "status_code=1004 + pod=192.168.235.151/192.168.219.90 + 08:35:47–08:36:52；URMA send WR 失败且 fallback 被拒",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.235.151 → 192.168.219.90",
+          "timestamp": "2026-10-09 08:36:02"
+        },
+        {
+          "trace_id": "f2f01e7a-22b1-4886-bb7d-707a95596bd4",
+          "kind": "error",
+          "why": "status_code=1004 + pod=192.168.235.151/192.168.219.90 + 08:35:47–08:36:52；srcChipId=2 仍失败",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.235.151 → 192.168.219.90",
+          "timestamp": "2026-10-09 08:36:49"
+        },
+        {
+          "trace_id": "e18aca92-cb23-4bc0-960c-c463ff217777",
+          "kind": "error",
+          "why": "status_code=1004 + pod=192.168.235.151/192.168.219.90 + 08:35:47–08:36:52；故障窗末端仍持续",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.235.151 → 192.168.219.90",
+          "timestamp": "2026-10-09 08:36:52"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_022",
+          "stars": "★★★★★",
+          "match_logic": "L1：1004 与 failure_mode 精确命中；L2：URMA/硬件故障域和 SET 写域命中；L3：固定 Client→Worker 拓扑吻合；L5：send WR 失败原文佐证。",
+          "symptom": "请求返回 K_URMA_ERROR，URMA 传输或资源操作失败。",
+          "root_cause": "URMA 库、设备、上下文、Jetty、内存段、事件或异步处理发生底层错误。",
+          "solution": "检查 URMA 库、设备、上下文、Jetty、内存段或事件状态；确认环境与设备健康后重试。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "与 28 条 1004 和 send WR 失败完全一致。",
+          "log_fit": "failure_mode_id 由本次 trace API 返回。",
+          "rc_consistency": "一致，但 curated 不细化到具体端口。",
+          "env_diff": "无版本信息，无法做版本同构判断。",
+          "adaptation": "结合端口遥测将 URMA 通用故障收敛到具体物理端口。",
+          "applicability": "direct"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002552",
+          "stars": "★★★★☆",
+          "match_logic": "L1：1004 与 kvcache_access_022 命中；L2：SET、few_pods 命中但历史标签为带宽不足；L3：历史未以本次源目身份匹配；L5：8 MiB fallback 超 1 MiB limiter 文本高度一致。",
+          "symptom": "SET 大对象的 URMA 失败后，TCP fallback 因容量限制被拒。",
+          "root_cause": "URMA 主路径失败且大对象没有可用的 TCP 降级通道。",
+          "solution": "恢复 URMA 路径，并在容量评估后调整 fallback 限制或对大对象分块。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "错误码、操作、故障模式及 fallback 拒绝高度一致。",
+          "log_fit": "本次是快速 send WR ret=4096，历史包含 completion 等待，时延形态不同。",
+          "rc_consistency": "传输与降级机理一致，物理标签不同。",
+          "env_diff": "历史路径和物理分类不同。",
+          "adaptation": "仅复用 fallback 与 URMA 健康检查方案，不复用带宽不足结论。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "③",
+          "id": "experience:f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": "★★★☆☆",
+          "match_logic": "L1：经验含 K_URMA_ERROR=1004；L2：URMA/TCP 传输域命中；L3：未提供本次拓扑；L5：建议检查 Jetty、设备、链路与 fallback。",
+          "symptom": "URMA/RDMA 连接或 Jetty 失效后请求失败并可能尝试 TCP 回退。",
+          "root_cause": "设备、链路、Jetty 或远端状态异常。",
+          "solution": "同时检查 URMA 驱动/设备、Jetty、远端状态和 TCP fallback 配置。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为建议",
+          "phenomenon_fit": "可解释传输层故障方向。",
+          "log_fit": "未命中其重连类日志，仅命中 1004 与 fallback。",
+          "rc_consistency": "方向一致，粒度较粗。",
+          "env_diff": "经验适配 yuanrong-datasystem 0.8.1.rc20，本次未取得版本。",
+          "adaptation": "只采用与现场证据一致的检查项。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即隔离或切走指向 192.168.219.90:31501 的 SET 流量，避免 1004 持续暴露给业务。",
+          "在目标及对端执行 urma_admin port show，确认所有相关 UB 端口、lane、速率与链路状态；恢复 down 端口后再放量。",
+          "采集故障同窗的 dmesg、驱动/固件、交换端口事件，确认 PORT_DOWN/ELR_ERR/复位事件并保留证据。",
+          "若业务必须继续写入，在容量和拥塞风险评估后临时提高 TCP fallback 的 1 MiB 限制，或把 8 MiB 对象分片到限制以下。"
+        ],
+        "long_term": [
+          "建立 UB 端口状态、lane、CRC/drop、驱动复位与 K_URMA_ERROR(1004) 的时间关联告警。",
+          "为 Worker 目标链路配置健康摘除与 SET 流量快速切换，避免单一目标数据面故障放大。",
+          "补齐 ret=4096 到当前 URMA provider/驱动版本的状态码映射，并记录 Jetty、send lane、pending WR 和 completion 诊断信息。",
+          "按最大对象和并发量重新设计 TCP fallback 限制、限流与分片策略，确保高速链路故障时存在可验证的降级路径。"
+        ],
+        "verification": [
+          "所有相关 UB 端口连续 30 分钟保持 UP，lane/速率符合基线，驱动与交换侧无新增 down/reset。",
+          "沿 192.168.235.151 → 192.168.219.90:31501 连续执行不少于 1000 次 8 MiB SET，成功率 100%，无 1004、ret=4096 或 fallback rejected。",
+          "分别复测 GET 与 SET；GET/SET 使用各自独立统计口径，确认故障码为 0 且 SET 不再出现 URMA send WR 失败。",
+          "如调整 fallback，主动模拟 URMA 不可用并验证 8 MiB 写入可受控降级，同时监控 CPU、内存和以太网拥塞。"
+        ]
+      },
+      "simplified": false,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "隔离目标写路径并恢复远端 UB 端口状态。",
+      "depends_on": "目标侧 UB/交换机运维权限",
+      "expected_effect": "停止新增 URMA send WR 失败和 1004。",
+      "verify": "端口全 UP，连续 1000 次 8 MiB SET 无错误。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补采两端及交换侧同窗端口、驱动、固件证据。",
+      "depends_on": "日志与设备遥测可用",
+      "expected_effect": "闭环全端口 down 的具体物理位置和触发原因。",
+      "verify": "端口事件时间与 08:35:47–08:36:52 的 1004 时间线对齐。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "评估并修正大对象 TCP fallback 容量策略。",
+      "depends_on": "容量与拥塞风险评估",
+      "expected_effect": "URMA 异常时 8 MiB SET 仍有受控降级路径。",
+      "verify": "故障注入下写入成功，且资源与网络指标不越限。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "GET 归因样本",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "sample_cnt=0；空结果不作为 GET 健康证明。"
+          }
+        ],
+        "conclusion": "GET 无归因样本、无错误码和故障 heatmap 命中；仅说明当前日志范围未观测到 GET 故障。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "客户端 SDK 段",
+            "pct": "100.0",
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "客户端 SDK 段",
+            "p99": "—",
+            "anomaly_rate": "0%（时延异常标记）",
+            "fail_share": null,
+            "status": "ok",
+            "fault": "F01",
+            "detail": "28 条归因样本；证据耗时 P90=0.341ms、max=0.364ms。错误码故障另由通断接口确认，不能用 fail_cnt=0 否定。"
+          },
+          {
+            "name": "Worker 写处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "无主导样本；代表 trace 的 DS_POSIX_CREATE 返回 0。"
+          }
+        ],
+        "conclusion": "SET 无高时延瓶颈：样本全部归入客户端 SDK 段且 P90 仅 0.341ms；本事件是快速失败的通断故障，不是时延异常。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 28,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "硬件故障/ub端口故障-down",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.151 → 192.168.219.90",
+        "host": "未解析",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "08:35",
+        "level": "1",
+        "pct": "25.0",
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "08:36",
+        "level": "4",
+        "pct": "75.0",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "sess-e45ad324-20261112",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本会话实时取证",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill SKILL/WIKI search"
+        ],
+        "result": "检索 UB 端口、URMA 与通断经验；仅作为先验假设。"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务 successful，解析 28 条 trace，28 条故障 trace。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立分诊",
+        "api_calls": [
+          "POST /stats/stages ×2",
+          "POST /stats/error_codes ×2",
+          "POST /stats/heatmap ×2",
+          "POST /stats/pods|links"
+        ],
+        "result": "GET 无命中；SET 28 条 1004，集中于两分钟内。"
+      },
+      {
+        "title": "Step 4 Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认固定源目路径的 URMA send WR ret=4096 与 TCP fallback 拒绝。"
+      },
+      {
+        "title": "Step 5 Curated 知识复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/1004",
+          "GET /failure_mode/kvcache_access_022"
+        ],
+        "result": "1004 与故障模式均指向 URMA 底层传输/设备错误。"
+      },
+      {
+        "title": "Step 6 历史案例与经验二次检索",
+        "api_calls": [
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit",
+          "experience-skill SKILL/WIKI search"
+        ],
+        "result": "已确认案例 UB-CASE-002552 在错误码、故障模式和 fallback 机理上高度相似；仅调整后采用。"
+      },
+      {
+        "title": "Step 7 报告契约生成",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "生成完整契约 JSON 并渲染 HTML 与侧车。"
+      }
+    ]
+  }
+}

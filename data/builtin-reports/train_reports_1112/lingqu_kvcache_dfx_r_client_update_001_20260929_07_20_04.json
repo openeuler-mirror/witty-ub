@@ -1,0 +1,337 @@
+{
+  "report": {
+    "title": "Worker 进程退出场景 SET 写路径时延异常诊断报告",
+    "report_id": "f31a2131-b71e-4d0c-83d0-9e62b6572b62-20261112",
+    "generated_at": "2026-11-12 12:30:00"
+  },
+  "basic_info": {
+    "kb_id": "f31a2131-b71e-4d0c-83d0-9e62b6572b62",
+    "kb_name": "lingqu_kvcache_dfx_r_client_update_001_20260929_07_20_04",
+    "log_file": "lingqu_kvcache_dfx_r_client_update_001_20260929_07_20_04",
+    "operation": "SET（4 条异常样本）；GET（独立查询无样本）",
+    "time_range_start": "2026-09-29 07:19:51",
+    "time_range_end": "2026-09-29 07:21:48",
+    "total_trace_cnt": 4,
+    "fault_trace_cnt": 4,
+    "fault_ratio": "100%（时延异常标记口径，非业务失败率）",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个疑似主故障：训练标签指向 Worker 进程退出，现场确认 SET 的 URMA completion 等待升高及随后客户端切换 Worker 初始化，但缺少进程退出原文，因果仍需补证。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "4/4 条已解析 SET trace 被标记为时延异常，端到端耗时 105.848—141.388 ms；业务状态码均为 0。",
+    "confidence": 0.78
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Worker 退出场景下 SET 数据面等待升高与客户端重新初始化",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 0.78,
+      "category": "latency",
+      "affected_scope": "集群 ci-kv-ds-1；客户端 192.168.219.89 与数据 Worker 192.168.189.90/192.168.235.153；4 条 8 MiB SET trace",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程退出",
+        "one_line_conclusion": "训练标签指定 Worker 进程退出；现场可复核到 SET 的 URMA completion 长等待和稍后客户端改连新 Worker，但缺少退出信号/FATAL 原文，故根因保持疑似。",
+        "fault_domain": "Worker故障/Worker故障-进程退出",
+        "fault_component": "KVCache Worker 生命周期与 Client→Worker URMA 数据面",
+        "fault_function": "DS_KV_CLIENT_SET / URMA_WRITE_PHASE / Client worker initialization",
+        "fault_function_loc": "urma_manager.cpp:1689,2835；object_client_impl.cpp:1257",
+        "affected_scope_pct": 100,
+        "affected_scope_desc": "4 条已解析 SET trace 全部为异常标记；192.168.219.89 出现在 4/4，192.168.189.90 出现在 3/4，192.168.235.153 出现在 1/4。",
+        "confidence": 0.78,
+        "key_findings": [
+          "train_valid.md 将该日志路径描述映射为 r_client_update，gt_labels.json 为该描述指定 Worker故障/Worker故障-进程退出。",
+          "GET /stats/stages 的 GET sample_cnt=0；SET sample_cnt=4，4/4 全部归入 set_client 桶，读写口径未混合。",
+          "SET·客户端SDK段的证据耗时 P50=117.885 ms、P90=141.324 ms、max=141.324 ms；该桶包含等待数据面返回，不能解释为 SDK CPU 执行慢。",
+          "4 条访问日志均 status_code=0，但 latencySummary 中 client.urma.ub_transfer 为 105.309—140.747 ms；Worker CREATE/PUBLISH 仅 19—39 μs。",
+          "07:21:47 新 Client PID 98 改向 192.168.219.86:31501 初始化并成功注册；该时间后继于异常窗，但仅凭时序不能证明由 Worker 退出直接触发。",
+          "资产未提供 Worker 退出信号、FATAL、OOM、容器退出码或 lease 失效原文，故进程退出标签用于分类，不被夸大为已由现场日志独立证实。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {"label": "SET 异常样本", "value": "4/4", "sub": "is_anomalous=true；非业务失败率", "tone": "danger"},
+          {"label": "SET 端到端范围", "value": "105.848—141.388 ms", "sub": "4 条 8 MiB 写请求", "tone": "warn"},
+          {"label": "归因桶 P90", "value": "141.324 ms", "sub": "set_client 主阶段证据耗时；不是 P99", "tone": "danger"},
+          {"label": "Worker 内部处理", "value": "0.045—0.064 ms", "sub": "local_worker_internal_us；显著小于端到端等待", "tone": "ok"},
+          {"label": "业务返回码", "value": "0", "sub": "4 条 SET 最终均成功", "tone": "ok"}
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段（含 URMA 数据面等待）",
+            "p99": null,
+            "baseline": null,
+            "ratio": null,
+            "share": 100,
+            "status": "bottleneck",
+            "detail": "4/4 样本归入 set_client；原始日志进一步显示 client.urma.ub_transfer 占端到端绝大部分。/stats/stages 仅提供 P50/P90/max，未补造 P99。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "f31a2131-b71e-4d0c-83d0-9e62b6572b62",
+                  "log_id": "4a3d0810-71d0-48e2-9d74-d9e9dad50c6e",
+                  "operation": "SET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 4,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常；SET 与 GET 独立归桶。SET 侧仅用 SDK 段与 Worker 端两段实测列。",
+              "trace_cnt": 4,
+              "normal_cnt": 0,
+              "anomalous_cnt": 4,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 117.885,
+                "p90_ms": 141.324,
+                "max_ms": 141.324,
+                "client_p50_ms": 117.939,
+                "client_p90_ms": 141.388
+              },
+              "tail_ratio_p90_p50": 1.198829,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 4。",
+              "action": "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 等待与端到端 deadline，再核对 Worker 与 URMA completion。",
+              "top_traces": [
+                {"trace_id": "06da1a3b-462f-42e5-b927-d14576ea039f", "evidence_ms": 141.324, "client_ms": 141.388},
+                {"trace_id": "ef46251a-232a-4d80-9759-caf42e61e409", "evidence_ms": 126.221, "client_ms": 126.266},
+                {"trace_id": "c862d065-b095-4934-9e03-99ff0df46691", "evidence_ms": 117.885, "client_ms": 117.939},
+                {"trace_id": "ff34f252-20a6-4ea4-8968-74ad30b1ca15", "evidence_ms": 105.784, "client_ms": 105.848}
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 异常集中在客户端等待数据面返回的窗口；原始日志将主要等待进一步定位到 URMA completion。GET 没有样本，不能据此宣称 GET 健康。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "S1",
+            "title": "确认资产与解析完整性",
+            "description": "唯一日志文件解析任务 successful，解析出 4 条异常 trace；结论不是由空结果推断。",
+            "evidence": "POST /log_file/list/{kb_id}: overall_status=successful、anomaly_cnt=4；GET /task/{task_id}: completed。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "S2",
+            "title": "隔离 GET/SET 操作域",
+            "description": "GET 无归因样本；SET 有 4 条异常样本且全部落入 set_client，故故障表现仅在写路径成立。",
+            "evidence": "POST /stats/stages ×2：GET sample_cnt=0；SET sample_cnt=4、set_client trace_cnt=4。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "S3",
+            "title": "把粗粒度客户端等待下钻到 URMA completion",
+            "description": "4 条 8 MiB SET 的 Worker CREATE/PUBLISH 仅 19—39 μs，而 Client URMA transfer 为 105.309—140.747 ms；瓶颈不在 Worker 业务处理。",
+            "evidence": "ds_client_access_8.log 的 latencySummary；ds_client_8.INFO.log 的 URMA_ELAPSED_TOTAL/URMA_WRITE_PHASE；Worker access.log。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "S4",
+            "title": "识别 Worker 端点变化与客户端重新初始化",
+            "description": "异常窗口使用 192.168.189.90/192.168.235.153，随后新 Client PID 98 于 07:21:47 改向 192.168.219.86 注册并完成初始化。",
+            "evidence": "ds_client_98.INFO.log: Start to init worker client at 192.168.219.86:31501；ci-worker-master-1/kvcache.INFO.log: Register client done。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "S5",
+            "title": "应用用户指定的训练故障标签",
+            "description": "路径描述 r_client_update 在 gt_labels.json 中对应 Worker故障/Worker故障-进程退出，因此报告按该标签分类。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md 第 84 行；/home/witty-ub-logs/gt_labels.json 第 154—157 行。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "S6",
+            "title": "反证检查与置信度下调",
+            "description": "现场没有 Worker 退出信号、FATAL、OOM、容器退出码、lease 失效、K_SHUTTING_DOWN 或 RPC unavailable；4 条 SET 最终均返回 OK。因此仅能确认退出场景伴随症状，不能从本资产独立证明退出触发链。",
+            "evidence": "错误码统计为 0；list_time_aggregated_failure_events GET/SET 均为空；所给 Worker INFO 片段无退出原文。",
+            "excluded": true,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "用户指定的训练标签将根因归为 Worker 进程退出；现场证据确认同场景存在 SET 的 URMA completion 长等待、Worker 端点变化与客户端重新初始化，但缺少直接退出日志，因此根因状态为 suspected，而非现场独立确认。",
+        "supporting_knowledge": "本地经验 ds-worker-log-analysis 指出 kill -9 时可能没有退出前 ERROR/FATAL，且应联查 container/system 日志；ds-rdma-transport-diagnosis 指出传输连接与 Worker 生命周期强相关、远端重启会触发连接重建。两者仅作解释和补证方向。"
+      },
+      "propagation": {
+        "chain": [
+          {"label": "Worker 进程退出（训练标签）", "detail": "本资产缺少退出原文，根因保持疑似", "type": "root"},
+          {"label": "既有 Client→Worker 数据面会话受扰", "detail": "异常窗跨 192.168.189.90/192.168.235.153", "type": "transport", "transition": "生命周期变化可能使既有连接进入等待或重建；需系统日志补证"},
+          {"label": "URMA completion 等待升高", "detail": "4 条 8 MiB SET 的 URMA transfer 为 105.309—140.747 ms", "type": "latency", "transition": "客户端同步等待数据面完成"},
+          {"label": "SET 端到端时延异常", "detail": "4/4 trace 为 105.848—141.388 ms，最终 status=OK", "type": "impact", "transition": "等待占据端到端绝大部分"},
+          {"label": "Client 改连新 Worker 并重新初始化", "detail": "07:21:47 新 PID 98 注册 192.168.219.86", "type": "recovery", "transition": "时间后继已确认，因果仍待 Worker 生命周期证据确认"}
+        ],
+        "impact_scope": [
+          "集群 ci-kv-ds-1",
+          "客户端 192.168.219.89；数据 Worker 192.168.189.90 与 192.168.235.153",
+          "异常窗口 2026-09-29 07:20:15—07:20:31；4 条 8 MiB SET"
+        ]
+      },
+      "evidence_traces": [
+        {"trace_id": "06da1a3b-462f-42e5-b927-d14576ea039f", "kind": "latency", "why": "SET·set_client 桶内证据耗时 Top1；按桶内主阶段证据耗时排序，不代表总体严重度。", "evidence_ms": 141.324, "client_ms": 141.388, "pod": "192.168.219.89 / 192.168.235.153", "timestamp": "2026-09-29 07:20:19.261"},
+        {"trace_id": "ef46251a-232a-4d80-9759-caf42e61e409", "kind": "latency", "why": "SET·set_client 桶内证据耗时 Top2；用于复核 8 MiB URMA completion 等待。", "evidence_ms": 126.221, "client_ms": 126.266, "pod": "192.168.219.89 / 192.168.189.90", "timestamp": "2026-09-29 07:20:28.262"},
+        {"trace_id": "c862d065-b095-4934-9e03-99ff0df46691", "kind": "latency", "why": "SET·set_client 桶内证据耗时 Top3；用于复核 Worker 内部处理很短而客户端等待占主导。", "evidence_ms": 117.885, "client_ms": 117.939, "pod": "192.168.219.89 / 192.168.189.90", "timestamp": "2026-09-29 07:20:15.929"}
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "experience:ds-worker-log-analysis",
+          "stars": 4,
+          "match_logic": "L1 无现场错误码/故障模式 ID；L2 命中 Worker 生命周期域但退出仅来自训练标签；L5 与客户端重新注册现象相符，未命中直接退出原文。",
+          "symptom": "Worker 异常退出或重启后需要结合 Client 注册、lease、信号和系统日志还原生命周期。",
+          "root_cause": "进程被 kill -9 时可能没有退出前 ERROR/FATAL；单靠日志截断不能确认退出方式。",
+          "solution": "联查同节点 container.log、dmesg、systemd/kube 事件、退出码与 lease 失效记录。",
+          "adoption_class": "reference",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "中",
+          "log_fit": "中：观察到新 Client 注册，但无退出行",
+          "rc_consistency": "与训练标签一致，现场证据不足以独立确认",
+          "env_diff": "经验版本为 0.8.1.rc20；现场日志显示 0.9.2，且缺容器/系统日志",
+          "adaptation": "仅采用补证流程，不把经验描述当现场事实",
+          "applicability": "reference"
+        },
+        {
+          "rank": 2,
+          "id": "experience:ds-rdma-transport-diagnosis",
+          "stars": 4,
+          "match_logic": "L1 无 1004/1010 等业务错误码；L2 命中 SET 数据面等待与 Worker 生命周期关联；L5 命中 URMA_ELAPSED_TOTAL/URMA_WRITE_PHASE，未命中 Jetty 失效或重连循环。",
+          "symptom": "Worker 生命周期变化可能触发 URMA 连接失效与重建，请求在重建期可能变慢或失败。",
+          "root_cause": "远端 Worker 重启、链路抖动或调度停顿均可能造成 completion 等待；需更多证据区分。",
+          "solution": "检查 Worker 存活与实例 ID、Jetty/CQ、设备计数器、TryReconnectRemoteWorker 和连接重建日志。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高：4 条 trace 均有 URMA completion 长等待",
+          "rc_consistency": "支持传输层症状，不单独证明 Worker 退出",
+          "env_diff": "缺 URMA 管理面和驱动遥测",
+          "adaptation": "复用排查项，根因判定仍以现场生命周期证据为准",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 3,
+          "id": "UB-CASE-002591",
+          "stars": 3,
+          "match_logic": "L1 不命中：历史案例有 1004/36，本次无错误码；L2 命中 set_client、SET/MIXED 部分操作域及 few_pods；L5 不命中 Jetty send 失败，仅同为 completion 等待。",
+          "symptom": "历史案例为 SET 写路径疑似 Worker 挂死并阻塞 URMA completion。",
+          "root_cause": "历史案例只将 Worker 挂死/调度停顿列为首要候选，并明确缺少线程栈/OS 证据。",
+          "solution": "冻结现场并采集 Worker 线程栈、CPU throttling、dmesg/systemd、Jetty 与 URMA context。",
+          "adoption_class": "reference",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "中",
+          "log_fit": "中：阶段桶一致，但错误码与故障形态不同",
+          "rc_consistency": "仅支持补证方法，不支持把挂死改写为退出",
+          "env_diff": "历史案例 operation=MIXED、含 1004/36；本次 SET 无错误码",
+          "adaptation": "只复用现场冻结与系统证据采集步骤",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "优先保全 2026-09-29 07:19:50—07:21:50 的 Worker 容器与节点现场：采集 container runtime 退出码、Kubernetes events、systemd/journal、dmesg、OOM killer、core dump 与进程信号记录，确认是否退出以及退出方式。",
+          "核对 192.168.235.153、192.168.189.90 与后续 192.168.219.86 的 Worker 实例 ID、注册/lease 时间线和路由更新记录，确认客户端端点变化是否由 Worker 生命周期事件触发。",
+          "对异常两端采集 URMA Jetty/CQ/poll/notify、端口错误/FEC/CRC/丢包与重传计数；按 4 个代表 trace 时间对齐，区分 Worker 退出、调度停顿和链路抖动。",
+          "若确认 Worker 已退出且仍未恢复，在保全现场后按变更流程滚动拉起或迁移流量；不要先清理日志与 core。"
+        ],
+        "long_term": [
+          "为 Worker PID/容器退出码、重启次数、lease、实例 ID 与 Client 路由更新建立统一时间线告警。",
+          "为 URMA completion wait、Jetty 状态和 8 MiB SET 端到端时延建立联合观测，自动保留异常前后线程栈与设备计数器。",
+          "在回归环境注入 Worker kill -9、优雅退出与 suspend/resume，分别验证 Client 更新、连接重建、在途 SET 语义及恢复时延。"
+        ],
+        "verification": [
+          "补齐系统/容器证据后，明确记录退出时间、退出码/信号和重启实例 ID；若没有退出证据，应撤销“进程退出”现场确认并转查调度或链路问题。",
+          "恢复后复跑同规格 8 MiB SET，确认连续观察窗内无 Worker 重启/路由漂移，URMA completion 与 SET P90 回落到同负载健康基线。",
+          "复查代表 trace：Worker CREATE/PUBLISH 保持微秒级、Client URMA transfer 不再出现 100 ms 级长等待，业务状态码持续为 0。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {"priority": "P0", "fault_ids": ["F01"], "action": "冻结并补齐 Worker 退出/重启的容器、系统、lease 与实例 ID 证据。", "depends_on": "节点与容器平台日志保留", "expected_effect": "把训练标签根因从疑似提升为可复核结论，或及时转向其他候选", "verify": "退出时间、退出码/信号、实例 ID 与 Client 更新时序能够闭环"},
+    {"priority": "P1", "fault_ids": ["F01"], "action": "检查并恢复异常 Worker 与 URMA completion 路径。", "depends_on": "现场保全完成", "expected_effect": "消除 8 MiB SET 的 100 ms 级数据面等待", "verify": "同负载 SET P90 回落至健康基线且无新增异常 trace"},
+    {"priority": "P2", "fault_ids": ["F01"], "action": "建设 Worker 生命周期、路由更新与 URMA 数据面联合监控。", "depends_on": "监控与故障注入环境", "expected_effect": "下次可直接区分退出、挂死和链路抖动", "verify": "三类故障注入均能产生可追溯证据并触发正确告警"}
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [],
+        "stages": [
+          {"name": "RPC网络", "p99": null, "anomaly_rate": null, "fail_share": null, "status": "ok", "fault": null, "detail": "桶=rpc_network；trace_cnt=0；无 GET 归因样本。"},
+          {"name": "RPC排队", "p99": null, "anomaly_rate": null, "fail_share": null, "status": "ok", "fault": null, "detail": "桶=rpc_queue；trace_cnt=0；无 GET 归因样本。"},
+          {"name": "QueryMeta", "p99": null, "anomaly_rate": null, "fail_share": null, "status": "ok", "fault": null, "detail": "桶=query_meta；trace_cnt=0；无 GET 归因样本。"},
+          {"name": "URMA", "p99": null, "anomaly_rate": null, "fail_share": null, "status": "ok", "fault": null, "detail": "桶=urma；trace_cnt=0；无 GET 归因样本。"},
+          {"name": "Data Worker服务端处理", "p99": null, "anomaly_rate": null, "fail_share": null, "status": "ok", "fault": null, "detail": "桶=data_worker；trace_cnt=0；无 GET 归因样本。"},
+          {"name": "Client/Worker交叉窗口未细分", "p99": null, "anomaly_rate": null, "fail_share": null, "status": "ok", "fault": null, "detail": "桶=cross_window；trace_cnt=0；无 GET 归因样本。"},
+          {"name": "未解释残差", "p99": null, "anomaly_rate": null, "fail_share": null, "status": "ok", "fault": null, "detail": "桶=residual；trace_cnt=0；无 GET 归因样本。"},
+          {"name": "URMA超时", "p99": null, "anomaly_rate": null, "fail_share": null, "status": "ok", "fault": null, "detail": "桶=urma_timeout；trace_cnt=0；无 GET 归因样本。"}
+        ],
+        "conclusion": "GET 独立口径：sample_cnt=0，所有归因桶计数为 0；这是无 GET 样本，不代表 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": 141.154,
+        "share_bar": [
+          {"name": "SET·客户端SDK段", "pct": 100.0, "cls": "s-bottleneck"}
+        ],
+        "stages": [
+          {"name": "SET·URMA超时", "p99": null, "anomaly_rate": null, "fail_share": null, "status": "ok", "fault": null, "detail": "桶=set_urma_timeout；trace_cnt=0。文本近似匹配桶未命中，不能据此否定原始日志中的高 completion 等待。"},
+          {"name": "SET·数据面未观测", "p99": null, "anomaly_rate": null, "fail_share": null, "status": "ok", "fault": null, "detail": "桶=set_no_evidence；trace_cnt=0；4 条 trace 均有 Worker 侧行。"},
+          {"name": "SET·未解释残差", "p99": null, "anomaly_rate": null, "fail_share": null, "status": "ok", "fault": null, "detail": "桶=set_residual；trace_cnt=0；写路径实测分量无额外残差。"},
+          {"name": "SET·客户端SDK段", "p99": null, "anomaly_rate": 100.0, "fail_share": 100.0, "status": "bottleneck", "fault": "F01", "detail": "桶=set_client；trace_cnt=4；P50=117.885 ms；P90=141.324 ms；max=141.324 ms。该桶含等待数据面返回，原始日志显示 URMA transfer 主导。"},
+          {"name": "SET·Worker写处理", "p99": null, "anomaly_rate": null, "fail_share": null, "status": "ok", "fault": null, "detail": "桶=set_worker；trace_cnt=0；Worker 内部处理为 45—64 μs，未主导端到端时延。"}
+        ],
+        "conclusion": "SET 独立口径：4/4 样本归入 set_client，桶 P90=141.324 ms；total_p99_ms=141.154 来自 07:20:10—07:20:20 的 10 秒窗（n=2），小样本仅作窗口描述。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 4,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {"domain": "Worker故障/Worker故障-进程退出", "pct": 100, "fault": "F01"}
+    ],
+    "top_pods": [
+      {"pod": "192.168.219.89", "host": null, "pct": 100, "fault": "F01"},
+      {"pod": "192.168.189.90", "host": null, "pct": 75, "fault": "F01"},
+      {"pod": "192.168.235.153", "host": null, "pct": 25, "fault": "F01"}
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "2026-09-29 07:20", "level": "danger", "pct": 100, "spike": "4 latency-anomalous SET traces", "lat_ms": 141.388, "fault": "F01"}
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-f31a2131",
+    "total_steps": 8,
+    "api_calls": 40,
+    "duration": "本会话实时取证",
+    "steps": [
+      {"title": "经验库预检索", "api_calls": ["experience-skill search-experiences（SKILL/WIKI）"], "result": "命中 ds-client-log-analysis、ds-kv-cache-diagnosis 等经验，仅作为先验。"},
+      {"title": "标签来源核验", "api_calls": ["读取 train_valid.md", "读取 gt_labels.json", "读取报告标签参考 log_label.json"], "result": "路径描述=r_client_update；指定标签=Worker故障/Worker故障-进程退出，且标签对在报告参考表中合法。"},
+      {"title": "资产与解析完整性核验", "api_calls": ["POST /log_kb/list", "GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "GET /task/{task_id}", "GET /log_parse_result/options"], "result": "唯一日志文件 overall_status=successful；4 条异常 trace；集群 ci-kv-ds-1。"},
+      {"title": "GET/SET 独立阶段分诊", "api_calls": ["POST /stats/stages ×2"], "result": "GET sample_cnt=0；SET sample_cnt=4，全部归入 set_client；未跨 operation 混桶。"},
+      {"title": "统计与 Trace 下钻", "api_calls": ["POST /stats/error_codes|pods|links|heatmap × GET/SET", "POST /trace/list", "GET /trace/{trace_id}", "POST /log_parse_result/list", "POST /log_parse_result/metrics/latency"], "result": "SET 4 条异常、无错误码；端到端 105.848—141.388 ms；三个 Pod。"},
+      {"title": "原始日志交叉验证", "api_calls": ["读取 Client/Worker access 与 INFO 日志"], "result": "URMA transfer 主导 4 条 SET；Worker CREATE/PUBLISH 微秒级；后续新 Client 改连 192.168.219.86。"},
+      {"title": "经验与已确认案例复核", "api_calls": ["experience-skill 二次检索", "case-matching match_cases.py", "GET /diag_case_library/{case_id}", "POST /diag_case_library/{case_id}/hit"], "result": "UB-CASE-002591 仅 L2 阶段桶相近，L1 错误码不匹配，按 reference 采用并回写命中；经验仅用于补证建议。"},
+      {"title": "报告契约与渲染", "api_calls": ["latency_features.py", "render_report.py --validate-only", "render_report.py"], "result": "报告数据使用稳定故障 ID F01，保留 GET/SET 分离口径与证据限制。"}
+    ]
+  }
+}

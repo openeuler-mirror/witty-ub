@@ -31,7 +31,7 @@ from latency.schemas.request import (
     ListTraceFailureEventResultRequest,
 )
 from sqlalchemy import func, or_, select, text
-from sqlalchemy.dialects.postgresql import array
+from sqlalchemy.dialects.postgresql import array, insert
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +213,7 @@ class LogFailureEventPGManager:
         if len(results) >= LogFailureEventPGManager._COPY_THRESHOLD:
             return await LogFailureEventPGManager._copy_log_failure_events(results)
 
-        objs = []
+        rows: list[dict] = []
         for event in results:
             param = dict(event)
             if "id" not in param:
@@ -235,29 +235,35 @@ class LogFailureEventPGManager:
             param.setdefault("cluster_name", "")
             param.setdefault("message", "")
             param.setdefault("status_code", "")
-            objs.append(
-                LogFailureEvent(
-                    id=param["id"],
-                    log_id=param["log_id"],
-                    log_file=param["log_file"],
-                    raw_text=param["raw_text"],
-                    host_name=param["host_name"],
-                    timestamp=parse_timestamp(param.get("timestamp")),
-                    level=param["level"],
-                    filename=param["filename"],
-                    pod_name=param["pod_name"],
-                    pid=param["pid"],
-                    tid=param["tid"],
-                    trace_id=param["trace_id"],
-                    cluster_name=param["cluster_name"],
-                    message=param["message"],
-                    status_code=param["status_code"],
-                    failure_mode=param["failure_mode"],
-                )
+            rows.append(
+                {
+                    "id": param["id"],
+                    "log_id": param["log_id"],
+                    "log_file": param["log_file"],
+                    "raw_text": param["raw_text"],
+                    "host_name": param["host_name"],
+                    "timestamp": parse_timestamp(param.get("timestamp")),
+                    "level": param["level"],
+                    "filename": param["filename"],
+                    "pod_name": param["pod_name"],
+                    "pid": param["pid"],
+                    "tid": param["tid"],
+                    "trace_id": param["trace_id"],
+                    "cluster_name": param["cluster_name"],
+                    "message": param["message"],
+                    "status_code": param["status_code"],
+                    "failure_mode": param["failure_mode"],
+                }
             )
+        # id 为确定性取值（uuid5(log_id:...:raw_text)）：任务重试必然命中已存在
+        # 的行，必须 ON CONFLICT DO NOTHING，否则整批抛 UniqueViolationError。
         async with PGManager.session() as session:
-            session.add_all(objs)
-        ids_added.extend([o.id for o in objs])
+            await session.execute(
+                insert(LogFailureEvent)
+                .values(rows)
+                .on_conflict_do_nothing(index_elements=["id"])
+            )
+        ids_added.extend([r["id"] for r in rows])
         return ids_added
 
     @staticmethod
@@ -509,7 +515,7 @@ class LogFailureEventPGManager:
         if len(results) >= LogFailureEventPGManager._COPY_THRESHOLD:
             return await LogFailureEventPGManager._copy_trace_failure_events(results)
 
-        objs = []
+        rows: list[dict] = []
         for event in results:
             param = dict(event)
             if "id" not in param:
@@ -535,25 +541,31 @@ class LogFailureEventPGManager:
                 param.get("failure_mode")
             )
             param.setdefault("operation", "")
-            objs.append(
-                TraceFailureEvent(
-                    id=param["id"],
-                    log_id=param["log_id"],
-                    trace_id=param["trace_id"],
-                    pod_names=param["pod_names"],
-                    src_ip=param["src_ip"] or None,
-                    dst_ip=param["dst_ip"] or None,
-                    host_names=param["host_names"],
-                    cluster_names=param["cluster_names"],
-                    timestamp=parse_timestamp(param.get("timestamp")),
-                    status_code=param["status_code"],
-                    failure_mode=param["failure_mode"],
-                    operation=param["operation"],
-                )
+            rows.append(
+                {
+                    "id": param["id"],
+                    "log_id": param["log_id"],
+                    "trace_id": param["trace_id"],
+                    "pod_names": param["pod_names"],
+                    "src_ip": param["src_ip"] or None,
+                    "dst_ip": param["dst_ip"] or None,
+                    "host_names": param["host_names"],
+                    "cluster_names": param["cluster_names"],
+                    "timestamp": parse_timestamp(param.get("timestamp")),
+                    "status_code": param["status_code"],
+                    "failure_mode": param["failure_mode"],
+                    "operation": param["operation"],
+                }
             )
+        # id 为确定性 uuid5(log_id:trace_id)：重试会命中已存在的行，必须
+        # ON CONFLICT DO NOTHING，否则整批抛 UniqueViolationError 打成失败。
         async with PGManager.session() as session:
-            session.add_all(objs)
-        ids_added.extend([o.trace_id for o in objs])
+            await session.execute(
+                insert(TraceFailureEvent)
+                .values(rows)
+                .on_conflict_do_nothing(index_elements=["id"])
+            )
+        ids_added.extend([r["trace_id"] for r in rows])
         return ids_added
 
     @staticmethod

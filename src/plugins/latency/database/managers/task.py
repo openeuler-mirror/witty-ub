@@ -260,6 +260,41 @@ class TaskPGManager:
         return True
 
     @staticmethod
+    async def mark_stale_running_for_retry(task_id: str, message: str) -> bool:
+        """Atomically route a RUNNING task whose worker vanished into the retry chain.
+
+        Only transitions when the row still holds RUNNING, so a concurrent
+        stop/delete or a worker that just finished cannot be clobbered.
+        """
+        async with PGManager.session() as session:
+            result = await session.execute(
+                text(
+                    "UPDATE task SET status = :to_status "
+                    "WHERE id = :id AND status = :from_status"
+                ),
+                {
+                    "id": task_id,
+                    "from_status": TaskStatusEnum.RUNNING.value,
+                    "to_status": TaskStatusEnum.FAILED_PENDING_REMOVE.value,
+                },
+            )
+            if not result.rowcount:
+                return False
+            await session.execute(
+                insert(TaskReport),
+                [
+                    {
+                        "task_id": task_id,
+                        "progress": 100.0,
+                        "message": message,
+                        "existed_status": True,
+                        "created_at": local_now(),
+                    }
+                ],
+            )
+        return True
+
+    @staticmethod
     def _row_to_model(row: Task) -> TaskModel:
         return TaskModel(
             id=row.id,

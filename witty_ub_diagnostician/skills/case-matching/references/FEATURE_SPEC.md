@@ -39,15 +39,27 @@
 | 特征 | 权重 | 取值形式 | share 来源 |
 |---|---|---|---|
 | `failure_mode_id` | 4.0 | 精确语义 ID | 1.0（跨现场可迁移，不稀释） |
-| `status_code` | 3.0 × share | 主导错误码列表 + 占比 | `/stats/error_codes`、`list_trace_events` 中该码命中占比 |
+| `status_code` | 3.0 × **F1** | 主导错误码列表 + 占比 | `F1 = 2PR/(P+R)`；`P = 命中码数 / 案例码集大小`，`R = 命中码数 / 查询码数` |
 | `latency_component` | 2.0 × share | 归因桶 key + 占比 | `/stats/stages` 中该桶 trace_cnt / 归因桶总 trace_cnt |
 | `operation` | 1.0 | GET / SET（案例 MIXED 给半权） | 1.0（library 通道已服务端过滤，仅区分 MIXED） |
 | `log_keyword` | 1.0 | 现场日志原文短语 | 1.0 |
 | `time_shape` | 1.0 | `突发单点`/`短时簇发`/`持续劣化` | 1.0（相等即加分） |
 | `affected_scope` | 0.5 | `single_pod`/`few_pods`/`multi_pod` | 1.0（规模分类相等即加分） |
-| `topology_shape` | 0.5 | `link_pair`（源目链路对；其余形状预留不参与） | 1.0（查询/案例均为 link_pair 即加分） |
+| `topology_shape` | 0.0 | `link_pair`（源目链路对；其余形状预留不参与） | 1.0（查询/案例均为 link_pair 即加分；**权重已归零**，提取逻辑保留） |
+| `domain_prior` | 0.2 × p | 码/故障模式→故障域先验（见下） | 候选池内 码（通道权重 0.25）+ 故障模式（通道权重 0.1）→一级标签 投票，命中预测标签者得 0.2 × 该标签得票占比 p |
 
-`score_norm = Σ(命中特征 base×share) / Σ(全部查询特征 base×share)`，0~1，跨查询可比。
+`score_norm`（基础软匹配分）`= Σ(命中特征 base×share) / Σ(全部查询特征 base×share)`，0~1，跨查询可比；
+最终排序主键还会叠加域先验与日志语义码次级通道（见「日志语义码次级通道」节），故落盘值可 >1。
+
+> **v2.4 打分改造（训练集 1110 LOO 实证）**：原等权打分下 82.2% 的查询 top1 与其它候选
+> `score_norm` 完全并列（55.7% 跨一级标签），最终靠 `text_sim` 抛硬币，是"硬件↔Worker
+> 互混"的主因。三条正交改造（`scripts/match_cases.py`）：① `status_code` 由等权召回改为
+> **F1（精度×召回）**计分，使"码集完全命中"的精确案例压过"码多且杂"的宽泛案例；
+> ② 新增 **码/故障模式→故障域先验**：按候选池内 码→一级标签 分布对查询真实码投票，命中预测
+> 域的候选加 `0.2 × 得票占比`；故障模式通道权重 0.1（与错误码 0.25 构成 2.5:1，LOO 网格最优）；
+> Agent 折算的相近码 share=0.5，只发挥一半影响；
+> ③ `topology_shape` 权重 0.5 → 1.5（后经 LOO 消融证伪为净负特征，已归零为 0.0）。实测（不含C/不含集群 185 条）：top1 68.6% → **70.8%**，
+> label_vote K14 67.6% → **68.6%**；关键字去重（81 类）K14 63.0% → **67.9%**。
 
 ---
 
@@ -171,13 +183,93 @@ KVCache 侧：`log_parse_result.request_mode`（如 `__cn` 单跳/多跳相关�
 
 ---
 
+## 日志语义码次级通道（v2.5，非 SOFT_WEIGHT 特征）
+
+软打分之外新增一条**加性次级通道** `log_semantic`：查询侧与候选案例侧各有一份
+「日志语义错误码轮廓」，取 cosine 相似度，按 `LOG_SEMANTIC_WEIGHT = 0.5` 加到
+`score_norm`（仅用于排序与 margin 判定，不进 `_soft_score` 的分母）。
+
+- 轮廓定义：`log_failure_event`（level ∈ E/W）原文里的语义错误码
+  `code: [Not ready]`、`code: [Urma wait for completion timed out]`，
+  以及日志常量 token `URMA_WAIT_TIMEOUT`、`E2001` 等；各自归一化为单位向量
+  （常量 token 权重 ×3）。抽取实现以后端 `services/log_semantic_profile.py` 为唯一权威。
+- 轮廓随文档/案例**持久化**（不再依赖离线资产）：
+  - 报告侧：`render_report.py` 生成文档时调
+    `POST /log_failure_event_result/log_semantic_profile` 写入 `basic_info.log_semantic_profile`。
+  - 案例侧：报告确认建案时，`build_draft_from_fault` 透传文档自带轮廓；文档未带该字段则由
+    后端按来源资产（`kb_id`→`log_file.kb_id`，回退 `kb_name`→`log_file.name`）兜底现算，
+    落到 `diag_case_library.log_semantic_profile`，随 `/search` 响应返回。
+- 候选案例侧：直接读 `/search` 返回的 `case.log_semantic_profile`；
+  旧数据缺失时回退静态资产 `references/log_semantic_profiles.json` 的 `by_case_id`。
+- 查询侧：优先用特征 JSON 的内联 `log_semantic_profile`；否则按 `kb_id` 调同一接口现算；
+  再否则按 `log_id`/`kb_name` 查静态资产。全都没有则该通道自动关闭（对结果无副作用）。
+  可用 `--no-log-semantic` 关闭做消融。
+- 实测（188 条不含C / 237 案例池，冻结口径）：top1 66.5%→**70.7%**、K4 69.7%→**70.7%**；
+  收益全部落在"硬件↔Worker"边界（URMA 时延族 vs Not ready/RPC peer dead 族）；
+  SDK/OS/容器 等无 E/W 日志的小类不受影响（无提升也无误伤）。
+
+---
+
+## 已证伪的候选特征（勿重复尝试）
+
+以下方向均已用「合并集 prefix-LOO」口径（475 条非 C 有标签场景 = train 195 + v7 280；
+**排除与查询同前缀的候选**，即同场景重放，严格无泄漏）做过消融，**结论为负**，
+不要重复实现。基线：top1 **69.5%** / K4@margin=0.05 **65.9%**。
+
+### 1. 否定证据 / 缺席特征通道（2026-11-13，负）
+
+曾设想「打分为纯加性正证据，小类必被大类吸走，故补充反面证据」。实测四个二值存在特征：
+
+| 特征 | 含义 | 分布 |
+|---|---|---|
+| `has_ctrl_plane` | 日志文件名含 master/coordinator 进程 | SDK **0/12**，容器 19%、OS 10%，Worker 31%、硬件 22% |
+| `has_rpc_dead` | E/W 原文含 `RPC peer dead` / `Metadata owner unavailable` / `brpc errno` / `deadline exceeded` | Worker 54~61%，**SDK 全 0** |
+| `has_urma_write` | 含 token `URMA_WRITE` | SDK 100%、容器 63%，Worker 25%、硬件 44% |
+| `has_worker_code` | 错误码含 39 / 1001 / 1002 | Worker 富集，**SDK 0%** |
+
+消融结果（prefix-LOO）：
+
+| 变体 | top1 | K4 | 硬件 | Worker | 容器 | SDK | OS |
+|---|---|---|---|---|---|---|---|
+| base | 69.5% | 65.9% | 225/278 | 105/148 | 0/27 | 0/12 | 0/10 |
+| +bin（等值加分 w=0.5~2.0） | 68.2~68.4% | 66.1~66.7% | 219 | 103~104 | 0/27 | 2/12 | 0/10 |
+| +veto（无 worker_code 且无 rpc_dead → 剔 Worker 候选） | 69.1% | 66.1% | 238 | 90 | 0/27 | 0/12 | 0/10 |
+
+**无一组整体优于 base。** 失败原因：这四个特征与硬件/Worker 高度共享（`URMA_WRITE` 在硬件占 44%），
+等值加分淹在 278 条硬件里；`veto` 只拦得住 Worker，拦不住真正吸走小类 top1 的**硬件**大类，
+而硬件与小类共享 URMA 错误码族、没有可用的否定证据。
+
+### 2. 已计算但未进 `SOFT_WEIGHT` 的派生量（2026-11-13，对小类无区分力）
+
+`latency.p99_p50_ratio`、`latency.op_p99_p50_ratio`、`latency.anomalous_ratio`、
+`connectivity.spatial_*.scope`、`summary` 三计数、`fault_category`——**对容器/OS/SDK 全无区分力**，
+最多用于微调"硬件↔Worker"边界（如 p75 的 p99/p50：Worker 4.92 vs 硬件 2.00），
+补进权重表救不了小类。
+
+### 3. 小类（容器 / SDK / OS）的现状与结论
+
+- **容器故障 27 条**：与硬件共享 URMA 错误族，逐特征仅高 20~28pp，无干净信号；
+  且**容器重启事件根本不落日志**（E/W 原文无 restart/oom/kill 关键词），
+  唯一独有线索「E/W 时间跨度中位 9s（突发）」噪声过大。
+- **OS 故障 10 条**：样本过少，各特征在硬件/Worker/OS 间均为 30~40%，当前不可分。
+- **SDK 故障 12 条**：存在 100% 召回规则（`URMA_WRITE` 且无 {39,1001,1002} 且无 RPC-dead 族，
+  且**场景里没有管控面进程日志**），但误伤硬件 116 条，只能当否决票、不能做正分类。
+- 三小类合计 49 条，任何 ±2 条的差异都在噪声内。
+
+**结论：小类在当前数据上已无算法空间，需先补数据**——容器重启/退出事件、独立的 OS 日志源，
+否则任何特征工程都是在噪声里拟合 49 条样本。
+
+---
+
 ## 特征 JSON 骨架（`scripts/match_cases.py` 的输入）
 
 ```json
 {
   "operation": "SET",
   "kb_id": "<本次知识库ID；library 通道可省略（留空=跨库召回），legacy 通道必填且必须真实存在>",
+  "kb_name": "<报告 basic_info.kb_name；日志语义码次级通道查询侧的回退索引>",
   "log_id": "<可选>",
+  "log_semantic_profile": "<可选：报告 basic_info.log_semantic_profile 内联轮廓，日志语义码次级通道查询侧首选>",
   "fault_type": "latency",
   "status_codes": ["1004"],
   "status_code_shares": {"1004": 0.8},
@@ -203,6 +295,16 @@ KVCache 侧：`log_parse_result.request_mode`（如 `__cn` 单跳/多跳相关�
   错误码、时延段、关键词等至少一类分布特征。
 - `operation`：library 通道是纯过滤字段，提交即隔离 GET/SET；legacy 通道没有该字段，
   只能把 `operation` 留在正文标注。任何通道都禁止把两种操作的信号合并成一次查询。
+- **用户使用问题锁定召回**：查询 `status_codes` 命中
+  `USER_USAGE_FAULT_CODES`（`1/3/9/12/17/28/2000/2001/2004/2006/3000/3001/3002/3004/3006/3007/3009`，
+  剔除 `0/2/8/36`，其中 `0` 为「无错误/成功」码）时，召回查询额外带 `first_level_label=用户相关故障` +
+  `second_level_label=使用问题`，**只召回该类案例**；命中码见输出 `user_usage_codes`，
+  锁定标签见 `fault_label_override`。库内无该类案例时返回空，不降级、不回退。
+- **未见码的相近码回退**：`relaxed_status_codes`（可选）装案例库未收录的故障码所对应的
+  相近已知码，由 `scripts/suggest_similar_codes.py` 产出（依据：人工映射表
+  `references/similar_code_map.json` > 同码段家族 > 同知识库故障域）。这些码以
+  `share=0.5` 并入软打分；不计入 `status_code_shares`，不参与用户使用问题硬判定，
+  也不出现在报告的错误码清单里。检索输出会回显 `relaxed_status_codes`。
 - `share` ∈ (0,1]，表示该特征在本次故障中的贡献占比；占比小但确认存在的特征也应提交
   （分母会相应加权，保证 score_norm 可比）。
 - `query_text`（可选）：诊断中途草稿文本，**只含现象确认与阶段定位**（confirmed=True 的
@@ -219,7 +321,7 @@ KVCache 侧：`log_parse_result.request_mode`（如 `__cn` 单跳/多跳相关�
 
 | 字段 | 含义 |
 |---|---|
-| `score_norm` | 分布特征软匹配分：Σ(命中 base×share) / Σ(查询 base×share)，0~1，排序主键 |
+| `score_norm` | 排序主键 = 分布特征软匹配分 + 域先验 + 日志语义码次级通道（见上节），后两项为加性项，故**可 >1** |
 | `score_raw` | 未归一化的软匹配命中权重和 |
 | `text_sim` | `query_text` 与案例表现文本的词级 cosine 相似度（0~1）。案例表现文本 = symptom_summary/fault_shape/latency_components/log_keywords + evidence_json.excerpt（前 6 条现场证据锚点）；错误码/日志常量词（K_URMA_ERROR、E112 等）权重 ×3。score_norm 并列时的次级排序键；未提供 query_text 时恒为 0 |
 | 翻盘规则 | top1 与候选 score_norm 差 <0.2 且候选 text_sim 显著更高（>0.15）时，文本匹配最强的候选提到第 1 位（P2），修正 norm 错位但文本高度吻合的误排 |

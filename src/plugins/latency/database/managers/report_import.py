@@ -18,16 +18,16 @@ from latency.database.models import DiagCaseLibrary, DiagnosticReportIndex, Repo
 class ReportImportPGManager:
     @staticmethod
     async def detach_historical_assets(report_id: str) -> None:
-        """Correct old imported associations without changing the source document."""
+        """只解除 kb_id 关联；kb_name（= log_file.name）保留，供回溯来源日志。"""
         async with PGManager.session() as session:
             await session.execute(update(DiagnosticReportIndex).where(
                 DiagnosticReportIndex.report_id == report_id,
-                or_(DiagnosticReportIndex.kb_id.is_not(None), DiagnosticReportIndex.kb_name.is_not(None)),
-            ).values(kb_id=None, kb_name=None))
+                DiagnosticReportIndex.kb_id.is_not(None),
+            ).values(kb_id=None))
             await session.execute(update(DiagCaseLibrary).where(
                 DiagCaseLibrary.report_id == report_id,
-                or_(DiagCaseLibrary.kb_id.is_not(None), DiagCaseLibrary.kb_name.is_not(None)),
-            ).values(kb_id=None, kb_name=None, revision=DiagCaseLibrary.revision + 1, updated_at=local_now()))
+                DiagCaseLibrary.kb_id.is_not(None),
+            ).values(kb_id=None, revision=DiagCaseLibrary.revision + 1, updated_at=local_now()))
 
     @staticmethod
     async def sources_for_reports(report_ids: list[str]) -> dict[str, dict[str, str]]:

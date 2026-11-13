@@ -1,0 +1,596 @@
+{
+  "report": {
+    "title": "worker_process_set_exit Worker 进程退出诊断报告",
+    "report_id": "report_9de35d6e_worker_process_exit_20261009",
+    "generated_at": "2026-11-12 15:52:39 +0800"
+  },
+  "basic_info": {
+    "kb_id": "9de35d6e-b6a4-454d-9573-32980c30d06e",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_set_exit_001_20261009_23_05_24",
+    "log_file": "lingqu_kvcache_dfx_worker_process_set_exit_001_20261009_23_05_24（log_id=7d4dcb2d-3c15-47dd-9b38-92ffcccb690e）",
+    "operation": "GET（SET 独立核验为 0 样本）",
+    "time_range_start": "2026-10-09 23:04:09",
+    "time_range_end": "2026-10-09 23:05:43",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "100.00（仅指本资产库解析出的 1 条 trace）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Not ready": 0.109109,
+      "C:Metadata owner unavailable": 0.109109,
+      "C:RPC peer dead": 0.109109,
+      "T:E2001": 0.654654,
+      "T:E112": 0.654654,
+      "T:DS_ERR": 0.327327
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：192.168.235.162 Worker 进程退出并重启，故障窗内元数据 RPC 对端失活，导致 GET 返回 39/1002；SET 无样本。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "1/1 条解析 trace 异常；涉及客户端 192.168.235.159、元数据调用方 192.168.189.88 与退出 Worker 192.168.235.162。",
+    "confidence": "高 96%"
+  },
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验并恢复 192.168.235.162 Worker 进程与 31501 监听，同时保全退出码、信号、OOMKilled、容器事件和 coredump。",
+      "depends_on": "Worker/容器编排与节点系统日志访问权限",
+      "expected_effect": "Worker 健康注册恢复，PureQueryMeta/QueryAndGet 不再命中 peer dead。",
+      "verify": "从 192.168.189.88 连续探测 192.168.235.162:31501，并复测同类 GET；30 分钟内 39/1002 不再增长。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "刷新 transport snapshot 与元数据路由，确认已重启 Worker 重新进入健康端点集合。",
+      "depends_on": "Worker 已恢复且健康检查通过",
+      "expected_effect": "客户端不再对陈旧位置执行重复重试。",
+      "verify": "同一 key 的 GET 成功，日志中不再出现 Worker endpoint is absent 与 Retry stale locations。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—（接口仅提供单样本总时延 270ms）",
+        "share_bar": [
+          {
+            "name": "Data Worker服务端处理",
+            "pct": 100.0,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Data Worker服务端处理",
+            "p99": "—",
+            "anomaly_rate": "1/1",
+            "fail_share": "100.0%",
+            "status": "bottleneck",
+            "fault": "1 条异常 trace",
+            "detail": "互斥归因桶 data_worker：trace_cnt=1、fail_cnt=1，证据耗时 p90/max=268.428ms，Client 总时延 270ms；这是单样本阶段证据，不是总体 P99。"
+          }
+        ],
+        "conclusion": "GET 仅 1 条样本并归入 data_worker 桶；原始日志进一步将其定界为元数据 owner RPC 对已退出 Worker 端点不可用，而非 URMA timeout。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "SET·无观测样本",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "fault": "0 条",
+            "detail": "sample_cnt=0；无可归桶 SET trace。该行只表达观测缺口，不表示 SET 健康。"
+          }
+        ],
+        "conclusion": "SET 的 /stats/stages sample_cnt=0，/trace/list、错误码统计和热力统计均为 0；空结果仅表示本资产库未观测到 SET trace，不代表 SET 全局健康。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 1,
+    "top_error_codes": [
+      {
+        "code": "1002",
+        "name": "K_RPC_UNAVAILABLE",
+        "pct": 50.0,
+        "fault": "1 次逐码命中"
+      },
+      {
+        "code": "39",
+        "name": "K_METADATA_OWNER_UNAVAILABLE",
+        "pct": 50.0,
+        "fault": "1 次逐码命中"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "Worker故障/Worker故障-进程退出",
+        "pct": 100.0,
+        "fault": "1 条故障 trace"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.162（退出 Worker）",
+        "host": "未解析",
+        "pct": 100.0,
+        "fault": "被调用的 31501 端点失活"
+      },
+      {
+        "pod": "192.168.189.88（元数据调用方）",
+        "host": "未解析",
+        "pct": 100.0,
+        "fault": "同一故障 trace，非互斥占比"
+      },
+      {
+        "pod": "192.168.235.159（客户端）",
+        "host": "未解析",
+        "pct": 100.0,
+        "fault": "同一故障 trace，非互斥占比"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-10-09 23:04:00",
+        "level": "critical",
+        "pct": 100.0,
+        "spike": true,
+        "lat_ms": 270.0,
+        "fault": "1 条故障 trace"
+      }
+    ]
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "192.168.235.162 Worker 进程退出导致 GET 元数据 RPC 失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 96,
+      "category": "error",
+      "affected_scope": "ci-kv-ds-1；1/1 条解析 trace；2026-10-09 23:04:26~23:04:27",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程退出",
+        "one_line_conclusion": "192.168.235.162 Worker 在 PID 13305 与 PID 13687 两段日志之间退出并重启，故障窗内 31501 端点被判定 RPC peer dead/Host is down，GET 经 5 次陈旧路由重试后返回 1002。",
+        "fault_domain": "Worker故障/Worker故障-进程退出",
+        "fault_component": "KVCache Worker / 元数据 RPC 端点",
+        "fault_function": "MasterOCService.PureQueryMeta / WorkerOCService.QueryAndGet",
+        "fault_function_loc": "object_read_flow.cpp:64; transport_layer.cpp:769",
+        "affected_scope_pct": "100.00（1/1 解析 trace）",
+        "affected_scope_desc": "客户端 192.168.235.159 经元数据 Worker 192.168.189.88 访问 192.168.235.162:31501 失败",
+        "confidence": "高 96%",
+        "key_findings": [
+          "固定标签来源：train_valid.md 将该日志路径映射到 worker_process_set_exit；gt_labels.json 指定 Worker故障/Worker故障-进程退出。",
+          "现场唯一故障 trace=b81797c1-de84-4c5c-ace0-2c65c4cdd21b，同时命中 39 与 1002。",
+          "192.168.189.88 调用 192.168.235.162:31501 时连续出现 RPC peer dead、brpc errno=112 Host is down、Not connected。",
+          "目标 Worker 日志 23:04:09 的 PID 为 13305，23:05:43 恢复注册时 PID 为 13687，确认期间发生进程退出/重启；具体退出信号或 OOM 原因未保留。",
+          "GET 归因样本 1 条；SET 样本、trace 和错误码均为 0，两种操作未混桶。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "故障 trace",
+            "value": "1",
+            "sub": "本资产库共解析 1 条 trace",
+            "tone": "danger"
+          },
+          {
+            "label": "错误码命中",
+            "value": "2",
+            "sub": "39 与 1002；逐码命中而非去重失败请求数",
+            "tone": "danger"
+          },
+          {
+            "label": "爆发窗口",
+            "value": "1 秒",
+            "sub": "2026-10-09 23:04:26~23:04:27",
+            "tone": "warn"
+          }
+        ],
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "9de35d6e-b6a4-454d-9573-32980c30d06e",
+              "operation": "GET",
+              "start_time": "2026-10-09 23:04:26",
+              "end_time": "2026-10-09 23:04:28"
+            },
+            "code_filter": [
+              "39",
+              "1002"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "9de35d6e-b6a4-454d-9573-32980c30d06e",
+                    "operation": "GET",
+                    "start_time": "2026-10-09 23:04:26",
+                    "end_time": "2026-10-09 23:04:28",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 2,
+              "items": [
+                {
+                  "code": "1002",
+                  "count": 1,
+                  "share_pct": 50.0
+                },
+                {
+                  "code": "39",
+                  "count": 1,
+                  "share_pct": 50.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-10-09 23:04:26",
+                  "end_time": "2026-10-09 23:04:27",
+                  "complete": true,
+                  "counts": {
+                    "1002": 1,
+                    "39": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 23:04:27",
+                  "end_time": "2026-10-09 23:04:28",
+                  "complete": true,
+                  "counts": {
+                    "1002": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 在 23:04:26 的 1 秒桶内同时出现 39 与 1002，各占逐码命中 50%；两码来自同一 trace，不应解释为 2 个失败请求。SET 独立查询为空，未纳入本分布。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析任务成功且故障 trace 已落库",
+            "description": "log_file overall_status=successful、overall_progress=100%，任务状态 successful；解析得到 1 条 trace、1 条异常并保存 36 条上下文日志。",
+            "evidence": "GET /log_kb/{kb_id}；POST /log_file/list/{kb_id}；GET /task/5decb97b-49b4-425e-91ec-16d517fbb828",
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作域分离",
+            "title": "故障只在 GET 观测到",
+            "description": "GET 的 stages/trace/error_code 均有 1 条故障 trace；SET 的 sample_cnt、trace、错误码与热力统计均为 0。",
+            "evidence": "POST /stats/stages(GET/SET)；POST /trace/list(GET/SET)；POST /stats/error_codes(GET/SET)",
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 端点失活",
+            "title": "元数据 RPC 明确命中已死亡对端",
+            "description": "192.168.189.88:31501 发起 PureQueryMeta 到 192.168.235.162:31501，连续返回 RPC peer dead、brpc errno=112 Host is down 和 Not connected；客户端最终返回 39/1002。",
+            "evidence": "trace b81797c1-de84-4c5c-ace0-2c65c4cdd21b；POST /log_failure_event_result/list_log_events",
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 生命周期闭环",
+            "title": "同一 Worker 的 PID 变化确认退出后重启",
+            "description": "192.168.235.162 在 23:04:09 仍由 PID 13305 服务；23:04:26 端点已失活；23:05:43 由新 PID 13687 注册客户端并恢复健康，构成退出—不可达—重启的闭环。",
+            "evidence": "ci-worker-worker1-1/kvcache.INFO.log 第 1~9 行；PID 13305→13687",
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "排除 SET、URMA 与纯慢处理主导",
+            "description": "SET 无样本；GET 的 URMA 与 URMA timeout 桶均为 0；每次 PureQueryMeta 框架耗时仅 3~4µs 并立即返回 E112，不符合服务端排队或长时计算。单纯网络中断可产生 E112，但无法单独解释目标 Worker 同时发生 PID 更替。",
+            "evidence": "POST /stats/stages；kvcache.INFO.log BRPC_RPC_FRAMEWORK_SLOW；目标 Worker PID 时间线",
+            "excluded": true
+          }
+        ],
+        "confirmed_root_cause": "192.168.235.162 上 KVCache Worker 进程在 23:04:09~23:04:26 之间退出，31501 RPC 端点随之失活；元数据 owner 查询命中死亡对端并返回 39，客户端耗尽陈旧路由重试后上浮为 1002。Worker 于 23:05:43 以新 PID 13687 恢复。退出的直接触发因素（信号、OOM、探针驱逐或人工停止）因缺少容器/OS 事件尚不能细分。",
+        "supporting_knowledge": "Curated：1002 表示 RPC 会话/对端不可用，39 表示元数据所有者不可用；kvcache_access_021/036 的处置均要求检查对端进程、网络和路由。已人工确认案例 UB-CASE-002635 与 UB-CASE-002613 在 L1 错误码/故障模式和 L2 Worker 退出域上命中；本次 PID 更替补齐了案例中要求的现场验证。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Worker 进程退出",
+            "detail": "192.168.235.162 的旧 PID 13305 停止服务，31501 监听随之不可用。",
+            "type": "root",
+            "transition": "端点失活"
+          },
+          {
+            "label": "PureQueryMeta RPC 失败",
+            "detail": "192.168.189.88 调用目标端点命中 E112 Host is down / RPC peer dead。",
+            "type": "error",
+            "transition": "返回 39"
+          },
+          {
+            "label": "元数据所有者不可用",
+            "detail": "TransportGet 无法解析可读副本，连续刷新陈旧位置。",
+            "type": "error",
+            "transition": "重试 5 次"
+          },
+          {
+            "label": "GET 返回 1002",
+            "detail": "客户端 270ms 后上浮 K_RPC_UNAVAILABLE。",
+            "type": "impact",
+            "transition": "业务读取失败"
+          },
+          {
+            "label": "Worker 重启恢复",
+            "detail": "23:05:43 新 PID 13687 注册客户端并恢复 healthy=1。",
+            "type": "recovery",
+            "transition": "端点恢复"
+          }
+        ],
+        "impact_scope": [
+          "集群：ci-kv-ds-1",
+          "故障 Worker：192.168.235.162:31501",
+          "元数据调用方：192.168.189.88",
+          "客户端：192.168.235.159",
+          "观测操作：GET；SET 无样本"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "b81797c1-de84-4c5c-ace0-2c65c4cdd21b",
+          "kind": "error",
+          "why": "过滤条件：GET + status_code 39/1002 + 2026-10-09 23:04:26~23:04:28；现场唯一故障 trace",
+          "status_code": "39,1002",
+          "failure_mode_id": "kvcache_access_036,kvcache_access_021",
+          "pod": "192.168.235.159,192.168.189.88",
+          "host": "未解析",
+          "timestamp": "2026-10-09 23:04:26"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002635",
+          "stars": 5,
+          "match_logic": "L1 命中 39/1002 与 kvcache_access_021/036；L2 命中 Worker故障/进程退出、few_pods 与 GET/MIXED 操作域；L3 拓扑同为客户端→元数据 Worker→失活 Worker；现场 PID 更替进一步验证根因。",
+          "symptom": "远端 Worker 不可用导致 GET 元数据查询失败，出现 RPC peer dead、Host is down、endpoint absent。",
+          "root_cause": "历史案例将远端 Worker 进程退出列为首选根因；该案例已人工确认且闭环。",
+          "solution": "恢复 Worker 与 31501 监听，补取退出证据，刷新 transport snapshot，并持续监控 39/1002。",
+          "phenomenon_fit": "错误码、唯一 trace、时间窗和关键短语均高度一致。",
+          "log_fit": "命中 RPC peer dead、Host is down、Not connected、Retry stale locations。",
+          "rc_consistency": "一致；本次目标 Worker PID 13305→13687 提供了更直接的退出/重启证据。",
+          "env_diff": "历史条目来源报告状态为 stale，但案例本身为 confirmed 且 verification closed。",
+          "adaptation": "按本次目标端点与时间窗替换身份信息；不复用历史 trace 作为现场证据。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 2,
+          "id": "UB-CASE-002613",
+          "stars": 4,
+          "match_logic": "L1 命中 39/1002 与 kvcache_access_021/036；L2 命中 Worker 进程退出域，但历史案例为 MIXED 且覆盖多个时间窗，本次仅 GET 单点突发；L3 均为 PureQueryMeta/QueryAndGet 指向失活 31501。",
+          "symptom": "元数据 Worker 进程退出/失活后，GET 返回 1001/1002/39。",
+          "root_cause": "元数据 Worker 进程退出或失活使 QueryAndGet/PureQueryMeta RPC 被判定 peer dead。",
+          "solution": "恢复 Worker、刷新路由、补齐退出监控与日志留存。",
+          "phenomenon_fit": "L1/L2 高度匹配，但历史案例规模和持续窗口更大。",
+          "log_fit": "关键短语和调用方法一致。",
+          "rc_consistency": "一致。",
+          "env_diff": "历史案例含 1001 和多个端点；本次仅 39/1002 且单端点。",
+          "adaptation": "只采用进程恢复、路由刷新和退出证据保全措施。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 3,
+          "id": "experience:ds-worker-log-analysis",
+          "stars": 4,
+          "match_logic": "L1 经验中的 K_RPC_UNAVAILABLE=1002 与现场命中；L2 Worker 生命周期域匹配；L3 建议核对 Worker 日志、container.log 和系统日志，本次已由 Worker PID 更替验证退出/重启，但退出触发原因仍待补证。",
+          "symptom": "Worker 异常退出可能无 FATAL，kill -9 时尤其如此；异常退出后需检查重启恢复。",
+          "root_cause": "经验仅提供排查假设，不替代现场证据。",
+          "solution": "检查最后 ERROR/FATAL、信号、容器日志和系统日志，并区分正常重启与异常退出。",
+          "phenomenon_fit": "与本次无退出行但出现 PID 更替的现场一致。",
+          "log_fit": "本次没有 FATAL，但有进程 PID 更替和端点不可达。",
+          "rc_consistency": "与 curated 知识及现场证据一致。",
+          "env_diff": "经验面向通用 Worker 生命周期，不含本次具体端点。",
+          "adaptation": "仅采用补证和监控建议。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即确认 192.168.235.162 当前 Worker PID、容器状态和 31501 监听；若未恢复，按运行手册拉起，先确认旧进程与端口已释放。",
+          "保存 2026-10-09 23:03:30~23:05:45 的 container.log、Kubernetes events、systemd/journal、dmesg、coredump 和 Worker ERROR/FATAL，识别 exit code、signal、OOMKilled 或健康探针驱逐。",
+          "Worker healthy 后刷新 transport snapshot/元数据路由，确认 192.168.235.162 重新进入健康端点集合，再复测 GET。"
+        ],
+        "long_term": [
+          "建立 Worker 进程退出、PID 变化、容器重启、OOMKilled、31501 监听消失和 lease 失效的联动告警。",
+          "保留 Worker 退出前后至少 5 分钟的应用、容器与 OS 日志，避免只看到对端 E112 而无法识别退出触发因素。",
+          "完善失活 endpoint 的快速摘除和 transport snapshot 刷新机制，降低客户端对陈旧路由的多次重试。"
+        ],
+        "verification": [
+          "从 192.168.189.88 连续探测 192.168.235.162:31501，确认不再出现 E112 Host is down / RPC peer dead。",
+          "复测相同 key 的 GET，确认成功且不再出现 39、1002、Worker endpoint is absent 或 Retry stale locations。",
+          "观察至少 30 分钟：/stats/error_codes 中 39/1002 不再新增；SET 继续独立观测，不以其空样本作为恢复证明。",
+          "核对恢复后 Worker PID 稳定、healthy=1、集群注册和路由快照均正常。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "workflow": {
+    "session_id": "train-diagnosis-9de35d6e-20261112",
+    "total_steps": 7,
+    "api_calls": 34,
+    "duration": "本会话完成",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences（SKILL/WIKI）"
+        ],
+        "result": "命中 Worker 生命周期、KVCache 与错误码排查经验；仅作为先验。"
+      },
+      {
+        "title": "资产与解析完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "资产、日志与任务均成功；1 条 trace、1 条异常。"
+      },
+      {
+        "title": "GET/SET 组件分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 1 条异常归入 data_worker；SET 0 样本，未混桶。"
+      },
+      {
+        "title": "统计分布与 trace 下钻",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "唯一 trace 命中 39/1002，关键日志为 RPC peer dead/E112 Host is down。"
+      },
+      {
+        "title": "Curated 知识解释",
+        "api_calls": [
+          "GET /failure_mode/status_code/39",
+          "GET /failure_mode/status_code/1002",
+          "GET /failure_mode/{id}"
+        ],
+        "result": "状态码与故障模式均指向元数据 owner/RPC 对端不可用。"
+      },
+      {
+        "title": "生命周期与历史案例验证",
+        "api_calls": [
+          "本地目标 Worker 日志只读核验",
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}"
+        ],
+        "result": "目标 Worker PID 13305→13687；人工确认案例 L1/L2 命中并完成命中回写。"
+      },
+      {
+        "title": "报告契约与渲染",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "错误码分布由真实快照离线提取；报告 JSON 与 HTML 将按同一契约校验。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+        "keywords_matched": [
+          "Worker",
+          "进程退出",
+          "K_RPC_UNAVAILABLE"
+        ],
+        "search_query_used": "RPC peer dead Host is down Worker endpoint absent status_code 1002 39",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "异常退出时，检查最后 ERROR/FATAL 日志、lease 失效、信号处理。",
+        "how_used_in_diagnosis": "用于形成退出触发因素补证与日志留存建议，不作为现场根因证据。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与目标 Worker PID 更替及 curated 对端不可用解释一致。"
+      },
+      {
+        "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+        "experience_type": "SKILL",
+        "name": "ds-kv-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "KV Cache",
+          "status_code",
+          "GET"
+        ],
+        "search_query_used": "KVCache dfx worker process set exit 写入失败 进程退出",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "KV Cache 访问日志中 status_code=0 表示成功，非 0 需要结合 StatusCode 表分析。",
+        "how_used_in_diagnosis": "用于确定先按 GET/SET 分离并下钻非零状态码。",
+        "confidence_on_reference": 0.88,
+        "confidence_reason": "与现场 39/1002 及后端 curated 查询流程一致。"
+      },
+      {
+        "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Worker 错误模式",
+        "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+        "keywords_matched": [
+          "Worker",
+          "RPC",
+          "对端存活"
+        ],
+        "search_query_used": "RPC peer dead Host is down Worker endpoint absent status_code 1002 39",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_RPC_UNAVAILABLE=1002 | 对端不可用 | 检查对端是否存活",
+        "how_used_in_diagnosis": "用于补充对端进程存活与 31501 监听核验建议。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "现场 E112 与 PID 更替验证了对端失活，且与 curated 1002 一致。"
+      }
+    ],
+    "summary": {
+      "total_references": 3,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 3,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验仅用于排查顺序和处置建议；根因结论由现场 trace、原始日志、Worker PID 时间线与 curated 知识共同支撑。"
+    }
+  }
+}

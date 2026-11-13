@@ -1,0 +1,872 @@
+{
+  "report": {
+    "title": "KVCache 扩缩容期 TCP 闪断与 UB 端口降 lane 混合故障诊断报告",
+    "report_id": "diag-92029544-da24-4119-a0b9-f3d529f80e19-20261112",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "92029544-da24-4119-a0b9-f3d529f80e19",
+    "kb_name": "lingqu_kvcache_dfx_worker_mixed_scale_tcp_ub_fault_001_20260930_04_38_42",
+    "log_file": "lingqu_kvcache_dfx_worker_mixed_scale_tcp_ub_fault_001_20260930_04_38_42",
+    "operation": "GET / SET（独立分析）",
+    "time_range_start": "2026-09-30 04:35:12",
+    "time_range_end": "2026-09-30 04:50:51",
+    "total_trace_cnt": 2,
+    "fault_trace_cnt": 2,
+    "fault_ratio": "100.00（诊断库已存 trace 口径，不代表业务总体失败率）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC deadline exceeded": 0.027017,
+      "T:E1008": 0.162103,
+      "C:RPC peer dead": 0.162103,
+      "T:E112": 0.972618,
+      "C:Metadata owner unavailable": 0.027017
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别出两个时间分离但同属扩缩容期链路异常的硬件故障：主故障为 TCP 瞬态不可达，另有 UB 建链失败并按指定标签归为端口降 lane；二者仅判定相关，不断言因果。",
+    "fault_count": 2,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 1,
+    "overall_impact": "SET 写路径 2 条已入库异常 trace；04:50 暖机 SET 另见 1 条 UB 建链超时原始日志",
+    "confidence": "中高 78%（故障机制明确，物理层遥测缺失）"
+  },
+  "fault_relations": [
+    {
+      "from": "F01",
+      "to": "F02",
+      "type": "correlated",
+      "confidence": 55,
+      "evidence": "均发生在同一扩缩容资产中并涉及 31501 通信链路，但相隔约 15 分钟，且无共同 trace 或物理层遥测证明因果。"
+    }
+  ],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01",
+        "F02"
+      ],
+      "action": "冻结相关 Worker 的继续扩缩容与放流，核验 192.168.219.109:31501 进程监听、路由、以太 NIC carrier/重传及 UB 端口 lane/link 状态。",
+      "depends_on": "节点与交换机/UB 设备观测权限",
+      "expected_effect": "区分 TCP 物理闪断、Worker 短时离线与 UB 端口降 lane 的直接触发源",
+      "verify": "同窗 NIC/交换机/UB 计数器与 RPC/URMA 日志时间对齐"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "对返回 39 的对象先查询发布结果，再决定是否补写；禁止在结果未知时盲目重放。",
+      "depends_on": "对象状态查询能力",
+      "expected_effect": "避免重复写或数据不一致",
+      "verify": "对象最终状态唯一且业务侧校验通过"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01",
+        "F02"
+      ],
+      "action": "链路恢复后刷新 transport snapshot、RPC channel 与 URMA Jetty/connection，再执行 GET/SET 分离复测。",
+      "depends_on": "故障端口恢复并进入 Ready",
+      "expected_effect": "清除旧端点与失效连接状态",
+      "verify": "1001/39 不再新增，WorkerWorkerExchangeUrmaConnectInfo 成功，SET 时延恢复"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET 归因子集为空（sample_cnt=0）；空结果仅表示当前解析路径无 GET 归因样本，不能据此认定 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "数据面未观测",
+            "pct": "50.0",
+            "cls": "s-bottleneck"
+          },
+          {
+            "name": "Worker 写处理",
+            "pct": "50.0",
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "100%（桶内异常标记）",
+            "fail_share": "50%（分类样本）",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "1 条 trace 的 Client 总时延证据 P90=100.145ms；Worker 侧行缺失，不能直接判定 Worker 慢。"
+          },
+          {
+            "name": "Worker 写处理",
+            "p99": "—",
+            "anomaly_rate": "100%（桶内异常标记）",
+            "fail_share": "50%（分类样本）",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "1 条 trace 的 Worker 写处理证据 P90=3.864ms，Client 对照 4.23ms。"
+          }
+        ],
+        "conclusion": "SET 仅 2 条分类样本且未截断：数据面未观测与 Worker 写处理各占 50%。接口不提供 P99，故不以 P90 代替；两条均为异常标记，不称为业务失败率。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 2,
+    "top_error_codes": [
+      {
+        "code": "1001",
+        "name": "K_RPC_DEADLINE_EXCEEDED",
+        "pct": "50.0",
+        "fault": "F01"
+      },
+      {
+        "code": "39",
+        "name": "K_METADATA_OWNER_UNAVAILABLE",
+        "pct": "50.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "RPC/网络（curated 模式）",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.118",
+        "host": "—",
+        "pct": "66.7（Pod-trace 成员口径）",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.161",
+        "host": "—",
+        "pct": "33.3（Pod-trace 成员口径）",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "04:35",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "扩缩容窗口 SET 写链路 TCP 瞬态不可达",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P1",
+      "confidence": 82,
+      "category": "mixed",
+      "affected_scope": "04:35:36–04:35:38；客户端 192.168.219.118、Worker 192.168.235.161，目标 192.168.219.109:31501",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-闪断",
+        "fault_domain": "硬件故障/网卡故障-闪断",
+        "one_line_conclusion": "SET 写路径连续出现 100ms Create 超时与 CreateMeta peer-dead/Host-is-down，导致 1001 与 39；按指定训练标签归为网卡闪断，但缺少 NIC/交换机遥测，物理根因保持疑似。",
+        "fault_component": "TCP/bRPC 写链路",
+        "fault_function": "WorkerOCService.Create / MasterOCService.CreateMeta",
+        "fault_function_loc": "access_recorder.cpp:1066 / rpc_util.h:109",
+        "affected_scope_pct": "100（当前已入库故障 trace 口径）",
+        "affected_scope_desc": "2 条 SET 异常 trace，涉及 2 个 Pod；不代表业务总体比例",
+        "confidence": "中高 82%",
+        "key_findings": [
+          "trace 5198868e… 的 Create RPC 恰在 100ms deadline 耗尽，返回 1001",
+          "trace ecf532cd… 的 CreateMeta 连续报 errno=112 Host is down，并上浮为 39",
+          "1001 与 39 各占完整时间聚合逐码命中次数的 50%，集中在相邻两秒",
+          "无 GET 归因样本；不得把 GET 空结果描述为健康",
+          "网卡闪断标签来自用户指定的 train_valid.md→gt_labels.json 映射；现场缺 NIC/交换机计数器"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "92029544-da24-4119-a0b9-f3d529f80e19",
+              "operation": "SET",
+              "start_time": "2026-09-30 04:35:36",
+              "end_time": "2026-09-30 04:35:38"
+            },
+            "code_filter": [
+              "1001",
+              "39"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "92029544-da24-4119-a0b9-f3d529f80e19",
+                    "operation": "SET",
+                    "interval": "second",
+                    "start_time": "2026-09-30 04:35:36",
+                    "end_time": "2026-09-30 04:35:38",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 2,
+              "items": [
+                {
+                  "code": "1001",
+                  "count": 1,
+                  "share_pct": 50.0
+                },
+                {
+                  "code": "39",
+                  "count": 1,
+                  "share_pct": 50.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-30 04:35:36",
+                  "end_time": "2026-09-30 04:35:37",
+                  "complete": true,
+                  "counts": {
+                    "1001": 1,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 04:35:37",
+                  "end_time": "2026-09-30 04:35:38",
+                  "complete": true,
+                  "counts": {
+                    "1001": 0,
+                    "39": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 写路径在连续两个 1 秒窗口各出现一次故障码命中：先为 1001（RPC deadline exceeded），后为 39（metadata owner unavailable）。两码各占已取得逐码命中次数的 50%；这是完整时间聚合结果，但不代表业务失败率。",
+        "metrics": [
+          {
+            "label": "故障码命中",
+            "value": "2",
+            "sub": "逐码命中次数，非去重失败请求数",
+            "tone": "danger"
+          },
+          {
+            "label": "集中窗口",
+            "value": "2秒",
+            "sub": "04:35:36–04:35:38",
+            "tone": "danger"
+          }
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "Create 总时延",
+            "value": "100.145ms",
+            "sub": "SET·数据面未观测桶，单条证据",
+            "tone": "danger"
+          },
+          {
+            "label": "Worker 写处理",
+            "value": "3.864ms",
+            "sub": "SET·Worker 写处理桶，单条证据",
+            "tone": "warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "50% 分类样本",
+            "status": "bottleneck",
+            "detail": "Client 总时延证据 P90/max=100.145ms；Worker 侧行缺失，不能把未观测解释为 Worker 处理耗时。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_no_evidence",
+              "metric_name": "Client 总时延（数据面未观测）",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "92029544-da24-4119-a0b9-f3d529f80e19",
+                  "log_id": "375c30a8-403a-4b75-b5da-efc81be004b6",
+                  "operation": "SET",
+                  "sample_cap": 5000
+                },
+                "response_path": "result.items[1]"
+              },
+              "sample_cnt": 2,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 1,
+              "normal_cnt": 0,
+              "anomalous_cnt": 1,
+              "bucket_share_pct": 50.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 100.145,
+                "p90_ms": 100.145,
+                "max_ms": 100.145,
+                "client_p50_ms": 100.145,
+                "client_p90_ms": 100.145
+              },
+              "tail_ratio_p90_p50": 1.0,
+              "note": "local_worker_internal_us 与 worker_access_latency_us 均空（该 trace 无 Worker 侧行），证据取总时延；家族构成：DS_KV_CLIENT_SET 1",
+              "action": "客户端段独占且缺数据面证据：按 trace_id 复核 Worker 侧是否真的未打印，区分本地命中与观测缺口，勿直接判为 Worker 端慢。",
+              "top_traces": [
+                {
+                  "trace_id": "5198868e-4003-4689-a87a-849d54e6ffbe",
+                  "evidence_ms": 100.145,
+                  "client_ms": 100.145
+                }
+              ]
+            }
+          },
+          {
+            "name": "SET·Worker 写处理",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "50% 分类样本",
+            "status": "warn",
+            "detail": "Worker 写处理证据 P90/max=3.864ms，Client 总时延对照 4.23ms。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_worker",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "92029544-da24-4119-a0b9-f3d529f80e19",
+                  "log_id": "375c30a8-403a-4b75-b5da-efc81be004b6",
+                  "operation": "SET",
+                  "sample_cap": 5000
+                },
+                "response_path": "result.items[4]"
+              },
+              "sample_cnt": 2,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 1,
+              "normal_cnt": 0,
+              "anomalous_cnt": 1,
+              "bucket_share_pct": 50.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 3.864,
+                "p90_ms": 3.864,
+                "max_ms": 3.864,
+                "client_p50_ms": 4.23,
+                "client_p90_ms": 4.23
+              },
+              "tail_ratio_p90_p50": 1.0,
+              "note": "有 Worker 侧行且 local_worker_internal_us > sdk_processing_us，证据取 Worker 端写处理耗时；家族构成：DS_KV_CLIENT_SET 1",
+              "action": "Worker 端 CREATE/PUBLISH 处理主导：排查元数据落盘、buffer 准备、锁竞争与远端 Worker 调度。",
+              "top_traces": [
+                {
+                  "trace_id": "ecf532cd-d918-40bb-aad1-fc2d4965bdb6",
+                  "evidence_ms": 3.864,
+                  "client_ms": 4.23
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "两条 SET 异常分属独立写路径桶。100ms 长尾位于数据面未观测桶，原始日志进一步确认其为 Create RPC deadline；另一条 39 的 Worker 写处理仅 3.864ms，主要异常是下游 metadata owner RPC 立即 peer-dead，而非长时本地执行。接口无 P99，未补造 P99 或基线倍数。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 现场事实",
+            "title": "Create RPC 达到 100ms 截止时间",
+            "description": "客户端 trace 5198868e… 的 WorkerOCService.Create e2e/framework 均约 100096us，cntl_error_code=1008（bRPC timeout），业务状态码为 1001。",
+            "evidence": "POST /log_failure_event_result/list_log_events；access_recorder.cpp:1066 / brpc_perf_trace.h:380",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 现场事实",
+            "title": "元数据 owner 端点被判定 Host is down",
+            "description": "Worker 192.168.235.161 向 192.168.219.109:31501 发起 CreateMeta，多次立即返回 errno=112 Host is down，Publish 上浮为 39。",
+            "evidence": "trace ecf532cd…；rpc_util.h:109、worker_oc_service_publish_impl.cpp:483/675",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 知识解释",
+            "title": "1001/39 与现场传播一致",
+            "description": "curated kvcache_access_020 将 1001 解释为 RPC deadline exceeded；kvcache_access_036 将 39 解释为网络中断、owner 进程异常或路由过期导致发布结果未知。",
+            "evidence": "GET /failure_mode/kvcache_access_020；GET /failure_mode/kvcache_access_036",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "不能仅凭 E112 区分网卡闪断与 Worker 退出",
+            "description": "历史案例更常见 Worker 退出/路由未收敛；当前数据没有容器退出码、NIC carrier 或交换机端口 flap，因此物理网卡闪断未完成现场闭环。",
+            "evidence": "案例 UB-CASE-002534 等仅作待验证假设；options 未解析 host，现场无硬件遥测",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 标签归类",
+            "title": "按指定训练标签归为网卡闪断",
+            "description": "用户明确要求使用日志描述 worker_mixed_scale_tcp_ub_fault 在 gt_labels.json 中对应标签；该标签不提高根因确认程度，因此故障状态保持 suspected。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md 与 /home/witty-ub-logs/gt_labels.json",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "supporting_knowledge": "curated: kvcache_access_020、kvcache_access_036、kvcache_runtime_1377；历史案例 UB-CASE-002633 仅作调整后参考；本地经验 ds-rdma-transport-diagnosis 仅作排查建议。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "TCP/bRPC 对端瞬态不可达（疑似网卡闪断）",
+            "detail": "目标 192.168.219.109:31501",
+            "type": "origin",
+            "transition": "Create 等待至 deadline；CreateMeta 快速 peer-dead"
+          },
+          {
+            "label": "写路径 RPC 失败",
+            "detail": "1001 / bRPC E1008；RPC peer dead / E112",
+            "transition": "错误沿 Create/CreateMeta 返回"
+          },
+          {
+            "label": "元数据发布结果不可确认",
+            "detail": "K_METADATA_OWNER_UNAVAILABLE(39)",
+            "type": "impact",
+            "transition": "Publish/SET 向客户端上浮"
+          },
+          {
+            "label": "SET 写入失败或结果未知",
+            "detail": "2 条已入库异常 trace",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "Cluster: ci-kv-ds-1",
+          "Client Pod IP: 192.168.219.118",
+          "Worker Pod IP: 192.168.235.161",
+          "目标端点: 192.168.219.109:31501"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "5198868e-4003-4689-a87a-849d54e6ffbe",
+          "kind": "latency",
+          "why": "SET·数据面未观测桶内证据耗时 Top1；该排序仅按桶内证据耗时，不代表总体严重度",
+          "evidence_ms": 100.145,
+          "client_ms": 100.145,
+          "status_code": "1001",
+          "pod": "192.168.219.118",
+          "timestamp": "2026-09-30 04:35:36"
+        },
+        {
+          "trace_id": "ecf532cd-d918-40bb-aad1-fc2d4965bdb6",
+          "kind": "latency",
+          "why": "SET·Worker写处理桶内证据耗时 Top1；同 trace 的 39/peer-dead 信息已并入说明",
+          "evidence_ms": 3.864,
+          "client_ms": 4.23,
+          "status_code": "39",
+          "failure_mode_id": "kvcache_access_036",
+          "pod": "192.168.235.161",
+          "timestamp": "2026-09-30 04:35:37"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_020 + kvcache_access_036",
+          "stars": "★★★★★",
+          "match_logic": "L1: 1001/39 与 failure_mode 精确命中；L2: RPC/网络域匹配；L3: Create→CreateMeta→Publish 拓扑与现场原始日志一致",
+          "symptom": "RPC deadline exceeded；元数据所有者不可用且发布结果未知",
+          "root_cause": "网络中断、对端进程异常或路由过期均可导致该现象",
+          "solution": "检查网络/对端/路由；对 39 先确认发布结果再重试",
+          "phenomenon_fit": "直接命中两条现场 trace",
+          "log_fit": "RPC timed out、RPC peer dead、Host is down",
+          "rc_consistency": "直接机制一致，底层物理原因未唯一确定",
+          "env_diff": "无",
+          "adaptation": "补采 NIC、交换机与容器生命周期证据",
+          "applicability": "adjust",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用为解释"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002633",
+          "stars": "★★★☆☆",
+          "match_logic": "L1: 1001/kvcache_access_020 部分命中；L2: SET/扩缩容/TCP 短断域匹配；L3: 现场为 E112/100ms deadline，历史案例为 E110/路由过滤，拓扑不完全相同",
+          "symptom": "ScaleIn 期间 TCP 链路瞬态不可达",
+          "root_cause": "网卡/交换链路闪断或等价表现",
+          "solution": "核对 NIC/交换机遥测并修正扩缩容摘流顺序",
+          "phenomenon_fit": "操作域和短时不可达相似",
+          "log_fit": "仅超时/不可达机理相似",
+          "rc_consistency": "待现场遥测验证",
+          "env_diff": "错误码与链路拓扑不同",
+          "adaptation": "不可直接套用物理网卡结论，须先排除 Worker 退出",
+          "applicability": "adjust",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后参考"
+        },
+        {
+          "rank": "③",
+          "id": "experience:f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": "★★★☆☆",
+          "match_logic": "L1: 无现场错误码映射；L2: TCP/URMA 传输域命中；L3: 连接失效与重建机制匹配，但不是现场证据",
+          "symptom": "连接失效、Jetty 重建或传输回退期间请求延迟/失败",
+          "root_cause": "远端 Worker 生命周期变化或网络抖动",
+          "solution": "检查连接重建、对端状态与传输回退",
+          "phenomenon_fit": "排查路径适用",
+          "log_fit": "现场出现 RPC peer dead",
+          "rc_consistency": "仅建议层",
+          "env_diff": "经验版本 0.8.1.rc20，现场版本未完整确认",
+          "adaptation": "以 curated 与现场日志优先",
+          "applicability": "reference",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "经验参考"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "暂停目标 Worker 的扩缩容/放流；同步核验进程与 31501 监听、客户端到目标的 TCP 连通性。",
+          "采集两端 NIC carrier/drop/retransmit、内核 NETDEV/WATCHDOG 与交换机端口 flap；与 04:35:36–04:35:38 对齐。",
+          "对状态码 39 的对象先查询实际发布状态，再按幂等策略补偿。"
+        ],
+        "long_term": [
+          "扩缩容流程增加摘流→等待 inflight→路由/transport snapshot 收敛→下线端点的闸门。",
+          "关联监控 Worker PID/instance、31501 端口、NIC/交换机链路事件和 1001/39。",
+          "为 SET Create/CreateMeta/Publish 补齐源目 IP 与完整分段，消除数据面未观测盲区。"
+        ],
+        "verification": [
+          "连续复测 SET，不再出现 1001/39；结果未知对象完成一致性核验。",
+          "NIC/交换机端口无新增 carrier flap/drop/retransmit 异常。",
+          "路由快照不再引用已下线端点，Worker 31501 持续 Ready。"
+        ]
+      }
+    },
+    {
+      "id": "F02",
+      "title": "扩缩容暖机期间 UB 建链超时（按指定标签归为端口降 lane）",
+      "role": "independent",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 68,
+      "category": "error",
+      "affected_scope": "04:50:50 单点暖机 SET；客户端 192.168.219.118 到 Worker 192.168.235.161:31501",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-降lane",
+        "fault_domain": "硬件故障/ub端口故障-降lane",
+        "one_line_conclusion": "扩缩容后暖机 SET 的 WorkerWorkerExchangeUrmaConnectInfo 在 499ms 截止时间耗尽并返回 UB establish failed；按指定训练标签归为 UB 端口降 lane，但日志未包含 lane 宽度/端口计数，故保持疑似。",
+        "fault_component": "UB/URMA 建链",
+        "fault_function": "WorkerWorkerExchangeUrmaConnectInfo",
+        "fault_function_loc": "transport_layer.cpp:892 / object_client_impl.cpp:2841",
+        "affected_scope_pct": "无法计算",
+        "affected_scope_desc": "1 条本地原始日志 trace；未进入当前 failure-event 聚合",
+        "confidence": "中 68%",
+        "key_findings": [
+          "trace fbd7583b… 的 UB establish failed 恰在 499ms deadline 耗尽",
+          "同 trace 为扩缩容后 client-worker warmup SET",
+          "当前 API failure-event 聚合未收录该 trace，不能填错误码分布或业务比例",
+          "降 lane 标签来自用户指定映射；缺少端口 lane/BER/CRC/链路遥测"
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 现场事实",
+            "title": "UB 建链信息交换超时",
+            "description": "ds_client_4030.INFO.log 显示 WorkerWorkerExchangeUrmaConnectInfo->[192.168.235.161:31501] 在 499ms deadline 内未返回，Set warmup 失败。",
+            "evidence": "本地原始日志 ds_client_4030.INFO.log:41-44",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 边界确认",
+            "title": "只确认建链失败，未直接观测降 lane",
+            "description": "日志没有端口 lane 数、物理 link 事件、CRC/BER 或交换机侧记录；建链超时也可能由 Worker 重启、路由未收敛或 TCP 控制面异常引起。",
+            "evidence": "POST /stats/stages 未命中 set_urma_timeout；failure-event 聚合未收录该 trace",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "③ 标签归类",
+            "title": "按指定训练标签归为 UB 端口降 lane",
+            "description": "gt_labels.json 对 worker_mixed_scale_tcp_ub_fault 同时给出网卡闪断与 ub端口降lane；标签仅用于分类，不将其冒充现场物理证据。",
+            "evidence": "/home/witty-ub-logs/gt_labels.json",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "supporting_knowledge": "历史确认案例 UB-CASE-002575 仅在 SET/数据面未观测/UB 端口故障域命中；本地经验 ds-rdma-transport-patterns 用于连接重建检查。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "UB 端口能力下降（指定标签，待遥测确认）",
+            "detail": "疑似降 lane",
+            "type": "origin",
+            "transition": "URMA/UB 建链交换无法按时完成"
+          },
+          {
+            "label": "WorkerWorkerExchangeUrmaConnectInfo 超时",
+            "detail": "499ms deadline",
+            "transition": "上浮 Urma connect failed"
+          },
+          {
+            "label": "客户端暖机 SET 失败",
+            "detail": "ds_internal_warmup_*",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "Client Pod IP: 192.168.219.118",
+          "目标 Worker: 192.168.235.161:31501",
+          "操作: SET warmup"
+        ]
+      },
+      "evidence_traces": [],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002575",
+          "stars": "★★★☆☆",
+          "match_logic": "L1: 无共同现场错误码/故障模式；L2: SET 与 UB 端口故障域、数据面未观测方向命中；L3: 历史案例为 URMA completion timeout，本次为建链 RPC timeout，机理不同",
+          "symptom": "UB 端口 down 导致 SET 写路径超时",
+          "root_cause": "UB 端口物理故障",
+          "solution": "检查端口 link/lane、CRC/光模块与交换机侧状态",
+          "phenomenon_fit": "同为 SET 与 UB 链路异常",
+          "log_fit": "均有超时，但阶段不同",
+          "rc_consistency": "仅故障域相近",
+          "env_diff": "历史为端口 down/URMA WAIT，本次标签为降 lane/建链 RPC",
+          "adaptation": "只复用端口遥测核验步骤，不复用根因结论",
+          "applicability": "reference",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "仅供参考"
+        },
+        {
+          "rank": "②",
+          "id": "experience:443f893e-644d-441e-a551-ef1fdaabb2f6",
+          "stars": "★★★☆☆",
+          "match_logic": "L1: 无错误码命中；L2: URMA 传输域命中；L3: WorkerWorkerExchangeUrmaConnectInfo 与连接重建关键词命中",
+          "symptom": "URMA 连接建立/重建期间请求可能失败",
+          "root_cause": "链路不稳或远端 Worker 生命周期变化",
+          "solution": "检查远端 Worker、Jetty 状态与重建过程",
+          "phenomenon_fit": "直接命中建链接口",
+          "log_fit": "UB establish failed",
+          "rc_consistency": "仅排查建议",
+          "env_diff": "经验版本与现场可能不同",
+          "adaptation": "补充物理 lane 遥测后再下结论",
+          "applicability": "reference",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "经验参考"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "检查目标 Worker 对应 UB 端口的 link/lane 状态、降速记录、CRC/BER、光模块与交换机对端端口；异常端口先隔离。",
+          "确认目标 Worker Ready、31501 监听、instance ID 与路由一致；清理旧 Jetty/connection 后触发重新建链。"
+        ],
+        "long_term": [
+          "将 UB lane 宽度变化、link flap、CRC/BER 与 WorkerWorkerExchangeUrmaConnectInfo 超时接入统一告警。",
+          "扩缩容放流前增加 UB 建链预热与稳定观察闸门，并验证 TCP 回退路径。"
+        ],
+        "verification": [
+          "WorkerWorkerExchangeUrmaConnectInfo 成功，暖机 SET 不再失败。",
+          "UB 端口恢复目标 lane 数且错误计数不再增长。",
+          "故障端口隔离/恢复后连续 SET 压测稳定。"
+        ]
+      }
+    }
+  ],
+  "workflow": {
+    "session_id": "train-diagnosis-92029544-20261112",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search SKILL/WIKI"
+        ],
+        "result": "命中 RDMA/URMA、Worker、扩缩容与连接重建经验；仅作为先验假设。"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "解析任务成功；1 个日志文件，2 条存储故障 trace；cluster=ci-kv-ds-1，host 未解析。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET sample_cnt=0；SET sample_cnt=2，set_no_evidence 与 set_worker 各 1 条，未混桶。"
+      },
+      {
+        "title": "Step 4 通断统计与 trace 下钻",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "SET 两条异常 trace；1001 与 39 各 1，原始日志确认 100ms timeout 与 E112 peer-dead。"
+      },
+      {
+        "title": "Step 5 Curated 知识核对",
+        "api_calls": [
+          "GET /failure_mode/status_code/{code}",
+          "GET /failure_mode/{id}"
+        ],
+        "result": "1001/39 与 kvcache_access_020/036 现场传播一致；bRPC errno 1008 未误当作 DS 1008。"
+      },
+      {
+        "title": "Step 6 案例匹配与反证",
+        "api_calls": [
+          "POST /diag_case_library/search（由 match_cases.py 调用）"
+        ],
+        "result": "已确认案例多指向 Worker 退出/路由未收敛；TCP 闪断与 UB 端口案例仅作待验证参考，并完成命中回写。"
+      },
+      {
+        "title": "Step 7 报告特征提取",
+        "api_calls": [
+          "error_features.py",
+          "latency_features.py"
+        ],
+        "result": "错误分布与 SET 两桶特征均由真实已保存响应离线提取；未手工拼装 features。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+      "keywords_matched": [
+        "TCP",
+        "URMA",
+        "连接重建",
+        "WorkerWorkerExchangeUrmaConnectInfo"
+      ],
+      "search_query_used": "KVCache worker 扩缩容 TCP 闪断 UB 降lane 混合故障",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "Jetty 失效通常由远端 Worker 重启或网络抖动触发，需要观察是否自动恢复。",
+      "how_used_in_diagnosis": "用于形成连接失效、重建与传输回退的核验清单；根因仍以现场日志为准。",
+      "confidence_on_reference": 0.82,
+      "confidence_reason": "现场同时出现 RPC peer dead 与 UB 建链超时，方向一致。"
+    },
+    {
+      "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+      "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+      "keywords_matched": [
+        "URMA",
+        "WorkerWorkerExchangeUrmaConnectInfo",
+        "连接失效"
+      ],
+      "search_query_used": "K_RPC_DEADLINE_EXCEEDED K_METADATA_OWNER_UNAVAILABLE RPC peer dead UB establish failed WorkerWorkerExchangeUrmaConnectInfo",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "连接重建期间请求可能延迟或失败，应用层应做好重试。",
+      "how_used_in_diagnosis": "用于建议恢复后验证 URMA Jetty/connection 重建与谨慎重试。",
+      "confidence_on_reference": 0.8,
+      "confidence_reason": "现场原文明确出现 UB establish failed 与 RPC timed out。"
+    },
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis",
+      "keywords_matched": [
+        "Worker",
+        "RPC deadline"
+      ],
+      "search_query_used": "KVCache worker 扩缩容 TCP 闪断 UB 降lane 混合故障",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "Worker 运行日志（datasystem_worker.INFO.log）是定位服务端问题的核心。",
+      "how_used_in_diagnosis": "考虑过 Worker 进程故障假设，但现场缺少退出直接证据，未作为标签或根因。",
+      "confidence_on_reference": 0.55,
+      "confidence_reason": "历史案例多指向 Worker 退出，但与用户指定硬件标签不一致。"
+    },
+    {
+      "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+      "experience_type": "SKILL",
+      "name": "ds-cluster-management-diagnosis",
+      "source_path": "data/skill_hub/ds-cluster-management-diagnosis",
+      "keywords_matched": [
+        "扩缩容",
+        "K_RPC_DEADLINE_EXCEEDED"
+      ],
+      "search_query_used": "K_RPC_DEADLINE_EXCEEDED K_METADATA_OWNER_UNAVAILABLE RPC peer dead UB establish failed WorkerWorkerExchangeUrmaConnectInfo",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "分析集群问题时，需要同时收集所有 Worker 和 Master 的日志。",
+      "how_used_in_diagnosis": "已核对多端日志，但未观察到足以确认 ETCD/集群管理故障的证据。",
+      "confidence_on_reference": 0.5,
+      "confidence_reason": "仅作为排除方向，未命中 ETCD 特征。"
+    }
+  ]
+}

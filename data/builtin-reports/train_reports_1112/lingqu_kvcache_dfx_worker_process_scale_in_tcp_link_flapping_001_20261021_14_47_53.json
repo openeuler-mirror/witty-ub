@@ -1,0 +1,820 @@
+{
+  "report": {
+    "title": "KVCache TCP链路闪断场景诊断报告",
+    "report_id": "RPT-20261112-TCFL",
+    "generated_at": "2026-11-12 15:55:35"
+  },
+  "basic_info": {
+    "kb_id": "c5ce62e8-53c9-438e-b71a-eaf45ca7006d",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_scale_in_tcp_link_flapping_001_20261021_14_47_53",
+    "log_file": "lingqu_kvcache_dfx_worker_process_scale_in_tcp_link_flapping_001_20261021_14_47_53 (log_id=43cba312-6f66-4dc4-aeae-fc6bcc4cd6ec)",
+    "operation": "GET / SET（独立分析；故障仅见 SET）",
+    "time_range_start": "2026-10-21 14:47:55",
+    "time_range_end": "2026-10-21 14:48:47",
+    "total_trace_cnt": 46,
+    "fault_trace_cnt": 46,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个 SET 通断故障：客户端路由在短时窗口内将全部 Worker 过滤，按指定标签归类为网卡闪断场景。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "46 条 SET 故障 trace，集中于客户端 Pod 192.168.235.186，持续约 51 秒；GET 无样本。",
+    "confidence": "中高 78%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SET 路由可用 Worker 集合耗尽（网卡闪断标签场景）",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P1",
+      "confidence": 78,
+      "category": "error",
+      "affected_scope": "datasystem_gdm / 客户端 Pod 192.168.235.186；46 条 SET 故障 trace；14:47:55–14:48:46",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-闪断",
+        "one_line_conclusion": "14:47:55–14:48:46，客户端 Pod 192.168.235.186 的 46 次 SET 均返回 K_NO_AVAILABLE_WORKER(37)，现场确认路由层全部 Worker 被过滤；按用户指定映射固定标注为网卡闪断，但资产库缺少网卡/内核链路事件，物理触发机制仍需闭环。",
+        "fault_domain": "硬件故障/网卡故障-闪断",
+        "fault_component": "TCP 网络链路与客户端 Worker 路由健康视图",
+        "fault_function": "客户端 SET 路由选择",
+        "fault_function_loc": "access_recorder.cpp:1066 / worker_snapshot 路由层",
+        "affected_scope_pct": "100.00",
+        "affected_scope_desc": "46/46 故障 trace 集中于单一客户端 Pod；Worker 数据面未观测",
+        "confidence": "中高 78%",
+        "key_findings": [
+          "状态码 37 占 SET 故障码逐码命中 100%（46/46），唯一故障模式为 kvcache_access_054。",
+          "原始日志 5 条代表 trace 均明确记录 All workers filtered or excluded。",
+          "46 条 SET trace 全部归入 set_no_evidence：未形成 Worker 数据面日志，端到端耗时仅 0.028–0.094ms，属于客户端路由快速失败而非慢请求。",
+          "故障从 14:47:55 持续到 14:48:46，14:48 分钟窗包含 42/46 条故障 trace。",
+          "固定标签来自 train_valid.md 对应描述 worker_process_scale_in_tcp_link_flapping 及 gt_labels.json；该标签不是现场 API 证据。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "c5ce62e8-53c9-438e-b71a-eaf45ca7006d",
+              "operation": "SET",
+              "start_time": "2026-10-21 14:47:55",
+              "end_time": "2026-10-21 14:48:47"
+            },
+            "code_filter": [
+              "37"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "c5ce62e8-53c9-438e-b71a-eaf45ca7006d",
+                    "operation": "SET",
+                    "start_time": "2026-10-21 14:47:55",
+                    "end_time": "2026-10-21 14:48:47",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 30,
+                  "returned_windows": 30
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 30,
+              "total_windows": 30
+            },
+            "code_distribution": {
+              "total_count": 46,
+              "items": [
+                {
+                  "code": "37",
+                  "count": 46,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 2,
+              "windows": [
+                {
+                  "start_time": "2026-10-21 14:47:55",
+                  "end_time": "2026-10-21 14:47:57",
+                  "complete": true,
+                  "counts": {
+                    "37": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:47:57",
+                  "end_time": "2026-10-21 14:47:59",
+                  "complete": true,
+                  "counts": {
+                    "37": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:47:59",
+                  "end_time": "2026-10-21 14:48:01",
+                  "complete": true,
+                  "counts": {
+                    "37": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:01",
+                  "end_time": "2026-10-21 14:48:03",
+                  "complete": true,
+                  "counts": {
+                    "37": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:03",
+                  "end_time": "2026-10-21 14:48:05",
+                  "complete": true,
+                  "counts": {
+                    "37": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:05",
+                  "end_time": "2026-10-21 14:48:07",
+                  "complete": true,
+                  "counts": {
+                    "37": 3
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:07",
+                  "end_time": "2026-10-21 14:48:09",
+                  "complete": true,
+                  "counts": {
+                    "37": 5
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:09",
+                  "end_time": "2026-10-21 14:48:11",
+                  "complete": true,
+                  "counts": {
+                    "37": 3
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:11",
+                  "end_time": "2026-10-21 14:48:13",
+                  "complete": true,
+                  "counts": {
+                    "37": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:13",
+                  "end_time": "2026-10-21 14:48:15",
+                  "complete": true,
+                  "counts": {
+                    "37": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:15",
+                  "end_time": "2026-10-21 14:48:17",
+                  "complete": true,
+                  "counts": {
+                    "37": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:17",
+                  "end_time": "2026-10-21 14:48:19",
+                  "complete": true,
+                  "counts": {
+                    "37": 5
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:19",
+                  "end_time": "2026-10-21 14:48:21",
+                  "complete": true,
+                  "counts": {
+                    "37": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:21",
+                  "end_time": "2026-10-21 14:48:23",
+                  "complete": true,
+                  "counts": {
+                    "37": 3
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:23",
+                  "end_time": "2026-10-21 14:48:25",
+                  "complete": true,
+                  "counts": {
+                    "37": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:25",
+                  "end_time": "2026-10-21 14:48:27",
+                  "complete": true,
+                  "counts": {
+                    "37": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:27",
+                  "end_time": "2026-10-21 14:48:29",
+                  "complete": true,
+                  "counts": {
+                    "37": 3
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:29",
+                  "end_time": "2026-10-21 14:48:31",
+                  "complete": true,
+                  "counts": {
+                    "37": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:31",
+                  "end_time": "2026-10-21 14:48:33",
+                  "complete": true,
+                  "counts": {
+                    "37": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:33",
+                  "end_time": "2026-10-21 14:48:35",
+                  "complete": true,
+                  "counts": {
+                    "37": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:35",
+                  "end_time": "2026-10-21 14:48:37",
+                  "complete": true,
+                  "counts": {
+                    "37": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:37",
+                  "end_time": "2026-10-21 14:48:39",
+                  "complete": true,
+                  "counts": {
+                    "37": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:39",
+                  "end_time": "2026-10-21 14:48:41",
+                  "complete": true,
+                  "counts": {
+                    "37": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:41",
+                  "end_time": "2026-10-21 14:48:43",
+                  "complete": true,
+                  "counts": {
+                    "37": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:43",
+                  "end_time": "2026-10-21 14:48:45",
+                  "complete": true,
+                  "counts": {
+                    "37": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-21 14:48:45",
+                  "end_time": "2026-10-21 14:48:47",
+                  "complete": true,
+                  "counts": {
+                    "37": 4
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 侧 46 次逐码命中全部为 37（K_NO_AVAILABLE_WORKER），完整覆盖 30 个有数据原始秒桶；2 秒展示窗峰值为 5 次。GET 侧无归因样本，不能据此判断 GET 健康。",
+        "metrics": [
+          {
+            "label": "SET 故障 trace",
+            "value": "46",
+            "sub": "全部命中状态码 37",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "37 / 100%",
+            "sub": "K_NO_AVAILABLE_WORKER",
+            "tone": "danger"
+          },
+          {
+            "label": "故障窗口",
+            "value": "约 51 秒",
+            "sub": "14:47:55–14:48:46",
+            "tone": "warn"
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析与定界任务成功",
+            "description": "日志目录作为一个 log_file 解析成功，共形成 46 条 trace；故障定界侧落库 46 条故障 trace。",
+            "evidence": "POST /log_file/list/{kb_id}: overall_status=successful, trace_failure_event_cnt=46；POST /task/list: 三类任务均 successful",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 读写分离",
+            "title": "故障仅见 SET，GET 无归因样本",
+            "description": "GET /stats/stages 返回 sample_cnt=0；SET 返回 sample_cnt=46。GET 空结果仅表示无可分析样本，不作为健康结论。",
+            "evidence": "POST /stats/stages operation=GET/SET（分别调用）",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 故障语义",
+            "title": "路由层无可用 Worker",
+            "description": "SET 侧 46 条故障 trace 全部携带状态码 37 和故障模式 kvcache_access_054；代表日志逐条为 All workers filtered or excluded。",
+            "evidence": "POST /stats/error_codes；POST /log_failure_event_result/list_trace_events；POST /log_failure_event_result/list_log_events",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 阶段定位",
+            "title": "请求在客户端路由阶段快速失败",
+            "description": "SET 46/46 归入 SET·数据面未观测，P90 0.078ms、max 0.094ms；没有 Worker 侧行，排除已观测 Worker 执行慢或 URMA timeout 作为直接表现。",
+            "evidence": "POST /stats/stages operation=SET: set_no_evidence trace_cnt=46, set_urma_timeout=0",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 触发源核验",
+            "title": "网卡闪断为固定标签，底层证据缺失",
+            "description": "用户指定的 train_valid.md 映射到 worker_process_scale_in_tcp_link_flapping，gt_labels.json 固定标签为硬件故障/网卡故障-闪断；但当前日志及 API 未提供 NIC carrier、TCP reset、丢包或内核链路事件，因此不把标签本身冒充现场证明。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md:207；/home/witty-ub-logs/gt_labels.json:586-588；现场 API 未返回底层链路事件",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑥ 反证检查",
+            "title": "历史 Worker 退出案例不能直接迁移",
+            "description": "已确认案例 UB-CASE-002644 与本次同为 37/kvcache_access_054/SET，但其一级标签和根因指向 Worker 退出/端点不可达；本次没有进程退出码、Host is down 或 Worker 生命周期证据，故仅作参考，不覆盖固定标签。",
+            "evidence": "POST /diag_case_library/search 经 match_cases.py 软匹配；score_norm=0.5926，L1 命中、L2 故障域不一致",
+            "excluded": true,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "可确认的直接故障是客户端 Worker 健康/排除条件将可用集合筛空，使 SET 在路由层快速返回 K_NO_AVAILABLE_WORKER(37)。按任务指定映射，该事件标签固定为“硬件故障/网卡故障-闪断”；TCP/NIC 闪断如何触发 Worker 健康摘除尚缺底层链路日志，保持待验证。",
+        "supporting_knowledge": "Curated kvcache_access_054 将 37 解释为客户端路由未找到同节点 Worker，或全部 Worker 被健康状态和排除条件过滤；与 46 条原始日志完全一致。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "TCP/NIC 链路短时闪断（指定标签，待底层证据核验）",
+            "detail": "训练描述固定映射为网卡故障-闪断；当前资产库未采集网卡 carrier/TCP reset 事件。",
+            "type": "hypothesis",
+            "transition": "可能触发健康探测与路由视图变化"
+          },
+          {
+            "label": "Worker 健康/排除条件生效",
+            "detail": "客户端路由层未找到可用 Worker。",
+            "type": "confirmed",
+            "transition": "全部候选被过滤"
+          },
+          {
+            "label": "路由集合为空",
+            "detail": "原始日志连续出现 All workers filtered or excluded。",
+            "type": "confirmed",
+            "transition": "SET 快速失败"
+          },
+          {
+            "label": "K_NO_AVAILABLE_WORKER(37)",
+            "detail": "46 条 SET 故障 trace 在约 51 秒内返回状态码 37。",
+            "type": "confirmed",
+            "transition": "写请求未进入 Worker 数据面"
+          }
+        ],
+        "impact_scope": [
+          "集群 datasystem_gdm；客户端 Pod 192.168.235.186。",
+          "SET：46 条故障 trace，状态码 37 占 100%；GET：无归因样本。",
+          "源/目的 IP 对为空，无法从本资产库定位具体物理链路两端。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "f189daa0-71db-4a4d-b95a-5b414e123307",
+          "kind": "error",
+          "why": "status_code=37 + pod=192.168.235.186 + 14:47:55–14:48:47；首条故障",
+          "status_code": "37",
+          "failure_mode_id": "kvcache_access_054",
+          "pod": "192.168.235.186",
+          "timestamp": "2026-10-21 14:47:55"
+        },
+        {
+          "trace_id": "cc3e0cb0-28f7-4632-8455-10d706204a7b",
+          "kind": "error",
+          "why": "status_code=37 + pod=192.168.235.186 + 14:47:55–14:48:47；峰值秒窗口代表",
+          "status_code": "37",
+          "failure_mode_id": "kvcache_access_054",
+          "pod": "192.168.235.186",
+          "timestamp": "2026-10-21 14:48:17"
+        },
+        {
+          "trace_id": "9ee237e7-798b-481d-a221-afdd033d53a4",
+          "kind": "error",
+          "why": "status_code=37 + pod=192.168.235.186 + 14:47:55–14:48:47；末条故障",
+          "status_code": "37",
+          "failure_mode_id": "kvcache_access_054",
+          "pod": "192.168.235.186",
+          "timestamp": "2026-10-21 14:48:46"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "curated:kvcache_access_054",
+          "stars": 5,
+          "match_logic": "L1 命中 status_code=37 与 failure_mode_id=kvcache_access_054；L2 命中 SET 路由快速失败；L3 仅有客户端 Pod，缺源目链路拓扑。",
+          "symptom": "请求返回 K_NO_AVAILABLE_WORKER，没有可用于路由的 Worker。",
+          "root_cause": "客户端路由未找到同节点 Worker，或全部 Worker均被健康状态和排除条件过滤。",
+          "solution": "检查 Worker 健康状态、路由配置和排除条件；恢复可用 Worker并刷新路由后重试。",
+          "phenomenon_fit": "与 46 条状态码 37 及原文 All workers filtered or excluded 完全一致。",
+          "log_fit": "代表 trace 原文直接命中。",
+          "rc_consistency": "直接故障语义一致；不解释底层网卡闪断。",
+          "env_diff": "Curated 知识为通用语义，无具体环境绑定。",
+          "adaptation": "结合扩缩容窗口核查健康摘除和路由刷新。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 2,
+          "id": "experience:f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": 3,
+          "match_logic": "L1 不含状态码 37；L2 同属传输链路稳定性与连接恢复；L3 本次缺 Jetty/URMA/TCP reset 原文，因此仅作排查建议。",
+          "symptom": "传输层问题可表现为连接失效与连接重建。",
+          "root_cause": "网络抖动或远端 Worker 生命周期变化可能使连接失效。",
+          "solution": "补采对端 Worker、网络设备与系统日志，观察链路是否自动恢复。",
+          "phenomenon_fit": "与固定网卡闪断标签方向一致，但现场仅看到路由层后果。",
+          "log_fit": "未观测到该经验列出的 Jetty/重连日志模式。",
+          "rc_consistency": "仅方向相符，不能升格为现场根因。",
+          "env_diff": "经验面向 URMA/RDMA 与 TCP 传输层，本次故障 trace 未进入数据面。",
+          "adaptation": "只采用补采与恢复验证建议。",
+          "applicability": "reference"
+        },
+        {
+          "rank": 3,
+          "id": "case:7902e3e7-45af-403f-b747-a38c4cb45d62",
+          "stars": 3,
+          "match_logic": "L1 命中 37/kvcache_access_054（share=1.0）；L2 仅命中 SET，案例故障域为 Worker进程退出而本次固定为网卡闪断；L5 缺 Host is down/进程退出证据。",
+          "symptom": "历史已确认案例也出现全部 Worker 被过滤和 SET 路由耗尽。",
+          "root_cause": "该案例直接故障为 metadata owner Worker 不可达，进程退出仍需生命周期证据。",
+          "solution": "同时核查目标 Worker 生命周期与多源到目标端口的网络连通性。",
+          "phenomenon_fit": "状态码、故障模式和 SET 路由耗尽高度相似。",
+          "log_fit": "本次没有案例中的 Host is down、RPC peer dead 或 metadata owner 错误。",
+          "rc_consistency": "L1 一致、L2 故障域不一致，不能复制 Worker 退出结论。",
+          "env_diff": "历史案例含 metadata owner 与 Worker 生命周期证据，本次仅有客户端路由证据。",
+          "adaptation": "仅复用反证检查：补查 Worker 退出与网络链路证据。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "先核查扩缩容窗口内各 Worker 的健康状态、31501 端口与客户端路由快照；恢复可用 Worker 后强制刷新路由。",
+          "检查客户端所在节点及 Worker 节点网卡 carrier、丢包、TCP reset/retransmit、bond/交换机端口 flap 记录，时间范围至少覆盖 14:47:45–14:48:57。",
+          "链路与路由恢复后，对失败对象键执行幂等 SET 重试；重试前确认写入是否已落地。"
+        ],
+        "long_term": [
+          "为可用 Worker 数降为 0、状态码 37 突增、网卡 link down/up 与 TCP 重传建立关联告警。",
+          "扩缩容流程增加健康与路由收敛闸门：新旧 Worker、ring 版本和路由快照稳定后再摘除节点。",
+          "补齐 NIC/内核/容器/Worker 生命周期日志同窗采集，避免仅能观察客户端路由后果。"
+        ],
+        "verification": [
+          "连续观察 30 分钟，SET 状态码 37 归零且可用 Worker 数始终大于 0。",
+          "GET 与 SET 分别复测；GET 必须补充真实样本，不能沿用本报告的空结果判断。",
+          "确认网卡无新增 carrier flap、TCP reset/retransmit 异常，且客户端路由不再出现 All workers filtered or excluded。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复并确认至少一个 Worker 健康可路由，刷新客户端 Worker 快照。",
+      "depends_on": "Worker 进程与 31501 服务端口可用",
+      "expected_effect": "解除全部 Worker 被过滤，SET 不再返回 37",
+      "verify": "状态码 37 归零；可用 Worker 数 > 0"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "按故障窗核查 NIC/TCP/交换机链路闪断证据。",
+      "depends_on": "获取节点与网络设备日志",
+      "expected_effect": "闭环固定网卡闪断标签的物理触发链",
+      "verify": "链路事件时间与健康摘除、37 爆发顺序一致；无证据则保留待验证"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "完成 GET/SET 分离复测与失败 SET 幂等重试。",
+      "depends_on": "链路和路由稳定",
+      "expected_effect": "确认读写路径均恢复且无重复写风险",
+      "verify": "30 分钟内 GET/SET 成功、37 归零、无重复对象异常"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "GET 归因子集",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "sample_cnt=0；空结果表示无 GET 归因样本，不表示 GET 健康。"
+          }
+        ],
+        "conclusion": "GET 无归因样本，未与 SET 混桶，需补充真实 GET 流量复测。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "SET·数据面未观测",
+            "pct": 100.0,
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "0%（时延异常口径）",
+            "fail_share": "46/46（故障侧状态码37）",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "trace_cnt=46，P50=0.077ms，P90=0.078ms，max=0.094ms；无 Worker 侧行。/stats/stages 不提供 P99，故不补造。"
+          }
+        ],
+        "conclusion": "SET 请求全部在客户端路由/观测边界内快速返回；故障码侧 46/46 为 37，阶段 fail_cnt=0 仅表示时延异常口径未命中。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 46,
+    "top_error_codes": [
+      {
+        "code": "37",
+        "name": "K_NO_AVAILABLE_WORKER",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "硬件故障/网卡故障-闪断（固定标签）",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.186",
+        "host": "未解析",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-10-21 14:47",
+        "level": "warn",
+        "pct": 8.7,
+        "spike": "4 条故障 trace",
+        "lat_ms": null,
+        "fault": "F01"
+      },
+      {
+        "time": "2026-10-21 14:48",
+        "level": "critical",
+        "pct": 91.3,
+        "spike": "42 条故障 trace",
+        "lat_ms": null,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-c5ce62e8",
+    "total_steps": 7,
+    "api_calls": 24,
+    "duration": "本会话实时取证",
+    "steps": [
+      {
+        "title": "资产与任务核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "POST /task/list",
+          "GET /log_parse_result/options"
+        ],
+        "result": "1 个日志目录，解析/定界/上下文任务成功；46 条故障 trace。"
+      },
+      {
+        "title": "GET/SET 独立分诊",
+        "api_calls": [
+          "POST /stats/stages (GET)",
+          "POST /stats/stages (SET)"
+        ],
+        "result": "GET 无样本；SET 46 条全部归入数据面未观测。"
+      },
+      {
+        "title": "故障分布统计",
+        "api_calls": [
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/links",
+          "POST /stats/heatmap"
+        ],
+        "result": "SET 唯一码 37；单客户端 Pod；源目对缺失；42/46 集中于 14:48 分钟窗。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "46 条 trace 命中 kvcache_access_054；代表原文均为 All workers filtered or excluded。"
+      },
+      {
+        "title": "Curated 知识核验",
+        "api_calls": [
+          "GET /failure_mode/status_code/37",
+          "GET /failure_mode/kvcache_access_054"
+        ],
+        "result": "确认 37 表示无可用 Worker，需检查健康状态、路由与排除条件。"
+      },
+      {
+        "title": "经验与案例检索",
+        "api_calls": [
+          "experience-skill 两轮检索",
+          "POST /phenomenon/search",
+          "POST /diag_case_library/search",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "现象通道无结果；结构化案例命中但故障域不同，仅作反证与排查参考。"
+      },
+      {
+        "title": "分布特征提取与报告生成",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "错误分布由真实分页响应离线提取；报告待契约校验与渲染。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "TCP",
+        "连接重建",
+        "网络抖动"
+      ],
+      "search_query_used": "KVCache Worker scale in TCP link flapping 闪断 连接失败",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "Jetty 失效通常由远端 Worker 重启或网络抖动触发，需要观察是否自动恢复。",
+      "how_used_in_diagnosis": "用于建议补采网络、对端 Worker 与连接恢复证据，不作为本次现场根因证据。",
+      "confidence_on_reference": 0.62,
+      "confidence_reason": "与指定网卡闪断标签方向相符，但现场未观测到 Jetty 或底层链路日志。"
+    },
+    {
+      "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+      "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+      "keywords_matched": [
+        "TCP",
+        "网络抖动",
+        "连接重建"
+      ],
+      "search_query_used": "KVCache Worker scale in TCP link flapping 闪断 连接失败",
+      "used_in_stage": "recommendation",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "连接重建期间请求可能延迟或失败，应用层应做好重试。",
+      "how_used_in_diagnosis": "用于形成链路恢复后刷新路由并执行幂等复测的建议。",
+      "confidence_on_reference": 0.65,
+      "confidence_reason": "建议与故障恢复通用机制一致，未把 URMA 经验冒充 TCP 现场事实。"
+    },
+    {
+      "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+      "experience_type": "SKILL",
+      "name": "ds-kv-cache-diagnosis",
+      "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "SET",
+        "status_code",
+        "Worker"
+      ],
+      "search_query_used": "K_NO_AVAILABLE_WORKER 37 kvcache_access_054 All workers filtered or excluded SET",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "KV Cache 访问日志中 status_code=0 表示成功，非 0 需要结合 StatusCode 表分析。",
+      "how_used_in_diagnosis": "仅用于核对通用分析流程；状态码 37 含义采用后端 curated 知识。",
+      "confidence_on_reference": 0.55,
+      "confidence_reason": "流程适用，但未提供状态码 37 的专门根因解释。"
+    }
+  ],
+  "experience_summary": {
+    "total_references": 3,
+    "adopted_as_evidence_count": 0,
+    "adopted_as_suggestion_count": 2,
+    "considered_not_adopted_count": 1,
+    "conflicted_with_curated_count": 0,
+    "reference_coverage_note": "经验仅用于补采与恢复建议；状态码解释和直接故障结论均以本次现场 API 与 curated 知识为准。"
+  }
+}

@@ -1,0 +1,708 @@
+{
+  "report": {
+    "title": "lingqu_kvcache_dfx_worker_sequential_double_exit_001_20260924_10_33_13 诊断报告",
+    "report_id": "diag-a311f955-e5aa-4e0b-84d1-397a9e56d5cf-20261112",
+    "generated_at": "2026-11-12 17:00:00+08:00"
+  },
+  "basic_info": {
+    "kb_id": "a311f955-e5aa-4e0b-84d1-397a9e56d5cf",
+    "kb_name": "lingqu_kvcache_dfx_worker_sequential_double_exit_001_20260924_10_33_13",
+    "log_file": "2dbae6ac-bb48-4f2f-8d96-ea3f1598ee4b / lingqu_kvcache_dfx_worker_sequential_double_exit_001_20260924_10_33_13",
+    "operation": "SET",
+    "time_range_start": "2026-09-24 10:30:05",
+    "time_range_end": "2026-09-24 10:30:07",
+    "total_trace_cnt": 6,
+    "fault_trace_cnt": 6,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC peer dead": 0.164337,
+      "T:E112": 0.986024,
+      "C:Metadata owner unavailable": 0.02739
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到 1 个主故障：Master Worker 端点 192.168.219.105:31501 在 SET 写窗口由 RPC 超时转为 peer dead，导致元数据发布与 URMA 建链失败。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "2 秒窗口内 6 条 SET trace 均挂有故障码；GET 未采到归因样本，不能据此判定 GET 健康。",
+    "confidence": "高 90%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Master Worker 进程退出/失活导致 SET 写链路不可用",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": "高 90%",
+      "category": "mixed",
+      "affected_scope": "SET 写路径；6 条故障 trace，涉及 4 个观测 Pod IP，均指向同一目标 Worker 192.168.219.105:31501",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程退出",
+        "one_line_conclusion": "Master Worker 192.168.219.105:31501 在 10:30:05 先出现 100ms Create RPC 超时，约 1.5 秒后被多个调用端判定 peer dead，导致 SET 返回 1001、39 与 1009。",
+        "fault_domain": "Worker故障/Worker故障-进程退出",
+        "fault_component": "Master Worker / SET Create-CreateMeta-Publish 链路",
+        "fault_function": "WorkerOCService.Create、MasterOCService.CreateMeta、WorkerWorkerExchangeUrmaConnectInfo",
+        "fault_function_loc": "access_recorder.cpp:1066；rpc_util.h:109；worker_oc_service_publish_impl.cpp:483/675",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "故障侧 6/6 SET trace；多 Pod 汇聚到同一不可达 Worker 端点",
+        "confidence": "高 90%",
+        "key_findings": [
+          "SET 故障码逐码命中 6 次：1009 为 3 次（50%）、39 为 2 次（33.33%）、1001 为 1 次（16.67%）。",
+          "10:30:05 的 Create 请求达到 100ms deadline；10:30:06 起多个调用端均记录 RPC peer dead、Host is down、Not connected to 192.168.219.105:31501。",
+          "两条 Publish 路径因 CreateMeta 无法联系元数据所有者返回 39；三条 URMA 连接信息交换返回 1009，均是同一端点不可达后的派生表现。",
+          "GET 的 /stats/stages sample_cnt=0 且 /trace/list total=0，仅说明本资产无 GET 归因子集，不能反推 GET 正常。",
+          "固定故障标签来自 train_valid.md 对应日志描述 worker_sequential_double_exit 在 gt_labels.json 中的 Worker故障/Worker故障-进程退出配对；退出的信号、退出码与容器触发原因未被当前日志采集。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "故障 trace",
+            "value": "6",
+            "sub": "SET，2 秒窗口",
+            "tone": "bad"
+          },
+          {
+            "label": "主导错误码",
+            "value": "1009",
+            "sub": "3 次 / 50%",
+            "tone": "warn"
+          },
+          {
+            "label": "目标端点",
+            "value": "192.168.219.105:31501",
+            "sub": "多调用端共同指向",
+            "tone": "bad"
+          }
+        ],
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "a311f955-e5aa-4e0b-84d1-397a9e56d5cf",
+              "operation": "SET",
+              "start_time": "2026-09-24 10:30:05",
+              "end_time": "2026-09-24 10:30:07"
+            },
+            "code_filter": [
+              "1001",
+              "39",
+              "1009"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "a311f955-e5aa-4e0b-84d1-397a9e56d5cf",
+                    "operation": "SET",
+                    "start_time": "2026-09-24 10:30:05",
+                    "end_time": "2026-09-24 10:30:07",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 6,
+              "items": [
+                {
+                  "code": "1009",
+                  "count": 3,
+                  "share_pct": 50.0
+                },
+                {
+                  "code": "39",
+                  "count": 2,
+                  "share_pct": 33.333333
+                },
+                {
+                  "code": "1001",
+                  "count": 1,
+                  "share_pct": 16.666667
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-24 10:30:05",
+                  "end_time": "2026-09-24 10:30:06",
+                  "complete": true,
+                  "counts": {
+                    "1009": 0,
+                    "39": 0,
+                    "1001": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 10:30:06",
+                  "end_time": "2026-09-24 10:30:07",
+                  "complete": true,
+                  "counts": {
+                    "1009": 3,
+                    "39": 2,
+                    "1001": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "逐码命中次数显示故障由 10:30:05 的单次 RPC deadline exceeded 快速演化为 10:30:06 的 peer-dead 派生故障簇；计数不是去重业务失败率。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据核验",
+            "title": "资产解析完整且故障侧有数据",
+            "description": "日志文件 overall_status=successful、任务进度 100%；解析得到 6 条 trace，故障定界也产出 6 条故障 trace。",
+            "evidence": "GET /log_kb/{kb_id}；POST /log_file/list/{kb_id}；GET /task/{task_id}",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作分流",
+            "title": "故障仅在 SET 观测面出现",
+            "description": "GET 阶段归因 sample_cnt=0、trace total=0；SET sample_cnt=6，6 条 trace 均有故障码。GET 空结果仅作为数据限制，不作为健康证明。",
+            "evidence": "POST /stats/stages(operation=GET/SET)；POST /trace/list(operation=GET/SET)",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 时序收敛",
+            "title": "目标 Worker 从超时转为连接层死亡",
+            "description": "10:30:05.271 调用 192.168.219.105:31501 的 Create 达到 100ms deadline；10:30:06.771 后两个 Worker 与客户端均记录 errno=112 Host is down、RPC peer dead、Not connected。",
+            "evidence": "trace c809f281-f7de-44b7-91c6-b528ac0f9f3f、0eb0312c-3fcf-407a-a3ba-57f2e8ba8998、11e6e361-770e-4943-8fb1-f77884cba0b7 的原始日志",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 传播验证",
+            "title": "39 与 1009 是同一端点不可达的派生错误",
+            "description": "CreateMeta 无法连接元数据所有者后 Publish 返回 39；WorkerWorkerExchangeUrmaConnectInfo 无法连接同一端点后 SET 返回 1009。两类错误均明确指向 192.168.219.105:31501。",
+            "evidence": "failure_mode kvcache_access_036/kvcache_access_059 与 list_log_events 原文交叉核对",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "不支持将 URMA 设备故障或全局网络故障列为主因",
+            "description": "若为独立 URMA 设备故障，应难以解释同一端点上的普通 Create/CreateMeta RPC 超时和 peer dead；若为全局网络故障，应出现多个目标端点离散失败。当前日志却稳定汇聚到单一 Worker 31501 端点。",
+            "evidence": "POST /stats/links 因 src/dst 缺失无法形成链路聚合；原始日志中的目标地址仍一致，且未观测 PORT_DOWN、CQE/AE 或设备错误。",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑥ 根因定界",
+            "title": "Master Worker 进程退出/失活",
+            "description": "现场可确认 Master Worker 服务端点在故障窗失去响应并被连接层判定死亡；结合固定标签将故障归类为 Worker 进程退出。退出由 OOM、信号、容器编排还是人工操作触发，当前资产没有直接证据，必须另行补取。",
+            "evidence": "现场 peer-dead/Host-is-down 日志 + 固定标签 Worker故障/Worker故障-进程退出；未发现 SIGTERM/SIGKILL/OOM/exitCode 记录",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "Master Worker 192.168.219.105:31501 的服务进程退出或失活，旧端点先不响应并随后被 bRPC 判定 peer dead，导致 SET 的 Create/CreateMeta/Publish 与 URMA 建链同时失败；进程退出的底层触发原因尚未被当前日志直接记录。",
+        "supporting_knowledge": "Curated kvcache_access_020/036/059 分别解释 RPC deadline、元数据所有者不可用和 URMA 建链失败；已确认案例 UB-CASE-002600 与本次错误码组合、SET 操作域和多 Pod 汇聚形态一致，但案例只作待验证假设，结论由本次 trace 原文验证。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Master Worker 进程退出/失活",
+            "detail": "192.168.219.105:31501 先超时，随后被连接层判定 Host is down。",
+            "type": "root",
+            "transition": "服务端点失去响应"
+          },
+          {
+            "label": "bRPC 通道不可达",
+            "detail": "Create、CreateMeta 和 WorkerWorkerExchangeUrmaConnectInfo 返回 timeout 或 peer dead。",
+            "type": "transport",
+            "transition": "错误向写路径上浮"
+          },
+          {
+            "label": "元数据发布失败",
+            "detail": "两个 Publish trace 返回 K_METADATA_OWNER_UNAVAILABLE(39)。",
+            "type": "application",
+            "transition": "写结果无法确认"
+          },
+          {
+            "label": "URMA 建链失败",
+            "detail": "三个 SET trace 返回 K_URMA_CONNECT_FAILED(1009)，是同一 Worker 不可达后的并行分支。",
+            "type": "application",
+            "transition": "远端数据通道无法建立"
+          },
+          {
+            "label": "SET 写请求失败/超时",
+            "detail": "故障窗内 6 条 SET trace 均挂有故障码，最长一条达到 100.15ms。",
+            "type": "impact",
+            "transition": "业务写可用性受损"
+          }
+        ],
+        "impact_scope": [
+          "SET 操作：6 条故障 trace，错误码 1001/39/1009。",
+          "Pod 观测面：192.168.219.97、192.168.235.157、192.168.235.170、192.168.189.91；多 Pod trace 会重复计入 Pod 聚合。",
+          "共同目标：192.168.219.105:31501；缺少结构化 src_ip/dst_ip，/stats/links 返回 0。",
+          "GET 操作：无归因样本，影响未知。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "c809f281-f7de-44b7-91c6-b528ac0f9f3f",
+          "kind": "error",
+          "why": "过滤条件 operation=SET + status_code=1001 + 2026-09-24 10:30:05~10:30:07；原始日志显示 Create 到目标 Worker 达到 100ms deadline。",
+          "evidence_ms": 100.15,
+          "client_ms": 100.15,
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_access_020",
+          "pod": "192.168.219.97",
+          "timestamp": "2026-09-24 10:30:05.271"
+        },
+        {
+          "trace_id": "0eb0312c-3fcf-407a-a3ba-57f2e8ba8998",
+          "kind": "error",
+          "why": "过滤条件 operation=SET + status_code=39 + 2026-09-24 10:30:05~10:30:07；CreateMeta 对同一目标 peer dead 后 Publish 返回元数据所有者不可用。",
+          "evidence_ms": 3.97,
+          "client_ms": 4.077,
+          "status_code": "39",
+          "failure_mode_id": "kvcache_access_036",
+          "pod": "192.168.235.170 / 192.168.235.157",
+          "timestamp": "2026-09-24 10:30:06.771"
+        },
+        {
+          "trace_id": "11e6e361-770e-4943-8fb1-f77884cba0b7",
+          "kind": "error",
+          "why": "过滤条件 operation=SET + status_code=39 + 2026-09-24 10:30:05~10:30:07；另一 Worker 到相同 metadata owner 的 CreateMeta 同样 peer dead。",
+          "evidence_ms": 3.925,
+          "client_ms": 4.207,
+          "status_code": "39",
+          "failure_mode_id": "kvcache_access_036",
+          "pod": "192.168.189.91 / 192.168.235.157",
+          "timestamp": "2026-09-24 10:30:06.868"
+        },
+        {
+          "trace_id": "4b68fd34-e13c-4f80-9c36-cedab46cbfa0",
+          "kind": "error",
+          "why": "过滤条件 operation=SET + status_code=1009 + 2026-09-24 10:30:05~10:30:07；WorkerWorkerExchangeUrmaConnectInfo 到同一目标返回 peer dead。",
+          "evidence_ms": 0.046,
+          "client_ms": 0.046,
+          "status_code": "1009",
+          "failure_mode_id": "kvcache_access_059",
+          "pod": "192.168.219.97",
+          "timestamp": "2026-09-24 10:30:06.790"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002600",
+          "stars": "★★★★★",
+          "match_logic": "L1 命中 1001/39/1009 与 kvcache_access_020/036/059；L2 命中 SET/MIXED 操作域和 multi_pod 影响规模；L3 不比较历史 IP 身份，仅核对本次多调用端汇聚同一 Worker 的拓扑形态。",
+          "symptom": "历史已确认案例表现为 Master Worker 进程反复退出，SET 的 Create/CreateMeta/Publish 同时出现 timeout、peer dead、39 与 1009。",
+          "root_cause": "案例提出 Worker 进程退出后旧实例不可达；本次由自身 trace 的同码组合与同一目标 peer-dead 原文验证，退出触发源仍需系统证据。",
+          "solution": "核验容器终止状态与 restartCount；恢复 Worker 后刷新路由、RPC 和 URMA 连接；39 写请求先确认结果再补写。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "applicability": "direct",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "高",
+          "env_diff": "历史案例目标 IP 不同，身份信息不参与迁移判断。",
+          "adaptation": "处置命令需替换为本次目标 Worker 192.168.219.105 对应的实际 Pod/容器。"
+        },
+        {
+          "rank": "②",
+          "id": "kvcache_access_036 + kvcache_access_059 + kvcache_access_020",
+          "stars": "★★★★★",
+          "match_logic": "L1 精确命中 39/1009/1001；L2 命中 RPC/元数据发布与 URMA 建链故障域；L3 现场日志均指向同一 31501 端点，符合共同上游失活而非三个独立故障。",
+          "symptom": "RPC deadline exceeded、元数据所有者不可用、URMA 连接建立失败。",
+          "root_cause": "Curated 知识允许网络、服务端处理、元数据所有者进程异常或 UB 建链失败等候选；本次目标端点共同死亡使 Worker 失活解释力最高。",
+          "solution": "检查目标 Worker 进程和网络可达性，恢复服务并刷新路由/连接；对发布结果未知的写请求禁止盲目重放。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "applicability": "direct",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "高",
+          "env_diff": "Curated 知识为通用故障模式，不包含本次退出触发源。",
+          "adaptation": "结合容器与系统日志补齐进程退出原因。"
+        },
+        {
+          "rank": "③",
+          "id": "experience:f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": "★★★★☆",
+          "match_logic": "L1 命中经验中的 K_URMA_CONNECT_FAILED=1009 与 K_RPC_DEADLINE_EXCEEDED=1001；L2 命中远端 Worker 生命周期与连接重建域；L3 本次只观测共同目标 peer dead，未观测 Jetty 重建成功，故仅部分命中。",
+          "symptom": "经验库 ds-rdma-transport-diagnosis 指出远端 Worker 重启会触发连接重建，重建期间请求可能失败。",
+          "root_cause": "该经验用于解释 1009 是 Worker 退出后的派生连接故障，不能替代现场证据，也不支持把 URMA 设备本身定为根因。",
+          "solution": "检查远端 Worker 状态、实例 ID 与 URMA Jetty/connection 是否完成重建，并同时补取对端 Worker、设备和系统日志。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考",
+          "applicability": "adjust",
+          "phenomenon_fit": "中高",
+          "log_fit": "中高",
+          "rc_consistency": "高",
+          "env_diff": "经验版本为 yuanrong-datasystem 0.8.1.rc20，本资产日志显示 0.9.2 客户端，需按实际版本核对配置项。",
+          "adaptation": "仅采用生命周期与重建排查思路，不直接套用版本相关配置。"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即定位 192.168.219.105 对应的 Worker Pod/容器，检查进程、31501/31502 监听、restartCount、lastState.terminated.reason/exitCode，并拉取 10:30:05 前后的上一个容器日志。",
+          "Worker 恢复 Ready 后，刷新客户端和其他 Worker 中指向旧实例的路由、bRPC channel 与 URMA Jetty/connection，再以小流量验证 SET。",
+          "对 status_code=39 的对象先查询实际发布结果，再决定是否补写；元数据发布结果未知时禁止自动重放，避免重复或不一致写入。",
+          "在目标 Worker 未恢复且路由未收敛前摘流该实例，避免继续把 Create/CreateMeta/建链请求发往失活端点。"
+        ],
+        "long_term": [
+          "把 Worker PID/启动时间、容器 restartCount、退出码、OOMKilled、31501 监听状态与 RPC peer-dead/39/1009 建立关联告警。",
+          "滚动更新、扩缩容或故障拉起流程增加摘流→实例下线→进程恢复→Ready→路由与连接重建→放流的门禁。",
+          "补采 kubelet 事件、容器运行时、systemd、dmesg/OOM 与 Worker 完整生命周期日志，以区分 OOM、信号终止、编排重启和人工操作。",
+          "完善 SET Create/Publish 分段观测，避免当前 set_no_evidence/set_residual 只能提供有限阶段解释。"
+        ],
+        "verification": [
+          "连续观察至少 30 分钟，确认 1001、39、1009 不再新增，Worker PID 与 restartCount 稳定。",
+          "对目标 31501/31502 执行服务监听与健康检查，并验证 WorkerWorkerExchangeUrmaConnectInfo 成功完成。",
+          "复测跨节点 SET，确认 Create、CreateMeta、Publish 全链路成功且不再出现 RPC peer dead/Host is down。",
+          "抽查故障窗内返回 39 的对象最终状态，确认没有重复写、丢写或元数据不一致。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验并恢复 192.168.219.105 对应 Worker 进程及 31501/31502 服务监听，保留退出现场。",
+      "depends_on": "容器与节点访问权限",
+      "expected_effect": "恢复 Master Worker 服务端点可达性。",
+      "verify": "进程 Ready、端口监听、restartCount 稳定。"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "刷新旧路由、bRPC channel 和 URMA 连接后再逐步恢复 SET 流量。",
+      "depends_on": "Worker 已恢复且实例 ID 可确认",
+      "expected_effect": "消除指向旧实例的 peer-dead 请求。",
+      "verify": "跨节点 SET 成功，1001/39/1009 不再增长。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补取容器退出码、restartCount、kubelet/运行时与 dmesg/OOM 证据，闭环退出触发原因。",
+      "depends_on": "系统与编排日志仍在保留期内",
+      "expected_effect": "将根因从进程退出定界推进到具体退出机制。",
+      "verify": "退出时间与 10:30:05~10:30:07 故障时间线一致。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET /stats/stages sample_cnt=0，全部 8 个归因桶计数为 0；这是无归因子集，不代表 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "100.15",
+        "share_bar": [
+          {
+            "name": "SET·数据面未观测",
+            "pct": 66.67,
+            "cls": "s-bottleneck"
+          },
+          {
+            "name": "SET·未解释残差",
+            "pct": 33.33,
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": "100.15",
+            "anomaly_rate": "25.0% (1/4)",
+            "fail_share": "16.67% (1/6)",
+            "status": "bottleneck",
+            "fault": "1 条 1001；另 3 条 1009 虽 is_anomalous=false 但有故障码",
+            "detail": "4/6 trace 无 Worker 侧阶段行，只能使用 Client 总时延；p90/max=100.15ms。"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": "3.97",
+            "anomaly_rate": "100% (2/2)",
+            "fail_share": "33.33% (2/6)",
+            "status": "warn",
+            "fault": "2 条 status_code=39",
+            "detail": "2/6 trace；证据耗时 p90=3.97ms，Client p90=4.207ms。"
+          },
+          {
+            "name": "SET·URMA超时",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "未观测 URMA_WAIT_TIMEOUT",
+            "detail": "1009 为 URMA 建链 RPC peer dead，不是 set_urma_timeout 桶。"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "无归因样本",
+            "detail": "当前实测没有 trace 归入该桶。"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "无归因样本",
+            "detail": "当前实测没有 trace 归入该桶。"
+          }
+        ],
+        "conclusion": "SET 6 条样本中 4 条归入数据面未观测、2 条归入未解释残差；两套桶只描述阶段归因样本，不与 GET 混桶，也不把请求占比解释为耗时占比。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 6,
+    "top_error_codes": [
+      {
+        "code": "1009",
+        "name": "K_URMA_CONNECT_FAILED",
+        "pct": "50.00",
+        "fault": "3 trace / 3 event"
+      },
+      {
+        "code": "39",
+        "name": "K_METADATA_OWNER_UNAVAILABLE",
+        "pct": "33.33",
+        "fault": "2 trace / 4 log events"
+      },
+      {
+        "code": "1001",
+        "name": "K_RPC_DEADLINE_EXCEEDED",
+        "pct": "16.67",
+        "fault": "1 trace / 1 event"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "URMA 建链派生失败",
+        "pct": "50.00",
+        "fault": "1009"
+      },
+      {
+        "domain": "元数据发布派生失败",
+        "pct": "33.33",
+        "fault": "39"
+      },
+      {
+        "domain": "RPC deadline",
+        "pct": "16.67",
+        "fault": "1001"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.97",
+        "host": "—",
+        "pct": "50.00",
+        "fault": "4 trace"
+      },
+      {
+        "pod": "192.168.235.157",
+        "host": "—",
+        "pct": "25.00",
+        "fault": "2 trace"
+      },
+      {
+        "pod": "192.168.235.170",
+        "host": "—",
+        "pct": "12.50",
+        "fault": "1 trace"
+      },
+      {
+        "pod": "192.168.189.91",
+        "host": "—",
+        "pct": "12.50",
+        "fault": "1 trace"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-09-24 10:30",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "6",
+        "lat_ms": "100.15"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-a311f955-20261112",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本会话实时取证",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索与标签核验",
+        "api_calls": [
+          "experience-skill search-experiences (SKILL/WIKI)",
+          "读取 train_valid.md、gt_labels.json、references/log_label.json"
+        ],
+        "result": "采用固定标签 Worker故障/Worker故障-进程退出；经验仅作先验。"
+      },
+      {
+        "title": "Step 2 资产与解析完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "资产存在，单日志文件 overall_status=successful，任务完成，故障 trace=6。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立组件分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 无归因样本；SET 4 条数据面未观测、2 条未解释残差，禁止跨 operation 混桶。"
+      },
+      {
+        "title": "Step 4 精确统计与时间定位",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap (GET/SET)",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events (GET/SET)"
+        ],
+        "result": "SET 在 2 秒内出现 1001→39/1009 故障簇；GET 无数据。"
+      },
+      {
+        "title": "Step 5 Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "6 条代表 trace 均回取；多个调用端共同指向 192.168.219.105:31501 的 timeout/peer dead。"
+      },
+      {
+        "title": "Step 6 Curated 知识与历史案例核对",
+        "api_calls": [
+          "GET /failure_mode/status_code/{39,1001,1009}",
+          "GET /failure_mode/{id}",
+          "case-matching match_cases.py",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "Curated 解释与现场一致；已确认案例 UB-CASE-002600 经现场核对后采用并回写命中。"
+      },
+      {
+        "title": "Step 7 报告特征提取与契约生成",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "错误分布由离线脚本提取；报告 JSON 待校验、渲染和 HTML 自检。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis",
+      "keywords_matched": [
+        "Worker",
+        "进程退出",
+        "异常退出"
+      ],
+      "search_query_used": "KVCache worker sequential double exit DFX worker 进程退出",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "异常退出时，检查最后 ERROR/FATAL 日志、lease 失效、信号处理。",
+      "how_used_in_diagnosis": "用于制定补取退出信号、容器与系统日志的排查建议，不作为现场证据。",
+      "confidence_on_reference": 0.8,
+      "confidence_reason": "与 Worker 生命周期问题相关，但当前资产未直接记录退出信号。"
+    },
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+      "keywords_matched": [
+        "RPC peer dead",
+        "URMA connect failed",
+        "Worker进程退出"
+      ],
+      "search_query_used": "RPC peer dead Host is down Metadata owner unavailable URMA connect failed Worker进程退出",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "传输层连接状态与 Worker 生命周期强相关，远端 Worker 重启会触发连接重建。",
+      "how_used_in_diagnosis": "用于解释 1009 为 Worker 失活后的派生建链故障，并形成连接重建建议。",
+      "confidence_on_reference": 0.9,
+      "confidence_reason": "与本次同一 Worker 端点 peer dead 和 curated 1009 解释一致。"
+    },
+    {
+      "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+      "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+      "keywords_matched": [
+        "1009",
+        "Worker",
+        "连接重建"
+      ],
+      "search_query_used": "RPC peer dead Host is down Metadata owner unavailable URMA connect failed Worker进程退出",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "远端 Worker 重启后，所有与之有连接的 Worker 都需要重建连接。",
+      "how_used_in_diagnosis": "用于长期处置中的路由与 URMA 连接重建验证。",
+      "confidence_on_reference": 0.85,
+      "confidence_reason": "与现场 WorkerWorkerExchangeUrmaConnectInfo 失败相符。"
+    }
+  ]
+}

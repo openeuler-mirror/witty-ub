@@ -1,0 +1,351 @@
+{
+  "report": {
+    "title": "跨节点 GET 场景网卡闪断标签诊断报告（现场证据受限）",
+    "report_id": "RPT-20261112-82E9",
+    "generated_at": "2026-11-12 16:30:00"
+  },
+  "basic_info": {
+    "kb_id": "82e97c63-1498-4bd9-a0c4-36c8ed1de847",
+    "kb_name": "lingqu_kvcache_dfx_worker_tcp_interruption_cross_node_get_001_20260924_11_51_19",
+    "log_file": "lingqu_kvcache_dfx_worker_tcp_interruption_cross_node_get_001_20260924_11_51_19",
+    "operation": "GET / SET（独立分析）",
+    "time_range_start": "2026-09-24 11:50:46",
+    "time_range_end": "2026-09-24 11:50:48",
+    "total_trace_cnt": 2,
+    "fault_trace_cnt": 2,
+    "fault_ratio": "100%（时延异常标记口径，非业务失败率）",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "固定监督标签为硬件故障/网卡故障-闪断；现场仅捕获两条成功但时延异常的 SET，未捕获 GET 或通断故障事件，因此网卡闪断根因仍需网络遥测闭环。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "两个 Pod 参与的两条 8 MiB SET 请求在客户端 URMA 写等待阶段出现 66.086~84.480 ms 等待；业务状态码均为 0。",
+    "confidence": 0.62
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "跨节点网络闪断标签下的客户端 URMA 写等待异常",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 0.62,
+      "category": "latency",
+      "affected_scope": "ci-kv-ds-1 集群，192.168.219.97 与 192.168.189.91 两个 Pod；当前仅有 SET 样本。",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-闪断",
+        "one_line_conclusion": "固定标签为网卡闪断；可确认近端异常是客户端 URMA_WRITE_PHASE completion 等待主导，尚无 GET 失败、连接重置或网卡计数器证据证明物理闪断。",
+        "fault_domain": "硬件故障/网卡故障-闪断",
+        "fault_component": "跨节点数据传输路径（待网络遥测确认具体端口）",
+        "fault_function": "URMA_WRITE_PHASE completion wait",
+        "fault_function_loc": "ds_client_23801.INFO.log: urma_manager.cpp:2835",
+        "affected_scope_pct": 100,
+        "affected_scope_desc": "参与本次分类的 2/2 条 SET trace 均异常，涉及两个 Pod；该比例不是业务失败率，且 GET 样本为 0。",
+        "confidence": 0.62,
+        "key_findings": [
+          "监督标签严格按 train_valid.md 映射 worker_tcp_interruption_cross_node_get，再取 gt_labels.json，固定为硬件故障/网卡故障-闪断。",
+          "GET /stats/stages 的 sample_cnt=0，GET /trace/list、错误码统计、时间聚合均为 0；空结果只表示该资产库未解析出 GET 证据，不代表 GET 健康。",
+          "SET /stats/stages 的 sample_cnt=2，2/2 均归入 set_client，P50=66.549 ms、P90/max=85.091 ms，客户端总时延 P50=66.592 ms、P90=85.127 ms。",
+          "两条原始日志的 URMA_WRITE_PHASE waitUs 分别为 84480 us、66086 us，status=OK；Worker DS_POSIX_PUBLISH 仅 22 us、30 us 且 code=0。",
+          "通断侧 trace_failure_event 为 0，未观察到错误码、连接重置、RPC unavailable 或 Worker 退出；故不能仅凭标签把网卡闪断写成已证实根因。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {"label": "SET 窗口 P99", "value": "84.942 ms", "sub": "2 条样本，2026-09-24 11:50:40~11:50:50", "tone": "bad"},
+          {"label": "SET 平均总时延", "value": "75.860 ms", "sub": "最小 66.592 ms，最大 85.127 ms", "tone": "warn"},
+          {"label": "GET 归因样本", "value": "0", "sub": "数据缺口，不作健康判断", "tone": "neutral"},
+          {"label": "业务错误码", "value": "0", "sub": "两条 SET 均 status_code=0", "tone": "good"}
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端 SDK 段（set_client）",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "2/2 异常标记",
+            "share": "100% 分类样本占比",
+            "status": "bottleneck",
+            "detail": "证据耗时几乎覆盖客户端总时延；原始日志进一步定位到 URMA_WRITE_PHASE wait。/stats/stages 不提供 P99，因此不以 P90 冒充 P99。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "82e97c63-1498-4bd9-a0c4-36c8ed1de847",
+                  "log_id": "25f0af17-2c40-4cc2-b1ee-43e748e0466a",
+                  "operation": "SET"
+                },
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 2,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常；SET 与 GET 独立归桶。本次仅有 2 条 SET 异常样本。",
+              "trace_cnt": 2,
+              "normal_cnt": 0,
+              "anomalous_cnt": 2,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 66.549,
+                "p90_ms": 85.091,
+                "max_ms": 85.091,
+                "client_p50_ms": 66.592,
+                "client_p90_ms": 85.127
+              },
+              "tail_ratio_p90_p50": 1.278622,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 2",
+              "action": "先核对客户端数据面等待、completion 与链路状态，再对照 Worker 是否已快速返回。",
+              "top_traces": [
+                {"trace_id": "ac474556-c0ac-4112-b1ea-43a9069a5c98", "evidence_ms": 85.091, "client_ms": 85.127},
+                {"trace_id": "b96799e9-cf4d-46df-a3b9-40befe37a020", "evidence_ms": 66.549, "client_ms": 66.592}
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 写路径的可观测耗时集中于客户端 SDK/数据面等待；Worker 处理为微秒级。由于请求成功且缺少网络遥测，只能确认近端等待位置，不能确认物理网卡闪断。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据核验",
+            "title": "解析任务完整",
+            "description": "日志文件任务状态 successful，进度 100%，资产库解析出 2 条时延异常 trace。",
+            "evidence": "GET /task/bf335f61-cf7d-430b-9c31-236cd6a3d8c4；POST /log_file/list/{kb_id}",
+            "confirmed": true
+          },
+          {
+            "step_label": "② 读写分诊",
+            "title": "GET 无可归因样本，SET 有两条异常",
+            "description": "GET 的阶段、trace、错误码和时间聚合均为空；SET 的 sample_cnt=2 且均归入 set_client。GET 空结果作为证据缺口，不作健康结论。",
+            "evidence": "POST /stats/stages(GET/SET)、POST /trace/list(GET/SET)、POST /stats/error_codes(GET/SET)",
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 阶段定位",
+            "title": "客户端等待主导",
+            "description": "SET set_client 桶 P90/max=85.091 ms，客户端 P90=85.127 ms；Worker 内部仅 13~14 us。",
+            "evidence": "POST /stats/stages(SET)；POST /log_parse_result/list(trace_ids)",
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 原始日志交叉验证",
+            "title": "URMA completion 等待，业务仍成功",
+            "description": "URMA_WRITE_PHASE waitUs=84480/66086，status=OK；对应 DS_KV_CLIENT_SET 返回 0，Worker PUBLISH 返回 0。",
+            "evidence": "ds_client_23801.INFO.log:3,7；ds_client_access_23801.log:1,2；ci-worker-worker2-1/access.log:2,4",
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "物理网卡闪断尚未闭环",
+            "description": "未出现通断故障事件、错误码、TCP reset/refused、RPC unavailable、Worker 退出或网卡端口计数；因此固定标签不能替代物理根因证据。",
+            "evidence": "trace_failure_event_cnt=0；/stats/error_codes GET/SET total=0；/log_failure_event_result/list_trace_events total=0；原始日志检索结果",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "可确认的近端瓶颈是客户端 URMA 写 completion 等待；硬件故障/网卡故障-闪断为用户指定监督标签，因缺少 GET 通断事件和 NIC 遥测，物理根因保持疑似。",
+        "supporting_knowledge": "已确认历史案例 UB-CASE-002632 仅在 L2（set_client、MIXED 操作部分匹配、few_pods）相似，L1 错误码/故障模式与 L5 原文机理均未命中，只能作为网络排查方向。"
+      },
+      "propagation": {
+        "chain": [
+          {"label": "固定标签假设：网卡闪断", "detail": "来自 train_valid.md 与 gt_labels.json 的监督标签，不是现场日志测量。", "type": "hypothesis", "transition": "待 NIC/链路事件验证"},
+          {"label": "客户端 URMA completion 等待", "detail": "两条 URMA_WRITE_PHASE 的 waitUs 为 84480/66086，status=OK。", "type": "observed", "transition": "与客户端总时延同 trace 对齐"},
+          {"label": "SET 端到端时延异常", "detail": "总时延 85.127/66.592 ms，2/2 被标记为时延异常。", "type": "observed", "transition": "未上浮业务错误码"},
+          {"label": "Worker 快速成功返回", "detail": "Worker DS_POSIX_PUBLISH 22/30 us，code=0，弱化 Worker 业务处理慢解释。", "type": "counter_evidence"}
+        ],
+        "impact_scope": [
+          "集群：ci-kv-ds-1",
+          "Pod：192.168.219.97、192.168.189.91",
+          "操作：现场仅 SET；GET 证据缺失",
+          "对象大小：8 MiB",
+          "业务结果：两条请求均成功"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "ac474556-c0ac-4112-b1ea-43a9069a5c98",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top1（按证据耗时排序，不代表总体严重度）；URMA_WRITE_PHASE waitUs=84480。",
+          "evidence_ms": 85.091,
+          "client_ms": 85.127,
+          "pod": "192.168.219.97, 192.168.189.91",
+          "timestamp": "2026-09-24 11:50:46.078"
+        },
+        {
+          "trace_id": "b96799e9-cf4d-46df-a3b9-40befe37a020",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top2（按证据耗时排序，不代表总体严重度）；URMA_WRITE_PHASE waitUs=66086。",
+          "evidence_ms": 66.549,
+          "client_ms": 66.592,
+          "pod": "192.168.219.97, 192.168.189.91",
+          "timestamp": "2026-09-24 11:50:48.004"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002632",
+          "rank": 1,
+          "stars": 3,
+          "match_logic": "L1 不命中：本次无错误码/故障模式；L2 命中：set_client share=1.0、MIXED 对 SET 部分匹配、影响范围均为 few_pods；L5 不命中：本次无 falling back to TCP/RPC timed out 原文。",
+          "symptom": "历史案例为跨节点 TCP/RPC 路径高时延，客户端等待远高于 Worker 处理。",
+          "root_cause": "历史案例确认 TCP/RPC 数据路径长尾，但具体网卡端口仍需 NIC 指标。该结论不能直接移植为本次根因。",
+          "solution": "参考其网卡 counters、TCP retrans、同负载 GET/SET 独立复测方案。",
+          "adoption_class": "reference",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "部分匹配",
+          "log_fit": "仅阶段分布相似",
+          "rc_consistency": "待验证",
+          "env_diff": "本次只有 2 条成功 SET，无 GET、1001/1008 或 TCP 回退原文。",
+          "adaptation": "只复用采集网络遥测和读写独立复测步骤，不复用其根因结论。",
+          "applicability": "reference"
+        },
+        {
+          "id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "rank": 2,
+          "stars": 2,
+          "match_logic": "L1 不适用；L2 仅同属跨节点传输等待；L3/L5 未观察到连接重建、Jetty 失效或 TCP fallback 日志。",
+          "symptom": "本地经验 ds-rdma-transport-diagnosis 建议结合连接状态、Jetty、重连和回退路径诊断传输问题。",
+          "root_cause": "经验只提供候选检查方向，不能作为本次现场证据。",
+          "solution": "补采对端 Worker、链路与端口状态，确认是否存在连接失效和自动恢复。",
+          "adoption_class": "reference",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "部分匹配",
+          "log_fit": "未命中关键重连短语",
+          "rc_consistency": "未闭环",
+          "env_diff": "经验覆盖 URMA/RDMA 与 TCP 传输；本次日志只显示成功 completion 慢。",
+          "adaptation": "仅采用其双端日志和链路状态采集建议。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在 2026-09-24 11:50:40~11:51:00 对 192.168.219.97 与 192.168.189.91 所在节点回溯 NIC/交换机端口 link up/down、carrier、CRC/FEC、drop、error、retrans 与驱动事件；没有同窗遥测时不得把闪断写成已确认。",
+          "按 GET 与 SET 分别复测：先用相同跨节点拓扑和 8 MiB 负载复现 GET，再复现 SET；保存 trace、状态码、URMA/TCP 路径和两端 Worker 日志。",
+          "对两个代表 trace 核对 completion/CQ/poll/notify 与 send lane 状态，确认 66~84 ms 等待是链路重试、调度等待还是正常大对象传输波动。",
+          "如复测出现链路 flap 或计数器突增，先切换冗余链路或迁移 Pod，再对故障端口、光模块和线缆实施隔离。"
+        ],
+        "long_term": [
+          "建立 NIC link-state、错误包、FEC/CRC、TCP retrans 与 KVCache GET/SET P99 的同窗关联告警。",
+          "补齐 GET 场景客户端、Worker、网络设备三侧日志采集，并保留故障前后至少 5 分钟窗口。",
+          "完善 SET 解析路径的 client.urma.ub_transfer/completion 分段入库，避免长期只落入 set_client 粗桶。"
+        ],
+        "verification": [
+          "连续 30 分钟以同负载执行跨节点 GET/SET，GET 与 SET 分开统计；无连接失败、无链路 flap，且时延回到健康基线。",
+          "复测期间 NIC/交换机 link、CRC/FEC、drop、error、retrans 不增长；若增长须与异常 trace 时间精确对齐。",
+          "确认代表 trace 不再出现 60~85 ms URMA completion wait，且 Worker 微秒级处理特征保持不变。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "补采故障同窗两端 NIC/交换机端口 link-state、CRC/FEC、drop/error/retrans 和驱动事件。",
+      "depends_on": "节点与网卡端口映射",
+      "expected_effect": "确认或证伪固定标签中的物理网卡闪断。",
+      "verify": "端口事件与 trace 时间精确对齐；无同窗变化则降低闪断根因置信度。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "在相同跨节点拓扑下分别回放 GET 与 SET 8 MiB 请求并保存完整 trace。",
+      "depends_on": "可控复测窗口",
+      "expected_effect": "补齐当前缺失的 GET 现场证据，并区分读写路径。",
+      "verify": "GET/SET 各自产出独立阶段分解、状态码和两端日志。"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": ["F01"],
+      "action": "补齐 URMA completion 与 TCP fallback 的可观测分段和联合告警。",
+      "depends_on": "解析与监控配置变更",
+      "expected_effect": "将 set_client 粗桶进一步定界到链路、调度或回退阶段。",
+      "verify": "新 trace 可显示 completion/CQ、网络与 Worker 各段耗时。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {"name": "GET 归因样本", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "warn", "fault": "F01", "detail": "sample_cnt=0；缺少 GET 归因子集，不作健康结论。"}
+        ],
+        "conclusion": "GET 侧阶段、trace、错误码与故障事件均为空，属于证据缺口。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "84.942",
+        "share_bar": [
+          {"name": "客户端 SDK 段", "pct": 100, "cls": "s-bottleneck"}
+        ],
+        "stages": [
+          {"name": "SET·客户端 SDK 段", "p99": "—", "anomaly_rate": "100%", "fail_share": "100%", "status": "bottleneck", "fault": "F01", "detail": "set_client 2/2；证据 P90/max=85.091 ms。P99 来自独立时间窗统计，不用于阶段 P99。"}
+        ],
+        "conclusion": "SET 的 2 条分类样本全部集中在客户端 SDK/数据面等待，Worker 处理仅微秒级。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 2,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {"domain": "硬件故障/网卡故障-闪断（固定监督标签）", "pct": 100, "fault": "F01"}
+    ],
+    "top_pods": [
+      {"pod": "192.168.219.97", "host": "未解析", "pct": 100, "fault": "F01"},
+      {"pod": "192.168.189.91", "host": "未解析", "pct": 100, "fault": "F01"}
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "2026-09-24 11:50:40~11:50:50", "level": "high", "pct": 100, "spike": true, "lat_ms": 84.942, "fault": "F01"}
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-82e97c63",
+    "total_steps": 7,
+    "api_calls": 38,
+    "duration": "单次诊断会话",
+    "steps": [
+      {"title": "经验库预检索", "api_calls": ["experience-skill search-experiences（SKILL/WIKI）"], "result": "命中传输层、KVCache、Client 等本地经验，仅作为先验和建议。"},
+      {"title": "资产与标签核验", "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "GET /task/{task_id}"], "result": "资产 ID/名称匹配，解析任务 successful；固定标签映射为硬件故障/网卡故障-闪断。"},
+      {"title": "GET/SET 独立分诊", "api_calls": ["POST /stats/stages(GET)", "POST /stats/stages(SET)"], "result": "GET sample_cnt=0；SET sample_cnt=2，全部归入 set_client。"},
+      {"title": "统计分布与趋势", "api_calls": ["POST /stats/error_codes|pods|links|heatmap", "POST /log_parse_result/metrics/latency", "POST /aggregated_event/list_time_window"], "result": "SET 两条异常集中在 11:50:40~11:50:50，窗口 P99=84.942 ms；无错误码。"},
+      {"title": "Trace 与原始日志下钻", "api_calls": ["POST /trace/list", "GET /trace/{trace_id}", "POST /log_parse_result/list", "本地原始日志交叉验证"], "result": "两条 SET 均为 URMA_WRITE_PHASE wait 主导、status=OK；Worker PUBLISH 微秒级成功。"},
+      {"title": "历史案例匹配与反证", "api_calls": ["POST /phenomenon/search", "POST /diag_case_library/search", "GET /diag_case_library/{case_id}", "POST /diag_case_library/{case_id}/hit"], "result": "仅采纳 UB-CASE-002632 为 reference；L1/L5 不命中，不复用其根因。"},
+      {"title": "报告契约与渲染", "api_calls": ["latency_features.py", "render_report.py --validate-only", "render_report.py"], "result": "生成经契约校验的 JSON 与持久化 HTML/侧车。"}
+    ]
+  },
+  "experience_refs": [
+    {"experience_id":"f9f70f4d-f4e3-4d44-bb98-0357643c8230","experience_type":"SKILL","name":"ds-rdma-transport-diagnosis","source_path":"data/skill_hub/ds-rdma-transport-diagnosis","keywords_matched":["TCP","连接中断","worker"],"search_query_used":"KVCache GET TCP interruption cross node 连接中断 worker","used_in_stage":"stage_0_pre_search","adoption_status":"adopted_as_suggestion","conflict_with_curated_knowledge":false,"content_quoted":"传输层问题通常表现为连接建立失败、Jetty 失效、连接重建循环或进程挂起。","how_used_in_diagnosis":"用于提出双端日志、连接状态与回退路径检查建议，未当作现场证据。","confidence_on_reference":0.7,"confidence_reason":"流程与传输场景相关，但本次未命中重连或 Jetty 日志。"},
+    {"experience_id":"a0227481-5a5a-4b93-8fb7-de128596e844","experience_type":"SKILL","name":"ds-worker-log-analysis","source_path":"data/skill_hub/ds-worker-log-analysis","keywords_matched":["worker","TCP"],"search_query_used":"KVCache GET TCP interruption cross node 连接中断 worker","used_in_stage":"stage_0_pre_search","adoption_status":"considered_not_adopted","conflict_with_curated_knowledge":false,"content_quoted":"介绍 openYuanrong datasystem Worker 运行日志 datasystem_worker INFO log 的分析方法","how_used_in_diagnosis":"未观察到 Worker 退出、重启或注册异常，未采用其根因方向。","confidence_on_reference":0.4,"confidence_reason":"主题相关但现场 Worker 处理快速成功。"},
+    {"experience_id":"b672cdcc-4ca5-49f2-b9e6-cb32428131e5","experience_type":"SKILL","name":"ds-client-log-analysis","source_path":"data/skill_hub/ds-client-log-analysis","keywords_matched":["Client","SDK","重连"],"search_query_used":"URMA_WRITE_PHASE waitUs SET client SDK 8MiB","used_in_stage":"stage_5_post_search","adoption_status":"adopted_as_suggestion","conflict_with_curated_knowledge":false,"content_quoted":"结合访问日志分析接口错误码、耗时和重试情况。","how_used_in_diagnosis":"用于按 trace 串联 Client 运行日志、访问日志与 Worker 日志。","confidence_on_reference":0.85,"confidence_reason":"与本次三侧同 trace 交叉验证方法一致。"},
+    {"experience_id":"ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1","experience_type":"SKILL","name":"ds-kv-cache-diagnosis","source_path":"data/skill_hub/ds-kv-cache-diagnosis","keywords_matched":["KVCache","GET","SET"],"search_query_used":"KVCache GET TCP interruption cross node 连接中断 worker","used_in_stage":"stage_0_pre_search","adoption_status":"adopted_as_suggestion","conflict_with_curated_knowledge":false,"content_quoted":"分析 KV Cache 日志需要关注访问日志中的 DS_KV_CLIENT_* action、StatusCode、耗时和请求参数，以及资源日志中的缓存命中率。","how_used_in_diagnosis":"用于区分 GET/SET 并核对 status_code、耗时和对象大小。","confidence_on_reference":0.85,"confidence_reason":"与现场 access 日志字段直接对应。"},
+    {"experience_id":"b552a989-d3a9-4e0d-83dd-efe3c5bc9e2c","experience_type":"SKILL","name":"ds-object-cache-diagnosis","source_path":"data/skill_hub/ds-object-cache-diagnosis","keywords_matched":["GET","对象"],"search_query_used":"KVCache GET TCP interruption cross node 连接中断 worker","used_in_stage":"stage_0_pre_search","adoption_status":"considered_not_adopted","conflict_with_curated_knowledge":false,"content_quoted":"Object Cache 提供对象发布/获取接口","how_used_in_diagnosis":"本次为 KVCache 且仅观测 SET，未采用 Object Cache 诊断方向。","confidence_on_reference":0.2,"confidence_reason":"操作语义部分相近但系统域不匹配。"},
+    {"experience_id":"443f893e-644d-441e-a551-ef1fdaabb2f6","experience_type":"WIKI","name":"yuanrong-datasystem RDMA/URMA 传输日志模式","source_path":"data/wiki_hub/ds-rdma-transport-patterns.md","keywords_matched":["URMA","TCP","连接重建"],"search_query_used":"KVCache GET TCP interruption cross node 连接中断 worker","used_in_stage":"stage_0_pre_search","adoption_status":"adopted_as_suggestion","conflict_with_curated_knowledge":false,"content_quoted":"连接重建期间请求可能延迟或失败，应用层应做好重试。","how_used_in_diagnosis":"用于提出连接重建日志核验；本次未观察到该类原文。","confidence_on_reference":0.6,"confidence_reason":"机理相关但缺少现场重建证据。"},
+    {"experience_id":"91885e84-cdb9-43ff-bfea-74a77f80eea1","experience_type":"WIKI","name":"yuanrong-datasystem Worker 错误模式","source_path":"data/wiki_hub/ds-worker-error-patterns.md","keywords_matched":["Worker","错误"],"search_query_used":"KVCache GET TCP interruption cross node 连接中断 worker","used_in_stage":"stage_0_pre_search","adoption_status":"considered_not_adopted","conflict_with_curated_knowledge":false,"content_quoted":"汇总 openYuanrong datasystem Worker 常见错误日志模式 错误码 根因与排查方向","how_used_in_diagnosis":"现场无 Worker 错误码或进程异常，未采用。","confidence_on_reference":0.3,"confidence_reason":"缺少对应现场信号。"},
+    {"experience_id":"862f89c4-27af-4ac8-90b9-266f48ff6b32","experience_type":"WIKI","name":"yuanrong-datasystem 共享内存日志模式","source_path":"data/wiki_hub/ds-shared-memory-patterns.md","keywords_matched":["SCMTCP","共享内存"],"search_query_used":"KVCache GET TCP interruption cross node 连接中断 worker","used_in_stage":"stage_0_pre_search","adoption_status":"considered_not_adopted","conflict_with_curated_knowledge":false,"content_quoted":"Client 尝试连接到 Worker 的 fd 传递端点（SCMTCP 或 UDS）。","how_used_in_diagnosis":"当前无 fd 传递或共享内存回退日志，未采用。","confidence_on_reference":0.3,"confidence_reason":"未命中对应日志。"},
+    {"experience_id":"4cceeb69-c022-4e21-a00a-f440f681132e","experience_type":"WIKI","name":"yuanrong-datasystem Client 错误模式","source_path":"data/wiki_hub/ds-client-error-patterns.md","keywords_matched":["Client","连接"],"search_query_used":"URMA_WRITE_PHASE waitUs SET client SDK 8MiB","used_in_stage":"stage_5_post_search","adoption_status":"considered_not_adopted","conflict_with_curated_knowledge":false,"content_quoted":"Client 错误通常发生在初始化、连接 Worker、注册、接口调用和共享内存通信阶段。","how_used_in_diagnosis":"本次无 Client 错误码，仅有成功慢日志，未采用错误模式结论。","confidence_on_reference":0.35,"confidence_reason":"日志域相关但错误现象不匹配。"},
+    {"experience_id":"0b6d2ec2-39c1-42da-937c-1cec8f41ce8a","experience_type":"WIKI","name":"yuanrong-datasystem 访问日志模式","source_path":"data/wiki_hub/ds-access-log-patterns.md","keywords_matched":["DS_KV_CLIENT_SET","StatusCode"],"search_query_used":"URMA_WRITE_PHASE waitUs SET client SDK 8MiB","used_in_stage":"stage_5_post_search","adoption_status":"adopted_as_suggestion","conflict_with_curated_knowledge":false,"content_quoted":"DS_KV_CLIENT | KV Cache 客户端接口 | DS_KV_CLIENT_Get、DS_KV_CLIENT_Set","how_used_in_diagnosis":"用于识别 action、状态码、耗时和请求参数。","confidence_on_reference":0.9,"confidence_reason":"与现场访问日志结构直接一致。"},
+    {"experience_id":"574dffbe-658e-42ce-86b3-226e27c4be12","experience_type":"SKILL","name":"ds-hetero-object-diagnosis","source_path":"data/skill_hub/ds-hetero-object-diagnosis","keywords_matched":["SET","异步"],"search_query_used":"URMA_WRITE_PHASE waitUs SET client SDK 8MiB","used_in_stage":"stage_5_post_search","adoption_status":"considered_not_adopted","conflict_with_curated_knowledge":false,"content_quoted":"异步操作（AsyncMGetH2D/AsyncMSetD2H）需要关注 Future 超时。","how_used_in_diagnosis":"本次不是异构对象接口，未采用。","confidence_on_reference":0.1,"confidence_reason":"系统域不匹配。"},
+    {"experience_id":"a43dcf67-d3bb-4fb5-99ba-e47e6343ea7d","experience_type":"SKILL","name":"ds-shared-memory-diagnosis","source_path":"data/skill_hub/ds-shared-memory-diagnosis","keywords_matched":["共享内存","跨节点"],"search_query_used":"URMA_WRITE_PHASE waitUs SET client SDK 8MiB","used_in_stage":"stage_5_post_search","adoption_status":"considered_not_adopted","conflict_with_curated_knowledge":false,"content_quoted":"fd 传递失败不会导致 Client 注册失败，但会关闭零拷贝通道。","how_used_in_diagnosis":"现场无 fd 传递失败或零拷贝关闭原文，未采用。","confidence_on_reference":0.25,"confidence_reason":"缺少现场日志命中。"},
+    {"experience_id":"7dbeec2d-870a-4f3f-8135-6acfa4fa0754","experience_type":"WIKI","name":"yuanrong-datasystem KV Cache 接口日志模式","source_path":"data/wiki_hub/ds-kv-api-patterns.md","keywords_matched":["DS_KV_CLIENT_SET","KV Cache"],"search_query_used":"URMA_WRITE_PHASE waitUs SET client SDK 8MiB","used_in_stage":"stage_5_post_search","adoption_status":"adopted_as_suggestion","conflict_with_curated_knowledge":false,"content_quoted":"KV Cache 提供键值存储接口，包括 Create/Set/Get/Del/Exist/Expire 等。","how_used_in_diagnosis":"用于确认 SET 操作域与接口语义。","confidence_on_reference":0.75,"confidence_reason":"接口语义与现场一致。"},
+    {"experience_id":"525ea7bd-b882-41b6-b59a-b82595de0bf5","experience_type":"WIKI","name":"yuanrong-datasystem 异构对象日志模式","source_path":"data/wiki_hub/ds-hetero-object-patterns.md","keywords_matched":["MSET","异构对象"],"search_query_used":"URMA_WRITE_PHASE waitUs SET client SDK 8MiB","used_in_stage":"stage_5_post_search","adoption_status":"considered_not_adopted","conflict_with_curated_knowledge":false,"content_quoted":"yuanrong-datasystem 异构对象 Hetero Object 的接口日志模式","how_used_in_diagnosis":"本次为普通 KVCache SET，未采用。","confidence_on_reference":0.1,"confidence_reason":"系统域不匹配。"}
+  ],
+  "experience_summary": {
+    "total_references": 14,
+    "adopted_as_evidence_count": 0,
+    "adopted_as_suggestion_count": 7,
+    "considered_not_adopted_count": 7,
+    "conflicted_with_curated_count": 0,
+    "reference_coverage_note": "经验库命中均作为流程、检查方向或反例记录；没有任何经验条目被当作本次现场证据。"
+  }
+}

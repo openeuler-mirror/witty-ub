@@ -1,0 +1,782 @@
+{
+  "report": {
+    "title": "KVCache 定界诊断报告：UB 单端口故障引发 URMA 完成事件失败",
+    "report_id": "train-diag-97ac0ff8-31c5-469d-9352-7088994a7179",
+    "generated_at": "2026-11-12T00:00:00+08:00"
+  },
+  "basic_info": {
+    "kb_id": "97ac0ff8-31c5-469d-9352-7088994a7179",
+    "kb_name": "lingqu_kvcache_dfx_1z3b_1port_fault_001_20261010_16_41_33",
+    "log_file": "lingqu_kvcache_dfx_1z3b_1port_fault_001_20261010_16_41_33",
+    "operation": "GET / SET",
+    "time_range_start": "2026-10-10 16:41:38",
+    "time_range_end": "2026-10-10 16:41:41",
+    "total_trace_cnt": 49152,
+    "fault_trace_cnt": 18,
+    "fault_ratio": "0.04%",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "T:URMA_SEND_LANE_TIMEOUT_OBSERVED": 0.072573,
+      "T:URMA_SEND_LANE_FORCE_RELEASE": 0.308435,
+      "T:URMA_WAIT_TIMEOUT": 0.598726,
+      "T:WRITE": 0.725728,
+      "C:Urma wait for completion timed out": 0.096764,
+      "T:CLIENT_GET_DELAY_RELEASE_ADD": 0.05443,
+      "C:Urma operation failed": 0.042334,
+      "T:URMA_COMPLETION_FAILED": 0.018143
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：UB 端口 4 瞬态不可用使 URMA WRITE completion 失败或等待超时，同时影响 GET 与 SET。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "18 条故障 trace（GET 3、SET 15），涉及 6 个 Pod/IP，集中于 3 秒窗口",
+    "confidence": "高 92%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "UB 端口 4 瞬态 down 导致 URMA 完成事件失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 92,
+      "category": "error",
+      "affected_scope": "zzz-kv-ds-1；GET 3 条、SET 15 条故障 trace；16:41:38–16:41:41",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-down",
+        "one_line_conclusion": "UB 数据面端口 4 在 16:41:38–16:41:40 瞬态不可用，造成 URMA completion 异常与等待超时，17 条请求返回 1010、1 条 GET 返回 1004。",
+        "fault_domain": "硬件故障/ub端口故障-down",
+        "fault_component": "UB/URMA 数据面端口 4",
+        "fault_function": "UrmaManager completion/poll 与 WaitToFinish",
+        "fault_function_loc": "urma_manager.cpp:1861（现场日志）",
+        "affected_scope_pct": "0.04",
+        "affected_scope_desc": "49152 条解析 trace 中 18 条挂故障事件；GET/SET 均受影响",
+        "confidence": "高 92%",
+        "key_findings": [
+          "故障码 1010（K_URMA_WAIT_TIMEOUT）17 次逐码命中，占 18 次故障码命中的 94.44%；1004 仅 1 次",
+          "SET 故障在 3 个秒级桶呈 8→5→2 次衰减；GET 的 3 次错误集中于首个秒级桶",
+          "trace e905d7c9… 原始日志记录 cqeStatus=4、sendChipId=1、port_id=4，随后出现 URMA_COMPLETION_FAILED",
+          "代表 trace 中 WR 已提交，但 waitUs≈4.1ms 后 pending WR 超时并强制释放 send lane，排除纯 SDK 参数错误",
+          "故障标签按用户指定的 gt_labels.json 映射采用“硬件故障/ub端口故障-down”；具体光模块、线缆或对端器件仍需现场硬件遥测区分"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "97ac0ff8-31c5-469d-9352-7088994a7179",
+              "operation": "GET",
+              "start_time": "2026-10-10 16:41:38",
+              "end_time": "2026-10-10 16:41:41"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "97ac0ff8-31c5-469d-9352-7088994a7179",
+                    "operation": "GET",
+                    "interval": "second",
+                    "start_time": "2026-10-10 16:41:38",
+                    "end_time": "2026-10-10 16:41:41",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 3,
+              "items": [
+                {
+                  "code": "1010",
+                  "count": 2,
+                  "share_pct": 66.666667
+                },
+                {
+                  "code": "1004",
+                  "count": 1,
+                  "share_pct": 33.333333
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-10-10 16:41:38",
+                  "end_time": "2026-10-10 16:41:39",
+                  "complete": true,
+                  "counts": {
+                    "1010": 2,
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-10 16:41:39",
+                  "end_time": "2026-10-10 16:41:40",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-10 16:41:40",
+                  "end_time": "2026-10-10 16:41:41",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "97ac0ff8-31c5-469d-9352-7088994a7179",
+              "operation": "SET",
+              "start_time": "2026-10-10 16:41:38",
+              "end_time": "2026-10-10 16:41:41"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "97ac0ff8-31c5-469d-9352-7088994a7179",
+                    "operation": "SET",
+                    "interval": "second",
+                    "start_time": "2026-10-10 16:41:38",
+                    "end_time": "2026-10-10 16:41:41",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 3,
+                  "returned_windows": 3
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 3,
+              "total_windows": 3
+            },
+            "code_distribution": {
+              "total_count": 15,
+              "items": [
+                {
+                  "code": "1010",
+                  "count": 15,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-10-10 16:41:38",
+                  "end_time": "2026-10-10 16:41:39",
+                  "complete": true,
+                  "counts": {
+                    "1010": 8
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-10 16:41:39",
+                  "end_time": "2026-10-10 16:41:40",
+                  "complete": true,
+                  "counts": {
+                    "1010": 5
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-10 16:41:40",
+                  "end_time": "2026-10-10 16:41:41",
+                  "complete": true,
+                  "counts": {
+                    "1010": 2
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "错误码按 GET/SET 独立统计：GET 在 16:41:38 出现 2 次 1010 与 1 次 1004；SET 在连续 3 个秒级桶出现 15 次 1010（8→5→2）。计数为逐码命中次数，不是业务失败率。",
+        "metrics": [
+          {
+            "label": "故障 trace",
+            "value": "18",
+            "sub": "GET 3 / SET 15",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "1010",
+            "sub": "17 次逐码命中，占 94.44%",
+            "tone": "danger"
+          },
+          {
+            "label": "集中时段",
+            "value": "3 秒",
+            "sub": "16:41:38–16:41:41",
+            "tone": "warn"
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据可用性",
+            "title": "解析与诊断任务成功",
+            "description": "日志目录含 22 个文件、235467 行，归并 49152 条 trace；任务 overall_status=successful，形成 18 条故障 trace 记录。",
+            "evidence": "POST /log_file/list/{kb_id}：overall_status=successful，trace_failure_event_cnt=18；任务报告记录 49152 条 trace。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 现象定界",
+            "title": "GET/SET 同窗出现 URMA 错误",
+            "description": "GET 有 2 条 1010 和 1 条 1004；SET 有 15 条 1010，全部集中在 16:41:38–16:41:40。",
+            "evidence": "POST /stats/error_codes；POST /log_failure_event_result/list_time_aggregated_failure_events（GET/SET 分开查询）。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 数据面定位",
+            "title": "URMA WRITE completion 未正常完成",
+            "description": "代表 trace 的 WR 已提交，随后出现 URMA_WAIT_TIMEOUT、pendingWrs=1、send lane force release；另一条 GET trace 出现 URMA_COMPLETION_FAILED。",
+            "evidence": "trace c06df5a3… / 69d65034…：waitUs≈4.1ms；trace e905d7c9…：Polling failed with cqeStatus=4。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 端口定位",
+            "title": "失败 completion 指向端口 4",
+            "description": "同一现场日志明确携带 sendChipId=1、port_id=4 与 cqeStatus=4，错误发生在端口承载的 completion 通路，而非对象键、元数据或客户端业务参数。",
+            "evidence": "trace e905d7c9…：[URMA_ELAPSED_TOTAL] cqeStatus:4, sendChipId:1, port_id:4；随后 URMA_COMPLETION_FAILED。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "排除持续性进程故障与 Jetty 池耗尽",
+            "description": "故障仅持续 3 秒且之后无新增桶；代表 trace 显示 poolSize=200、idleCount=200、inUseCount=0，不支持资源池耗尽或 Worker 持续不可用。",
+            "evidence": "秒级时间聚合完整覆盖；原始日志 [URMA_SEND_LANE_FORCE_RELEASE] 资源池计数。",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑥ 根因确认",
+            "title": "UB 单端口瞬态 down/不可用",
+            "description": "端口 4 的失败 completion 与同窗 URMA 等待超时共同形成闭环；标签映射和已确认同类案例均指向 ub 端口 down。器件级原因仍需端口状态、光功率和误码计数进一步区分。",
+            "evidence": "当前现场 port_id=4+cqeStatus=4+1010/1004；gt_labels.json 标签；已确认案例 UB-CASE-002524（仅作历史佐证）。",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "UB 端口 4 瞬态 down/不可用导致 URMA completion 失败与等待超时",
+        "supporting_knowledge": "curated：1010/K_URMA_WAIT_TIMEOUT、1004/K_URMA_ERROR、kvcache_access_026、kvcache_access_022；已确认案例 UB-CASE-002524；本地经验 umdk-link-failure-diagnosis。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "UB 端口 4 瞬态不可用",
+            "detail": "sendChipId=1，port_id=4",
+            "type": "origin",
+            "transition": "completion 返回 cqeStatus=4 或通知未到达"
+          },
+          {
+            "label": "URMA 完成通路异常",
+            "detail": "URMA_COMPLETION_FAILED / pending WR 未完成",
+            "type": "mechanism",
+            "transition": "约 4.1ms 等待预算耗尽"
+          },
+          {
+            "label": "KVCache 数据面失败",
+            "detail": "send lane force release，TCP fallback 对 1MiB payload 被 limiter 拒绝",
+            "type": "mechanism",
+            "transition": "错误沿访问路径上浮",
+            "branches": [
+              {
+                "label": "GET 读路径",
+                "nodes": [
+                  {
+                    "label": "GET 返回 1010/1004",
+                    "detail": "3 条故障 trace",
+                    "type": "impact"
+                  }
+                ]
+              },
+              {
+                "label": "SET 写路径",
+                "nodes": [
+                  {
+                    "label": "SET 返回 1010",
+                    "detail": "15 条故障 trace",
+                    "type": "impact"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "impact_scope": [
+          "集群：zzz-kv-ds-1",
+          "操作：GET 与 SET",
+          "时间：2026-10-10 16:41:38–16:41:41",
+          "链路：4 组源目 IP 对，涉及 6 个 Pod/IP"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "e905d7c9-eb7a-4a6b-ba8d-397950c9c525",
+          "kind": "error",
+          "why": "status_code=1004 + pod=192.168.219.125 + 16:41:38–16:41:41；cqeStatus=4/port_id=4",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.219.125",
+          "timestamp": "2026-10-10 16:41:38"
+        },
+        {
+          "trace_id": "c06df5a3-fc81-472d-a3e2-c34f23f7780e",
+          "kind": "error",
+          "why": "status_code=1010 + pod=192.168.219.125 + 16:41:38–16:41:41；GET 等待超时",
+          "status_code": "1010",
+          "failure_mode_id": "kvcache_access_026",
+          "pod": "192.168.219.125",
+          "timestamp": "2026-10-10 16:41:38"
+        },
+        {
+          "trace_id": "c333cb13-6cf4-4c94-877b-87b9a9ec645f",
+          "kind": "error",
+          "why": "status_code=1010 + pod=192.168.235.133 + 16:41:38–16:41:41；另一 GET 链路超时",
+          "status_code": "1010",
+          "failure_mode_id": "kvcache_access_026",
+          "pod": "192.168.235.133",
+          "timestamp": "2026-10-10 16:41:38"
+        },
+        {
+          "trace_id": "51cc34db-f589-4151-a15e-7fea8757cae3",
+          "kind": "error",
+          "why": "status_code=1010 + pod=192.168.235.128 + 16:41:38–16:41:41；SET 等待超时",
+          "status_code": "1010",
+          "failure_mode_id": "kvcache_access_026",
+          "pod": "192.168.235.128",
+          "timestamp": "2026-10-10 16:41:38"
+        },
+        {
+          "trace_id": "69d65034-8846-4956-840f-084d18fcedc1",
+          "kind": "error",
+          "why": "status_code=1010 + pod=192.168.219.123 + 16:41:38–16:41:41；SET 等待超时",
+          "status_code": "1010",
+          "failure_mode_id": "kvcache_access_026",
+          "pod": "192.168.219.123",
+          "timestamp": "2026-10-10 16:41:38"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002524",
+          "stars": "★★★★★",
+          "match_logic": "L1：1010 与 kvcache_access_026 精确命中；L2：SET、硬件故障/ub端口故障-down、链路对形态命中；L5：cqeStatus=4、port_id=4、约4.1ms等待超时同源。",
+          "symptom": "SET 写路径 URMA 事件等待超时，失败 completion 指向端口 4。",
+          "root_cause": "UB 端口 4 瞬态 down 导致 completion 失败和 1010。",
+          "solution": "核查端口 4 与对端物理链路，确认 lane 重建后复测 SET，并监控 CR.status/port_id。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "当前 SET 分支与该已确认案例高度一致，且当前新增 GET 分支。",
+          "log_fit": "当前现场独立复核到 cqeStatus=4、port_id=4、URMA_WAIT_TIMEOUT。",
+          "rc_consistency": "一致",
+          "env_diff": "历史案例仅覆盖 SET；当前资产同时存在 GET 1004/1010。",
+          "adaptation": "复用端口处置方案，同时对 GET 链路执行复测。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "②",
+          "id": "kvcache_access_026 / kvcache_access_022",
+          "stars": "★★★★★",
+          "match_logic": "L1：1010/1004 与 failure_mode 精确命中；L2：curated failure_domain=URMA/硬件；L5：现场日志直接出现等待超时和 completion 失败。",
+          "symptom": "URMA 事件等待超时或底层传输/completion 操作失败。",
+          "root_cause": "URMA 设备、对端或传输事件未正常完成或通知。",
+          "solution": "检查 URMA 设备、对端、Jetty 与传输事件状态，设备和链路恢复后重试。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "完整覆盖当前 1010 与 1004。",
+          "log_fit": "与现场原始日志一致。",
+          "rc_consistency": "一致",
+          "env_diff": "curated 仅到 URMA/硬件域，端口 4 定位来自现场。",
+          "adaptation": "结合现场 port_id=4 收窄到具体端口。",
+          "applicability": "direct"
+        },
+        {
+          "rank": "③",
+          "id": "experience:d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+          "stars": "★★★★☆",
+          "match_logic": "L1：经验不定义 1010；L2：端口/链路故障域命中；L5：端口 down 后检查物理连接、对端、固件的机理方向匹配。",
+          "symptom": "PORT_DOWN、ACK_TIMEOUT 或链路宽度/速率异常。",
+          "root_cause": "物理连接、对端端口或固件异常可能导致链路中断。",
+          "solution": "执行 urma_admin port show，并检查 dmesg、物理连接和对端状态。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考",
+          "phenomenon_fit": "当前有 port_id 与 completion 失败，但未直接采集 PORT_DOWN 事件。",
+          "log_fit": "部分匹配。",
+          "rc_consistency": "方向一致，器件级原因待验证。",
+          "env_diff": "经验为通用 UMDK 流程。",
+          "adaptation": "限定检查 port_id=4 及其对端。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即对 sendChipId=1、port_id=4 及其对端执行 `urma_admin port show`，保存 state、link_width、speed 与时间戳；若仍为 DOWN，按变更流程隔离链路并切换健康路径。",
+          "检查端口 4 两端线缆/光模块/交换机端口、LOS/LOL、Tx/Rx 光功率、FEC/CRC/符号错误计数和同窗 dmesg/固件事件；用交换法定位具体器件。",
+          "确认 send lane/Jetty 已重建且 pending WR 清零后，重放故障对象的 GET/SET 请求；避免在端口未恢复时重复大对象请求。"
+        ],
+        "long_term": [
+          "将 URMA completion 的 cqeStatus、sendChipId、port_id 与 PORT_DOWN、光功率、FEC/CRC 指标关联告警。",
+          "评估 bond 路径切换、自动回切与大对象 TCP fallback 限制，避免单端口故障直接转化为业务失败。",
+          "维护 KVCache IP 对到物理 UB 端口/光模块/交换机端口的拓扑映射，缩短后续定位时间。"
+        ],
+        "verification": [
+          "端口 4 与对端状态均为 ACTIVE，链路宽度和速率恢复期望值，光功率与误码指标正常。",
+          "连续 30 分钟观察 GET/SET：错误码 1010、1004 均无新增，且不再出现 URMA_COMPLETION_FAILED/URMA_SEND_LANE_TIMEOUT_OBSERVED。",
+          "以相同 1MiB 负载复测 GET 与 SET，确认请求成功、无 pending/orphan WR，send lane 未被强制释放。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核查并恢复 UB 端口 4 及对端物理链路，异常时切换健康路径。",
+      "depends_on": "具备端口管理与硬件维护权限",
+      "expected_effect": "消除 URMA completion 失败和等待超时",
+      "verify": "端口 ACTIVE，GET/SET 复测无 1010/1004"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "确认 send lane/Jetty 重建并重放失败对象。",
+      "depends_on": "端口恢复",
+      "expected_effect": "恢复数据面并补偿故障窗口写入",
+      "verify": "pending/orphan WR 为 0，连续 30 分钟无新增故障"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": "100",
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "1.49%",
+            "fail_share": "66.67%",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "样本 134 条，P90 0.823ms、max 4.759ms；2 条异常归入该桶，另 1 条 1004 故障 trace 缺完整时延归桶。"
+          }
+        ],
+        "conclusion": "GET 归因样本未解析出独立 URMA 时延段，故障 trace 主要表现为通断错误；不把 cross_window 桶误解为物理瓶颈。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "SET·客户端SDK段",
+            "pct": "100",
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "客户端 SDK 段",
+            "p99": "—",
+            "anomaly_rate": "1.73%",
+            "fail_share": "100%",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "样本 866 条，P90 0.574ms、max 4.446ms；该段包含等待数据面返回，不代表 SDK 自身根因。"
+          }
+        ],
+        "conclusion": "SET 的 15 条故障 trace 均落在 set_client 桶，但原始日志已将等待时间下钻到 URMA completion；SET 阶段不编造 create/publish/urma_processing 分段。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 18,
+    "top_error_codes": [
+      {
+        "code": "1010",
+        "name": "K_URMA_WAIT_TIMEOUT",
+        "pct": "94.44",
+        "fault": "F01"
+      },
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": "5.56",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "硬件故障/ub端口故障-down",
+        "pct": "100",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.128 → 192.168.219.125（SET）",
+        "host": "—",
+        "pct": "55.56",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.123 → 192.168.235.133（SET）",
+        "host": "—",
+        "pct": "27.78",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.125 ↔ 192.168.235.132（GET）",
+        "host": "—",
+        "pct": "11.11",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.133 → 192.168.219.124（GET）",
+        "host": "—",
+        "pct": "5.56",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "16:41:38",
+        "level": "4",
+        "pct": "61.11",
+        "spike": true,
+        "fault": "F01"
+      },
+      {
+        "time": "16:41:39",
+        "level": "2",
+        "pct": "27.78",
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "16:41:40",
+        "level": "1",
+        "pct": "11.11",
+        "spike": false,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-97ac0ff8",
+    "total_steps": 7,
+    "api_calls": 38,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences（SKILL/WIKI）"
+        ],
+        "result": "命中 URMA 链路故障、RDMA/URMA 传输与 urma_admin 经验，仅作为先验。"
+      },
+      {
+        "title": "Step 2 数据与标签核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}"
+        ],
+        "result": "解析成功；49152 条 trace、18 条故障 trace；train_valid.md 映射到 1z3b_1port_fault，gt_labels.json 给出硬件故障/ub端口故障-down。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立组件分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 与 SET 独立归桶；阶段桶不直接识别 URMA timeout，转入故障码与原始日志下钻。"
+      },
+      {
+        "title": "Step 4 分布统计与时间定位",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events"
+        ],
+        "result": "GET 3 条、SET 15 条；故障集中在 3 秒，1010 占 94.44%。"
+      },
+      {
+        "title": "Step 5 Trace 与原始日志验证",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认 cqeStatus=4、port_id=4、URMA completion 失败与约4.1ms等待超时。"
+      },
+      {
+        "title": "Step 6 Curated 与案例复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/{code}",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "curated 解释与现场一致；已确认案例 UB-CASE-002524 的 L1/L2/L5 特征同源，已回写命中。"
+      },
+      {
+        "title": "Step 7 报告契约生成",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "生成并校验 JSON；按用户要求不渲染 HTML。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+      "experience_type": "SKILL",
+      "name": "umdk-link-failure-diagnosis",
+      "source_path": "data/skill_hub/umdk-link-failure-diagnosis",
+      "keywords_matched": [
+        "URMA",
+        "端口故障",
+        "PORT_DOWN"
+      ],
+      "search_query_used": "KVCache 1port 通断 连接失败 URMA 端口故障",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "出现 `PORT_DOWN` 时，优先检查物理连接和对端状态。",
+      "how_used_in_diagnosis": "用于形成端口状态、物理连接和对端核验建议，不作为现场证据。",
+      "confidence_on_reference": 0.85,
+      "confidence_reason": "与现场 port_id=4 和硬件域一致。"
+    },
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+      "keywords_matched": [
+        "K_URMA_WAIT_TIMEOUT",
+        "1010",
+        "URMA"
+      ],
+      "search_query_used": "K_URMA_WAIT_TIMEOUT 1010 cqeStatus=4 URMA_SEND_LANE port_id 单端口 down",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "K_URMA_WAIT_TIMEOUT=1010 | URMA 等待超时 | 检查网络延迟和远端状态",
+      "how_used_in_diagnosis": "用于补充检查远端和链路状态的建议；错误码解释仍以 curated 为准。",
+      "confidence_on_reference": 0.9,
+      "confidence_reason": "与 curated 1010 解释及现场超时日志一致。"
+    },
+    {
+      "experience_id": "1af1c583-204d-4538-ab34-e166258aa3c7",
+      "experience_type": "WIKI",
+      "name": "UMDK URMA 管理工具 urma_admin 使用指南",
+      "source_path": "data/wiki_hub/umdk-urma-admin-tools.md",
+      "keywords_matched": [
+        "urma_admin",
+        "端口状态",
+        "DOWN"
+      ],
+      "search_query_used": "K_URMA_WAIT_TIMEOUT 1010 cqeStatus=4 URMA_SEND_LANE port_id 单端口 down",
+      "used_in_stage": "recommendation",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "`urma_admin port show` | 显示所有端口状态",
+      "how_used_in_diagnosis": "用于制定 port_id=4 的 ACTIVE/DOWN、宽度和速率核验步骤。",
+      "confidence_on_reference": 0.9,
+      "confidence_reason": "工具字段可直接验证当前端口假设。"
+    },
+    {
+      "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+      "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+      "keywords_matched": [
+        "K_URMA_WAIT_TIMEOUT",
+        "1010"
+      ],
+      "search_query_used": "K_URMA_WAIT_TIMEOUT 1010 cqeStatus=4 URMA_SEND_LANE port_id 单端口 down",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "K_URMA_WAIT_TIMEOUT=1010 | URMA 等待超时 | 检查网络延迟和远端状态",
+      "how_used_in_diagnosis": "作为传输层排查方向参考，未替代现场日志和 curated 解释。",
+      "confidence_on_reference": 0.85,
+      "confidence_reason": "与当前现场 1010 高度一致。"
+    }
+  ]
+}

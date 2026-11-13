@@ -334,7 +334,7 @@ class DiagnosticReportService:
         item.has_sidecar = True
         item.current_sidecar_hash = phenomenon_extractor.compute_sidecar_hash(data)
         item.kb_id = None if item.imported else (basic.get("kb_id") or kb_dir)
-        item.kb_name = None if item.imported else _opt_str(basic.get("kb_name"))
+        item.kb_name = _opt_str(basic.get("kb_name"))
         item.title = _opt_str(report.get("title"))
         item.generated_at = _opt_str(report.get("generated_at"))
         item.operation = _opt_str(basic.get("operation") or report.get("operation"))

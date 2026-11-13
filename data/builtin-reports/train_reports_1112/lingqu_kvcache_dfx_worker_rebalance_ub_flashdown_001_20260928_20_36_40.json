@@ -1,0 +1,1006 @@
+{
+  "report": {
+    "title": "KVCache SET 写路径 UB 端口闪断诊断报告",
+    "report_id": "diag-810947e6-ub-flashdown-20260928",
+    "generated_at": "2026-11-12 16:00:00+08:00"
+  },
+  "basic_info": {
+    "kb_id": "810947e6-c3e0-4911-b524-e8b0f113f377",
+    "kb_name": "lingqu_kvcache_dfx_worker_rebalance_ub_flashdown_001_20260928_20_36_40",
+    "log_file": "59df7a59-11df-4ed7-88cd-590887df5517",
+    "operation": "SET（GET 独立口径无归因样本/故障记录）",
+    "time_range_start": "2026-09-28 20:34:02",
+    "time_range_end": "2026-09-28 20:35:31",
+    "total_trace_cnt": 61,
+    "fault_trace_cnt": 61,
+    "fault_ratio": 100.0,
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "T:URMA_WRITE": 1.0
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：SET 写路径本地 UB 发送通路短时闪断，先出现 URMA send WR 失败，随后全部端口被判定为 BAD。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "61 条 SET 故障 trace；客户端 192.168.219.82 的写入通路受影响，GET 侧无可用于归因的样本。",
+    "confidence": 0.96
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "本地 UB 端口闪断导致 SET 写路径不可用",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 0.96,
+      "category": "error",
+      "affected_scope": "客户端 192.168.219.82；已观测到 192.168.219.82→192.168.189.88:31501 的前导发送失败",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-闪断",
+        "one_line_conclusion": "SET 写路径因本地 UB 发送端短时全部端口 BAD 而不可用。",
+        "fault_domain": "硬件故障/ub端口故障-闪断",
+        "fault_component": "本地 UB/URMA 发送端",
+        "fault_function": "urma_post_jetty_send_wr / UB endpoint health check",
+        "fault_function_loc": "客户端 192.168.219.82 至 192.168.189.88:31501",
+        "affected_scope_pct": 100.0,
+        "affected_scope_desc": "本资产库 61 条 SET trace 均挂有故障码；该比例仅描述已解析 trace，不代表线上全量业务失败率。",
+        "confidence": 0.96,
+        "key_findings": [
+          "20:34:02.683 与 20:34:02.783 两条 SET trace 调用 urma_post_jetty_send_wr 失败，ret=4096，上浮为 1004。",
+          "20:34:04.969 起至 20:35:30.581，59 条 SET trace 返回 2007，原文均指向 Client-local UB endpoint unavailable: all ports are BAD。",
+          "错误码分布为 2007=59（96.721311%）、1004=2（3.278689%）；秒级时间聚合 47/47 桶完整返回。",
+          "两条 1004 trace 的对端 Worker 仍完成 Create（0.075ms/0.051ms），不支持对端 Worker 处理阻塞或内存不足是主因。",
+          "固定故障标签取自 gt_labels.json 中 train_valid.md 对应日志描述 worker_rebalance_ub_flashdown 的映射。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "810947e6-c3e0-4911-b524-e8b0f113f377",
+              "operation": "SET",
+              "start_time": "2026-09-28 20:34:02",
+              "end_time": "2026-09-28 20:35:31"
+            },
+            "code_filter": [
+              "2007",
+              "1004"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "810947e6-c3e0-4911-b524-e8b0f113f377",
+                    "operation": "SET",
+                    "start_time": "2026-09-28 20:34:02",
+                    "end_time": "2026-09-28 20:35:31",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 47,
+                  "returned_windows": 47
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 47,
+              "total_windows": 47
+            },
+            "code_distribution": {
+              "total_count": 61,
+              "items": [
+                {
+                  "code": "2007",
+                  "count": 59,
+                  "share_pct": 96.721311
+                },
+                {
+                  "code": "1004",
+                  "count": 2,
+                  "share_pct": 3.278689
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 2,
+              "windows": [
+                {
+                  "start_time": "2026-09-28 20:34:02",
+                  "end_time": "2026-09-28 20:34:04",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0,
+                    "1004": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:04",
+                  "end_time": "2026-09-28 20:34:06",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:06",
+                  "end_time": "2026-09-28 20:34:08",
+                  "complete": true,
+                  "counts": {
+                    "2007": 2,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:08",
+                  "end_time": "2026-09-28 20:34:10",
+                  "complete": true,
+                  "counts": {
+                    "2007": 3,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:10",
+                  "end_time": "2026-09-28 20:34:12",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:12",
+                  "end_time": "2026-09-28 20:34:14",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:14",
+                  "end_time": "2026-09-28 20:34:16",
+                  "complete": true,
+                  "counts": {
+                    "2007": 3,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:16",
+                  "end_time": "2026-09-28 20:34:18",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:18",
+                  "end_time": "2026-09-28 20:34:20",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:20",
+                  "end_time": "2026-09-28 20:34:22",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:22",
+                  "end_time": "2026-09-28 20:34:24",
+                  "complete": true,
+                  "counts": {
+                    "2007": 2,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:24",
+                  "end_time": "2026-09-28 20:34:26",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:26",
+                  "end_time": "2026-09-28 20:34:28",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:28",
+                  "end_time": "2026-09-28 20:34:30",
+                  "complete": true,
+                  "counts": {
+                    "2007": 2,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:30",
+                  "end_time": "2026-09-28 20:34:32",
+                  "complete": true,
+                  "counts": {
+                    "2007": 2,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:32",
+                  "end_time": "2026-09-28 20:34:34",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:34",
+                  "end_time": "2026-09-28 20:34:36",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:36",
+                  "end_time": "2026-09-28 20:34:38",
+                  "complete": true,
+                  "counts": {
+                    "2007": 2,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:38",
+                  "end_time": "2026-09-28 20:34:40",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:40",
+                  "end_time": "2026-09-28 20:34:42",
+                  "complete": true,
+                  "counts": {
+                    "2007": 3,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:42",
+                  "end_time": "2026-09-28 20:34:44",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:44",
+                  "end_time": "2026-09-28 20:34:46",
+                  "complete": true,
+                  "counts": {
+                    "2007": 2,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:46",
+                  "end_time": "2026-09-28 20:34:48",
+                  "complete": true,
+                  "counts": {
+                    "2007": 5,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:48",
+                  "end_time": "2026-09-28 20:34:50",
+                  "complete": true,
+                  "counts": {
+                    "2007": 2,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:50",
+                  "end_time": "2026-09-28 20:34:52",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:52",
+                  "end_time": "2026-09-28 20:34:54",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:54",
+                  "end_time": "2026-09-28 20:34:56",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:56",
+                  "end_time": "2026-09-28 20:34:58",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:34:58",
+                  "end_time": "2026-09-28 20:35:00",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:00",
+                  "end_time": "2026-09-28 20:35:02",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:02",
+                  "end_time": "2026-09-28 20:35:04",
+                  "complete": true,
+                  "counts": {
+                    "2007": 3,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:04",
+                  "end_time": "2026-09-28 20:35:06",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:06",
+                  "end_time": "2026-09-28 20:35:08",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:08",
+                  "end_time": "2026-09-28 20:35:10",
+                  "complete": true,
+                  "counts": {
+                    "2007": 2,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:10",
+                  "end_time": "2026-09-28 20:35:12",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:12",
+                  "end_time": "2026-09-28 20:35:14",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:14",
+                  "end_time": "2026-09-28 20:35:16",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:16",
+                  "end_time": "2026-09-28 20:35:18",
+                  "complete": true,
+                  "counts": {
+                    "2007": 2,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:18",
+                  "end_time": "2026-09-28 20:35:20",
+                  "complete": true,
+                  "counts": {
+                    "2007": 2,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:20",
+                  "end_time": "2026-09-28 20:35:22",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:22",
+                  "end_time": "2026-09-28 20:35:24",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:24",
+                  "end_time": "2026-09-28 20:35:26",
+                  "complete": true,
+                  "counts": {
+                    "2007": 3,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:26",
+                  "end_time": "2026-09-28 20:35:28",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:28",
+                  "end_time": "2026-09-28 20:35:30",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-28 20:35:30",
+                  "end_time": "2026-09-28 20:35:31",
+                  "complete": true,
+                  "counts": {
+                    "2007": 3,
+                    "1004": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 写路径在 20:34:02 先出现 2 次 1004，约 2.2 秒后转为 2007，并持续到 20:35:30；61 次为逐码命中次数，不等同于业务失败率。",
+        "metrics": [
+          {
+            "label": "故障码逐码命中",
+            "value": "61",
+            "sub": "SET，完整覆盖 47 个有数据秒级桶",
+            "tone": "bad"
+          },
+          {
+            "label": "主导错误码",
+            "value": "2007 / 96.72%",
+            "sub": "K_URMA_WORKER_UNAVAILABLE",
+            "tone": "bad"
+          },
+          {
+            "label": "前导错误码",
+            "value": "1004 / 3.28%",
+            "sub": "K_URMA_ERROR",
+            "tone": "warn"
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "事实 1",
+            "title": "URMA 写提交首先失败",
+            "description": "两条 2 MiB SET 请求从 192.168.219.82 写向 192.168.189.88:31501 时，urma_post_jetty_send_wr 返回 ret=4096。",
+            "evidence": "trace=c46d7cb3-1ef5-4097-8c13-4a7a03378993、c7cb6385-a51d-416c-91f1-5d41d2a0481e；status_code=1004。",
+            "confirmed": true
+          },
+          {
+            "step_label": "事实 2",
+            "title": "本地 UB 发送端全部端口转为 BAD",
+            "description": "首个 2007 比首个 1004 晚约 2.286 秒，之后持续约 85.6 秒，日志明确指向本地 UB endpoint 的所有端口不可用。",
+            "evidence": "首个 2007 trace=367887bd-15c4-490c-81c0-6ac53387e3bb；末个 trace=d94c9969-41b4-441d-8839-15e4088373e6。",
+            "confirmed": true
+          },
+          {
+            "step_label": "反证",
+            "title": "排除对端 Worker 处理阻塞",
+            "description": "1004 trace 的对端仍收到 Create 请求并快速完成内存分配与 Create；没有 Worker 处理长尾或内存阈值耗尽证据。",
+            "evidence": "对端日志 Create done cost=0.075ms/0.051ms，memThreshold=30198988800。",
+            "excluded": true
+          },
+          {
+            "step_label": "边界",
+            "title": "器件级故障点仍需硬件遥测闭环",
+            "description": "现场足以确认 UB 端口/链路短时不可用，但日志未含光功率、LOS/LOL、lane、驱动或交换机端口事件，不能进一步锁定具体光模块、光纤或交换机端口。",
+            "evidence": "options 未解析 host；现场日志与 API 响应未提供设备侧遥测。",
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "客户端 192.168.219.82 的本地 UB 发送通路发生短时端口闪断：WR 提交先失败，随后健康检查将全部端口判为 BAD，使 SET 写路径持续返回 K_URMA_WORKER_UNAVAILABLE。",
+        "supporting_knowledge": "Curated kvcache_access_022 将 1004 解释为 URMA 底层传输/资源异常；kvcache_access_067 将 2007 解释为本地 UB 发送端被隔离、未就绪或健康检查判定不可用。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "UB 端口/链路短时闪断",
+            "detail": "本地发送通路失稳；器件级位置待遥测确认。",
+            "type": "root"
+          },
+          {
+            "label": "URMA WR 提交失败",
+            "detail": "urma_post_jetty_send_wr ret=4096，上浮 1004。",
+            "type": "error",
+            "transition": "20:34:02.683~20:34:02.783"
+          },
+          {
+            "label": "本地端点全部端口 BAD",
+            "detail": "健康状态转坏，后续请求不再形成有效数据面发送。",
+            "type": "state",
+            "transition": "首见 20:34:04.969"
+          },
+          {
+            "label": "SET 写请求快速失败",
+            "detail": "59 条请求返回 2007，持续至 20:35:30.581。",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "操作域：SET；GET 独立口径无故障 trace。",
+          "端点：客户端 192.168.219.82；前导失败目的端为 192.168.189.88:31501。",
+          "时间：2026-09-28 20:34:02 至 20:35:30。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "c46d7cb3-1ef5-4097-8c13-4a7a03378993",
+          "kind": "error",
+          "why": "SET + status_code=1004 + 20:34:02~20:34:03；首条 WR 提交失败，ret=4096。",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.219.82",
+          "timestamp": "2026-09-28 20:34:02.683"
+        },
+        {
+          "trace_id": "c7cb6385-a51d-416c-91f1-5d41d2a0481e",
+          "kind": "error",
+          "why": "SET + status_code=1004 + 20:34:02~20:34:03；第二条同链路 WR 提交失败。",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.219.82",
+          "timestamp": "2026-09-28 20:34:02.783"
+        },
+        {
+          "trace_id": "367887bd-15c4-490c-81c0-6ac53387e3bb",
+          "kind": "error",
+          "why": "SET + status_code=2007 + pod=192.168.219.82；首条 all ports are BAD 证据。",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.219.82",
+          "timestamp": "2026-09-28 20:34:04.969"
+        },
+        {
+          "trace_id": "d94c9969-41b4-441d-8839-15e4088373e6",
+          "kind": "error",
+          "why": "SET + status_code=2007 + pod=192.168.219.82；故障窗末端仍为 all ports are BAD。",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.219.82",
+          "timestamp": "2026-09-28 20:35:30.581"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002639",
+          "rank": 1,
+          "stars": 5,
+          "match_logic": "L1 命中 2007/1004 与 kvcache_access_067/022；L2 命中 UB 端口短时全 BAD，操作域为 MIXED 对本次 SET 仅部分一致；L3 拓扑/机理命中 1004→2007 与 ret=4096/all ports are BAD。",
+          "symptom": "UB 端口短时全 BAD 导致 SET 写请求不可用。",
+          "root_cause": "历史确认案例指向 UB 发送通路短时端口不可用；本次现场 61 条 trace 独立复核一致。",
+          "solution": "检查本地 UB 端口、光模块及对端端口，恢复后解除隔离并复测 SET。",
+          "applicability": "adjust",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致",
+          "env_diff": "历史案例 operation=MIXED，本次仅 SET；具体端点身份不同且不参与匹配。",
+          "adaptation": "仅复用排查方向，不复用历史 IP；以本次端口/光模块遥测确认器件级位置。"
+        },
+        {
+          "id": "UB-CASE-002573",
+          "rank": 2,
+          "stars": 4,
+          "match_logic": "L1 命中两类错误码及故障模式；L2 命中 few_pods 和 UB 发送端不可用，但历史二级标签为网卡丢包，与本次固定标签 ub端口故障-闪断不同；L3 日志链条相似。",
+          "symptom": "SET 写路径 URMA 发送失败后进入本地 UB endpoint 不可用。",
+          "root_cause": "可支持 UB 发送端状态转坏的传播机理，不能据此把本次器件级根因改判为网卡丢包。",
+          "solution": "核对端口状态、丢包/CRC 与链路 flap，并恢复或切换发送通路。",
+          "applicability": "reference",
+          "adoption_class": "reference",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "部分一致",
+          "env_diff": "二级故障域不同。",
+          "adaptation": "只采用状态转移与遥测核查方法，不采用其网卡丢包结论。"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即核对 192.168.219.82 本地 UB 端口与对端 192.168.189.88:31501 的 admin/oper、lane、LOS/LOL、链路 flap、CRC/drop 及光模块 DDM。",
+          "确认物理链路恢复后，重新初始化或解除本地 UB 发送端隔离，验证 all ports are BAD 状态消失；故障未恢复前切换健康 UB 端口或节点。",
+          "保留故障秒级窗口两端驱动、固件、交换机和光模块遥测，使用交换法区分光模块、光纤、本地端口与对端端口。"
+        ],
+        "long_term": [
+          "建立 UB 端口状态、DDM、lane 降级和 flap 次数与 K_URMA_ERROR/K_URMA_WORKER_UNAVAILABLE 的联动告警。",
+          "复核多端口健康检查、自动重纳管、Jetty 重建和受控传输回退策略，避免一次闪断造成持续不可用。",
+          "补齐 host、网卡及交换机端口标识解析，使 trace 可关联到物理器件。"
+        ],
+        "verification": [
+          "连续执行 2 MiB SET 压测，确认错误码 1004/2007 不再出现。",
+          "检查 urma_post_jetty_send_wr 成功且本地 UB 端口均恢复健康，故障时间聚合归零。",
+          "在受控窗口执行端口 flap 演练，确认自动恢复、重连及回退策略符合预期。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "检查并恢复本地 UB 端口及对应物理链路。",
+      "depends_on": "获取端口与光模块遥测",
+      "expected_effect": "消除 all ports are BAD，恢复 SET 数据面。",
+      "verify": "2 MiB SET 连续压测无 1004/2007。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "完善端口闪断联动监控与自动恢复/回退。",
+      "depends_on": "根因器件定位完成",
+      "expected_effect": "缩短闪断影响时间并保留可闭环证据。",
+      "verify": "受控 flap 演练中端口自动恢复且告警、trace、遥测时间对齐。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "GET 归因子集",
+            "p99": null,
+            "anomaly_rate": 0,
+            "fail_share": 0,
+            "status": "ok",
+            "fault": "无样本",
+            "detail": "GET /stats/stages 返回 sample_cnt=0；空结果不解释为系统健康。"
+          }
+        ],
+        "conclusion": "GET 独立口径无归因样本，未与 SET 混桶。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "数据面未观测",
+            "pct": 96.721311,
+            "cls": "s-warn"
+          },
+          {
+            "name": "客户端 SDK 段",
+            "pct": 3.278689,
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": 0.005,
+            "anomaly_rate": 96.721311,
+            "fail_share": 0,
+            "status": "warn",
+            "fault": "59 条",
+            "detail": "P90=0.003ms；请求在本地端点健康检查处快速失败，未形成 Worker 数据面观测。"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": 0.338,
+            "anomaly_rate": 3.278689,
+            "fail_share": 0,
+            "status": "ok",
+            "fault": "2 条",
+            "detail": "P90=0.338ms；对应前导 1004 trace。这里的 p99 字段使用 API max 兜底展示，不声称为真实 P99。"
+          }
+        ],
+        "conclusion": "61 条参与分类样本中，59 条无数据面观测、2 条归入客户端 SDK 段；这是 trace 计数占比，不是耗时占比。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 61,
+    "top_error_codes": [
+      {
+        "code": "2007",
+        "name": "K_URMA_WORKER_UNAVAILABLE",
+        "pct": 96.721311,
+        "fault": "59 次逐码命中"
+      },
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": 3.278689,
+        "fault": "2 次逐码命中"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "本地 UB 发送端不可用",
+        "pct": 96.721311,
+        "fault": "kvcache_access_067"
+      },
+      {
+        "domain": "URMA 处理异常",
+        "pct": 3.278689,
+        "fault": "kvcache_access_022"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.82",
+        "host": "未解析",
+        "pct": 100.0,
+        "fault": "61 条故障 trace"
+      },
+      {
+        "pod": "192.168.219.82 → 192.168.189.88",
+        "host": "未解析",
+        "pct": 3.278689,
+        "fault": "2 条前导 1004 trace"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "20:34",
+        "level": "high",
+        "pct": 68.852459,
+        "spike": true,
+        "lat_ms": null,
+        "fault": "42 条故障 trace"
+      },
+      {
+        "time": "20:35",
+        "level": "medium",
+        "pct": 31.147541,
+        "spike": false,
+        "lat_ms": null,
+        "fault": "19 条故障 trace"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-810947e6",
+    "total_steps": 7,
+    "api_calls": 30,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences"
+        ],
+        "result": "命中 ds-rdma-transport-diagnosis 等经验，作为待验证排查假设。"
+      },
+      {
+        "title": "资产与解析完整性核验",
+        "api_calls": [
+          "POST /log_kb/list",
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "1 个日志文件，解析 successful，进度 100%。"
+      },
+      {
+        "title": "GET/SET 独立组件分诊",
+        "api_calls": [
+          "POST /stats/stages × GET/SET"
+        ],
+        "result": "GET 无样本；SET 61 条样本，未跨操作混桶。"
+      },
+      {
+        "title": "全量统计定位",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /trace/list"
+        ],
+        "result": "SET 侧 61 条故障 trace，2007 主导；窗口集中于 20:34~20:35。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认 1004→2007 与 ret=4096/all ports are BAD 的传播链。"
+      },
+      {
+        "title": "Curated 与历史案例核验",
+        "api_calls": [
+          "GET /failure_mode/status_code/{code}",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search"
+        ],
+        "result": "curated 解释与现场一致；已确认案例 UB-CASE-002639 高度匹配并已回写命中。"
+      },
+      {
+        "title": "反证与报告生成",
+        "api_calls": [
+          "对端 trace 上下文",
+          "error_features.py",
+          "render_report.py"
+        ],
+        "result": "排除对端 Worker 处理阻塞；保留器件级定位需硬件遥测的证据边界。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "URMA",
+        "UB",
+        "连接失效",
+        "设备健康"
+      ],
+      "search_query_used": "KVCache worker rebalance UB 闪断 诊断",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "分析 URMA/RDMA 问题时，需要同时检查 URMA 驱动/设备日志和系统日志。",
+      "how_used_in_diagnosis": "用于形成设备、驱动和链路遥测的复核建议；根因仍由本次 trace 证据确认。",
+      "confidence_on_reference": 0.9,
+      "confidence_reason": "与现场 1004/2007 及 curated failure mode 一致。"
+    },
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+      "keywords_matched": [
+        "Worker",
+        "异常退出",
+        "重平衡"
+      ],
+      "search_query_used": "KVCache worker rebalance UB 闪断 诊断",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "异常退出时，检查最后 ERROR/FATAL 日志、lease 失效、信号处理。",
+      "how_used_in_diagnosis": "现场没有 Worker 退出或 lease 失效证据，故未采用 Worker 退出假设。",
+      "confidence_on_reference": 0.7,
+      "confidence_reason": "经验本身有效，但与本次现场证据不匹配。"
+    }
+  ]
+}

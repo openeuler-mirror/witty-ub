@@ -1,0 +1,645 @@
+{
+  "report": {
+    "title": "KVCache Scale-out 期间 Coordinator 异常退出诊断报告",
+    "report_id": "diag-885c8bf8-coordinator-restart-20260924",
+    "generated_at": "2026-11-12 13:00:00"
+  },
+  "basic_info": {
+    "kb_id": "885c8bf8-9e8e-4acb-acd8-cee1222271c1",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_scale_out_coordinator_restart_001_20260924_09_21_23",
+    "log_file": "lingqu_kvcache_dfx_worker_process_scale_out_coordinator_restart_001_20260924_09_21_23",
+    "operation": "GET（SET 独立核验无样本）",
+    "time_range_start": "2026-09-24 09:21:00",
+    "time_range_end": "2026-09-24 09:23:00",
+    "total_trace_cnt": 3,
+    "fault_trace_cnt": 3,
+    "fault_ratio": "100.0（已保留 trace 口径）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Not ready": 0.162221,
+      "C:RPC peer dead": 0.162221,
+      "T:E112": 0.973329
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个 GET 通断故障：Scale-out 场景的固定标签指向 Coordinator 异常退出，现场可确认其后元数据 owner RPC 端点从传输快照失效，3 条 GET 均返回 K_RPC_UNAVAILABLE(1002)。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "故障窗口 09:21—09:23 内共识别 3 条 GET 故障 trace；SET 无归因样本、无错误码事件。",
+    "confidence": "中 78%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Coordinator 异常退出后元数据 owner 端点失效导致 GET 失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": "中 78%",
+      "category": "error",
+      "affected_scope": "单一 client pod 的 3 条已识别 GET 故障 trace",
+      "conclusion": {
+        "first_level_label": "Coordinator故障",
+        "second_level_label": "Coordinator故障-进程异常退出",
+        "one_line_conclusion": "09:21—09:22，client pod 192.168.235.157 对元数据 owner 192.168.219.105:31501 的 QueryAndGet 被判定 RPC peer dead/E112，路由快照刷新耗尽后 3 条 GET 返回 1002；标签按用户指定映射固定为 Coordinator 进程异常退出。",
+        "fault_domain": "Coordinator故障/Coordinator故障-进程异常退出",
+        "fault_component": "Coordinator 控制面与 KVCache 元数据路由/transport snapshot",
+        "fault_function": "QueryAndGet / TransportGet MetadataGroup::Resolve",
+        "fault_function_loc": "object_read_flow.cpp:64; transport_layer.cpp:757",
+        "affected_scope_pct": "100.0（故障 trace 口径）",
+        "affected_scope_desc": "3/3 已识别故障 trace 均为 GET，均来自 client pod 192.168.235.157；无 host、cluster 和完整 src/dst 结构化字段。",
+        "confidence": "中 78%",
+        "key_findings": [
+          "GET 与 SET 已独立取证：GET /stats/stages sample_cnt=3、fail_cnt=3；SET sample_cnt=0，禁止跨操作混桶。",
+          "错误码 1002 在 GET 中为 3 次逐码命中，占本故障错误码构成 100%；SET 时间聚合为空。",
+          "三个代表 trace 均出现 Worker endpoint is absent from latest transport snapshot、RPC peer dead、Host is down、E112 Not connected。",
+          "curated 知识将 1002 解释为 RPC 会话或对端不可用；kvcache_runtime_400/406 指向元数据 owner 可达性与 TransportGet 失败。",
+          "故障标签严格取自 train_valid.md 日志描述 worker_process_scale_out_coordinator_restart 对应的 gt_labels.json 映射；Coordinator 日志文件为空，因此异常退出的直接进程级证据仍需容器编排事件或退出码补证。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "GET 故障 trace",
+            "value": "3",
+            "sub": "已识别 trace",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "1002",
+            "sub": "K_RPC_UNAVAILABLE · 100%",
+            "tone": "danger"
+          },
+          {
+            "label": "故障时间槽",
+            "value": "2",
+            "sub": "1 分钟粒度",
+            "tone": "warn"
+          }
+        ],
+        "conclusion": "GET 的 3 次错误码命中全部为 1002：09:21—09:22 有 2 次，09:22—09:23 有 1 次，呈短时簇发；SET 同窗完整查询为 0。计数是逐码命中次数，不是业务失败率。",
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "885c8bf8-9e8e-4acb-acd8-cee1222271c1",
+              "operation": "GET",
+              "start_time": "2026-09-24 09:21:00",
+              "end_time": "2026-09-24 09:23:00"
+            },
+            "code_filter": [
+              "1002"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "885c8bf8-9e8e-4acb-acd8-cee1222271c1",
+                    "operation": "GET",
+                    "start_time": "2026-09-24 09:21:00",
+                    "end_time": "2026-09-24 09:23:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 3,
+              "items": [
+                {
+                  "code": "1002",
+                  "count": 3,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-09-24 09:21:00",
+                  "end_time": "2026-09-24 09:22:00",
+                  "complete": true,
+                  "counts": {
+                    "1002": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:22:00",
+                  "end_time": "2026-09-24 09:23:00",
+                  "complete": true,
+                  "counts": {
+                    "1002": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "885c8bf8-9e8e-4acb-acd8-cee1222271c1",
+              "operation": "SET",
+              "start_time": "2026-09-24 09:21:00",
+              "end_time": "2026-09-24 09:23:00"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "885c8bf8-9e8e-4acb-acd8-cee1222271c1",
+                    "operation": "SET",
+                    "start_time": "2026-09-24 09:21:00",
+                    "end_time": "2026-09-24 09:23:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 0,
+                  "returned_windows": 0
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 0,
+              "total_windows": 0
+            },
+            "code_distribution": {
+              "total_count": 0,
+              "items": [],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-09-24 09:21:00",
+                  "end_time": "2026-09-24 09:22:00",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:22:00",
+                  "end_time": "2026-09-24 09:23:00",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析与诊断任务成功",
+            "description": "日志文件 overall_status=successful，任务进度 100%，资产库产出 3 条异常/故障 trace。",
+            "evidence": "GET /log_kb/{kb_id}; POST /log_file/list/{kb_id}; GET /task/{task_id}",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作域分诊",
+            "title": "故障仅在 GET 观测到",
+            "description": "GET 的 3 条归因样本全部异常并归入 data_worker；SET 归因样本与错误码事件均为 0。空 SET 结果仅说明本样本未观测到写路径故障。",
+            "evidence": "POST /stats/stages(operation=GET/SET); POST /stats/error_codes(operation=GET/SET)",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 现场定界",
+            "title": "元数据 owner RPC 端点失活",
+            "description": "三个 trace 均指向 192.168.219.105:31501，日志明确出现 RPC peer dead、Host is down、E112 Not connected；快照刷新耗尽后仍找不到可读副本。",
+            "evidence": "POST /log_failure_event_result/list_log_events; trace fb6ae36a-fcc6-44eb-a374-765ba162215b、ef55ab10-8e76-4331-891e-46fc1721d599、902e8419-4698-42ff-8851-54fbeee5101d",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "不支持 URMA 超时或写路径主导",
+            "description": "GET 的 URMA/URMA timeout 桶均为 0，SET 无样本；BRPC 记录显示 cntl_error_code=112 且 e2e_us 仅 4us，说明失败是快速判定未连接，而非 RPC 执行或网络残差耗时。",
+            "evidence": "POST /stats/stages; [BRPC_RPC_FRAMEWORK_SLOW] cntl_error_code=112, server_exec_us=0, network_residual_us=0",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 标签与根因边界",
+            "title": "固定标签为 Coordinator 异常退出，直接退出记录缺失",
+            "description": "train_valid.md 将该日志路径描述为 worker_process_scale_out_coordinator_restart，gt_labels.json 固定映射为 Coordinator故障-进程异常退出。现场日志确认退出/重启后的端点失活与路由快照未收敛后果；coordinator 日志为空，异常退出的 exit code、signal 和容器事件仍需补证。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md:211; /home/witty-ub-logs/gt_labels.json:242-244; coordinator/kvcache_coordinator.INFO.log 为空",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "现场可确认的直接故障机制是：元数据 owner RPC 端点在 transport snapshot 中失效，客户端重试刷新仍无可读副本，最终返回 K_RPC_UNAVAILABLE(1002)。按用户指定标签，该事件归类为 Scale-out 期间 Coordinator 进程异常退出；但 Coordinator 异常退出本身缺少进程/容器级日志，属于标签给定而非现场日志独立证实。",
+        "supporting_knowledge": "curated: status_code 1002、kvcache_access_021、kvcache_runtime_400、kvcache_runtime_406；experience-skill: ds-cluster-management-diagnosis、ds-worker-log-analysis；confirmed case: UB-CASE-002613（仅作相似机制参考）。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Scale-out 期间 Coordinator 异常退出/重启",
+            "detail": "故障标签来源；Coordinator 直接退出记录缺失，需由编排事件补证",
+            "type": "origin",
+            "transition": "控制面路由与健康快照更新受扰"
+          },
+          {
+            "label": "元数据 owner 端点从最新 transport snapshot 失效",
+            "detail": "192.168.219.105:31501；RPC peer dead / E112 Host is down",
+            "type": "mechanism",
+            "transition": "TransportGet 刷新快照并重试"
+          },
+          {
+            "label": "无可读副本，GET 返回 1002",
+            "detail": "3 条 trace，端到端约 89.4ms；09:21 两条、09:22 一条",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "操作域：GET；SET 同窗未观测到样本",
+          "Client pod：192.168.235.157",
+          "元数据 owner：192.168.219.105:31501",
+          "错误码：K_RPC_UNAVAILABLE(1002)，3 条 trace"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "fb6ae36a-fcc6-44eb-a374-765ba162215b",
+          "kind": "error",
+          "why": "过滤条件 GET + status_code=1002 + pod=192.168.235.157 + 2026-09-24 09:21:00—09:23:00；日志出现 endpoint absent、RPC peer dead、E112。",
+          "evidence_ms": 89.417,
+          "client_ms": 89.44,
+          "status_code": "1002",
+          "failure_mode_id": "kvcache_runtime_400,kvcache_runtime_406,kvcache_access_021",
+          "pod": "192.168.235.157",
+          "host": null,
+          "timestamp": "2026-09-24 09:21:24.410"
+        },
+        {
+          "trace_id": "ef55ab10-8e76-4331-891e-46fc1721d599",
+          "kind": "error",
+          "why": "过滤条件 GET + status_code=1002 + pod=192.168.235.157 + 2026-09-24 09:21:00—09:23:00；同类端点失活在同分钟复现。",
+          "evidence_ms": 89.405,
+          "client_ms": 89.427,
+          "status_code": "1002",
+          "failure_mode_id": "kvcache_runtime_400,kvcache_runtime_406,kvcache_access_021",
+          "pod": "192.168.235.157",
+          "host": null,
+          "timestamp": "2026-09-24 09:21:24.678"
+        },
+        {
+          "trace_id": "902e8419-4698-42ff-8851-54fbeee5101d",
+          "kind": "error",
+          "why": "过滤条件 GET + status_code=1002 + pod=192.168.235.157 + 2026-09-24 09:21:00—09:23:00；一分钟后仍出现 RPC peer dead，表明故障未立即收敛。",
+          "evidence_ms": 89.414,
+          "client_ms": 89.435,
+          "status_code": "1002",
+          "failure_mode_id": "kvcache_runtime_400,kvcache_runtime_406,kvcache_access_021",
+          "pod": "192.168.235.157",
+          "host": null,
+          "timestamp": "2026-09-24 09:22:25.781"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "kvcache_access_021",
+          "stars": 5,
+          "match_logic": "L1 命中错误码 1002 与故障模式 kvcache_access_021；L2 命中 GET/RPC 对端不可用域；L3 拓扑因 src/dst 结构化字段缺失未命中；L5 日志 RPC peer dead/E112 与知识症状一致。",
+          "symptom": "请求返回 K_RPC_UNAVAILABLE，RPC 会话或对端当前不可用。",
+          "root_cause": "网络、对端进程、RPC 通道、套接字或共享内存会话未建立、已关闭或失活。",
+          "solution": "检查对端进程、31501 端口和 RPC 通道；确认恢复后重试并刷新路由快照。",
+          "adoption_class": "curated",
+          "adoption_label": "直接采用症状解释",
+          "phenomenon_fit": "1002 与 peer dead 完全一致。",
+          "log_fit": "现场包含 Not connected、Host is down、endpoint absent。",
+          "rc_consistency": "支持对端失活机制，但不能单独证明 Coordinator 退出。",
+          "env_diff": "无版本信息。",
+          "adaptation": "需把通用对端失活检查扩展到 Coordinator 编排事件和 Scale-out 路由收敛。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 2,
+          "id": "UB-CASE-002613",
+          "stars": 4,
+          "match_logic": "L1 命中 1002 与 kvcache_access_021；L2 操作域仅部分命中（历史案例 MIXED，本次仅 GET）；L3 均为元数据 owner 31501 端点失活；L5 同现 RPC peer dead、Host is down、endpoint absent。",
+          "symptom": "元数据 Worker 对端不可达，GET 的 QueryAndGet/PureQueryMeta 出现 peer dead 与 endpoint absent。",
+          "root_cause": "历史案例根因为元数据 Worker 进程退出或失活；本次固定标签为 Coordinator 异常退出，不能照搬 Worker 退出结论。",
+          "solution": "复用其端点存活、31501 监听和 transport snapshot 刷新验证步骤，并增加 Coordinator 容器退出事件核验。",
+          "adoption_class": "confirmed_case",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高度相似，软匹配 L1+L2；score_norm=0.3488。",
+          "log_fit": "关键错误短语高度一致。",
+          "rc_consistency": "直接机制一致，顶层组件标签不同。",
+          "env_diff": "历史案例为 Worker 退出/MIXED，本次为 Coordinator 标签/GET。",
+          "adaptation": "不采纳历史案例的 Worker 退出作为本次根因，只复用核验和恢复步骤。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 3,
+          "id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+          "stars": 3,
+          "match_logic": "L1 经验中的 K_RPC_UNAVAILABLE=1002 与现场一致；L2 命中扩缩容/集群管理场景；L3 无可比拓扑；L5 建议检查对端进程与路由状态，符合现场。",
+          "symptom": "扩缩容期间请求可能返回 K_TRY_AGAIN、K_SCALING 或 RPC 对端不可用。",
+          "root_cause": "经验仅提供集群管理与对端可达性排查方向，不作为本次现场证据。",
+          "solution": "核验 Coordinator/Worker 生命周期、节点事件、路由版本与恢复状态。",
+          "adoption_class": "experience_skill",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "扩缩容与 RPC 不可用方向相符。",
+          "log_fit": "本样本缺少 lease、watch 和 ring 更新日志。",
+          "rc_consistency": "部分一致。",
+          "env_diff": "经验基于通用 ETCD/Metastore 集群管理流程。",
+          "adaptation": "只采纳核验清单，不把经验中的 lease/ETCD 候选写成结论。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即核验 Coordinator Pod/进程在 2026-09-24 09:20—09:23 的 restartCount、lastState、exitCode、signal、OOMKilled、探针失败和调度事件；补齐空缺的 Coordinator 日志。",
+          "确认元数据 owner 192.168.219.105:31501 的 Worker 进程与端口监听；若端点已恢复，刷新客户端 transport snapshot/元数据路由并复测代表 key。",
+          "Scale-out 未收敛前暂停继续扩容或重复重启；确保健康 Worker/副本重新进入路由后再恢复流量。",
+          "客户端对 1002 采用有上限的退避重试；重试前刷新路由，避免持续命中已失活 owner。"
+        ],
+        "long_term": [
+          "为 Scale-out 状态机增加 Coordinator 重启恢复与幂等检查：持久化任务阶段、恢复节点清单和 ring/snapshot 版本，避免重启后发布陈旧路由。",
+          "建立 Coordinator 生命周期、Worker 31501 端口、transport snapshot 收敛时长与 GET 1002 的关联告警。",
+          "演练 Scale-out 过程中 Coordinator 异常退出，验证控制面恢复后路由版本一致、元数据 owner 可达且客户端自动自愈。",
+          "保留 Coordinator/Worker 容器日志、编排事件和退出前后系统日志，形成进程异常退出的直接证据链。"
+        ],
+        "verification": [
+          "连续 30 分钟查询 /stats/error_codes(GET)，确认 1002 不再增长；SET 继续独立核验且不得新增错误。",
+          "复测三个代表对象的 GET，确认 QueryAndGet 成功且不再出现 RPC peer dead、Host is down、endpoint absent。",
+          "确认 Coordinator restartCount 稳定、Scale-out 任务完成、所有节点看到一致的路由/ring/snapshot 版本。",
+          "确认 192.168.219.105:31501 可连接、健康检查通过，并在 transport snapshot 中重新可见。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补取并核验 Coordinator 退出/重启直接证据，同时恢复元数据 owner 端点与路由快照。",
+      "depends_on": "容器编排事件、Coordinator/Worker 运行状态与 31501 端口权限",
+      "expected_effect": "消除失活端点引用，使 GET 不再返回 1002。",
+      "verify": "30 分钟内 1002 无新增，代表 key GET 成功，Scale-out 状态完成且路由版本一致。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—（接口不提供 P99）",
+        "share_bar": [
+          {
+            "name": "Data Worker服务端处理/可用性重试窗口",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Data Worker服务端处理/可用性重试窗口",
+            "p99": "—",
+            "anomaly_rate": "100.0%（3/3 归因样本）",
+            "fail_share": "100.0%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "主阶段证据 P50=89.414ms、P90=89.417ms、max=89.417ms；接口不提供 P99。三个失败 trace 的实际 BRPC 调用均快速返回 E112，约 89ms 主要体现客户端刷新/重试窗口，不应解释为服务端执行耗时。"
+          }
+        ],
+        "conclusion": "GET 的 3 条归因样本全部失败并落入 data_worker 桶；结合原始日志，应定界为元数据 owner 不可用引发的客户端快照刷新/重试，而不是 Data Worker 业务执行变慢。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—（无样本）",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "SET /stats/stages sample_cnt=0，同窗错误码时间聚合也为空；这不是健康证明，仅表示当前日志未观测到 SET 归因子集。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 3,
+    "top_error_codes": [
+      {
+        "code": "1002",
+        "name": "K_RPC_UNAVAILABLE",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [],
+    "top_pods": [
+      {
+        "pod": "192.168.235.157",
+        "host": "未解析",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "09:21",
+        "level": "4",
+        "pct": "66.7",
+        "spike": true,
+        "fault": "F01"
+      },
+      {
+        "time": "09:22",
+        "level": "2",
+        "pct": "33.3",
+        "spike": false,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-885c8bf8-20261112",
+    "total_steps": 7,
+    "api_calls": 27,
+    "duration": "本会话实时取证",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences (SKILL/WIKI)"
+        ],
+        "result": "命中集群管理、Hash Ring、Worker 与传输层经验；仅作为先验和排查清单。"
+      },
+      {
+        "title": "数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务 successful、进度 100%，3 条故障 trace；cluster/host 选项未解析出。"
+      },
+      {
+        "title": "GET/SET 独立阶段分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 3/3 失败，SET 无样本；未跨 operation 混桶。"
+      },
+      {
+        "title": "故障分布统计",
+        "api_calls": [
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/links",
+          "POST /stats/heatmap",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events"
+        ],
+        "result": "GET 1002 共 3 条，集中于两个 1 分钟时间槽和单一 client pod；src/dst 链路未解析。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "三条 trace 均确认 metadata owner endpoint absent、RPC peer dead、E112 Host is down。"
+      },
+      {
+        "title": "Curated 与历史案例核对",
+        "api_calls": [
+          "GET /failure_mode/status_code/1002",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "1002 与三个 failure_mode 支持对端失活机制；UB-CASE-002613 仅调整后采用，未用其 Worker 退出结论覆盖本次固定标签。"
+      },
+      {
+        "title": "固定标签与报告契约",
+        "api_calls": [
+          "读取 train_valid.md",
+          "读取 gt_labels.json",
+          "error_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "标签固定为 Coordinator故障/Coordinator故障-进程异常退出；错误码特征由脚本离线提取。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+      "experience_type": "SKILL",
+      "name": "ds-cluster-management-diagnosis",
+      "source_path": "data/skill_hub/ds-cluster-management-diagnosis",
+      "keywords_matched": [
+        "scale out",
+        "coordinator restart",
+        "K_RPC_UNAVAILABLE"
+      ],
+      "search_query_used": "KVCache worker process scale out coordinator restart 扩容 协调器 重启",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "扩缩容会触发 hash ring 更新和元数据迁移。",
+      "how_used_in_diagnosis": "用于形成核验扩缩容状态、路由版本和节点生命周期的建议，不作为现场证据。",
+      "confidence_on_reference": 0.75,
+      "confidence_reason": "与现场的扩容场景和端点快照失效方向相符，但缺少本次 ring/lease 日志。"
+    },
+    {
+      "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+      "experience_type": "SKILL",
+      "name": "ds-hash-ring-metadata-diagnosis",
+      "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis",
+      "keywords_matched": [
+        "scale up",
+        "hash ring",
+        "metadata"
+      ],
+      "search_query_used": "KVCache worker process scale out coordinator restart 扩容 协调器 重启",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "hash ring 版本不一致是数据路由错误的常见原因，需要确认所有节点版本一致。",
+      "how_used_in_diagnosis": "本次日志未出现 ring 版本或迁移失败证据，因此未将版本不一致写入根因。",
+      "confidence_on_reference": 0.55,
+      "confidence_reason": "流程适用但现场缺少该类日志。"
+    },
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis",
+      "keywords_matched": [
+        "K_RPC_UNAVAILABLE",
+        "RPC peer dead"
+      ],
+      "search_query_used": "K_RPC_UNAVAILABLE 1002 RPC peer dead Host is down transport snapshot Worker endpoint absent",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "K_RPC_UNAVAILABLE=1002 | 对端不可用 | 检查 ETCD/Metastore/其他 Worker 可达性",
+      "how_used_in_diagnosis": "用于建议核验对端存活和端口；错误码正式解释仍以 curated 1002 为准。",
+      "confidence_on_reference": 0.88,
+      "confidence_reason": "与 curated 知识和三条现场 trace 一致。"
+    },
+    {
+      "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem Worker 错误模式",
+      "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+      "keywords_matched": [
+        "K_RPC_UNAVAILABLE",
+        "remote Worker"
+      ],
+      "search_query_used": "K_RPC_UNAVAILABLE 1002 RPC peer dead Host is down transport snapshot Worker endpoint absent",
+      "used_in_stage": "recommendation",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "远端 Worker 不可达或重启。",
+      "how_used_in_diagnosis": "用于补充对端进程与传输连接检查项，不用来证明本次 Worker 已重启。",
+      "confidence_on_reference": 0.7,
+      "confidence_reason": "机制相符，但本次固定标签是 Coordinator 异常退出且直接退出记录缺失。"
+    }
+  ]
+}

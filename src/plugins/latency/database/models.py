@@ -495,6 +495,8 @@ class DiagCaseLibrary(Base):
     latency_components: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
     log_keywords: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
     stage_features_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, default=dict)
+    # 日志语义错误码轮廓（单位向量，来自来源资产的 E/W 日志原文）；检索期次级排序信号。
+    log_semantic_profile: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, default=dict)
     fault_shape: Mapped[Optional[str]] = mapped_column(String)
     time_window_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, default=dict)
     confidence: Mapped[float] = mapped_column(Float, default=0.0)

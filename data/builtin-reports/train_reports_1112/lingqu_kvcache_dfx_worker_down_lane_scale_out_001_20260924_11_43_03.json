@@ -1,0 +1,522 @@
+{
+  "report": {
+    "title": "worker_down_lane_scale_out UB降lane诊断报告",
+    "report_id": "diag-2be02766-20261112",
+    "generated_at": "2026-11-12T00:00:00+08:00"
+  },
+  "basic_info": {
+    "kb_id": "2be02766-3c48-4d61-8ec3-7330ea9edc2a",
+    "kb_name": "lingqu_kvcache_dfx_worker_down_lane_scale_out_001_20260924_11_43_03",
+    "log_file": "lingqu_kvcache_dfx_worker_down_lane_scale_out_001_20260924_11_43_03",
+    "operation": "GET（SET无样本）",
+    "time_range_start": "2026-09-24 11:44:44",
+    "time_range_end": "2026-09-24 11:44:45",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "100.0",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Urma operation failed": 0.707107,
+      "T:URMA_WRITE": 0.707107
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别1个GET通断故障：URMA发送WR失败沿读路径上浮为1004；按指定训练标签归类为ub端口故障-降lane，物理层原因仍需端口遥测闭环。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "1条GET故障trace，涉及3个请求角色端点；SET无样本",
+    "confidence": "中高 78%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "URMA发送WR失败导致GET返回K_URMA_ERROR",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 78,
+      "category": "error",
+      "affected_scope": "ci-kv-ds-1；GET；192.168.219.109 → 192.168.235.157；2026-09-24 11:44:44",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-降lane",
+        "one_line_conclusion": "GET读路径中，192.168.219.109向192.168.235.157执行urma_post_jetty_send_wr返回4096，客户端随后收到异常TCP payload并返回K_URMA_ERROR(1004)；标签按用户指定映射为ub端口故障-降lane，但日志未含lane数、FEC或光功率遥测。",
+        "fault_domain": "硬件故障/ub端口故障-降lane",
+        "fault_component": "URMA数据通道/UB物理链路",
+        "fault_function": "urma_post_jetty_send_wr",
+        "fault_function_loc": "urma_manager.cpp:2592",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "当前资产库仅1条故障trace；多Pod统计是同一trace的角色展开",
+        "confidence": "中高 78%",
+        "key_findings": [
+          "错误码统计仅GET出现1004：1条trace、1个日志事件；SET为0",
+          "源192.168.219.109（srcChipId=1）向目标192.168.235.157（dstChipId=2）发送WR失败，ret=4096",
+          "同一trace中客户端依次出现Unexpected TCP payload response、Urma operation failed和GET 1004",
+          "GET阶段粗分落入cross_window，证据耗时0.375ms且is_anomalous=false；时延口径不否定通断故障",
+          "训练标签由train_valid.md的日志描述worker_down_lane_scale_out对应gt_labels.json取得；物理降lane仍待设备遥测确认"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "GET 1004逐码命中",
+            "value": "1次",
+            "sub": "完整1分钟窗口",
+            "tone": "danger"
+          },
+          {
+            "label": "SET故障记录",
+            "value": "0条",
+            "sub": "SET阶段与故障统计均无样本"
+          }
+        ],
+        "conclusion": "GET侧在2026-09-24 11:44:00至11:45:00出现1次K_URMA_ERROR(1004)逐码命中，构成占比100%；SET侧无故障样本。该计数是逐码命中次数，不是业务失败率。",
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "2be02766-3c48-4d61-8ec3-7330ea9edc2a",
+              "operation": "GET",
+              "start_time": "2026-09-24 11:44:00",
+              "end_time": "2026-09-24 11:45:00"
+            },
+            "code_filter": [
+              "1004"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "2be02766-3c48-4d61-8ec3-7330ea9edc2a",
+                    "operation": "GET",
+                    "start_time": "2026-09-24 11:44:00",
+                    "end_time": "2026-09-24 11:45:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 1,
+              "items": [
+                {
+                  "code": "1004",
+                  "count": 1,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-09-24 11:44:00",
+                  "end_time": "2026-09-24 11:45:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据核验",
+            "title": "解析成功且故障样本稀疏",
+            "description": "日志文件overall_status=successful；资产库仅1条trace和1条故障事件。",
+            "evidence": "GET /log_kb/{kb_id}；POST /log_file/list/{kb_id}",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 故障定位",
+            "title": "GET侧K_URMA_ERROR单点出现",
+            "description": "完整分钟窗口仅11:44出现1次1004逐码命中；SET无样本。",
+            "evidence": "POST /stats/error_codes；POST /log_failure_event_result/list_time_aggregated_failure_events",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 直接故障点",
+            "title": "URMA发送WR调用失败",
+            "description": "Worker 192.168.219.109日志记录call urma_post_jetty_send_wr failed, ret: 4096，目标192.168.235.157。",
+            "evidence": "trace=5464c618-1c72-4a1a-b3b5-e63b7761d866；urma_manager.cpp:2592",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 传播验证",
+            "title": "错误沿GET数据路径上浮",
+            "description": "客户端同trace先报Unexpected TCP payload response，再报Urma operation failed，最终访问日志返回1004。",
+            "evidence": "POST /log_failure_event_result/list_log_events，共7条上下文日志",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证与边界",
+            "title": "排除SET路径与高时延主导，但无法由KVC日志独立确认降lane",
+            "description": "SET阶段、错误码和trace均为空；GET总时延仅0.375ms且未标记时延异常。日志未提供lane数量、LOS、FEC、光功率或端口协商速率。",
+            "evidence": "POST /stats/stages(GET/SET)；POST /trace/list；现场日志字段缺失检查",
+            "excluded": true,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "已确认的直接故障点是192.168.219.109到192.168.235.157的URMA发送WR失败（ret=4096），导致GET返回1004；ub端口降lane为指定故障标签和高匹配历史案例支持的物理根因方向，但本资产日志缺少端口/lane硬件遥测，故仍需闭环。",
+        "supporting_knowledge": "curated: status_code 1004、kvcache_access_022、kvcache_runtime_399；本地经验: ds-rdma-transport-diagnosis；已确认案例: UB-CASE-002597。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "UB端口降lane（待设备侧验证）",
+            "detail": "指定训练标签及历史同源案例结论；本次KVC日志无lane/FEC/光功率遥测",
+            "type": "origin",
+            "transition": "链路能力或可靠性下降"
+          },
+          {
+            "label": "URMA发送WR失败",
+            "detail": "192.168.219.109 → 192.168.235.157，ret=4096，8KiB",
+            "transition": "数据未按UB期望方式完成"
+          },
+          {
+            "label": "客户端收到异常TCP payload",
+            "detail": "expectedSize=8192，actualSize=8192，payloadCount=1",
+            "transition": "错误沿DataPlane/ReplicaReader/TransportLayer上浮"
+          },
+          {
+            "label": "GET返回K_URMA_ERROR(1004)",
+            "detail": "trace 5464c618-1c72-4a1a-b3b5-e63b7761d866；对象读取失败"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "源端: 192.168.219.109 / srcChipId=1",
+          "目标端: 192.168.235.157 / dstChipId=2",
+          "入口/元数据Worker: 192.168.235.173",
+          "操作: GET；SET无样本"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "5464c618-1c72-4a1a-b3b5-e63b7761d866",
+          "kind": "error",
+          "why": "status_code=1004 + pod=192.168.235.157 + 时间窗2026-09-24 11:44:00~11:45:00；同trace含URMA写失败",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.235.157",
+          "timestamp": "2026-09-24 11:44:44.706"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_022",
+          "stars": "★★★★★",
+          "match_logic": "L1命中：1004/K_URMA_ERROR；L2命中：URMA/硬件域与GET操作；L3命中：现场同trace给出明确源目标端",
+          "symptom": "请求返回K_URMA_ERROR，URMA传输或资源操作失败。",
+          "root_cause": "URMA库、设备、上下文、Jetty、内存段、事件或异步处理发生底层错误。",
+          "solution": "检查URMA库、设备、上下文、Jetty、内存段或事件状态。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "与现场1004完全一致",
+          "log_fit": "现场同时存在urma_post_jetty_send_wr失败",
+          "rc_consistency": "直接故障域一致，但不能单独证明物理降lane",
+          "env_diff": "知识条目无具体端口lane遥测",
+          "adaptation": "需补查端口lane、FEC及光功率",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002597",
+          "stars": "★★★★★",
+          "match_logic": "L1命中：1004、kvcache_runtime_399、kvcache_access_022；L2命中：GET与few_pods；L3命中：同一trace、ret=4096及相同源目标拓扑",
+          "symptom": "URMA发送WR失败后客户端收到异常TCP payload，GET返回K_URMA_ERROR。",
+          "root_cause": "案例确认直接故障点为URMA发送WR失败；降lane仍需硬件遥测闭环。",
+          "solution": "检查两端lane数、速率、LOS/LOL、FEC及光功率；异常时切流并清洁、重插或更换模块。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "同源现场特征高度一致，软匹配score_norm=0.4545",
+          "log_fit": "ret=4096与Unexpected TCP payload逐字一致",
+          "rc_consistency": "与本次现场直接故障点一致",
+          "env_diff": "案例已闭环，但本资产仍未取得设备遥测",
+          "adaptation": "复用诊断与处置清单，物理根因需本现场复测",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "③",
+          "id": "experience:f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": "★★★★☆",
+          "match_logic": "L1命中：经验收录K_URMA_ERROR=1004；L2命中：URMA设备/链路；L3部分命中：通用经验不含本次拓扑",
+          "symptom": "URMA/RDMA传输异常可表现为发送失败、连接失效或TCP回退。",
+          "root_cause": "设备或链路异常是候选方向，仍须现场硬件证据。",
+          "solution": "检查URMA设备、链路、Jetty状态与是否回退TCP，并收集对端和驱动日志。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考",
+          "phenomenon_fit": "1004与URMA发送失败方向一致",
+          "log_fit": "现场未出现连接重建或线程挂起模式",
+          "rc_consistency": "支持设备/链路排查方向，不足以确认降lane",
+          "env_diff": "经验适配0.8.1.rc20，现场客户端日志显示0.9.2",
+          "adaptation": "仅复用检查清单，不复用版本结论",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即在192.168.219.109(srcChipId=1)与192.168.235.157(dstChipId=2)两端检查UB端口协商lane数、链路速率、LOS/LOL、FEC纠错/不可纠错计数及模块温度、电压和光功率，保留故障时刻快照",
+          "若确认lane降级，按变更流程切流后重新插拔并清洁模块/光纤端面；仍异常则更换光模块并核对模块与端口规格兼容性",
+          "处置前后分别执行8KiB跨节点GET探测，确认不再出现urma_post_jetty_send_wr ret=4096、Unexpected TCP payload和1004"
+        ],
+        "long_term": [
+          "接入逐lane状态、协商速率、FEC、光功率和URMA发送失败码监控，并与trace时间关联",
+          "扩容场景加入UB链路健康门禁：新Worker入池前验证全lane、误码率和双向URMA读写",
+          "保留TCP回退告警并限制静默回退"
+        ],
+        "verification": [
+          "连续30分钟确认两端端口恢复期望lane数与链路速率，FEC不可纠错计数不增长",
+          "重复至少1000次跨节点GET和SET探测；GET 1004为0，SET无新增故障",
+          "确认worker及client日志不再出现urma_post_jetty_send_wr failed与Unexpected TCP payload response"
+        ]
+      },
+      "simplified": false,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "采集两端UB端口/光模块逐lane、FEC和光功率遥测，确认是否真实降lane",
+      "depends_on": "具备服务器与交换机端口诊断权限",
+      "expected_effect": "把应用层URMA失败闭环到具体物理端口与lane",
+      "verify": "故障时刻存在lane数或速率下降，并与源目标端一致"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "确认降lane后切流并清洁、重插或更换光模块，再恢复扩容流量",
+      "depends_on": "P0确认异常端与维护窗口",
+      "expected_effect": "恢复全lane及稳定URMA传输",
+      "verify": "GET/SET复测无1004且URMA发送WR无失败"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": "100.0",
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "cross_window",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%（时延桶口径）",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "1条样本，P50/P90/max均0.375ms，client P90 0.375ms；故障侧另有1004，不能用时延桶success标记否定通断故障"
+          }
+        ],
+        "conclusion": "GET仅1条样本并归入cross_window；无P99，不能据此判断高时延。直接故障证据来自同trace的URMA发送WR失败与1004。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "SET归因子集为0，5个写路径桶均无样本；空结果仅表示当前数据无SET证据。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 1,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "URMA/硬件",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.157",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.173",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "11:44",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "sess-2be02766-20261112",
+    "total_steps": 7,
+    "api_calls": 32,
+    "duration": "本次会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill SKILL/WIKI search"
+        ],
+        "result": "命中RDMA/URMA、Worker、Hash Ring经验，仅作为先验假设"
+      },
+      {
+        "title": "Step 2 资产与解析完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "资产名匹配；日志解析成功；1条故障trace"
+      },
+      {
+        "title": "Step 3 GET/SET组件分诊",
+        "api_calls": [
+          "POST /stats/stages(GET)",
+          "POST /stats/stages(SET)"
+        ],
+        "result": "GET 1条cross_window样本；SET 0条；未跨operation混桶"
+      },
+      {
+        "title": "Step 4 精确统计",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /trace/list"
+        ],
+        "result": "GET仅1004一条，11:44单点；SET为空"
+      },
+      {
+        "title": "Step 5 Trace与原始日志下钻",
+        "api_calls": [
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认URMA发送WR失败→异常TCP payload→GET 1004传播链"
+      },
+      {
+        "title": "Step 6 知识与案例复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/1004",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "curated知识命中；已确认案例UB-CASE-002597高度匹配并完成命中回写"
+      },
+      {
+        "title": "Step 7 报告生成",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "执行契约校验与HTML渲染"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+        "keywords_matched": [
+          "1004",
+          "URMA_WRITE",
+          "设备和链路"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 Unexpected TCP payload",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+        "how_used_in_diagnosis": "补充设备、链路、Jetty与对端日志检查建议",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "与curated知识和现场URMA发送失败一致，但版本不同"
+      },
+      {
+        "experience_id": "1f2d9b46-3f6e-4b84-b26f-d7b48793b555",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Hash Ring 模式",
+        "source_path": "data/wiki_hub/ds-hash-ring-patterns.md",
+        "keywords_matched": [
+          "scale up",
+          "addnode",
+          "元数据迁移"
+        ],
+        "search_query_used": "KVCache worker down lane scale out 扩容 通断 时延",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "新节点加入后，部分数据会从其他节点迁移到新节点，以平衡负载。",
+        "how_used_in_diagnosis": "检索到扩容先验，但现场无迁移失败证据，未用于根因",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "仅场景词相符，现场故障链明确指向URMA发送失败"
+      }
+    ],
+    "summary": {
+      "total_references": 2,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 1,
+      "considered_not_adopted_count": 1,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验仅用于提出排查建议；根因事实均以本次API与原始日志为准。"
+    }
+  }
+}

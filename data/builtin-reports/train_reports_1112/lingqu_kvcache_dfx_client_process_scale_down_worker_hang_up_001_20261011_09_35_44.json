@@ -1,0 +1,605 @@
+{
+  "report": {
+    "title": "KVCache 缩容场景 Worker 挂死标签样本诊断报告",
+    "report_id": "diag-fa1a2896-20261112-json",
+    "generated_at": "2026-11-12 12:00:00+08:00"
+  },
+  "basic_info": {
+    "kb_id": "fa1a2896-bf45-49b7-bf74-d25f35ea05db",
+    "kb_name": "lingqu_kvcache_dfx_client_process_scale_down_worker_hang_up_001_20261011_09_35_44",
+    "log_file": "lingqu_kvcache_dfx_client_process_scale_down_worker_hang_up_001_20261011_09_35_44",
+    "operation": "SET",
+    "time_range_start": "2026-10-11 09:35:20",
+    "time_range_end": "2026-10-11 09:35:23",
+    "total_trace_cnt": 2,
+    "fault_trace_cnt": 2,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:UNKNOWN_TYPE": 0.316228,
+      "T:UNKNOWN_TYPE": 0.948683
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个 SET 写路径故障：客户端因目标 Worker 未返回 URMA 信息且 SHM-in-UB 不受支持而快速返回 36；指定 Worker 挂死标签尚缺线程栈或心跳证据独立确认。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "2 条 SET trace，涉及客户端 192.168.219.109 与数据 Worker 192.168.219.75，集中于 3 秒窗口",
+    "confidence": "中 72%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "缩容场景 Worker URMA 能力信息缺失导致 SET 返回 K_NOT_SUPPORTED",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 72,
+      "category": "error",
+      "affected_scope": "ci-kv-ds-1；2 个 Pod/IP；2 条 SET trace；09:35:20—09:35:22",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程挂死",
+        "one_line_conclusion": "2026-10-11 09:35:20—09:35:22，客户端 192.168.219.109 向 Worker 192.168.219.75 发起的 2 次 8 MiB SET/Create 均因未取得 URMA 信息且无 SHM-in-UB 回退而返回 36；Worker 挂死是指定标签对应的上游候选，现场日志未直接证实。",
+        "fault_domain": "Worker故障/Worker故障-进程挂死",
+        "fault_component": "KVCache Worker / Client 传输能力协商",
+        "fault_function": "transport_layer.cpp Create 路径",
+        "fault_function_loc": "transport_layer.cpp:892",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "本资产 2 条 SET trace 全部命中；样本仅覆盖 3 秒，不能外推全局失败率",
+        "confidence": "中 72%",
+        "key_findings": [
+          "GET /stats/stages 无 GET 归因样本；SET /stats/stages 有 2 条样本，GET/SET 未混桶",
+          "2 条 SET trace 均命中 status_code=36 与 failure_mode=kvcache_access_053",
+          "同 trace 的 Worker DS_POSIX_CREATE 返回 0，耗时 17—25 微秒；客户端随后报告 worker returned no URMA info",
+          "SET 样本全部归入 set_client，证据耗时 P90=0.122ms、客户端 P90=0.147ms，不支持高时延/URMA timeout 结论",
+          "资产标签按用户指定映射为 Worker故障-进程挂死，但日志缺少 Worker watchdog、线程栈、心跳停滞或 OS 调度证据"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "fa1a2896-bf45-49b7-bf74-d25f35ea05db",
+              "operation": "SET",
+              "start_time": "2026-10-11 09:35:20",
+              "end_time": "2026-10-11 09:35:23"
+            },
+            "code_filter": [
+              "36"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "fa1a2896-bf45-49b7-bf74-d25f35ea05db",
+                    "operation": "SET",
+                    "start_time": "2026-10-11 09:35:20",
+                    "end_time": "2026-10-11 09:35:23",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 2,
+              "items": [
+                {
+                  "code": "36",
+                  "count": 2,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-10-11 09:35:20",
+                  "end_time": "2026-10-11 09:35:21",
+                  "complete": true,
+                  "counts": {
+                    "36": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-11 09:35:21",
+                  "end_time": "2026-10-11 09:35:22",
+                  "complete": true,
+                  "counts": {
+                    "36": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-11 09:35:22",
+                  "end_time": "2026-10-11 09:35:23",
+                  "complete": true,
+                  "counts": {
+                    "36": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 视角共取得 2 次错误码命中，均为 K_NOT_SUPPORTED(36)，分别出现在 09:35:20 与 09:35:22；计数为逐码命中次数，不等同业务失败率。",
+        "metrics": [
+          {
+            "label": "故障 trace",
+            "value": "2",
+            "sub": "SET 视角",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "36",
+            "sub": "K_NOT_SUPPORTED · 100%",
+            "tone": "danger"
+          }
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET Client P90",
+            "value": "0.147ms",
+            "sub": "仅 2 条归因样本",
+            "tone": "ok"
+          },
+          {
+            "label": "SDK 段 P90",
+            "value": "0.122ms",
+            "sub": "set_client 桶",
+            "tone": "ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段（归因桶）",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100.0% 样本归桶占比",
+            "status": "ok",
+            "detail": "接口仅提供 P50/P90/max，未提供 P99；2 条样本均低时延，归桶占比不是耗时占比。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "fa1a2896-bf45-49b7-bf74-d25f35ea05db",
+                  "log_id": "01c67ac2-3989-4dc3-b4f0-e2e87382bf6e",
+                  "operation": "SET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 2,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 2,
+              "normal_cnt": 2,
+              "anomalous_cnt": 0,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 0.0,
+              "distribution": {
+                "p50_ms": 0.115,
+                "p90_ms": 0.122,
+                "max_ms": 0.122,
+                "client_p50_ms": 0.132,
+                "client_p90_ms": 0.147
+              },
+              "tail_ratio_p90_p50": 1.06087,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 2",
+              "action": "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 侧排队/重试与端到端 deadline，再看 Worker 侧是否已返回。",
+              "top_traces": [
+                {
+                  "trace_id": "25fe57ff-fd7a-4976-a1c3-1ebf29d41aa7",
+                  "evidence_ms": 0.122,
+                  "client_ms": 0.147
+                },
+                {
+                  "trace_id": "01889963-2ae7-4d59-8909-a402cca967b6",
+                  "evidence_ms": 0.115,
+                  "client_ms": 0.132
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "本资产没有高时延证据：SET 两条样本的 Client P90 为 0.147ms，且没有 URMA timeout 命中。错误表现是快速失败而非请求挂起；因此不能用时延数据证明 Worker 进程挂死。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 现场现象",
+            "title": "两次 SET 均快速返回 36",
+            "description": "09:35:20 与 09:35:22 的两条 DS_KV_CLIENT_SET 均返回 K_NOT_SUPPORTED(36)。",
+            "evidence": "[POST /stats/error_codes; POST /log_failure_event_result/list_trace_events] status_code=36, trace_cnt=2",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "② 原始日志",
+            "title": "Worker 创建成功但未返回 URMA 信息",
+            "description": "同 trace 的 Worker DS_POSIX_CREATE 返回 0，而客户端 transport_layer 随后记录 UB Create: worker returned no URMA info; SHM-in-UB not yet supported。",
+            "evidence": "[POST /log_failure_event_result/list_log_events] 6 条上下文日志，覆盖 2 个 trace",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "③ Curated 解释",
+            "title": "能力/后端组合不支持请求",
+            "description": "kvcache_access_053 将 36 解释为当前编译配置、通信后端、运行角色或接口实现不支持该操作，与现场 SHM-in-UB 不受支持文本一致。",
+            "evidence": "[GET /failure_mode/status_code/36; GET /failure_mode/kvcache_access_053]",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "未证实 Worker 挂死是直接原因",
+            "description": "Worker 侧 CREATE 正常返回且端到端耗时低；未出现 Worker was hanged、URMA timeout、线程栈或心跳停滞证据，故不能把标签直接升级为已确认根因。",
+            "evidence": "[POST /stats/stages SET] sample_cnt=2, set_urma_timeout=0；原始 Worker 运行日志为空",
+            "excluded": true,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "直接故障链为 Worker 未提供 URMA 信息，且当前 UB Create 不支持 SHM 回退，导致 SET 返回 K_NOT_SUPPORTED(36)；Worker 进程挂死仅为待补证的上游候选。",
+        "supporting_knowledge": "Curated: status_code 36 / kvcache_access_053；已确认案例 UB-CASE-002548；本地经验 ds-worker-log-analysis、ds-rdma-transport-diagnosis 仅用于补证建议。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "URMA能力信息缺失",
+            "detail": "Worker CREATE成功但响应无URMA info",
+            "type": "origin",
+            "transition": "客户端尝试回退"
+          },
+          {
+            "label": "SHM回退不可用",
+            "detail": "SHM-in-UB not yet supported",
+            "type": null,
+            "transition": "能力不受支持"
+          },
+          {
+            "label": "SET快速失败",
+            "detail": "K_NOT_SUPPORTED(36)，2条trace",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "客户端 Pod/IP: 192.168.219.109",
+          "数据 Worker Pod/IP: 192.168.219.75",
+          "操作: SET / 8 MiB Create，共 2 条 trace"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "25fe57ff-fd7a-4976-a1c3-1ebf29d41aa7",
+          "kind": "error",
+          "why": "过滤条件 status_code=36 + pods=192.168.219.109/192.168.219.75 + 09:35:20—09:35:23；首条命中",
+          "status_code": "36",
+          "failure_mode_id": "kvcache_access_053",
+          "pod": "192.168.219.109 / 192.168.219.75",
+          "timestamp": "2026-10-11 09:35:20"
+        },
+        {
+          "trace_id": "01889963-2ae7-4d59-8909-a402cca967b6",
+          "kind": "error",
+          "why": "过滤条件 status_code=36 + pods=192.168.219.109/192.168.219.75 + 09:35:20—09:35:23；第二条命中",
+          "status_code": "36",
+          "failure_mode_id": "kvcache_access_053",
+          "pod": "192.168.219.109 / 192.168.219.75",
+          "timestamp": "2026-10-11 09:35:22"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_053",
+          "stars": "★★★★★",
+          "match_logic": "L1: status_code=36 与 failure_mode_id 精确命中；L2: SET 能力不支持域命中、无超时桶；L3: 现场原文 SHM-in-UB not yet supported 直接吻合。",
+          "symptom": "请求返回 K_NOT_SUPPORTED(36)。",
+          "root_cause": "通信后端、运行角色或接口实现不支持请求能力。",
+          "solution": "核查编译选项、通信后端、节点角色和接口能力，改用受支持的配置或操作。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "完全覆盖本次错误码与失败文本。",
+          "log_fit": "SHM-in-UB not yet supported 与能力不受支持解释一致。",
+          "rc_consistency": "一致",
+          "env_diff": "Curated 知识不包含本次缩容时序和 Worker 挂死证据。",
+          "adaptation": "需额外采集 Worker 挂死证据以确认更上游原因。",
+          "applicability": "direct"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002548",
+          "stars": "★★★★☆",
+          "match_logic": "L1: 36 与 kvcache_access_053 均命中；L2: MIXED 案例含 SET 且同为 few_pods；L5: 案例与现场均为 Worker 无 URMA info、SHM-in-UB 不支持。",
+          "symptom": "SDK UB Create 缺少可用数据通道并返回 K_NOT_SUPPORTED。",
+          "root_cause": "Client/Worker UB 数据通道能力不匹配；上游为何无 URMA 信息仍需核查。",
+          "solution": "核查 Worker URMA 初始化和能力通告，统一 Client/Worker 通信后端，并在缩容前执行 8 MiB SET 冒烟。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "错误码、故障模式、原文和请求大小均高度一致。",
+          "log_fit": "现场同样出现 Worker CREATE=0 后客户端报 no URMA info。",
+          "rc_consistency": "直接故障链一致；案例同样未确认进程挂死。",
+          "env_diff": "历史案例 operation=MIXED，本次仅 SET；IP 身份不参与匹配。",
+          "adaptation": "仅复用能力核查与冒烟步骤，不复用案例 IP。",
+          "applicability": "direct"
+        },
+        {
+          "rank": "③",
+          "id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+          "stars": "★★★☆☆",
+          "match_logic": "L1: 未提供 status_code 36 专项解释；L2: Worker 故障域相关；L5: 经验要求以 Worker was hanged、线程/OS 证据确认挂死，本次未命中。",
+          "symptom": "Worker 挂起可能影响 lease、URMA 和 RPC。",
+          "root_cause": "进程被 OS 调度挂起是候选，但需日志与系统证据。",
+          "solution": "补采 Worker 线程栈、系统调度/cgroup 与心跳证据。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考",
+          "phenomenon_fit": "与指定 Worker 挂死标签相关，但现场表现为快速失败。",
+          "log_fit": "未检出 Worker was hanged about。",
+          "rc_consistency": "仅作为上游候选，不能覆盖 curated 的直接故障解释。",
+          "env_diff": "经验适用于有 Worker 运行日志和系统日志的现场，本资产缺失。",
+          "adaptation": "先补齐挂死证据，再决定是否升级为确认根因。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在 192.168.219.75 对应 Worker 核查 URMA 初始化、UB 模式与 Create 响应能力通告，确认其为何未返回 URMA info。",
+          "统一 Client 与 Worker 的通信后端和能力配置；恢复受支持的 URMA 通道，或显式切换到当前版本支持的回退路径。",
+          "缩容前执行小流量 8 MiB SET/Create 探测；仍出现 status_code=36 时暂停该批缩容。"
+        ],
+        "long_term": [
+          "在 Client 注册/初始化阶段增加通信能力前置协商，发现 UB 模式缺 URMA 且无回退能力时快速失败并输出配置项。",
+          "增加 Worker hang watchdog、线程栈自动采样、心跳与 cgroup 调度监控，区分快速能力失败和真实进程挂死。"
+        ],
+        "verification": [
+          "连续执行至少 100 次 8 MiB SET/Create，确认 status_code=36 归零。",
+          "确认 Worker 响应含有效 URMA 信息，且 Client 不再进入 SHM-in-UB 未支持分支。",
+          "在缩容窗口核对 Worker 线程心跳、线程栈和 CPU throttling；若无停顿证据，将进程挂死候选降级或排除。"
+        ]
+      },
+      "source_code": null,
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复 Worker 的 URMA 能力通告或切换到受支持的数据通道，并暂停继续缩容。",
+      "depends_on": "确认目标 Worker 当前实例与通信后端配置",
+      "expected_effect": "SET/Create 不再落入 SHM-in-UB 未实现分支",
+      "verify": "100 次 8 MiB SET/Create 中 status_code=36 为 0"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补采 Worker 线程栈、心跳、cgroup cpu.stat 与系统调度日志。",
+      "depends_on": "故障复现窗口",
+      "expected_effect": "确认或排除 Worker 进程挂死这一上游候选",
+      "verify": "形成与 trace 时间对齐的线程/调度证据"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET 归因子集为空（sample_cnt=0）；空结果仅表示本资产无 GET 证据，不代表 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": null,
+            "status": "ok",
+            "fault": "F01",
+            "detail": "2 条样本均归入 set_client；P90=0.122ms，Client P90=0.147ms；接口不提供 P99。"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "无 trace 归入 set_worker；原始日志中的 DS_POSIX_CREATE 返回 0。"
+          },
+          {
+            "name": "SET·URMA超时",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "set_urma_timeout trace_cnt=0；不支持超时结论。"
+          }
+        ],
+        "conclusion": "SET 样本低时延且无 URMA timeout，主问题是能力/回退路径返回错误，不是时延瓶颈。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": "2",
+    "top_error_codes": [
+      {
+        "code": "36",
+        "name": "K_NOT_SUPPORTED",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "Worker故障-进程挂死（指定标签，待现场补证）",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.109",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.75",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "09:35",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-fa1a2896",
+    "total_steps": 6,
+    "api_calls": 25,
+    "duration": "本次会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences"
+        ],
+        "result": "命中 Worker/缩容/URMA 经验，仅作先验"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "解析任务 successful，故障 trace 2 条"
+      },
+      {
+        "title": "Step 3 GET/SET 分开分诊",
+        "api_calls": [
+          "POST /stats/stages (GET)",
+          "POST /stats/stages (SET)"
+        ],
+        "result": "GET 0 样本；SET 2 样本，未混桶"
+      },
+      {
+        "title": "Step 4 故障与原始日志下钻",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认 36 / kvcache_access_053 与 no URMA info"
+      },
+      {
+        "title": "Step 5 知识与案例复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/36",
+          "GET /failure_mode/kvcache_access_053",
+          "POST /diag_case_library/search"
+        ],
+        "result": "Curated 与 UB-CASE-002548 支持能力不匹配直接链"
+      },
+      {
+        "title": "Step 6 JSON 报告生成",
+        "api_calls": [
+          "error_features.py",
+          "latency_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "仅生成并校验 JSON，不渲染 HTML"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis",
+      "keywords_matched": [
+        "Worker",
+        "进程挂死",
+        "URMA"
+      ],
+      "search_query_used": "K_NOT_SUPPORTED 36 worker returned no URMA info SHM-in-UB",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "Worker was hanged about ... ms 表示进程被 OS 调度挂起，可能导致 lease 失效。",
+      "how_used_in_diagnosis": "用于定义确认 Worker 挂死所需的日志和 OS 证据，并形成补采建议。",
+      "confidence_on_reference": 0.75,
+      "confidence_reason": "与诊断标签相关，但本资产未出现该日志，故不作为现场根因证据。"
+    },
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+      "keywords_matched": [
+        "URMA",
+        "Worker",
+        "回退"
+      ],
+      "search_query_used": "K_NOT_SUPPORTED 36 worker returned no URMA info SHM-in-UB",
+      "used_in_stage": "recommendation",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "分析 URMA/RDMA 问题时，需要同时检查 URMA 驱动/设备日志和系统日志。",
+      "how_used_in_diagnosis": "用于建议核查 Worker URMA 初始化、能力通告及系统侧挂死证据。",
+      "confidence_on_reference": 0.8,
+      "confidence_reason": "与现场 no URMA info 直接相关，且不覆盖 curated 对 36 的解释。"
+    }
+  ]
+}

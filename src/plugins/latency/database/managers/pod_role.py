@@ -7,6 +7,7 @@ import uuid
 from typing import Any, Iterator, Protocol
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from latency.database.engine import PGManager
 from latency.database.models import PodRole
@@ -59,21 +60,43 @@ class PodRolePGManager:
 
     @staticmethod
     async def add_pod_role_raw(results: _PodRoleRows) -> list[str]:
-        """批量写入 trace 级角色聚合，主键冲突（同一 trace 二次写入）自动跳过。"""
+        """批量写入 trace 级角色聚合，主键冲突（同一 trace 二次写入）自动跳过。
+
+        id 为 ``uuid5(log_id:trace_id)`` 的确定性取值：任务重试、同一批日志被
+        重复入库时必然命中已存在的行。必须用 ``ON CONFLICT DO NOTHING`` 落库，
+        否则整批 insert 抛 UniqueViolationError 把任务打成失败。
+        """
         ids_added: list[str] = []
         if not results:
             return ids_added
 
-        objs = []
+        rows: list[dict] = []
         for event in results:
             obj = PodRolePGManager._pod_role_dict_to_obj(event)
-            objs.append(obj)
             ids_added.append(obj.trace_id or "")
+            rows.append(
+                {
+                    "id": obj.id,
+                    "log_id": obj.log_id,
+                    "trace_id": obj.trace_id,
+                    "operation": obj.operation,
+                    "client_pod": obj.client_pod,
+                    "entry_worker_pods": obj.entry_worker_pods,
+                    "meta_worker_pods": obj.meta_worker_pods,
+                    "data_worker_pods": obj.data_worker_pods,
+                    "timestamp": obj.timestamp,
+                }
+            )
 
-        for i in range(0, len(objs), PodRolePGManager._INSERT_BATCH_SIZE):
-            batch = objs[i : i + PodRolePGManager._INSERT_BATCH_SIZE]
+        for i in range(0, len(rows), PodRolePGManager._INSERT_BATCH_SIZE):
+            batch = rows[i : i + PodRolePGManager._INSERT_BATCH_SIZE]
+            stmt = (
+                pg_insert(PodRole)
+                .values(batch)
+                .on_conflict_do_nothing(index_elements=["id"])
+            )
             async with PGManager.session() as session:
-                session.add_all(batch)
+                await session.execute(stmt)
         return ids_added
 
     @staticmethod

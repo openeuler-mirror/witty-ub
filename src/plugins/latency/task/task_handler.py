@@ -5,6 +5,7 @@ import errno
 import inspect
 import logging
 import threading
+import time
 from typing import Optional
 
 from latency.common.disk_space import disk_capacity
@@ -147,6 +148,9 @@ class TaskHandler:
             TaskHandler._deleting_log_ids.discard(log_id)
         if kb_id:
             TaskHandler._deleting_kb_ids.discard(kb_id)
+
+    # 连续观察到「RUNNING 但无对应存活进程」的起始时刻，用于回收僵尸任务前的宽限。
+    _orphan_seen_at: dict[str, float] = {}
 
     @staticmethod
     async def _collect_finished_processes() -> dict[str, int | None]:
@@ -505,6 +509,71 @@ class TaskHandler:
                     f"任务异常停止：工作进程意外退出（exit code {exit_code}），系统将自动重试",
                     status=TaskStatusEnum.FAILED_PENDING_REMOVE,
                 )
+
+    @staticmethod
+    async def reap_hung_processes() -> None:
+        """看门狗①：强杀运行超时的挂死子进程，任务走重试链路。
+
+        子进程「活着但永不返回」不会出现在 ``collect_finished_tasks`` 里，
+        并发槽会被永久占满；这里按墙钟兜底，释放槽位并把任务标记为待重试。
+        """
+        hung = await asyncio.to_thread(ProcessHandler.collect_hung_tasks)
+        for task_id, runtime in hung.items():
+            await TaskPGManager.mark_stale_running_for_retry(
+                task_id,
+                f"任务超时：工作进程运行 {runtime / 60:.1f} 分钟未完成，"
+                "已强制终止；系统将自动重试",
+            )
+
+    @staticmethod
+    async def reap_orphan_running_tasks() -> None:
+        """看门狗②：回收没有对应存活进程的僵尸 RUNNING 任务。
+
+        服务重启、进程被外部杀掉或状态迁移竞态都会留下「RUNNING 但无进程」
+        的任务。启动时的 ``mark_interrupted_running_tasks_for_retry`` 只在
+        重启那一刻生效，运行期必须周期性回收，否则任务永远卡在运行中。
+        """
+        running_tasks = await TaskPGManager.list_tasks_by_status(
+            [TaskStatusEnum.RUNNING]
+        )
+        if not running_tasks:
+            TaskHandler._orphan_seen_at.clear()
+            return
+        live = await asyncio.to_thread(ProcessHandler.live_task_ids)
+        now = time.monotonic()
+        seen = TaskHandler._orphan_seen_at
+        grace = ProcessHandler.stale_running_grace_seconds
+        running_ids = {task.id for task in running_tasks}
+        orphaned: list[str] = []
+        for task in running_tasks:
+            # 正在派发（预处理中，进程尚未拉起）或已有存活进程：不是孤儿。
+            if task.id in live or task.id in TaskHandler._dispatching_task_ids:
+                seen.pop(task.id, None)
+                continue
+            first_seen = seen.setdefault(task.id, now)
+            if grace <= 0 or now - first_seen >= grace:
+                orphaned.append(task.id)
+        for tid in list(seen):
+            if tid not in running_ids:
+                seen.pop(tid, None)
+        for task_id in orphaned:
+            seen.pop(task_id, None)
+            await TaskPGManager.mark_stale_running_for_retry(
+                task_id,
+                "任务异常停止：未找到对应工作进程；系统将自动重试",
+            )
+
+    @staticmethod
+    async def watchdog_running_tasks() -> None:
+        """看门狗入口：独立调度 job，异常互不影响。"""
+        try:
+            await TaskHandler.reap_hung_processes()
+        except Exception:
+            logger.exception("[TaskQueueService] 看门狗强杀挂死进程失败")
+        try:
+            await TaskHandler.reap_orphan_running_tasks()
+        except Exception:
+            logger.exception("[TaskQueueService] 僵尸 RUNNING 任务回收失败")
 
     @staticmethod
     async def handle_tasks():

@@ -1,0 +1,656 @@
+{
+  "report": {
+    "title": "KVCache SET 写路径 URMA 通信失败诊断报告",
+    "report_id": "diag-bf59287b-20261112-json",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "bf59287b-ddcd-4a95-adcc-f6523c742157",
+    "kb_name": "lingqu_kvcache_dfx_1z3b_2ports_fault_001_20260923_19_56_55",
+    "log_file": "lingqu_kvcache_dfx_1z3b_2ports_fault_001_20260923_19_56_55",
+    "operation": "SET（GET 无样本）",
+    "time_range_start": "2026-09-23 19:54:31",
+    "time_range_end": "2026-09-23 19:54:32",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Urma operation failed": 1.0
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个 SET 写路径主故障：URMA WRITE completion 返回 CQE status 9，TCP 回退又被 1 MiB 限制拒绝；故障标签为硬件故障/ub端口故障-down。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "1 条 SET trace 写入失败，涉及客户端与目标 Worker 两个 Pod；GET 无可分析样本。",
+    "confidence": "高（标签由指定 ground truth 提供；现场日志对 URMA 数据面失败提供强支撑，但缺端口遥测）"
+  },
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "在 192.168.235.157 与 192.168.219.87 两端立即执行 urma_admin port show/dev show，并采集同秒 dmesg、驱动和固件事件，确认 DOWN/BAD 端口及对应物理链路。",
+      "depends_on": "保留故障现场",
+      "expected_effect": "把 CQE status 9 从传输层症状定界到具体 UB 端口/链路。",
+      "verify": "端口恢复 ACTIVE 后用相同 1 MiB SET 复测，错误码 1004 归零且 completion 正常。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复或切换故障 UB 端口；同时评估 TCP fallback 的 payload 限制，避免 URMA 故障时 1 MiB 负载没有降级通道。",
+      "depends_on": "确认故障端口与变更窗口",
+      "expected_effect": "恢复高速数据面并减少单一传输路径故障导致的写入失败。",
+      "verify": "连续压测并观察 URMA completion、peer SUSPECT、1004 与 fallback rejected 日志均不再出现。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "RPC网络",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "sample_cnt=0，无 GET 样本；空结果不代表健康。"
+          },
+          {
+            "name": "RPC排队",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "无 GET 样本。"
+          },
+          {
+            "name": "QueryMeta",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "无 GET 样本。"
+          },
+          {
+            "name": "URMA",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "无 GET 样本。"
+          }
+        ],
+        "conclusion": "GET /stats/stages 返回 sample_cnt=0，故不对读路径健康状态作推断。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "客户端 SDK 段",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "文本超时近似桶为 0；本次是 CQE status 9，不是 timeout 文本命中。"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "100%",
+            "fail_share": "100%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "1/1 trace 归入 set_client；证据 P90/max 均 325.251ms，Client 总时延 325.321ms。"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "0 条 trace 归入该桶；仅在当前 1 条样本范围内。"
+          }
+        ],
+        "conclusion": "SET 的唯一样本全部归入 set_client 桶；325.251ms 主要是 SDK 等待数据面返回。该桶是互斥归因口径，不能解释为 SDK 本地计算慢。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 1,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "URMA/硬件",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.157",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.87",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "19:54:31",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "lat_ms": 325.321,
+        "fault": "F01"
+      }
+    ]
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "UB 端口数据面异常导致 SET 的 URMA WRITE completion 失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 88,
+      "category": "mixed",
+      "affected_scope": "ci-kv-ds-1；192.168.235.157 → 192.168.219.87:31501；1 条 SET trace",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-down",
+        "one_line_conclusion": "19:54:31，SET 写入在 192.168.235.157→192.168.219.87 的 URMA completion 上返回 CQE status 9，TCP 回退被限流拒绝，最终返回 1004。",
+        "fault_domain": "硬件故障/ub端口故障-down",
+        "fault_component": "UB/URMA 数据面",
+        "fault_function": "UrmaManager::WaitToFinish / URMA WRITE completion",
+        "fault_function_loc": "fast_transport_base.cpp:219；urma_manager.cpp:2835",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "当前资产库唯一 SET trace 失败，涉及两个 Pod；不代表生产全量失败率。",
+        "confidence": "高 88%",
+        "key_findings": [
+          "错误码 1004 在故障秒窗内 1 次逐码命中，占当前错误码构成 100%",
+          "原始日志显示 URMA Polling failed with an error, cqe status: 9，peer 随后被标记 SUSPECT",
+          "URMA WRITE waitUs=324949us，几乎覆盖 325.321ms 的客户端总时延",
+          "TCP fallback 因 payload 1048576 bytes 不小于 limiter 1048576 bytes 被拒绝，故障无法降级",
+          "标签按用户指定的 train_valid.md→gt_labels.json 映射采用硬件故障/ub端口故障-down；当前 API 未提供端口状态遥测"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "bf59287b-ddcd-4a95-adcc-f6523c742157",
+              "operation": "SET",
+              "start_time": "2026-09-23 19:54:31",
+              "end_time": "2026-09-23 19:54:32"
+            },
+            "code_filter": [
+              "1004"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "bf59287b-ddcd-4a95-adcc-f6523c742157",
+                    "operation": "SET",
+                    "start_time": "2026-09-23 19:54:31",
+                    "end_time": "2026-09-23 19:54:32",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 1,
+              "items": [
+                {
+                  "code": "1004",
+                  "count": 1,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-23 19:54:31",
+                  "end_time": "2026-09-23 19:54:32",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 在唯一故障秒窗内出现 1 次错误码 1004，逐码命中占比 100%；样本仅 1 条，不能外推为业务失败率。",
+        "metrics": [
+          {
+            "label": "主导错误码",
+            "value": "1004",
+            "sub": "K_URMA_ERROR · 1 次逐码命中",
+            "tone": "danger"
+          },
+          {
+            "label": "故障窗口",
+            "value": "1s",
+            "sub": "2026-09-23 19:54:31–19:54:32",
+            "tone": "warn"
+          }
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "Client 总时延",
+            "value": "325.321ms",
+            "sub": "唯一异常 SET trace",
+            "tone": "danger"
+          },
+          {
+            "label": "URMA WRITE wait",
+            "value": "324.949ms",
+            "sub": "原始日志 waitUs=324949",
+            "tone": "danger"
+          },
+          {
+            "label": "set_client 证据 P90",
+            "value": "325.251ms",
+            "sub": "单样本，不是 P99",
+            "tone": "warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端 SDK 段（含等待数据面返回）",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100.0% 分类样本",
+            "status": "bottleneck",
+            "detail": "唯一 trace 归入 set_client；日志进一步把主要等待定位到 URMA WRITE completion，而非 SDK 本地计算。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "bf59287b-ddcd-4a95-adcc-f6523c742157",
+                  "log_id": "47a9ae5f-0c31-4d89-b3dc-500ba55b9ec0",
+                  "operation": "SET",
+                  "start_time": "2026-09-23 19:54:31",
+                  "end_time": "2026-09-23 19:54:32",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 1,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 1,
+              "normal_cnt": 0,
+              "anomalous_cnt": 1,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 325.251,
+                "p90_ms": 325.251,
+                "max_ms": 325.251,
+                "client_p50_ms": 325.321,
+                "client_p90_ms": 325.321
+              },
+              "tail_ratio_p90_p50": 1.0,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 1",
+              "action": "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 侧排队/重试与端到端 deadline，再看 Worker 侧是否已返回。",
+              "top_traces": [
+                {
+                  "trace_id": "c8b92607-72e4-47fb-86e3-b66b3c506959",
+                  "evidence_ms": 325.251,
+                  "client_ms": 325.321
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "异常耗时集中于 SET 的客户端等待段；原始 trace 显示其中 324.949ms 用于等待 URMA WRITE completion。无健康基线且仅 1 个样本，不计算 P99 或放大倍数。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 现象",
+            "title": "SET 返回 K_URMA_ERROR(1004)",
+            "description": "唯一异常 SET trace 在 19:54:31 返回 1004。",
+            "evidence": "POST /stats/error_codes 与 list_trace_events：1004×1",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 定位",
+            "title": "故障发生在 URMA WRITE completion",
+            "description": "Polling failed 返回 CQE status 9；URMA_WRITE_PHASE 的 waitUs=324949，占总时延绝大部分。",
+            "evidence": "trace c8b92607-72e4-47fb-86e3-b66b3c506959 原始日志",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 排除",
+            "title": "排除内存不足和 Worker CREATE 慢",
+            "description": "目标 Worker 内存分配成功，DS_POSIX_CREATE 状态 0、cost 70us；故障发生在后续 1 MiB 数据传输。",
+            "evidence": "同 trace：Create done 0.070ms；memOccupied 301285568 << memThreshold 30198988800",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 传播",
+            "title": "TCP fallback 未能接管",
+            "description": "URMA 失败后，1 MiB payload 因不小于 limiter 被拒绝，客户端无可用降级数据通道。",
+            "evidence": "access_recorder 原文：fallback tcp payload rejected by limiter",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 根因",
+            "title": "UB 端口 down 导致 URMA 数据面不可用",
+            "description": "现场 CQE status 9、peer SUSPECT 与 URMA completion 失败支持 UB 数据面中断；按指定 ground truth 标签定界为 ub端口故障-down。具体两个端口及物理器件位置仍需 urma_admin/驱动遥测确认。",
+            "evidence": "现场日志 + 用户指定标签映射；非仅由案例推断",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "UB 端口 down 使 URMA WRITE completion 失败，TCP 回退又因 payload 限制被拒绝。",
+        "supporting_knowledge": "curated: status 1004、kvcache_runtime_906、kvcache_access_022；experience: ds-rdma-transport-diagnosis、umdk-link-failure-diagnosis；历史案例仅作待验证参照。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "UB 端口 down / 数据面中断",
+            "detail": "指定故障标签；需端口遥测确认具体端口",
+            "type": "origin",
+            "transition": "URMA WRITE completion 异常"
+          },
+          {
+            "label": "CQE status 9",
+            "detail": "Polling failed；waitUs=324949",
+            "type": null,
+            "transition": "peer 标记 SUSPECT并尝试降级"
+          },
+          {
+            "label": "TCP fallback 被 limiter 拒绝",
+            "detail": "payload=1048576 bytes，limit=1048576 bytes",
+            "type": null,
+            "transition": "错误上浮"
+          },
+          {
+            "label": "SET 返回 1004",
+            "detail": "Client 总时延 325.321ms",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群 ci-kv-ds-1",
+          "客户端 Pod 192.168.235.157",
+          "目标 Worker Pod 192.168.219.87:31501",
+          "当前资产库 1 条 SET trace"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "c8b92607-72e4-47fb-86e3-b66b3c506959",
+          "kind": "latency",
+          "why": "SET·客户端SDK段桶内证据耗时 Top1；按证据耗时排序，不代表总体严重度或普遍性。",
+          "evidence_ms": 325.251,
+          "client_ms": 325.321
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_022",
+          "stars": "★★★★★",
+          "match_logic": "L1 命中 1004 与 failure_mode；L2 命中 SET/URMA 硬件域及 set_client；L5 命中 Polling failed/CQE 现场短语。",
+          "symptom": "请求返回 K_URMA_ERROR，URMA 传输或资源操作失败。",
+          "root_cause": "URMA 库、设备、上下文、Jetty、内存段、事件或异步处理发生底层错误。",
+          "solution": "检查 URMA 设备、Jetty、内存段与事件状态，恢复设备健康后重试。",
+          "applicability": "direct",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用（curated 解释）"
+        },
+        {
+          "rank": "②",
+          "id": "c3015ecd-90be-454e-80a7-3857ed920335",
+          "stars": "★★★★☆",
+          "match_logic": "L1 命中 1004/kvcache_access_022；L2 命中 SET、set_client、few_pods；L5 部分命中 CQE failure 与 TCP fallback limiter。",
+          "symptom": "SET 大对象 URMA completion 失败，TCP 回退受 payload 限制。",
+          "root_cause": "历史已确认案例与本次故障传播形态相似；仍只是待验证假设，不替代现场证据。",
+          "solution": "检查 completion 路径、Jetty、端口、CQ/poll/notify 与链路状态，并评估 fallback 限制。",
+          "applicability": "adjust",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后参考"
+        },
+        {
+          "rank": "③",
+          "id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+          "stars": "★★★★☆",
+          "match_logic": "L1 未提供相同 failure_mode ID；L2 命中 URMA 链路/端口域；L5 现场未直接出现 PORT_DOWN，因此只采用其核验流程。",
+          "symptom": "URMA 链路故障可表现为端口状态变化、重传或 completion 异常。",
+          "root_cause": "端口、物理链路、对端或驱动/固件异常均需端口遥测区分。",
+          "solution": "使用 urma_admin port show/dev show，并对齐 dmesg、驱动、固件事件。",
+          "applicability": "reference",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "经验流程参考"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "保留现场并在两个端点执行 urma_admin port show、urma_admin dev show，记录端口 link state、lane、速率、设备状态和对端映射。",
+          "采集 19:54:31 前后 dmesg、UB 驱动/固件事件；若端口 DOWN/BAD，切换健康端口或恢复物理链路后再重建 URMA 连接。",
+          "在硬件恢复前，对 1 MiB SET 负载采用可验证的备用路径；如调整 TCP fallback limiter，先评估带宽和内存风险。"
+        ],
+        "long_term": [
+          "为多端口部署建立端口级健康监控与告警，覆盖 link state、lane、速率、CQE/AE、重连及 peer SUSPECT。",
+          "让 fallback payload 阈值与业务对象尺寸匹配，并通过故障注入验证 URMA 端口 down 时的自动降级闭环。",
+          "补充 CQE status 9 的 provider/驱动枚举映射与端口标识，避免仅停留在 K_URMA_ERROR 通用码。"
+        ],
+        "verification": [
+          "用相同 1 MiB 对象连续执行 SET，确认 1004、CQE status 9、peer SUSPECT 和 fallback rejected 均不再出现。",
+          "确认 URMA WRITE completion 成功，SET 时延恢复至健康基线；建立基线后再比较 P90/P99。",
+          "逐端口执行故障隔离/恢复测试，确认受影响端口和实际两端映射与标签一致。"
+        ]
+      },
+      "source_code": {},
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "workflow": {
+    "session_id": "sess-bf59287b-20261112",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences（SKILL/WIKI）"
+        ],
+        "result": "命中性能、URMA/RDMA 与链路诊断经验；先验不作为现场证据。"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务成功；1 个日志文件，1 条故障 trace，集群 ci-kv-ds-1。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET sample_cnt=0；SET sample_cnt=1，100% 归入 set_client。"
+      },
+      {
+        "title": "Step 4 分布与 Trace 下钻",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "1004×1；代表 trace 显示 CQE status 9、324.949ms wait 与 fallback limiter 拒绝。"
+      },
+      {
+        "title": "Step 5 Curated 知识复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/1004",
+          "GET /failure_mode/kvcache_runtime_906",
+          "GET /failure_mode/kvcache_access_022"
+        ],
+        "result": "确认 URMA 事件等待/底层传输失败语义。"
+      },
+      {
+        "title": "Step 6 历史案例匹配",
+        "api_calls": [
+          "POST /diag_case_library/search（由 match_cases.py 调用）"
+        ],
+        "result": "命中已确认的 URMA completion + fallback limiter 同形案例；按待验证假设使用并回写 2 条命中。"
+      },
+      {
+        "title": "Step 7 报告数据构建",
+        "api_calls": [
+          "latency_features.py",
+          "error_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "生成并校验 JSON；未渲染 HTML。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a97a8e58-94b9-4f35-b97c-bf2534f5ce40",
+        "experience_type": "SKILL",
+        "name": "ds-performance-degradation-diagnosis",
+        "source_path": "data/skill_hub/ds-performance-degradation-diagnosis",
+        "keywords_matched": [
+          "KVCache",
+          "时延",
+          "URMA"
+        ],
+        "search_query_used": "KVCache 2ports fault 通断 时延 诊断报告",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "传输层回退 TCP 会显著降低吞吐，应优先保证 URMA/RDMA 稳定。",
+        "how_used_in_diagnosis": "仅形成传输层先验；本次为明确失败而非一般性能下降，未用于根因。",
+        "confidence_on_reference": 0.6,
+        "confidence_reason": "方向相关但不够具体。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+        "keywords_matched": [
+          "K_URMA_ERROR",
+          "URMA",
+          "TCP fallback"
+        ],
+        "search_query_used": "URMA Polling failed cqe status 9 K_URMA_ERROR fallback tcp payload rejected UB port down",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+        "how_used_in_diagnosis": "补充设备、链路和 fallback 核验方向；现场证据仍来自 API。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与 curated 1004 解释一致。"
+      },
+      {
+        "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+        "experience_type": "SKILL",
+        "name": "umdk-link-failure-diagnosis",
+        "source_path": "data/skill_hub/umdk-link-failure-diagnosis",
+        "keywords_matched": [
+          "URMA",
+          "PORT_DOWN",
+          "端口"
+        ],
+        "search_query_used": "URMA Polling failed cqe status 9 K_URMA_ERROR fallback tcp payload rejected UB port down",
+        "used_in_stage": "recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "出现 PORT_DOWN 时，优先检查物理连接和对端状态。",
+        "how_used_in_diagnosis": "用于制定 urma_admin、dmesg 和物理链路核验步骤。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "标签同域，但现场未直接采到 PORT_DOWN 文本。"
+      }
+    ],
+    "summary": {
+      "total_references": 3,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 2,
+      "considered_not_adopted_count": 1,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于先验与处置建议；根因事实均回到当前资产库 API 与原始 trace 证据核对。"
+    }
+  }
+}

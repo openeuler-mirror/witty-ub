@@ -1,0 +1,750 @@
+{
+  "report": {
+    "title": "lingqu_kvcache 3端口 down 故障诊断报告",
+    "report_id": "RPT-20261112-3P02",
+    "generated_at": "2026-11-12 10:30:23"
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+        "experience_type": "SKILL",
+        "name": "umdk-link-failure-diagnosis",
+        "source_path": "data/skill_hub/umdk-link-failure-diagnosis",
+        "keywords_matched": [
+          "UB",
+          "端口",
+          "down"
+        ],
+        "search_query_used": "KVCache 3ports 故障 诊断报告 时延 通断",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "出现 `PORT_DOWN` 时，优先检查物理连接和对端状态。",
+        "how_used_in_diagnosis": "用于形成端口状态与物理连接复核建议，不作为现场证据。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "与用户指定故障标签及 RPC 链路不可达现象方向一致。"
+      },
+      {
+        "experience_id": "1af1c583-204d-4538-ab34-e166258aa3c7",
+        "experience_type": "WIKI",
+        "name": "UMDK URMA 管理工具 urma_admin 使用指南",
+        "source_path": "data/wiki_hub/umdk-urma-admin-tools.md",
+        "keywords_matched": [
+          "Host is down",
+          "端口",
+          "urma_admin"
+        ],
+        "search_query_used": "K_METADATA_OWNER_UNAVAILABLE 39 RPC peer dead Host is down UB 端口 down",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "执行 `urma_admin port show`，确认对应端口状态是否为 `DOWN`。",
+        "how_used_in_diagnosis": "用于给出物理端口层闭环验证命令。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "该命令可直接验证当前资产缺失的端口状态证据。"
+      }
+    ],
+    "summary": {
+      "total_references": 2,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 2,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于补充排查和验证方法，根因结论仍以本资产 API 现场证据及指定标签为准。"
+    }
+  },
+  "basic_info": {
+    "kb_id": "80b671f1-fce5-44bb-977e-2fe193ba33f7",
+    "kb_name": "lingqu_kvcache_dfx_1z3b_3ports_fault_002_20261013_12_17_57",
+    "log_file": "lingqu_kvcache_dfx_1z3b_3ports_fault_002_20261013_12_17_57",
+    "operation": "SET（GET 无样本）",
+    "time_range_start": "2026-10-13 12:20:00",
+    "time_range_end": "2026-10-13 12:26:00",
+    "total_trace_cnt": 3,
+    "fault_trace_cnt": 3,
+    "fault_ratio": "100.0",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC peer dead": 0.164337,
+      "T:E112": 0.986024,
+      "C:Metadata owner unavailable": 0.02739
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到 1 个 SET 写路径主故障：多条 UpdateMeta RPC 链路不可达并返回状态码 39。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "3 条 SET trace 全部异常，GET 路径无可分析样本。",
+    "confidence": "高 88%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "UB 端口 down 导致 Metadata Owner RPC 不可达",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": "高 88%",
+      "category": "mixed",
+      "affected_scope": "ci-kv-ds-1 的 SET 写路径，4 个相关 Pod IP、2 组可解析源目链路",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-down",
+        "one_line_conclusion": "2026-10-13 12:20—12:26，ci-kv-ds-1 的 SET 元数据发布链路不可达，3 条请求均返回 K_METADATA_OWNER_UNAVAILABLE(39)；指定标签为 UB 端口 down。",
+        "fault_domain": "硬件故障/ub端口故障-down",
+        "fault_component": "UB 链路 / Metadata Owner RPC",
+        "fault_function": "UpdateMeta / RequestingToMaster / Publish",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "3/3 SET trace 异常；GET 无样本",
+        "confidence": "高 88%",
+        "key_findings": [
+          "状态码 39 命中 3 条故障 trace、6 条日志级故障事件，为 SET 侧唯一错误码。",
+          "原始日志反复出现 RPC peer dead、brpc errno=112 Host is down、Not connected to 192.168.219.94:31501。",
+          "故障集中于 12:20 与 12:25 两个分钟窗口，峰值窗口包含 2 条故障 trace。",
+          "SET 的 3 条样本均归入 set_worker 桶；Worker 写处理 P90 4.082ms，Client 对照 P90 4.468ms。",
+          "本资产未包含 PORT_DOWN、光功率或端口 state 遥测，物理端口层仍需现场命令闭环。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "80b671f1-fce5-44bb-977e-2fe193ba33f7",
+              "operation": "SET",
+              "start_time": "2026-10-13 12:20:00",
+              "end_time": "2026-10-13 12:26:00"
+            },
+            "code_filter": [
+              "39"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "80b671f1-fce5-44bb-977e-2fe193ba33f7",
+                    "operation": "SET",
+                    "interval": "minute",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100,
+                    "start_time": "2026-10-13 12:20:00",
+                    "end_time": "2026-10-13 12:26:00"
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 3,
+              "items": [
+                {
+                  "code": "39",
+                  "count": 3,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-13 12:20:00",
+                  "end_time": "2026-10-13 12:21:00",
+                  "complete": true,
+                  "counts": {
+                    "39": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 12:21:00",
+                  "end_time": "2026-10-13 12:22:00",
+                  "complete": true,
+                  "counts": {
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 12:22:00",
+                  "end_time": "2026-10-13 12:23:00",
+                  "complete": true,
+                  "counts": {
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 12:23:00",
+                  "end_time": "2026-10-13 12:24:00",
+                  "complete": true,
+                  "counts": {
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 12:24:00",
+                  "end_time": "2026-10-13 12:25:00",
+                  "complete": true,
+                  "counts": {
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-13 12:25:00",
+                  "end_time": "2026-10-13 12:26:00",
+                  "complete": true,
+                  "counts": {
+                    "39": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 写路径在 12:20 与 12:25 两个分钟窗共出现 3 次状态码 39，占本故障筛选范围逐码命中数的 100%；GET 无样本。"
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET 故障 trace",
+            "value": "3",
+            "sub": "全部异常",
+            "tone": "bad"
+          },
+          {
+            "label": "Worker 写处理 P90",
+            "value": "4.082ms",
+            "sub": "证据耗时，非 P99",
+            "tone": "warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·Worker写处理",
+            "p50": "4.045ms",
+            "p90": "4.082ms",
+            "p99": null,
+            "baseline": null,
+            "ratio": null,
+            "share": "100.0%",
+            "status": "bottleneck",
+            "detail": "3 条 trace 全部归入该桶；失败来自 Metadata Owner RPC 链路不可达，不将 P90 推算为 P99。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_worker",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "80b671f1-fce5-44bb-977e-2fe193ba33f7",
+                  "log_id": "557fb3e8-979b-44ec-b34a-9508c4e78afa",
+                  "operation": "SET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[4]"
+              },
+              "sample_cnt": 3,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 3,
+              "normal_cnt": 0,
+              "anomalous_cnt": 3,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 4.045,
+                "p90_ms": 4.082,
+                "max_ms": 4.082,
+                "client_p50_ms": 4.379,
+                "client_p90_ms": 4.468
+              },
+              "tail_ratio_p90_p50": 1.009147,
+              "note": "有 Worker 侧行且 local_worker_internal_us > sdk_processing_us，证据取 Worker 端写处理耗时；家族构成：DS_KV_CLIENT_SET 3",
+              "action": "Worker 端 CREATE/PUBLISH 处理主导：排查元数据落盘、buffer 准备、锁竞争与远端 Worker 调度。",
+              "top_traces": [
+                {
+                  "trace_id": "93ddfa2b-1758-4643-a83b-7467291fc693",
+                  "evidence_ms": 4.082,
+                  "client_ms": 4.468
+                },
+                {
+                  "trace_id": "e2479d0b-abaf-4a7d-a293-ec6a311e942a",
+                  "evidence_ms": 4.045,
+                  "client_ms": 4.379
+                },
+                {
+                  "trace_id": "2a67324d-2650-4c7d-a2cf-27800b31d2b5",
+                  "evidence_ms": 3.983,
+                  "client_ms": 4.366
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 样本全部归入 Worker 写处理桶；阶段拆解用于说明错误发生在 UpdateMeta/发布处理窗口，不把 4ms 级耗时误判为独立性能故障。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 现象确认",
+            "title": "SET 写请求统一返回状态码 39",
+            "description": "3 条 SET trace 全部异常，状态码 39 占筛选范围逐码命中数 100%。",
+            "evidence": "[POST /stats/error_codes, POST /trace/list] SET scoped",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "② 链路定位",
+            "title": "UpdateMeta 对端不可连接",
+            "description": "Worker 向 192.168.219.94:31501 发起 UpdateMeta 时出现 RPC peer dead、Host is down、Not connected to。",
+            "evidence": "[POST /log_failure_event_result/list_log_events] 3 条代表 trace",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "③ 错误传播",
+            "title": "发布结果无法确认并上浮 39",
+            "description": "RequestingToMaster 与 Publish 失败后，客户端返回 K_METADATA_OWNER_UNAVAILABLE(39)。",
+            "evidence": "[GET /failure_mode/status_code/39, GET /failure_mode/kvcache_access_036]",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "不能仅凭 RPC errno 排除进程或路由故障",
+            "description": "Curated 知识指出状态码 39 也可由 Metadata Owner 进程异常或路由过期引起；本资产缺少端口遥测，因此保留现场核验要求。",
+            "evidence": "[GET /failure_mode/status_code/39] root_cause",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 综合定界",
+            "title": "按指定标签定界为 UB 端口 down",
+            "description": "训练描述 1z3b_3ports_fault 对应标签为硬件故障/ub端口故障-down；该标签与多条 RPC 链路 down 现场现象一致。",
+            "evidence": "用户指定标签来源 gt_labels.json + 现场 RPC 链路不可达证据",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "UB 端口 down 使 Metadata Owner RPC 链路不可达",
+        "supporting_knowledge": "状态码 39 curated 解释、kvcache_access_036、kvcache_runtime_1377；物理端口遥测待补。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "UB 端口 down",
+            "detail": "指定故障标签；端口遥测待补",
+            "type": "origin",
+            "transition": "链路不可达"
+          },
+          {
+            "label": "UpdateMeta RPC 失败",
+            "detail": "errno=112 Host is down",
+            "type": null,
+            "transition": "发布结果未知"
+          },
+          {
+            "label": "Metadata Owner 不可用",
+            "detail": "K_METADATA_OWNER_UNAVAILABLE(39)",
+            "type": null,
+            "transition": "错误上浮"
+          },
+          {
+            "label": "SET 请求失败",
+            "detail": "3 条 trace 全部异常",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "目标端点: 192.168.219.94:31501",
+          "源目链路: 192.168.189.110/192.168.235.143 → 192.168.219.94",
+          "操作域: SET；GET 无样本"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "93ddfa2b-1758-4643-a83b-7467291fc693",
+          "kind": "error",
+          "why": "SET + status_code=39 + 12:20—12:26；日志含 RPC peer dead/Host is down。",
+          "status_code": "39",
+          "failure_mode_id": "kvcache_access_036",
+          "pod": "192.168.235.145",
+          "timestamp": "2026-10-13 12:20:09.185"
+        },
+        {
+          "trace_id": "e2479d0b-abaf-4a7d-a293-ec6a311e942a",
+          "kind": "error",
+          "why": "SET + status_code=39 + 192.168.189.110→192.168.219.94。",
+          "status_code": "39",
+          "failure_mode_id": "kvcache_runtime_1377",
+          "pod": "192.168.189.110"
+        },
+        {
+          "trace_id": "2a67324d-2650-4c7d-a2cf-27800b31d2b5",
+          "kind": "error",
+          "why": "SET + status_code=39 + 192.168.235.143→192.168.219.94。",
+          "status_code": "39",
+          "failure_mode_id": "kvcache_runtime_1377",
+          "pod": "192.168.235.143"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002528",
+          "rank": 1,
+          "stars": 4,
+          "match_logic": "L1 命中状态码39及 kvcache_access_036/kvcache_runtime_1377；L2 标签同为硬件故障/ub端口故障-down且操作域部分命中；L3 同为多源到 Metadata Owner 的链路不可达。",
+          "symptom": "历史已确认案例同样出现 SET UpdateMeta RPC 的 Host is down 并上浮状态码 39。",
+          "root_cause": "历史案例归因为 Worker→Metadata Owner 多条 RPC 链路 down；对本现场仅作待验证假设。",
+          "solution": "复核端口 state/link_width/speed、光模块和对端端口，并排除进程退出或路由过期。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "错误码、故障模式与日志短语高度一致。",
+          "log_fit": "RPC peer dead、Host is down、Not connected to 均一致。",
+          "rc_consistency": "应用层链路 down 一致，物理端口层仍需遥测。",
+          "env_diff": "历史案例覆盖更多链路与时间窗口，本次仅 3 条 trace。",
+          "adaptation": "只核验本次目标 192.168.219.94 及相关端口。",
+          "applicability": "adjust"
+        },
+        {
+          "id": "kvcache_access_036",
+          "rank": 2,
+          "stars": 5,
+          "match_logic": "L1 精确命中状态码39；L2 命中 Metadata Owner RPC 故障域；L3 原始日志确认 UpdateMeta 发布结果未知。",
+          "symptom": "请求返回 K_METADATA_OWNER_UNAVAILABLE，元数据所有者不可用且发布结果未知。",
+          "root_cause": "网络中断、元数据所有者进程异常或路由过期均可能导致发布 RPC 无法确认。",
+          "solution": "检查进程、网络和路由；先确认发布结果再决定是否重试。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "直接采用",
+          "phenomenon_fit": "与 3 条 trace 的状态码完全一致。",
+          "log_fit": "原始日志包含 UpdateMeta RPC peer dead。",
+          "rc_consistency": "支持直接链路故障，但不单独证明物理端口 down。",
+          "env_diff": "Curated 通用知识，无现场版本差异判断。",
+          "adaptation": "结合指定标签和端口遥测进一步收敛。",
+          "applicability": "direct"
+        },
+        {
+          "id": "1af1c583-204d-4538-ab34-e166258aa3c7",
+          "rank": 3,
+          "stars": 3,
+          "match_logic": "L1 无错误码语义；L2 命中 UB 端口故障域；L3 提供 port show 的端口状态核验手段。",
+          "symptom": "端口 DOWN 表示端口未连接或已断开。",
+          "root_cause": "仅为经验知识，不将其当作本次现场根因证据。",
+          "solution": "执行 urma_admin port show 并检查物理连接、对端、dmesg 与固件。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考",
+          "phenomenon_fit": "与指定 UB 端口 down 标签一致。",
+          "log_fit": "本资产未出现 PORT_DOWN，因此仅作验证建议。",
+          "rc_consistency": "方向一致但证据层级不同。",
+          "env_diff": "未取得设备与固件版本。",
+          "adaptation": "在目标端口及对端同步执行。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即在 192.168.219.94 对应设备及链路对端执行 urma_admin port show，核对 state、link_width、speed 与端口号。",
+          "检查相关端口光模块、线缆、光功率和告警计数；恢复 DOWN 端口后同步确认对端 ACTIVE。",
+          "同时核验 Metadata Owner 进程及 31501 监听和路由，避免把进程退出或陈旧路由误判为硬件故障。"
+        ],
+        "long_term": [
+          "接入端口 state、光功率、误码、lane/速率和 PORT_DOWN 事件监控，并关联 trace_id 与源目 IP。",
+          "为多端口链路配置冗余和自动切换，并建立状态码39、errno112与端口告警联合告警。"
+        ],
+        "verification": [
+          "复测时确认目标端口与对端端口均为 ACTIVE，link_width 和 speed 恢复预期值。",
+          "连续观察 30 分钟，SET 状态码 39、RPC peer dead 和 Host is down 均不再出现。",
+          "确认 Metadata Owner 路由已刷新；对发布结果未知的对象先查询状态再重试，避免重复写。"
+        ]
+      },
+      "source_code": null
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复并核验目标 UB 端口及对端链路",
+      "depends_on": "端口与链路设备访问权限",
+      "expected_effect": "Metadata Owner RPC 恢复可达",
+      "verify": "port state=ACTIVE，状态码39归零"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验 Metadata Owner 进程、31501 监听与路由",
+      "depends_on": "Worker 运维权限",
+      "expected_effect": "排除进程与路由类替代根因",
+      "verify": "进程 Ready、端口监听、路由指向当前实例"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "RPC网络",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0，无可归因样本。"
+          },
+          {
+            "name": "RPC排队",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0，无可归因样本。"
+          },
+          {
+            "name": "QueryMeta",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0，无可归因样本。"
+          },
+          {
+            "name": "URMA",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0，无可归因样本。"
+          },
+          {
+            "name": "Data Worker服务端处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0，无可归因样本。"
+          },
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0，无可归因样本。"
+          },
+          {
+            "name": "未解释残差",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0，无可归因样本。"
+          },
+          {
+            "name": "URMA超时",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0，无可归因样本。"
+          }
+        ],
+        "conclusion": "GET sample_cnt=0；空结果表示该资产无 GET 可归因样本，不代表 GET 路径健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "SET·Worker写处理",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "100.0",
+            "fail_share": "100.0",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "P50 4.045ms、P90/Max 4.082ms；3/3 trace 异常，未推算 P99。"
+          }
+        ],
+        "conclusion": "SET 的 3 条样本全部归入 Worker 写处理桶，链路错误在 UpdateMeta/发布处理窗口上浮。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": "3",
+    "top_error_codes": [
+      {
+        "code": "39",
+        "name": "K_METADATA_OWNER_UNAVAILABLE",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "Metadata Owner RPC/网络",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.189.110",
+        "host": "—",
+        "pct": "33.3",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.145",
+        "host": "—",
+        "pct": "33.3",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.90",
+        "host": "—",
+        "pct": "16.7",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.143",
+        "host": "—",
+        "pct": "16.7",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "12:20",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      },
+      {
+        "time": "12:21",
+        "level": "0",
+        "pct": "0",
+        "spike": false
+      },
+      {
+        "time": "12:22",
+        "level": "0",
+        "pct": "0",
+        "spike": false
+      },
+      {
+        "time": "12:23",
+        "level": "0",
+        "pct": "0",
+        "spike": false
+      },
+      {
+        "time": "12:24",
+        "level": "0",
+        "pct": "0",
+        "spike": false
+      },
+      {
+        "time": "12:25",
+        "level": "2",
+        "pct": "50",
+        "spike": false,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-3ports-20261013",
+    "total_steps": 6,
+    "api_calls": 31,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库与标签定位",
+        "api_calls": [
+          "experience-skill search-experiences",
+          "read train_valid.md / gt_labels.json"
+        ],
+        "result": "标签为硬件故障/ub端口故障-down"
+      },
+      {
+        "title": "Step 2 资产与解析状态核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}"
+        ],
+        "result": "单日志文件，任务成功，3条异常"
+      },
+      {
+        "title": "Step 3 GET/SET 分离定位",
+        "api_calls": [
+          "POST /stats/stages GET/SET",
+          "POST /stats/error_codes|pods|links|heatmap"
+        ],
+        "result": "GET无样本；SET状态码39共3条"
+      },
+      {
+        "title": "Step 4 Trace 与知识下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_log_events",
+          "GET /failure_mode/status_code/39"
+        ],
+        "result": "确认UpdateMeta RPC Host is down"
+      },
+      {
+        "title": "Step 5 历史案例匹配与反证",
+        "api_calls": [
+          "POST /diag_case_library/search",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "UB-CASE-002528调整后采用"
+      },
+      {
+        "title": "Step 6 报告契约生成",
+        "api_calls": [
+          "latency_features.py",
+          "error_features.py",
+          "render_report.py"
+        ],
+        "result": "完成特征提取、校验与渲染"
+      }
+    ]
+  }
+}

@@ -143,6 +143,11 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 > `knowledge_matches[]` 每项至少含 `id` 与 `match_logic/symptom/root_cause` 之一。
 > 校验与渲染前都会执行 `normalize_compat` 就地转换，保证两者对同一份数据口径一致。
 
+> 自动附加字段：`render_report.py` 在渲染/落盘前会调用
+> `POST /log_failure_event_result/log_semantic_profile`（需 `WITTY_API_BASE` + `kb_id`/`kb_name`）
+> 把「日志语义错误码轮廓」写入 `basic_info.log_semantic_profile`。该字段随文档持久化，报告确认
+> 建案时自动进入案例库，并在案例检索的「日志语义码次级通道」中作为排序信号使用；Agent 无需手工填写。
+
 ### 故障标签
 
 [references/log_label.json](references/log_label.json) 是随 Skill 固化的标签参考，
@@ -153,6 +158,16 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
   **新报告必须始终产出 `faults[]`，单故障也不允许把 `conclusion` 等故障字段写在顶层**（扁平
   结构仅限存量/历史报告导入兜底，见「单故障兼容」）。两者类型均为 `string | null`，
   侧车 JSON 原样保留。
+- **用户使用问题硬判定（优先于语义匹配）**：把该故障全部证据中的错误码
+  （`evidence_traces[].status_code` 与 `error.code_distribution.items[].code`）去重，
+  只要命中下列任一码，`first_level_label` 直接写 `用户相关故障`、`second_level_label`
+  直接写 `使用问题`，不再进入语义匹配：
+  `1、3、9、12、17、28、2000、2001、2004、2006、3000、3001、3002、3004、3006、3007、3009`。
+  判定集**不含** `0`（无错误/成功码）、`2`（K_INVALID）、`8`（K_NOT_READY）、`36`（K_NOT_SUPPORTED）
+  ——`0` 在正常链路与各类故障场景中都会出现，后三个码在硬件/Worker/容器/Coordinator 场景中同样
+  出现，均不具备使用问题的判别力。
+  命中后按案例匹配规则只召回 `用户相关故障/使用问题` 案例；库中暂无该类案例时保留该标签，
+  不回落其他类别（`knowledge_matches` 允许为空）。
 - 仅根据本次诊断的根因、故障组件、异常表现和现场证据，与两级标签做语义匹配，
   尽可能选择最具体且有依据的标签。不得利用日志文件名、训练样例名称或样例到标签的映射
   推断标签，也不能只看到超时就推断为网卡故障。
@@ -247,6 +262,12 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 - 每条必须给 `applicability`：`direct` 可直接采用 / `adjust` 调整后采用 /
   `reference` 仅供参考 / `not_recommended` 不建议采用——**不允许只给笼统匹配分**
 - 必须同时覆盖 curated 知识（failure_mode_knowledge）与 experience-skill 经验
+- **未见故障码先折算再检索**：本次证据里出现案例库从未收录的错误码时，先跑
+  `skills/case-matching/scripts/suggest_similar_codes.py --features <特征文件>`，
+  按它给出的「故障现象/故障原因 + 候选相近已知码（人工映射表 > 同码段 > 同故障域）」
+  选定 1~3 个相近码，用 `--pick "a,b" --apply` 写回特征的 `relaxed_status_codes`
+  再检索（这些码 0.5 降权参与软打分）。**报告里的错误码与故障码含义仍写真实码**，
+  `relaxed_status_codes` 只服务于「找得到相似案例」，不得当作本次故障码写进结论
 - 证据分层：知识库解释、历史案例与本次现场证据分别表述，不把知识库结论当成现场事实；
   `POST /diag_case_library/search` 命中的已确认案例也只能作为**待验证假设**，须有本次现场
   证据支撑才可用于根因，未验证的在结论中显式标注；若降级用了 `POST /diagnosis_case/search`

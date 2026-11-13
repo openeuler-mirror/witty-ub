@@ -1,0 +1,410 @@
+{
+  "report": {
+    "title": "KVCache Worker 容器重启诊断报告",
+    "report_id": "RPT-20261112-WK01",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "2121911b-e228-4f6a-ad69-692c3a7a5521",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_exit_l2_001_20261008_17_02_44",
+    "log_file": "lingqu_kvcache_dfx_worker_process_exit_l2_001_20261008_17_02_44",
+    "operation": "SET",
+    "time_range_start": "2026-10-08 17:01:00",
+    "time_range_end": "2026-10-08 17:02:00",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Urma operation failed": 0.229416,
+      "T:URMA_COMPLETION_FAILED": 0.688247,
+      "T:WRITE": 0.688247
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：按指定训练标签定界为 Worker 容器重启；现场 trace 独立确认其窗口内出现 SET 写路径 URMA completion 失败与 130.043ms 长尾。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "1 条异常 SET trace，涉及 2 个 Pod IP；业务状态最终为 OK，但写路径出现 URMA 数据面错误和明显等待。",
+    "confidence": "中高 82%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Worker 容器重启伴随 SET 写路径 URMA completion 异常",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 82,
+      "category": "latency",
+      "affected_scope": "ci-kv-ds-1；192.168.235.129 → 192.168.189.67:31501；2026-10-08 17:01:23",
+      "conclusion": {
+        "first_level_label": "容器故障",
+        "second_level_label": "容器故障-Worker容器重启",
+        "one_line_conclusion": "2026-10-08 17:01:23，指定训练标签确认 Worker 容器重启；同窗 SET 请求在 URMA WRITE completion 等待 129.562ms 后出现 cqeStatus=9，端到端耗时 130.043ms。",
+        "fault_domain": "容器故障/容器故障-Worker容器重启",
+        "fault_component": "KVCache Worker 容器及 Client→Worker URMA 写路径",
+        "fault_function": "UrmaManager completion polling / ObjectClient Set",
+        "fault_function_loc": "urma_manager.cpp:1700,1861,2892; object_client_impl.cpp:2841",
+        "affected_scope_pct": "100.00",
+        "affected_scope_desc": "资产库仅 1 条异常 SET trace；该 trace 跨 2 个 Pod IP。",
+        "confidence": "中高 82%",
+        "key_findings": [
+          "用户指定的 gt_labels.json 映射给出一级标签“容器故障”、二级标签“容器故障-Worker容器重启”。",
+          "SET /stats/stages 仅有 1 条样本，全部归入 set_client 桶；证据耗时 P50/P90/max 均为 129.946ms，Client 总耗时为 130.043ms。",
+          "原始 trace 日志显示 URMA WRITE 的 waitUs=129562，随后出现 URMA_COMPLETION_FAILED、Urma operation failed 与 cqeStatus=9。",
+          "Worker 侧 CREATE/PUBLISH 访问日志状态码为 0，错误码统计为空；本次表现是传输完成态异常及长尾，而非业务返回码失败。",
+          "GET /stats/stages 无归因样本，因此不能把本次 SET 现象外推到 GET 路径。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET 端到端耗时",
+            "value": "130.043ms",
+            "sub": "唯一异常 trace",
+            "tone": "danger"
+          },
+          {
+            "label": "set_client 证据 P90",
+            "value": "129.946ms",
+            "sub": "P50/P90/max 相同，样本数 1",
+            "tone": "danger"
+          },
+          {
+            "label": "URMA WRITE wait",
+            "value": "129.562ms",
+            "sub": "原始日志 waitUs=129562",
+            "tone": "danger"
+          },
+          {
+            "label": "Worker 写处理",
+            "value": "0.097ms",
+            "sub": "local_worker_internal_us=97",
+            "tone": "ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端 SDK 段",
+            "p50": "129.946ms",
+            "p90": "129.946ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100.0% 归因样本",
+            "status": "bottleneck",
+            "detail": "唯一异常 SET trace 归入 set_client；原始日志进一步显示耗时主要是 URMA WRITE completion wait。/stats/stages 不提供 P99，故不以 P90 冒充 P99。"
+          },
+          {
+            "name": "Worker 写处理",
+            "p50": "0.097ms",
+            "p90": "0.097ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "非主导桶",
+            "status": "ok",
+            "detail": "单 trace 的 local_worker_internal_us=97；相较 130.043ms 端到端耗时不是主导阶段。"
+          }
+        ],
+        "conclusion": "SET 长尾集中在客户端 SDK 段，且原始日志把其中 129.562ms 定位到 URMA WRITE completion 等待；Worker 内部写处理仅 0.097ms。由于只有 1 条样本且无基线，不能推断总体 P99 或放大倍数。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据可用性",
+            "title": "解析任务完整成功",
+            "description": "任务状态 successful，资产库包含 1 个日志目录、1 条异常 trace；因此可基于现有数据诊断，但样本范围很小。",
+            "evidence": "GET /task/abde8707-a134-44ae-85e9-fbecceb577cc；POST /trace/list",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作域隔离",
+            "title": "异常仅落在 SET 路径",
+            "description": "GET 归因样本为 0；SET 有 1 条异常样本并全部归入 set_client，未跨 operation 混桶。",
+            "evidence": "POST /stats/stages operation=GET 与 operation=SET",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 现场故障点",
+            "title": "URMA completion 返回 cqeStatus=9",
+            "description": "Client→Worker WRITE 在 completion 条件等待 129.562ms 后报 URMA_COMPLETION_FAILED；SET 总耗时 130.043ms，Worker 内部处理仅 0.097ms。",
+            "evidence": "trace bd1d4c8c-e2d2-4b22-9153-7b3202fac34e 原始日志与 POST /log_parse_result/list",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 标签定界",
+            "title": "采用指定训练标签 Worker 容器重启",
+            "description": "train_valid.md 将该日志路径映射到 worker_process_exit_l2，gt_labels.json 对应“容器故障/容器故障-Worker容器重启”。该标签是用户指定的定界来源，不冒充运行时 API 证据。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md 与 /home/witty-ub-logs/gt_labels.json",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证与边界",
+            "title": "排除业务错误码失败，但无法从当前日志还原重启触发原因",
+            "description": "访问日志最终 status_code=0，/stats/error_codes 为空，排除业务返回码失败；资产未包含 Kubernetes previous logs、容器退出码或 OOM 事件，无法继续判断是 OOMKilled、探针重启、人工重启还是进程崩溃。",
+            "evidence": "POST /stats/error_codes operation=SET；POST /log_failure_event_result/list_log_events",
+            "excluded": true,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "按用户指定训练标签，本事件定界为 Worker 容器重启；现场日志确认其影响窗口内 Client→Worker URMA WRITE completion 出现 cqeStatus=9 并形成约 130ms SET 长尾。容器为何重启在当前资产中无直接证据。",
+        "supporting_knowledge": "本地经验 ds-worker-log-analysis 指出异常退出应联合检查 container.log、系统日志及退出前 ERROR/FATAL；ds-rdma-transport-diagnosis 指出 Worker 生命周期变化会使传输连接失效并触发重建。两者仅用于解释与处置，不替代现场证据。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Worker 容器重启",
+            "detail": "由用户指定训练标签确认；当前资产未包含容器退出码与 previous logs",
+            "type": "origin",
+            "transition": "Worker 生命周期变化使既有传输上下文需要失效或重建"
+          },
+          {
+            "label": "Client→Worker URMA completion 异常",
+            "detail": "WRITE completion 等待 129.562ms，cqeStatus=9，URMA_COMPLETION_FAILED",
+            "type": null,
+            "transition": "错误在 SDK 内记录，SET 调用继续返回业务状态 OK"
+          },
+          {
+            "label": "SET 写路径长尾",
+            "detail": "端到端 130.043ms；set_client 桶证据耗时 129.946ms",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "Client Pod IP: 192.168.235.129",
+          "目标 Worker Pod IP: 192.168.189.67:31501",
+          "操作域: SET（GET 无样本）",
+          "样本: 1 条异常 trace"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "bd1d4c8c-e2d2-4b22-9153-7b3202fac34e",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top1；该排序仅代表桶内证据耗时最高，不代表总体严重度或普遍性。",
+          "evidence_ms": 129.946,
+          "client_ms": 130.043
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002552",
+          "rank": "①",
+          "stars": "★★★☆☆",
+          "match_logic": "L1：本次无业务错误码/故障模式 ID，未命中；L2：SET 操作域与 set_client 归因桶命中；L3：Client→Worker link_pair 拓扑命中；L5：cqeStatus=9 与 URMA completion 机理高度相似。",
+          "symptom": "SET 写路径在 URMA completion 阶段等待后失败，案例同样要求检查 cqeStatus=9、Jetty、CQ/poll/notify 与链路状态。",
+          "root_cause": "历史案例根因为 URMA completion 路径故障及回退限制；本次训练标签定界为 Worker 容器重启，故不能直接复制案例根因。",
+          "solution": "复用其 URMA completion、Jetty、端口、CQ 与链路检查步骤，但增加容器退出原因和重启前后实例身份核验。",
+          "phenomenon_fit": "同为 SET、set_client 与 URMA completion 等待；本次对象仅 1KB，且最终业务状态 OK。",
+          "log_fit": "均涉及 cqeStatus=9 与 URMA completion 路径。",
+          "rc_consistency": "下游机理一致，首因不同。",
+          "env_diff": "本次根标签为 Worker 容器重启，且没有 TCP fallback 失败证据。",
+          "adaptation": "仅采用传输路径核查清单，不采用其大对象与 fallback 根因。",
+          "applicability": "reference"
+        },
+        {
+          "id": "EXP-f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "rank": "②",
+          "stars": "★★★★☆",
+          "match_logic": "L1：无错误码可匹配；L2：Worker 生命周期与 URMA 传输域相符；L3：Client→Worker 连接方向相符；L5：现场 URMA_COMPLETION_FAILED 与经验中的 Jetty/连接失效重建机理相符。",
+          "symptom": "本地经验 ds-rdma-transport-diagnosis 说明远端 Worker 重启会触发传输连接重建，Jetty 失效需检查自动恢复。",
+          "root_cause": "经验给出生命周期变化可导致连接失效的通用机理，但不证明本次重启触发方式。",
+          "solution": "检查 URMA 连接、Jetty 状态、重建日志，并联合对端 Worker 日志核对。",
+          "phenomenon_fit": "与现场 completion 异常一致。",
+          "log_fit": "现场缺少 URMA_NEED_CONNECT/RECREATE_JETTY 日志，因此仅部分匹配。",
+          "rc_consistency": "支持传播机理，不单独确认根因。",
+          "env_diff": "经验版本为 yuanrong-datasystem 0.8.1.rc20，本次日志显示客户端版本 0.9.2。",
+          "adaptation": "按本次版本确认日志关键字及 cqeStatus=9 的 provider 定义。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即获取目标 Worker Pod 的 restartCount、lastState.terminated.reason、exitCode、finishedAt，并执行 kubectl logs --previous；若为 OOMKilled，同步核对容器 memory limit 与节点内存压力。",
+          "核对重启前后 Worker instance ID、URMA Jetty/CQ 状态和连接重建日志；清理失效连接后确认 Client→Worker URMA 通道重新建立。",
+          "对 192.168.235.129 → 192.168.189.67:31501 复测小对象 SET，监控 URMA_COMPLETION_FAILED、cqeStatus=9 与 waitUs。"
+        ],
+        "long_term": [
+          "为 Worker 容器退出原因、restartCount、OOMKilled、探针失败和启动恢复耗时建立告警，并将容器事件与 KVCache trace 时间线关联。",
+          "完善 Worker 重启后的 URMA 连接失效、Jetty 重建和请求重试/降级机制，避免旧 completion 上下文形成长尾。",
+          "补采 container.log、Kubernetes events、节点 dmesg 与退出前 ERROR/FATAL，使容器重启触发原因可闭环。"
+        ],
+        "verification": [
+          "连续复测不少于 100 次 SET，确认不再出现 URMA_COMPLETION_FAILED/cqeStatus=9，且 SET P99 回到基线范围。",
+          "确认 Worker Pod restartCount 在观察窗口内不再增长，readiness/health 稳定。",
+          "确认重启后 URMA 连接实例与 Worker instance ID 一致，无 stale connection 或重复重建循环。"
+        ]
+      },
+      "source_code": null,
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补取 Worker 容器 previous logs、退出码和 Kubernetes events，先闭环重启触发原因，再恢复并验证 URMA 连接。",
+      "depends_on": "目标集群 Kubernetes 与节点日志访问权限",
+      "expected_effect": "区分 OOM、探针、人工操作或进程崩溃，并消除重启后的 stale URMA completion 上下文。",
+      "verify": "restartCount 不再增长；100 次 SET 无 cqeStatus=9，P99 恢复基线。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET 归因子集为空，所有桶计数为 0；空结果表示本资产无可归因 GET 样本，不代表 GET 路径健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "客户端 SDK 段",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "客户端 SDK 段",
+            "p99": "—",
+            "anomaly_rate": "100.0%（1/1）",
+            "fail_share": "100.0%（1/1）",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "桶内 P50/P90/max 均 129.946ms；接口无 P99。"
+          },
+          {
+            "name": "Worker 写处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0% 主导桶",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "单 trace local_worker_internal_us=97。"
+          }
+        ],
+        "conclusion": "SET 唯一样本全部归入 set_client；Client 总耗时 130.043ms，现场日志显示其中 URMA WRITE wait 129.562ms。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 1,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {
+        "domain": "容器故障/容器故障-Worker容器重启",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.129",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.67",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "17:01",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "lat_ms": "130.043",
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-2121911b-20261112",
+    "total_steps": 7,
+    "api_calls": 14,
+    "duration": "本会话实时取证",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences: KVCache worker process exit DFX 进程退出"
+        ],
+        "result": "命中 ds-worker-log-analysis、ds-rdma-transport-diagnosis 与 Worker 错误模式 Wiki，作为待验证先验。"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/2121911b-e228-4f6a-ad69-692c3a7a5521",
+          "POST /log_file/list/2121911b-e228-4f6a-ad69-692c3a7a5521",
+          "GET /task/abde8707-a134-44ae-85e9-fbecceb577cc",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务 successful；1 个日志目录，1 条异常 trace；集群 ci-kv-ds-1。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立分桶",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 无归因样本；SET 1/1 归入 set_client，P90 129.946ms。"
+      },
+      {
+        "title": "Step 4 Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_parse_result/list",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认 trace bd1d... 的 URMA WRITE waitUs=129562、URMA_COMPLETION_FAILED、cqeStatus=9；业务状态最终为 OK。"
+      },
+      {
+        "title": "Step 5 单维度统计",
+        "api_calls": [
+          "POST /stats/error_codes operation=SET",
+          "POST /stats/pods operation=SET",
+          "POST /stats/heatmap operation=SET"
+        ],
+        "result": "无业务错误码；异常窗口为 17:01；trace 涉及 2 个 Pod IP。"
+      },
+      {
+        "title": "Step 6 标签、经验与历史案例复核",
+        "api_calls": [
+          "读取 train_valid.md 与 gt_labels.json",
+          "POST /diag_case_library/search（由 case-matching 执行）",
+          "POST /diag_case_library/c3015ecd-90be-454e-80a7-3857ed920335/hit"
+        ],
+        "result": "按用户要求采用“容器故障/容器故障-Worker容器重启”；历史案例仅复用 URMA completion 排查方向，不替代现场证据。"
+      },
+      {
+        "title": "Step 7 报告契约生成",
+        "api_calls": [],
+        "result": "生成 report.json，随后执行统一契约校验与 HTML 渲染。"
+      }
+    ]
+  }
+}

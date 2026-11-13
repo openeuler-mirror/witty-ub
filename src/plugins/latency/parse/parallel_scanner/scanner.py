@@ -37,6 +37,10 @@ SANITIZED_FILES_KEY = "sanitized_files"
 #: scan_all 结果里"轻列扫描现场"键（light=True 时才有）：ScanContext
 SCAN_CTX_KEY = "scan_ctx"
 
+#: 进度回调单次上报的硬超时（秒）。回调走 DB 上报，一旦某个 await 卡住不能让它
+#: 把整次扫描永久挂起（子进程会 alive-but-kevent 空转、占满并发槽直到服务重启）。
+_PROGRESS_STEP_TIMEOUT_S = 10.0
+
 
 @dataclass
 class ScanMetrics:
@@ -129,7 +133,15 @@ class ParallelFileScanner:
                     fraction = await queue.get()
                     if fraction is None:
                         return
-                    await progress_cb(fraction)
+                    try:
+                        await asyncio.wait_for(
+                            progress_cb(fraction), timeout=_PROGRESS_STEP_TIMEOUT_S
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "[scan] 进度上报超时(%.0fs)，跳过本次上报",
+                            _PROGRESS_STEP_TIMEOUT_S,
+                        )
 
             pump = asyncio.create_task(_pump())
             try:
@@ -141,7 +153,12 @@ class ParallelFileScanner:
                 )
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
-                await pump
+                # 扫描已完成，绝不允许进度协程里卡死的 await 拖住返回。
+                try:
+                    await asyncio.wait_for(pump, timeout=_PROGRESS_STEP_TIMEOUT_S)
+                except asyncio.TimeoutError:
+                    pump.cancel()
+                    logger.warning("[scan] 进度消费协程超时，已取消")
         self.metrics.scan_time_ms = (time.perf_counter() - scan_start) * 1000
         self.metrics.total_entries = frame.height
         self.metrics.total_time_ms = (time.perf_counter() - overall_start) * 1000

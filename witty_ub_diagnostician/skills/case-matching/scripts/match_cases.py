@@ -17,11 +17,11 @@
     L1 故障模式       failure_mode_ids   4.0          精确语义，跨现场可迁移（最强）
     L1 错误码分布     status_codes       3.0 × share  主导错误码权重次之
     L2 超时时延段     latency_components 2.0 × share  时延故障核心特征（归因桶）
-    L2 操作域         operation          1.0          查询 GET/SET 与案例一致（MIXED 部分），宽召回已过滤故弱化
+    L2 操作域         operation          1.0          查询 GET/SET 与案例一致（MIXED 部分），服务端过滤默认关闭，改由此弱化
     L5 机理关键词     log_keywords       1.0          现场日志原文短语
     L2 时间形态       time_shape         1.0          突发单点/短时簇发/持续劣化 相等加分
     L2 影响范围       affected_scope     0.5          single_pod/few_pods/multi_pod 相等加分
-    L2 拓扑形状       topology_shape     0.5          link_pair（源目链路对 A↔B，两侧同源可提取）相等加分
+    L2 拓扑形状       topology_shape     0.0          link_pair（源目链路对 A↔B，两侧同源可提取）相等加分（LOO 实证为净负，已归零）
 
   share ∈ (0,1]，表示该特征在本次故障中的贡献占比（如归因桶 trace 占比、
   主导错误码占比），由 Agent 从 /stats/stages、错误码统计中提取。
@@ -32,6 +32,11 @@
   宽召回后剔除一级标签为 Coordinator故障 / UB管控面故障 的候选（LOO 全量评估
   实证：这类候选在软打分维度与 Worker/硬件报告高度重叠、吸走 top1 位置，而
   对应查询报告本身判别特征不足，保留 C 候选只引入干扰），不参与软打分与投票。
+
+  宽召回改为"拉全"（v2.6）：按过滤头翻页收满服务端返回的全部候选，不再受单页
+  page_cnt 上限截断。原因是宽召回请求不带匹配信号，服务端对零信号查询按
+  (confidence, hit_count, updated_at) 排序返回——与查询内容无关，单页截断只会
+  盲删相关候选。此时 page_cnt 仅作为分页大小，实际候选数由 _search_all 翻页收满。
 
   v3 文本相似度破平局：特征文件可提供 query_text（诊断中途草稿——只含现象确认与
   阶段定位等 confirmed=True 的推理步文本，不含候选根因/反证/结论/处置）。本脚本对
@@ -49,8 +54,8 @@
 
   library（默认）→ /diag_case_library/search
       超节点诊断案例库，只返回 status=confirmed 的案例（人工确认过，含证据、
-      分步处置与验证闭环）。kb_id 可选（可跨知识库召回），operation 是服务端
-      过滤字段。这是"正解通道"。
+      分步处置与验证闭环）。kb_id 可选（可跨知识库召回）；operation 服务端过滤
+      默认关闭（--operation-filter 可开启）。这是"正解通道"。
 
   legacy        → /diagnosis_case/search
       旧的 diagnosis_case 表：**没有人工确认关卡、内容物很薄、kb_id 必填**。
@@ -97,7 +102,8 @@ SOURCE_LABEL = {
 # 相对权重参考 Web 前端"相似案例分析"模块（src/plugins/latency/services/similarity.py：
 # failure_mode 6.0 / status_code 4.0 / 操作·段排名 3.0 / 超时段·时延形态 2.0 / scope 1.0）：
 # failure_mode 应高于 status_code，段权重居中，形态/规模为弱加分。
-# operation 在 library 通道已被服务端过滤隔离，故仅给弱加分（区分 MIXED/GET/SET）。
+# operation 的服务端过滤默认关闭（见 OPERATION_FILTER_ENABLED），宽召回后候选操作域
+# 可能不一致，故给弱加分（1.0）用于区分 GET/SET/MIXED。
 SOFT_WEIGHT: dict[str, float] = {
     "failure_mode_id": 4.0,
     "status_code": 3.0,
@@ -106,14 +112,198 @@ SOFT_WEIGHT: dict[str, float] = {
     "operation": 1.0,
     "time_shape": 1.0,
     "affected_scope": 0.5,
-    "topology_shape": 0.5,
+    # topology_shape 曾由 0.5 提升到 1.5。训练集 1110 LOO 消融显示其为净负特征：
+    # 置 0 后 K4 70.2%→70.7%、top1 69.7%→71.3%，且两套召回口径（95篇pre库 / 188条LOO）
+    # 结论一致，故归零。提取逻辑 _topology_shape_from_pods 保留，后续引入浓度 pct 再评估。
+    "topology_shape": 0.0,
 }
+
+# 服务端 operation 过滤开关（默认关闭）。
+# 关闭时召回不下发 operation，候选操作域交由 operation 特征（权重 1.0）软处理。
+# 1112 文档集 LOO 复评（margin=0.05）：关闭后 top1 70.1%→71.6%、K4 70.6%→72.2%，
+# 与「全量池」口径一致。开启（--operation-filter）则复刻旧的服务端硬过滤。
+OPERATION_FILTER_ENABLED = False
 
 # 生产候选排除：Coordinator/UB管控面 一级标签的案例不进入候选集合。
 # LOO 全量评估（120 报告 / 126 案例）实证：这两类候选在软打分维度与 Worker/硬件
 # 报告高度重叠、吸走 top1（保留时不含C top1=63.4%，剔除后 68.3%）；且 C 类查询
 # 报告本身判别特征不足、label_vote 几乎全 miss，保留 C 候选只引入干扰。
 EXCLUDED_FIRST_LEVEL_LABELS: tuple[str, ...] = ("Coordinator故障", "UB管控面故障")
+
+# 「用户相关故障/使用问题」硬判定。查询侧错误码一旦命中 USER_USAGE_FAULT_CODES，
+# 本次故障即锁定为 用户相关故障/使用问题，并只召回该标签的案例，不再与其他类别竞争。
+# 码集 = KVCache 故障模式知识库「故障域=用户」的 16 个码，加上语义同属使用问题的
+# 17/28/3004/3007/3009，并剔除 2/8/36——这三个码在现有案例库中分别挂在硬件/Worker/
+# 容器/Coordinator 场景上，不具备用户使用问题的判别力；再剔除 0——0 是「无错误/成功」
+# 码，在硬件故障报告里同样会出现，纳入会误触发硬判定。
+USER_USAGE_FIRST_LEVEL = "用户相关故障"
+USER_USAGE_SECOND_LEVEL = "使用问题"
+USER_USAGE_FAULT_CODES: frozenset[str] = frozenset({
+    "1", "3", "9", "12", "17", "28",
+    "2000", "2001", "2004", "2006",
+    "3000", "3001", "3002", "3004", "3006", "3007", "3009",
+})
+
+# 未见码经 suggest_similar_codes.py 折算出的相近已知码，按此占比降权参与软打分：
+# 让检索能沾上相似案例，但不至于把不相干的候选顶上来。
+RELAXED_STATUS_CODE_SHARE = 0.5
+
+# v2.4 打分改造（训练集 1110 LOO 实证：不含C/不含集群 top1 68.6%→70.8%、K14 67.6%→68.6%）：
+# 原等权打分下 82.2% 的查询 top1 与其它候选 score_norm 完全并列（55.7% 跨一级标签），
+# 最终靠 text_sim 抛硬币，这是"硬件↔Worker 互混"的主因。三条正交改造：
+#   ① status_codes 改用 F1 计分（兼顾召回与精度）：候选码集越不精确、得分越低，
+#      使"码集完全命中"的精确案例压过"码多且杂"的宽泛案例，打破并列；
+#   ② 错误码→故障域先验：按候选池内 码/故障模式→一级标签 分布对**查询真实特征**投票，
+#      命中预测域的候选加 DOMAIN_PRIOR_WEIGHT × 投票占比 的加分（相近码降权参与；
+#      故障模式通道权重 0.1，由 PRIOR_CHANNEL_WEIGHT 控制）；
+#   ③ topology_shape 权重曾 0.5→1.5，后经 LOO 消融证伪为净负，已归零（见 SOFT_WEIGHT 注释）。
+# 错误码→故障域先验：错误码通道权重 + 故障模式通道权重（后者为辅助，权重须远小于前者）。
+# 实测（237 案例真库 LOO 网格）：总权重 0.2 时最优（K4 69.1%→69.7%，131/188）；0.35 次之
+# （69.1%），0.5/0.7 单调下滑（68.1%）。故障模式通道仍取 0.1 辅助。
+# 两通道权重之和即注入软打分的总权重（见 _soft_score 的 prior_denom）。
+DOMAIN_PRIOR_WEIGHT = 0.2
+PRIOR_CHANNEL_WEIGHT: dict[str, float] = {"status_codes": 0.25, "failure_mode_ids": 0.1}
+
+# v2.5 日志语义码通道：查询侧与候选案例侧「日志语义错误码轮廓」的 cosine 相似度。
+# 轮廓来自 log_failure_event(E/W) 原文里的语义错误码（code: [Not ready] /
+# [Urma wait for completion timed out]）与日志常量 token（URMA_WAIT_TIMEOUT、E2001 等）。
+# 候选案例侧 log_id 未落库（diag_case_library.source_log_ids 为空），故轮廓由离线脚本
+# build_log_semantic_profiles.py 物化到 references/log_semantic_profiles.json；
+# 查询侧优先按 features.json 的 log_id 查资产 by_log_id，回退 kb_name → by_kb_name。
+# 生产资产实测（188 条不含C / 237 案例池）：top1 66.5%→70.7%（+8 条），K4 69.7%→70.7%（+2 条）；
+# 收益全部落在"硬件↔Worker"边界（URMA 时延族 vs Not ready/RPC peer dead 族），
+# 对小类（SDK/OS/容器无 E/W 日志）无影响。故仅作加性次级通道，两侧都有轮廓时才生效。
+LOG_SEMANTIC_WEIGHT = 0.5
+LOG_SEMANTIC_ENABLED = True
+LOG_SEMANTIC_ASSET = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "references",
+    "log_semantic_profiles.json",
+)
+_LOG_SEMANTIC_CACHE: dict | None = None
+
+# v2.7 判别加权：轮廓是纯 TF 归一化，高频泛码（URMA_WRITE 69/246、E112 60/246、
+# RPC peer dead 55/246…）横跨所有类别，会淹没稀疏但有判别力的码
+# （UNKNOWN_TYPE 7/246、QUERY_AND_GET_DELAY_RELEASE_ADD 5/246…），使各类轮廓趋同、
+# cosine 分不开。故在检索期按候选池的 df 做 IDF 重加权（df 是语料相对的，不能烘进
+# 持久化轮廓），并剔除哈希/UUID 噪声 token。置 False 即退回纯 TF 行为（消融开关）。
+LOG_SEMANTIC_IDF = True
+# 噪声 token：32 位十六进制哈希 / UUID（含 T: 前缀），跨现场不可能一致。
+LOG_SEMANTIC_NOISE_RE = re.compile(r"^(?:[Tc]:)?[0-9A-Fa-f]{16,}$")
+
+# v2.8 码→标签先验通道（实验性，默认关闭）：统计候选池内「日志语义码 → 一级标签」
+# 分布，对查询侧语义码投票出最可能的一级标签，命中该标签的候选按得票占比加分。设计
+# 意图是与 cosine 通道互补（cosine 在「轮廓饱和」时并列、加同常数不改次序）。
+# 1112 文档集 LOO 复评（139 条带轮廓查询）结论为**负**：投票标签本身命中真值仅 64.7%
+# （泛码 URMA_WRITE/E112/RPC peer dead 横跨硬件/Worker，票只落在两个大类上），全量
+# top1 72.2%→68.0%（误伤 11/救回 3）；仅用「判别码」（纯度≥0.8）时为中性、且只覆盖
+# 25% 查询；加置信门限（票占比≥0.7）时 +1 条（噪声内）。故默认关闭、暂不启用，仅留作
+# 后续在时间留出池上复评的开关。
+LOG_SEMANTIC_PRIOR_ENABLED = False
+LOG_SEMANTIC_PRIOR_WEIGHT = 0.2
+
+
+def _log_semantic_asset() -> dict:
+    """懒加载日志语义码轮廓资产；缺失或损坏时返回空（通道自动关闭，不影响其余打分）。"""
+    global _LOG_SEMANTIC_CACHE
+    if _LOG_SEMANTIC_CACHE is None:
+        try:
+            with open(LOG_SEMANTIC_ASSET, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        _LOG_SEMANTIC_CACHE = data if isinstance(data, dict) else {}
+    return _LOG_SEMANTIC_CACHE
+
+
+def _log_semantic_cosine(query_profile: dict | None, case_profile: dict | None) -> float:
+    """两个已归一化单位向量的点积（等价 cosine）；任一为空返回 0。"""
+    if not query_profile or not case_profile:
+        return 0.0
+    if len(query_profile) > len(case_profile):
+        query_profile, case_profile = case_profile, query_profile
+    return sum(weight * case_profile.get(key, 0.0) for key, weight in query_profile.items())
+
+
+def _log_semantic_idf(profiles: list[dict]) -> dict[str, float]:
+    """按候选池统计每个码的 IDF：idf = ln(N/df) + 1。
+
+    出现越普遍的码（E112、URMA_WRITE…）权重越低，稀疏且集中的码（UNKNOWN_TYPE、
+    QUERY_AND_GET_DELAY_RELEASE_ADD…）权重越高。无候选时返回空（等价不重加权）。
+    """
+    total = len(profiles)
+    if not total:
+        return {}
+    df: Counter = Counter()
+    for profile in profiles:
+        for key in profile:
+            df[key] += 1
+    return {key: math.log(total / count) + 1.0 for key, count in df.items()}
+
+
+def _log_semantic_reweight(profile: dict | None, idf: dict[str, float]) -> dict | None:
+    """按 IDF 重加权并剔除噪声 token，重新归一化为单位向量；空轮廓原样返回。"""
+    if not profile:
+        return profile
+    weighted: dict[str, float] = {}
+    for key, value in profile.items():
+        if LOG_SEMANTIC_NOISE_RE.match(key):
+            continue
+        weighted[key] = value * idf.get(key, 1.0)
+    norm = math.sqrt(sum(v * v for v in weighted.values()))
+    if not norm:
+        return None
+    return {key: value / norm for key, value in weighted.items()}
+
+
+def _log_semantic_prior(
+    labeled_profiles: list[tuple[dict | None, str | None]],
+    query_profile: dict | None,
+) -> tuple[str | None, float]:
+    """统计候选池「日志语义码 → 一级标签」分布，对查询侧语义码投票。
+
+    每个码对某标签的贡献 = P(label|code) × 查询侧该码权重，再加权求和；权重取查询
+    轮廓里该码的现值（已归一化的 TF/IDF），故稀疏判别码比泛码更能左右投票。返回
+    (预测标签, 该标签得票占比 0~1)；无有效票返回 (None, 0.0)。
+    """
+    dist: dict[str, Counter] = {}
+    for profile, label in labeled_profiles:
+        if not profile or not label:
+            continue
+        for code in profile:
+            dist.setdefault(code, Counter())[label] += 1
+    if not dist or not query_profile:
+        return None, 0.0
+    votes: Counter = Counter()
+    for code, weight in query_profile.items():
+        counts = dist.get(code)
+        if not counts:
+            continue
+        total = sum(counts.values())
+        for label, count in counts.items():
+            votes[label] += weight * count / total
+    if not votes:
+        return None, 0.0
+    total = sum(votes.values())
+    label, count = votes.most_common(1)[0]
+    return label, count / total
+
+
+def _query_log_semantic_profile(soft: dict) -> dict | None:
+    """查询侧轮廓：优先用特征 JSON 内联的自带轮廓，其次按 log_id / kb_name 查静态资产。"""
+    inline = soft.get("log_semantic_profile")
+    if inline:
+        return inline
+    log_id = soft.get("log_id")
+    if log_id:
+        profile = (_log_semantic_asset().get("by_log_id") or {}).get(str(log_id))
+        if profile:
+            return profile
+    kb_name = soft.get("kb_name")
+    if kb_name:
+        return (_log_semantic_asset().get("by_kb_name") or {}).get(kb_name) or None
+    return None
+
 
 # L 级归组（报告/结论书写用）
 LEVEL_OF_FEATURE: dict[str, str] = {
@@ -239,9 +429,22 @@ def _values_with_shares(features: dict, field: str, shares_field: str | None) ->
 
 
 def _extract_soft_features(features: dict) -> dict:
-    """把特征 JSON 转成软匹配特征（值 + 贡献占比 share）。"""
+    """把特征 JSON 转成软匹配特征（值 + 贡献占比 share）。
+
+    status_codes 只装本次日志真实出现的码；relaxed_status_codes 装 Agent 为未见码
+    选定的相近已知码（由 suggest_similar_codes.py 产出），以 0.5 降权并入软打分，
+    但不参与用户使用问题硬判定。
+    """
+    status_codes = _values_with_shares(features, "status_codes", "status_code_shares")
+    real = {item["value"] for item in status_codes}
+    relaxed = [
+        {"value": _normalize(code), "share": RELAXED_STATUS_CODE_SHARE}
+        for code in (features.get("relaxed_status_codes") or [])
+        if str(code).strip() and _normalize(code) not in real
+    ]
     return {
-        "status_codes": _values_with_shares(features, "status_codes", "status_code_shares"),
+        "status_codes": status_codes + relaxed,
+        "relaxed_status_codes": relaxed,
         "failure_mode_ids": _values_with_shares(features, "failure_mode_ids", None),
         "latency_components": _values_with_shares(features, "latency_components", "latency_component_shares"),
         "log_keywords": _values_with_shares(features, "log_keywords", None),
@@ -250,6 +453,18 @@ def _extract_soft_features(features: dict) -> dict:
         "affected_scope": _normalize(features["affected_scope"]) if features.get("affected_scope") else None,
         # 保守版仅 link_pair 参与打分；其余形状（bi_pair/conc/spread）案例侧暂无法提取，置空不参与。
         "topology_shape": "link_pair" if _normalize(features["topology_shape"]) == "link_pair" else None,
+        # 日志语义码通道的查询侧索引（见 LOG_SEMANTIC_*）：优先 log_id，回退报告 basic_info.kb_name。
+        "log_id": str(features.get("log_id") or "").strip() or None,
+        "kb_name": (
+            str(features.get("kb_name") or (features.get("basic_info") or {}).get("kb_name") or "").strip()
+            or None
+        ),
+        # 文档 / 特征 JSON 自带的日志语义码轮廓（内联优先），缺失再回退静态资产。
+        "log_semantic_profile": (
+            features.get("log_semantic_profile")
+            or (features.get("basic_info") or {}).get("log_semantic_profile")
+            or None
+        ),
     }
 
 
@@ -266,12 +481,25 @@ def _soft_feature_count(soft: dict) -> int:
     )
 
 
-def _build_recall_query(features: dict, source: str = SOURCE_LIBRARY) -> dict:
+def _user_usage_hit(features: dict) -> list[str]:
+    """查询侧**真实**错误码命中的用户使用问题码（相近码不参与判定）。"""
+    values = {_normalize(code) for code in (features.get("status_codes") or [])}
+    return sorted(values & USER_USAGE_FAULT_CODES, key=lambda v: (len(v), v))
+
+
+def _build_recall_query(features: dict, source: str = SOURCE_LIBRARY, user_usage: bool = False) -> dict:
     """构建宽召回查询：只带过滤头（kb_id/fault_type/min_confidence/operation），
     不带任何匹配信号——服务端按过滤条件返回候选，软打分在本脚本完成。
 
-    library 通道 kb_id 可选（留空 = 跨知识库召回），并支持服务端 operation 过滤；
-    legacy 通道 kb_id 必填（旧表不支持 operation 过滤，只作正文标注）。
+    返回的是单页请求参数（page_cnt 为分页大小）；实际按页收满全部候选由
+    _search_all 负责，故 page_num/page_cnt 这里只作为初值。
+
+    library 通道 kb_id 可选（留空 = 跨知识库召回）；operation 服务端过滤默认关闭，
+    仅当 OPERATION_FILTER_ENABLED 开启（--operation-filter）时才下发；legacy 通道
+    kb_id 必填（旧表不支持 operation 过滤，只作正文标注）。
+
+    user_usage=True 时额外锁定一级/二级标签为 用户相关故障/使用问题，命中该规则的
+    故障只召回同类案例（当前案例库该类为 0 条，检索结果即为空，符合"严格只召回"口径）。
     """
     query: dict = {"page_num": 1, "page_cnt": 100}
 
@@ -288,8 +516,11 @@ def _build_recall_query(features: dict, source: str = SOURCE_LIBRARY) -> dict:
 
     if source == SOURCE_LIBRARY:
         operation = features.get("operation")
-        if operation and str(operation).strip():
+        if OPERATION_FILTER_ENABLED and operation and str(operation).strip():
             query["operation"] = _normalize_operation(operation)
+        if user_usage:
+            query["first_level_label"] = USER_USAGE_FIRST_LEVEL
+            query["second_level_label"] = USER_USAGE_SECOND_LEVEL
 
     return query
 
@@ -327,25 +558,70 @@ def _topology_shape_from_pods(pods: list | None) -> str | None:
     return None
 
 
-def _soft_score(case: dict, soft: dict) -> tuple[float, float, dict[str, list[str]], int]:
+def _domain_prior(matches: list[dict], soft: dict) -> tuple[str | None, float]:
+    """从候选池统计「特征值→一级标签」分布，对查询真实特征投票出最可能的一级标签。
+
+    两个通道：status_codes（主，权重 0.5）与 failure_mode_ids（辅，权重 0.1；LOO 网格实测
+    仅小权重有正收益）。每个码/模式对某标签的贡献 = 该值在池里属于该标签的比例
+    （行归一化 P(label|value)，即 n(值,标签)/n(值)）。票再按查询侧 share 加权，故 Agent
+    折算的相近码（share=0.5）只发挥一半影响。返回 (预测标签, 该标签得票占比 0~1)；
+    无有效票返回 (None, 0.0)。
+    """
+    dist_by_value: dict[str, dict[str, Counter]] = {key: {} for key in PRIOR_CHANNEL_WEIGHT}
+    for match in matches:
+        case = match.get("case") or {}
+        label = case.get("first_level_label")
+        if not label:
+            continue
+        for key in dist_by_value:
+            for value in (case.get(key) or []):
+                dist_by_value[key].setdefault(_normalize(value), Counter())[label] += 1
+    votes: Counter = Counter()
+    for key, channel_weight in PRIOR_CHANNEL_WEIGHT.items():
+        for item in soft[key]:
+            dist = dist_by_value[key].get(item["value"])
+            if not dist:
+                continue
+            total = sum(dist.values())
+            for label, count in dist.items():
+                votes[label] += item["share"] * channel_weight * count / total
+    if not votes:
+        return None, 0.0
+    total = sum(votes.values())
+    label, count = votes.most_common(1)[0]
+    return label, count / total
+
+
+def _soft_score(case: dict, soft: dict,
+                prior: tuple[str | None, float] | None = None) -> tuple[float, float, dict[str, list[str]], int]:
     """对单个候选案例做分布特征软打分。
 
     返回 (raw, norm, matched_by_level, matched_count)。norm 在 0~1 之间：
     raw = Σ(命中特征 base×share)；norm = raw / Σ(全部查询特征 base×share)。
+    status_codes 用 F1（精度×召回）计分；prior 为错误码→故障域先验（见 _domain_prior）。
     """
     matched: dict[str, list[str]] = {"L1": [], "L2": [], "L5": []}
     raw = 0.0
 
-    def _list_hit(feature_items: list[dict], case_field: str, level: str, label: str) -> None:
+    def _list_hit(feature_items: list[dict], case_field: str, level: str, label: str,
+                  use_f1: bool = False) -> None:
         nonlocal raw
         case_values = {_normalize(value) for value in (case.get(case_field) or [])}
-        for item in feature_items:
-            if item["value"] in case_values:
-                contribution = SOFT_WEIGHT[label] * item["share"]
-                raw += contribution
-                matched[level].append(f"{label}={item['value']}(share={item['share']})")
+        hits = [item for item in feature_items if item["value"] in case_values]
+        if not hits:
+            return
+        if use_f1 and case_values:
+            precision = len(hits) / len(case_values)
+            recall = len(hits) / len(feature_items) if feature_items else 0.0
+            score = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+            raw += SOFT_WEIGHT[label] * score
+        else:
+            for item in hits:
+                raw += SOFT_WEIGHT[label] * item["share"]
+        for item in hits:
+            matched[level].append(f"{label}={item['value']}(share={item['share']})")
 
-    _list_hit(soft["status_codes"], "status_codes", "L1", "status_code")
+    _list_hit(soft["status_codes"], "status_codes", "L1", "status_code", use_f1=True)
     _list_hit(soft["failure_mode_ids"], "failure_mode_ids", "L1", "failure_mode_id")
     _list_hit(soft["latency_components"], "latency_components", "L2", "latency_component")
     _list_hit(soft["log_keywords"], "log_keywords", "L5", "log_keyword")
@@ -372,6 +648,14 @@ def _soft_score(case: dict, soft: dict) -> tuple[float, float, dict[str, list[st
         raw += SOFT_WEIGHT["topology_shape"]
         matched["L2"].append(f"topology_shape={soft['topology_shape']}")
 
+    # 错误码→故障域先验：命中候选池投票出的最可能一级标签 → 注入正交加分，打破并列。
+    prior_denom = 0.0
+    if prior and prior[0]:
+        prior_denom = DOMAIN_PRIOR_WEIGHT
+        if case.get("first_level_label") == prior[0]:
+            raw += DOMAIN_PRIOR_WEIGHT * prior[1]
+            matched["L1"].append(f"domain_prior={prior[0]}(p={prior[1]:.2f})")
+
     denominator = (
         sum(SOFT_WEIGHT["status_code"] * item["share"] for item in soft["status_codes"])
         + sum(SOFT_WEIGHT["failure_mode_id"] * item["share"] for item in soft["failure_mode_ids"])
@@ -381,10 +665,30 @@ def _soft_score(case: dict, soft: dict) -> tuple[float, float, dict[str, list[st
         + (SOFT_WEIGHT["time_shape"] if soft["time_shape"] else 0.0)
         + (SOFT_WEIGHT["affected_scope"] if soft["affected_scope"] else 0.0)
         + (SOFT_WEIGHT["topology_shape"] if soft["topology_shape"] else 0.0)
+        + prior_denom
     )
     norm = raw / denominator if denominator else 0.0
     matched_count = len(matched["L1"]) + len(matched["L2"]) + len(matched["L5"])
     return raw, norm, matched, matched_count
+
+
+def _fetch_log_semantic_profile(api_base: str, params: dict, timeout: int) -> dict:
+    """按资产向后端现算日志语义码轮廓；失败返回 {}（不阻断检索）。
+
+    用于查询侧资产无内联轮廓、也不在静态资产里时（新资产在线定界），使该通道
+    无需任何人工步骤即可自动启用。``params`` 传 kb_name / log_id / kb_id（非空项）。
+    """
+    url = api_base.rstrip("/") + "/log_failure_event_result/log_semantic_profile"
+    body = {k: v for k, v in params.items() if v}
+    if not body:
+        return {}
+    try:
+        resp = _http_json(url, body, timeout)
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError):
+        return {}
+    result = resp.get("result") if isinstance(resp, dict) else None
+    profile = result.get("profile") if isinstance(result, dict) else None
+    return profile if isinstance(profile, dict) else {}
 
 
 def _search(api_base: str, query: dict, timeout: int, source: str = SOURCE_LIBRARY) -> dict:
@@ -392,6 +696,32 @@ def _search(api_base: str, query: dict, timeout: int, source: str = SOURCE_LIBRA
     body = _http_json(url, query, timeout)
     result = body.get("result") or {}
     return {"total": result.get("total", 0), "matches": result.get("matches") or []}
+
+
+# 拉全口径的安全上限：正常库远小于此页数，仅防服务端 total 异常导致死循环。
+SEARCH_MAX_PAGES = 200
+
+
+def _search_all(api_base: str, query: dict, timeout: int, source: str = SOURCE_LIBRARY) -> dict:
+    """按页收满全部候选（拉全），返回 {"total", "matches"}。
+
+    宽召回不带匹配信号，单页返回的候选与查询无关，截断会盲删相关案例；
+    故逐页翻到底，直到返回空页或收满 total。page_cnt 复用为分页大小。
+    """
+    page_size = max(1, int(query.get("page_cnt") or 100))
+    collected: list[dict] = []
+    total = 0
+    page_num = 1
+    while page_num <= SEARCH_MAX_PAGES:
+        page_query = dict(query, page_num=page_num, page_cnt=page_size)
+        payload = _search(api_base, page_query, timeout, source)
+        total = payload["total"]
+        batch = payload["matches"]
+        collected.extend(batch)
+        if not batch or len(collected) >= total:
+            break
+        page_num += 1
+    return {"total": total, "matches": collected}
 
 
 def _exclude_control_plane(matches: list[dict]) -> tuple[list[dict], int]:
@@ -427,10 +757,11 @@ def _rerank(matches: list[dict], soft: dict, query_text: str = "") -> list[dict]
     ]
     if log_keywords_from_query:
         text_query = f"{query_text} {' '.join(log_keywords_from_query)}".strip()
+    prior = _domain_prior(matches, soft)
     rows: list[dict] = []
     for match in matches:
         case = match.get("case") or {}
-        raw, norm, matched, matched_count = _soft_score(case, soft)
+        raw, norm, matched, matched_count = _soft_score(case, soft, prior)
         remediation = case.get("remediation_json") or []
         remediation_brief = "; ".join(
             str(step.get("action", "")) for step in remediation if isinstance(step, dict)
@@ -474,6 +805,53 @@ def _rerank(matches: list[dict], soft: dict, query_text: str = "") -> list[dict]
             }
         )
 
+    # v2.5 日志语义码通道 / v2.8 码→标签先验通道：都依赖两侧的日志轮廓。
+    # 放在排序前，使其既影响排序也影响 label_vote 的 margin 判定（与 LOO 验证口径一致）。
+    if LOG_SEMANTIC_ENABLED or LOG_SEMANTIC_PRIOR_ENABLED:
+        query_profile = _query_log_semantic_profile(soft)
+        if query_profile:
+            fallback_profiles = _log_semantic_asset().get("by_case_id") or {}
+            case_profiles = {
+                (match.get("case") or {}).get("id"): (
+                    (match.get("case") or {}).get("log_semantic_profile")
+                    or fallback_profiles.get((match.get("case") or {}).get("id"))
+                )
+                for match in matches
+            }
+            if LOG_SEMANTIC_IDF:
+                # v2.7：先按候选池 IDF 重加权（含噪声剔除），再算 cosine，压泛码、抬判别码。
+                idf = _log_semantic_idf(
+                    [profile for profile in case_profiles.values() if profile]
+                )
+                query_profile = _log_semantic_reweight(query_profile, idf)
+                if query_profile:
+                    case_profiles = {
+                        case_id: _log_semantic_reweight(profile, idf)
+                        for case_id, profile in case_profiles.items()
+                    }
+            if LOG_SEMANTIC_ENABLED and query_profile:
+                for row in rows:
+                    similarity = _log_semantic_cosine(query_profile, case_profiles.get(row["case_id"]))
+                    row["log_semantic_sim"] = round(similarity, 4)
+                    if similarity:
+                        row["score_norm"] = round(row["score_norm"] + LOG_SEMANTIC_WEIGHT * similarity, 4)
+            if LOG_SEMANTIC_PRIOR_ENABLED and query_profile:
+                # v2.8：按池内码→一级标签分布投票，命中预测标签的候选加分（轮廓饱和时 cosine 失效）。
+                labeled_profiles = [
+                    (
+                        case_profiles.get((match.get("case") or {}).get("id")),
+                        (match.get("case") or {}).get("first_level_label"),
+                    )
+                    for match in matches
+                ]
+                sem_label, sem_prob = _log_semantic_prior(labeled_profiles, query_profile)
+                if sem_label:
+                    for row in rows:
+                        row["log_semantic_prior"] = f"{sem_label}(p={sem_prob:.2f})"
+                        if row["first_level_label"] == sem_label:
+                            row["score_norm"] = round(
+                                row["score_norm"] + LOG_SEMANTIC_PRIOR_WEIGHT * sem_prob, 4
+                            )
     rows.sort(
         key=lambda item: (
             item["score_norm"],
@@ -507,8 +885,8 @@ def _apply_text_override(rows: list[dict]) -> None:
         rows.insert(0, override)
 
 
-def _label_vote(rows: list[dict], top_k: int = 14, margin: float = 0.1) -> dict:
-    """topK 一级标签投票（混合决策，生产剔C口径 K 网格最优：K=14 → 不含C 72.3%）。
+def _label_vote(rows: list[dict], top_k: int = 4, margin: float = 0.05) -> dict:
+    """topK 一级标签投票（混合决策，生产剔C口径 K 网格最优：K=4、margin=0.05 → 不含C 69.7%（131/188））。
 
     top1 与 top2 的 score_norm 差 > margin 时，top1 明显胜出，直接取 top1 标签；
     否则对 topK 候选中一级标签做等权多数投票，缓解"并列候选标签分歧"下的误选。
@@ -589,7 +967,7 @@ def _print_rows(
         )
     print(
         f"检索操作: operation={operation or '未标注'}  "
-        f"kb_id={query.get('kb_id') or '(未指定，跨知识库)'}  API total={total}（宽召回候选）"
+        f"kb_id={query.get('kb_id') or '(未指定，跨知识库)'}  API total={total}（宽召回已拉全）"
     )
     _print_soft_features(soft)
     if not rows:
@@ -656,10 +1034,39 @@ def main(argv: list[str] | None = None) -> int:
         help="检索通道：library=已人工确认的案例库（默认）；legacy=旧的未确认表",
     )
     parser.add_argument("--top", type=int, default=5, help="打印条数，默认 5")
-    parser.add_argument("--page-cnt", type=int, default=100, help="服务端宽召回条数，默认 100")
+    parser.add_argument("--page-cnt", type=int, default=100, help="分页大小（拉全时按此逐页收满），默认 100")
+    parser.add_argument(
+        "--operation-filter",
+        action="store_true",
+        help="启用服务端 operation 过滤（默认关闭：拉全后由 operation 特征软处理操作域）",
+    )
     parser.add_argument("--timeout", type=int, default=30, help="单次请求超时（秒），默认 30")
+    parser.add_argument(
+        "--no-log-semantic",
+        action="store_true",
+        help="关闭日志语义码次级通道（默认为开启，用于消融对比）",
+    )
+    parser.add_argument(
+        "--no-log-semantic-idf",
+        action="store_true",
+        help="日志语义码通道退回纯 TF（不按 IDF 重加权，用于消融对比）",
+    )
+    parser.add_argument(
+        "--log-semantic-prior",
+        action="store_true",
+        help="启用「码→标签先验」通道（默认关闭：按池内 语义码→一级标签 分布投票加分）",
+    )
     parser.add_argument("--json", dest="json_out", help="候选结果落盘路径")
     args = parser.parse_args(argv)
+
+    global LOG_SEMANTIC_ENABLED, LOG_SEMANTIC_IDF, LOG_SEMANTIC_PRIOR_ENABLED, OPERATION_FILTER_ENABLED
+    if args.no_log_semantic:
+        LOG_SEMANTIC_ENABLED = False
+    if args.no_log_semantic_idf:
+        LOG_SEMANTIC_IDF = False
+    if args.log_semantic_prior:
+        LOG_SEMANTIC_PRIOR_ENABLED = True
+    OPERATION_FILTER_ENABLED = args.operation_filter
 
     if args.hit:
         return _mark_hit(args.api_base, args.hit, args.timeout, args.source)
@@ -668,18 +1075,44 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         features = _load_features(args.features)
-        query = _build_recall_query(features, args.source)
         soft = _extract_soft_features(features)
+        user_usage_codes = _user_usage_hit(features)
+        query = _build_recall_query(features, args.source, user_usage=bool(user_usage_codes))
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"特征文件不可用: {error}", file=sys.stderr)
         return 2
 
+    if user_usage_codes:
+        print(
+            f"命中用户使用问题规则（错误码 {'/'.join(user_usage_codes)}），"
+            f"直接判定为 {USER_USAGE_FIRST_LEVEL}/{USER_USAGE_SECOND_LEVEL}，仅召回该标签案例"
+        )
+
     if not _soft_feature_count(soft):
         print("警告: 特征文件未提供任何分布特征，软打分全部为 0（仍按 confidence/hit_count 排序）")
 
+    # 查询侧日志语义码轮廓：优先用特征 JSON 内联；否则按 kb_id 向后端现算
+    # （新资产尚未进离线资产时也能自动启用该通道，无需人工步骤）。
+    if (
+        (LOG_SEMANTIC_ENABLED or LOG_SEMANTIC_PRIOR_ENABLED)
+        and not soft.get("log_semantic_profile")
+        and _query_log_semantic_profile(soft) is None
+    ):
+        params = {
+            "kb_name": soft.get("kb_name"),
+            "log_id": soft.get("log_id"),
+            "kb_id": features.get("kb_id"),
+        }
+        if any(params.values()):
+            profile = _fetch_log_semantic_profile(args.api_base, params, args.timeout)
+            if profile:
+                soft["log_semantic_profile"] = profile
+                label = params.get("kb_name") or params.get("log_id") or params.get("kb_id")
+                print(f"已按资产 {label} 现算日志语义码轮廓（{len(profile)} 个语义项）")
+
     query["page_cnt"] = args.page_cnt
     try:
-        payload = _search(args.api_base, query, args.timeout, args.source)
+        payload = _search_all(args.api_base, query, args.timeout, args.source)
     except urllib.error.HTTPError as error:
         print(f"检索失败: HTTP {error.code} {error.reason}", file=sys.stderr)
         return 3
@@ -687,11 +1120,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"检索失败: {error}", file=sys.stderr)
         return 3
 
+    if len(payload["matches"]) < payload["total"]:
+        print(
+            f"警告: 已达翻页上限 {SEARCH_MAX_PAGES} 页，仅拉回 "
+            f"{len(payload['matches'])}/{payload['total']} 条候选",
+            file=sys.stderr,
+        )
+
     matches, dropped = _exclude_control_plane(payload["matches"])
     if dropped:
         print(
             f"已剔除 {dropped} 条 Coordinator/UB管控面 候选（不参与软打分与投票）；"
             f"API total={payload['total']}，实际候选 {len(matches)} 条"
+        )
+    if user_usage_codes and not matches:
+        print(
+            f"案例库暂无 {USER_USAGE_FIRST_LEVEL}/{USER_USAGE_SECOND_LEVEL} 案例，"
+            "按「严格只召回」口径返回空候选（不回退到其他类别）"
         )
     rows = _rerank(matches, soft, features.get("query_text") or "")
     vote = _label_vote(rows)
@@ -714,6 +1159,13 @@ def main(argv: list[str] | None = None) -> int:
                     "source_label": SOURCE_LABEL[args.source],
                     "operation": features.get("operation"),
                     "query_text": features.get("query_text"),
+                    "user_usage_codes": user_usage_codes,
+                    "relaxed_status_codes": features.get("relaxed_status_codes") or [],
+                    "fault_label_override": (
+                        {"first_level_label": USER_USAGE_FIRST_LEVEL,
+                         "second_level_label": USER_USAGE_SECOND_LEVEL}
+                        if user_usage_codes else None
+                    ),
                     "recall_query": query,
                     "soft_features": soft,
                     "api_total": payload["total"],

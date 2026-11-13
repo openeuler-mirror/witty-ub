@@ -9,6 +9,10 @@ pg_max_overflow = 10
 
 [task]
 max_concurrent_tasks = 9
+# 后台任务硬超时(秒)：超时强制终止并自动重试，防止挂死子进程永久占用并发槽；0 关闭看门狗
+task_timeout_seconds = 3600
+# RUNNING 任务连续无对应存活进程达到该秒数后回收重试
+stale_running_grace_seconds = 60
 
 [log_filename_pattern]
 ds_client_access_log_file = ["ds_client_access*.log", "*_access.log", "*_split_access.log"]

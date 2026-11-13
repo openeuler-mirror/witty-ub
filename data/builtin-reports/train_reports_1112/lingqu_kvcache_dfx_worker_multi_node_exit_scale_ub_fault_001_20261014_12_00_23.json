@@ -1,0 +1,1266 @@
+{
+  "report": {
+    "title": "KVCache 多节点 Worker 退出与扩缩容路由失效诊断报告",
+    "report_id": "RPT-20261112-WMNE",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "3c2c5c09-95b3-45df-aa67-a4586ae1ac07",
+    "kb_name": "lingqu_kvcache_dfx_worker_multi_node_exit_scale_ub_fault_001_20261014_12_00_23",
+    "log_file": "lingqu_kvcache_dfx_worker_multi_node_exit_scale_ub_fault_001_20261014_12_00_23（log_id=001c6977-e4ef-468f-88ac-619b553c1471）",
+    "operation": "GET / SET（独立统计）",
+    "time_range_start": "2026-10-14 12:00:00",
+    "time_range_end": "2026-10-14 12:18:00",
+    "total_trace_cnt": 809,
+    "fault_trace_cnt": 809,
+    "fault_ratio": 100.0,
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Not ready": 0.286333,
+      "T:E2001": 0.860701,
+      "T:A1B311BD24FF7BD905A67FFA41078CE8": 0.420711,
+      "C:No available worker for routing": 0.004158,
+      "T:SHM_CONNECTION": 0.000567,
+      "C:Worker pull object not found error": 0.000567,
+      "T:DS_ERR": 0.001134,
+      "C:RPC peer dead": 0.002268,
+      "T:E112": 0.013608,
+      "C:Metadata owner unavailable": 0.000378
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：扩缩容期间多节点 Worker 进程退出或端点离线，造成 Worker 未就绪、路由可用集合耗尽及元数据 owner RPC 失联。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "GET 侧记录 746 次错误码命中，SET 侧记录 63 次错误码命中，影响 4 个观测 Pod；计数是逐码命中次数，不是业务失败率。",
+    "confidence": 0.96
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "多节点 Worker 退出导致读写路由与元数据服务不可用",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 0.96,
+      "category": "error",
+      "affected_scope": "czs-kv-ds 集群的 GET/SET 路径，涉及 4 个 Pod 观测点",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程退出",
+        "fault_domain": "Worker故障/Worker故障-进程退出",
+        "fault_component": "KVCache Worker / 路由健康状态 / Metadata Owner RPC",
+        "fault_function": "ValidateWorkerState、路由选择、UpdateMeta/Publish",
+        "fault_function_loc": "worker_oc_service_impl.cpp:2070；routed_mode.cpp:529；rpc_util.h:109",
+        "one_line_conclusion": "扩缩容期间多个 Worker 退出或离线，健康与路由状态未及时收敛，读路径大量返回 K_NOT_READY，写路径返回无可用 Worker，并出现 metadata owner Host is down。",
+        "affected_scope_pct": 100.0,
+        "affected_scope_desc": "本资产库 809 条故障 trace 均落在本次事件范围；Pod 统计覆盖 192.168.219.110、192.168.235.134、192.168.189.125、192.168.235.187。",
+        "confidence": 0.96,
+        "key_findings": [
+          "GET：错误码 8 共 742 次，占 GET 逐码命中 99.463807%，现场原文为 Worker not ready。",
+          "SET：错误码 37 共 61 次，占 SET 逐码命中 96.825397%，现场原文为 All workers filtered or excluded。",
+          "SET trace 326d008f-ba2a-4ea2-a4f8-9e5c9a83af31 显示 metadata owner RPC peer dead、brpc errno=112 Host is down，并上浮错误码 39。",
+          "GET/SET 均未命中 URMA timeout 桶；链路统计 src/dst 均为空，不能把现象定性为 UB 物理链路故障。",
+          "故障标签按用户指定映射：train_valid.md 的日志描述 worker_multi_node_exit_scale_ub_fault 对应 gt_labels.json 中 Worker故障/Worker故障-进程退出。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "GET 错误码命中",
+            "value": "746",
+            "sub": "完整 9 个非空分钟桶",
+            "tone": "bad"
+          },
+          {
+            "label": "SET 错误码命中",
+            "value": "63",
+            "sub": "完整 4 个非空分钟桶",
+            "tone": "bad"
+          },
+          {
+            "label": "影响 Pod",
+            "value": "4",
+            "sub": "Pod 名称不参与历史案例打分",
+            "tone": "warn"
+          }
+        ],
+        "conclusion": "GET 在 12:03-12:05 与 12:12-12:17 两段簇发，K_NOT_READY(8) 绝对主导；SET 在 12:11、12:12、12:15 出现 K_NO_AVAILABLE_WORKER(37)，12:00 另有 2 次 K_METADATA_OWNER_UNAVAILABLE(39)。错误码计数为逐码命中次数，不代表去重失败请求数。",
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "3c2c5c09-95b3-45df-aa67-a4586ae1ac07",
+              "operation": "GET",
+              "start_time": "2026-10-14 12:00:00",
+              "end_time": "2026-10-14 12:18:00"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "3c2c5c09-95b3-45df-aa67-a4586ae1ac07",
+                    "operation": "GET",
+                    "interval": "minute",
+                    "start_time": "2026-10-14 12:00:00",
+                    "end_time": "2026-10-14 12:18:00",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 9,
+                  "returned_windows": 9
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 9,
+              "total_windows": 9
+            },
+            "code_distribution": {
+              "total_count": 746,
+              "items": [
+                {
+                  "code": "8",
+                  "count": 742,
+                  "share_pct": 99.463807
+                },
+                {
+                  "code": "37",
+                  "count": 3,
+                  "share_pct": 0.402145
+                },
+                {
+                  "code": "2005",
+                  "count": 1,
+                  "share_pct": 0.134048
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-14 12:00:00",
+                  "end_time": "2026-10-14 12:01:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:01:00",
+                  "end_time": "2026-10-14 12:02:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:02:00",
+                  "end_time": "2026-10-14 12:03:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:03:00",
+                  "end_time": "2026-10-14 12:04:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 13,
+                    "37": 0,
+                    "2005": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:04:00",
+                  "end_time": "2026-10-14 12:05:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 100,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:05:00",
+                  "end_time": "2026-10-14 12:06:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 30,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:06:00",
+                  "end_time": "2026-10-14 12:07:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:07:00",
+                  "end_time": "2026-10-14 12:08:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:08:00",
+                  "end_time": "2026-10-14 12:09:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:09:00",
+                  "end_time": "2026-10-14 12:10:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:10:00",
+                  "end_time": "2026-10-14 12:11:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:11:00",
+                  "end_time": "2026-10-14 12:12:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 0,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:12:00",
+                  "end_time": "2026-10-14 12:13:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 111,
+                    "37": 2,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:13:00",
+                  "end_time": "2026-10-14 12:14:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 141,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:14:00",
+                  "end_time": "2026-10-14 12:15:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 29,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:15:00",
+                  "end_time": "2026-10-14 12:16:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 89,
+                    "37": 1,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:16:00",
+                  "end_time": "2026-10-14 12:17:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 147,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:17:00",
+                  "end_time": "2026-10-14 12:18:00",
+                  "complete": true,
+                  "counts": {
+                    "8": 82,
+                    "37": 0,
+                    "2005": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "3c2c5c09-95b3-45df-aa67-a4586ae1ac07",
+              "operation": "SET",
+              "start_time": "2026-10-14 12:00:00",
+              "end_time": "2026-10-14 12:18:00"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "3c2c5c09-95b3-45df-aa67-a4586ae1ac07",
+                    "operation": "SET",
+                    "interval": "minute",
+                    "start_time": "2026-10-14 12:00:00",
+                    "end_time": "2026-10-14 12:18:00",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 4,
+                  "returned_windows": 4
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 4,
+              "total_windows": 4
+            },
+            "code_distribution": {
+              "total_count": 63,
+              "items": [
+                {
+                  "code": "37",
+                  "count": 61,
+                  "share_pct": 96.825397
+                },
+                {
+                  "code": "39",
+                  "count": 2,
+                  "share_pct": 3.174603
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-14 12:00:00",
+                  "end_time": "2026-10-14 12:01:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:01:00",
+                  "end_time": "2026-10-14 12:02:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:02:00",
+                  "end_time": "2026-10-14 12:03:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:03:00",
+                  "end_time": "2026-10-14 12:04:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:04:00",
+                  "end_time": "2026-10-14 12:05:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:05:00",
+                  "end_time": "2026-10-14 12:06:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:06:00",
+                  "end_time": "2026-10-14 12:07:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:07:00",
+                  "end_time": "2026-10-14 12:08:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:08:00",
+                  "end_time": "2026-10-14 12:09:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:09:00",
+                  "end_time": "2026-10-14 12:10:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:10:00",
+                  "end_time": "2026-10-14 12:11:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:11:00",
+                  "end_time": "2026-10-14 12:12:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 31,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:12:00",
+                  "end_time": "2026-10-14 12:13:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 6,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:13:00",
+                  "end_time": "2026-10-14 12:14:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:14:00",
+                  "end_time": "2026-10-14 12:15:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:15:00",
+                  "end_time": "2026-10-14 12:16:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 24,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:16:00",
+                  "end_time": "2026-10-14 12:17:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-14 12:17:00",
+                  "end_time": "2026-10-14 12:18:00",
+                  "complete": true,
+                  "counts": {
+                    "37": 0,
+                    "39": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "S1",
+            "title": "数据完整性确认",
+            "description": "日志解析任务成功，故障定界产出 809 条 trace，解析新增时延异常 0 条。",
+            "evidence": "overall_status=successful，task progress=100%，trace_failure_event_cnt=809。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S2",
+            "title": "读路径主症状定位",
+            "description": "GET 错误几乎全部为 K_NOT_READY，跨多个客户端与 Worker 观测点出现。",
+            "evidence": "错误码 8 为 742/746；trace 6c9037bd-1f60-463a-8ce9-3a49b763c740 原文为 validate worker state failed / Worker not ready。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S3",
+            "title": "写路径路由耗尽",
+            "description": "SET 主要失败模式为所有 Worker 被健康状态或排除条件过滤。",
+            "evidence": "错误码 37 为 61/63；trace f92b85d6-268f-4204-9b0e-84d994f281cc 原文为 All workers filtered or excluded。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S4",
+            "title": "元数据 owner 端点离线",
+            "description": "写发布链出现明确的远端不可达并上浮 metadata owner unavailable。",
+            "evidence": "trace 326d008f-ba2a-4ea2-a4f8-9e5c9a83af31：RPC peer dead，brpc errno=112 Host is down，目标 192.168.189.126:31501，最终状态码 39。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S5",
+            "title": "反证：排除 URMA 超时/物理 UB 链路定界",
+            "description": "GET 与 SET 的 URMA timeout 桶均为 0，src/dst 链路统计也无可用记录；无法支持 UB 物理链路为主因。",
+            "evidence": "/stats/stages 的 urma_timeout 与 set_urma_timeout 均 trace_cnt=0；/stats/links GET/SET total=0。",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "S6",
+            "title": "根因综合",
+            "description": "结合多 Worker 未就绪、元数据 owner Host is down、全量 Worker 被过滤，以及指定训练标签，根因收敛为扩缩容期间多节点 Worker 进程退出或服务端点离线，路由健康状态未及时收敛。",
+            "evidence": "现场证据与已人工确认案例 UB-CASE-002543/002599 的 L1 错误码和故障模式、L2 Worker 故障域、L5 关键短语相符；历史案例仅作交叉验证。",
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "扩缩容期间多个 KVCache Worker 进程退出或端点离线，导致部分 Worker 处于 not ready、metadata owner RPC 指向已失活端点；路由与健康快照未及时收敛，最终将全部 Worker 过滤，级联影响 GET 与 SET。退出的直接触发方式（主动缩容、信号、OOM 或容器异常）未包含在当前故障 trace 中，需系统生命周期日志进一步区分。",
+        "supporting_knowledge": "Curated：K_NOT_READY(8)、K_NO_AVAILABLE_WORKER(37)、K_METADATA_OWNER_UNAVAILABLE(39) 及 failure_mode kvcache_runtime_2395/kvcache_access_054/kvcache_access_036；本地经验：ds-worker-log-analysis、ds-cluster-management-diagnosis；历史案例：UB-CASE-002543、UB-CASE-002599。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "多节点 Worker 退出/端点离线",
+            "detail": "扩缩容窗口内 Worker 服务能力下降；当前 trace 不含具体退出码。",
+            "type": "root"
+          },
+          {
+            "label": "Worker 健康状态未就绪",
+            "detail": "ValidateWorkerState 返回 K_NOT_READY(8)，GET 元数据查询失败。",
+            "transition": "健康校验失败"
+          },
+          {
+            "label": "Metadata owner RPC 失联",
+            "detail": "UpdateMeta 指向失活端点，出现 RPC peer dead / Host is down，并返回 39。",
+            "transition": "路由仍引用离线 owner"
+          },
+          {
+            "label": "路由可用集合耗尽",
+            "detail": "客户端报告 All workers filtered or excluded，GET/SET 返回 37。",
+            "transition": "健康过滤与排除条件叠加"
+          },
+          {
+            "label": "读写请求簇发失败",
+            "detail": "GET 746 次逐码命中、SET 63 次逐码命中，影响 4 个 Pod 观测点。",
+            "transition": "错误上浮到客户端"
+          }
+        ],
+        "impact_scope": [
+          "GET：12:03-12:05、12:12-12:17 两段簇发",
+          "SET：12:00、12:11-12:12、12:15 窗口",
+          "集群：czs-kv-ds",
+          "空间：4 个 Pod 观测点，host 字段未解析"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "6c9037bd-1f60-463a-8ce9-3a49b763c740",
+          "kind": "error",
+          "why": "过滤条件 status_code=8 + operation=GET + 时间窗 12:00-12:18；原文明确 Worker not ready。",
+          "status_code": "8",
+          "failure_mode_id": "kvcache_access_008,kvcache_runtime_2395,kvcache_runtime_400",
+          "pod": "192.168.189.125 / 192.168.235.187",
+          "timestamp": "2026-10-14 12:17:34.237"
+        },
+        {
+          "trace_id": "855dfa50-fa6b-4f5c-82d9-a47e4d062235",
+          "kind": "error",
+          "why": "过滤条件 status_code=37 + operation=GET + 时间窗 12:00-12:18；路由重试后仍无可用 Worker。",
+          "status_code": "37",
+          "failure_mode_id": "kvcache_access_054",
+          "pod": "192.168.235.134",
+          "timestamp": "2026-10-14 12:15:30.463"
+        },
+        {
+          "trace_id": "f92b85d6-268f-4204-9b0e-84d994f281cc",
+          "kind": "error",
+          "why": "过滤条件 status_code=37 + operation=SET + 时间窗 12:00-12:18；原文为 All workers filtered or excluded。",
+          "status_code": "37",
+          "failure_mode_id": "kvcache_access_054",
+          "pod": "192.168.189.125",
+          "timestamp": "2026-10-14 12:15:19.972"
+        },
+        {
+          "trace_id": "326d008f-ba2a-4ea2-a4f8-9e5c9a83af31",
+          "kind": "error",
+          "why": "过滤条件 status_code=39 + operation=SET + 时间窗 12:00-12:18；RPC peer dead/Host is down 导致 metadata owner unavailable。",
+          "status_code": "39",
+          "failure_mode_id": "kvcache_access_036,kvcache_runtime_1377,kvcache_runtime_2295,kvcache_runtime_2303,kvcache_runtime_247",
+          "pod": "192.168.219.110 / 192.168.235.187",
+          "timestamp": "2026-10-14 12:00:56.412"
+        },
+        {
+          "trace_id": "ef8374b0-8a21-4d50-b7ed-ed73eba2975f",
+          "kind": "error",
+          "why": "过滤条件 status_code=2005 + operation=GET + 时间窗 12:00-12:18；仅 1 次对象副本不存在，作为低频派生现象。",
+          "status_code": "2005",
+          "failure_mode_id": "kvcache_access_065,kvcache_runtime_2541,kvcache_runtime_391",
+          "pod": "192.168.219.110 / 192.168.235.187",
+          "timestamp": "2026-10-14 12:03:59.819"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002543",
+          "stars": 5,
+          "match_logic": "L1 命中错误码 8/37 与 failure_mode kvcache_access_008/kvcache_access_054；L2 命中 Worker 故障域与 GET/SET 混合影响；L3/L5 命中 Worker not ready、All workers filtered or excluded。",
+          "symptom": "多节点 Worker 退出后出现未就绪、路由过滤和读写失败。",
+          "root_cause": "多个 Worker 进程退出，路由和健康状态未及时收敛。",
+          "solution": "恢复 Worker、核对退出记录、确认健康状态与路由刷新后再放量。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致",
+          "env_diff": "历史案例 IP 与本现场不同，且本现场缺容器退出码。",
+          "adaptation": "只复用诊断机理与处置步骤，不复用案例中的节点身份；先补系统生命周期证据。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 2,
+          "id": "kvcache_runtime_2395+kvcache_access_054+kvcache_access_036",
+          "stars": 5,
+          "match_logic": "L1 直接命中现场 failure_mode；L2 分别覆盖 Worker 未就绪、路由无可用节点和 metadata owner RPC 不可用；L3 由本次原始日志逐条验证。",
+          "symptom": "Worker not ready、All workers filtered or excluded、Metadata owner unavailable。",
+          "root_cause": "Worker 健康状态异常或恢复未完成，路由筛选后无可用 Worker，owner RPC 指向不可用端点。",
+          "solution": "恢复 Worker 健康状态、刷新路由；写发布结果未知时先查询对象状态再决定是否重试。",
+          "adoption_class": "direct",
+          "adoption_label": "直接采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致",
+          "env_diff": "Curated 知识不包含本次进程退出触发方式。",
+          "adaptation": "用现场 trace 补足触发链，不把知识解释当成独立现场证据。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 3,
+          "id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+          "stars": 4,
+          "match_logic": "L1 经验中 K_NOT_READY/K_SHUTTING_DOWN 与现场 Worker 生命周期异常方向一致；L2 命中 Worker 组件；L3/L5 建议检查退出前 ERROR/FATAL、lease 与系统日志，但当前资产未提供退出码。",
+          "symptom": "Worker 异常退出、重启恢复及依赖未就绪。",
+          "root_cause": "Worker 退出会触发 lease 失效和集群重平衡，kill -9 时可能无退出前日志。",
+          "solution": "检查容器事件、dmesg/systemd、退出码、lease 失效及恢复流程。",
+          "adoption_class": "reference",
+          "adoption_label": "参考采用",
+          "phenomenon_fit": "中高",
+          "log_fit": "中",
+          "rc_consistency": "一致",
+          "env_diff": "经验基于通用 Worker 生命周期分析，并非本次现场事实。",
+          "adaptation": "仅用于补充验证清单，结论仍以现场 API 证据与用户指定标签为准。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即核验并恢复受影响 Worker 进程/Pod，确认 31501 RPC 端口监听、readiness/health 检查通过且不再返回 Worker not ready。",
+          "刷新客户端及存活 Worker 的路由、健康和 metadata owner 快照，确认不再出现 All workers filtered or excluded，也不再引用已离线的 192.168.189.126:31501。",
+          "对返回 39 的 SET 对象先查询发布结果，再决定补偿或重试，避免发布结果未知时重复写。",
+          "在 GET/SET 错误码 8/37/39 连续两个观测窗口归零前暂停继续扩缩容和流量放大。"
+        ],
+        "long_term": [
+          "为 Worker 退出建立强制审计：记录退出码、信号、OOMKilled、restartCount、实例 ID、容器事件及 dmesg/journal，并与扩缩容任务 ID 关联。",
+          "完善扩缩容闸门：节点进入 draining/退出前先迁移 metadata owner 与对象副本，等待路由和健康快照全局收敛后再终止进程。",
+          "增加集群级告警：K_NOT_READY、K_NO_AVAILABLE_WORKER、K_METADATA_OWNER_UNAVAILABLE 的分钟级突增，以及可用 Worker 数降至安全阈值。",
+          "补齐 src/dst 与 host 解析，避免链路统计为空；同时保留 Worker 生命周期日志以区分主动缩容、异常退出和网络离线。"
+        ],
+        "verification": [
+          "复查 /stats/error_codes：GET 的 8/37/2005 与 SET 的 37/39 不再新增。",
+          "复查 /stats/stages：GET/SET 的 fail_cnt 归零；两种 operation 继续独立验证，不混桶。",
+          "以代表对象执行 GET/SET 回归，确认路由到健康 Worker，SET 发布结果可确认，GET 不再出现 Worker not ready。",
+          "核对所有 Worker 的 ring/路由版本一致、metadata owner 可达，并检查扩缩容任务完成状态。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复退出/离线 Worker 并刷新路由与 metadata owner 快照。",
+      "depends_on": "确认实际退出节点和当前存活实例。",
+      "expected_effect": "恢复可用 Worker 集合，停止 8/37/39 错误上浮。",
+      "verify": "readiness 通过，31501 可达，错误码连续两个窗口无新增。"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验状态码 39 对象的发布结果后再补偿。",
+      "depends_on": "Worker 与 owner 恢复可达。",
+      "expected_effect": "避免结果未知场景下重复写或数据不一致。",
+      "verify": "对象元数据与副本状态一致，补偿请求幂等。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "收集退出码、容器事件、OOM/信号和扩缩容任务日志。",
+      "depends_on": "日志保留可用。",
+      "expected_effect": "闭环区分主动缩容与异常退出的直接触发方式。",
+      "verify": "每个退出节点均有时间、实例 ID、退出原因和恢复结果。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": 100.0,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": null,
+            "anomaly_rate": 0.536193,
+            "fail_share": 100.0,
+            "status": "bottleneck",
+            "fault": "746 条归因样本中 fail_cnt=4；该口径不同于 746 条故障码命中。",
+            "detail": "p50=0.149ms，p90=0.168ms，max=89.462ms；745/746 条未触达数据面。/stats/stages 不提供 P99，故不补算。"
+          }
+        ],
+        "conclusion": "GET 归因样本全部落入 cross_window；故障面由 K_NOT_READY 主导，不应把请求计数占比解释为耗时占比。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "SET·数据面未观测",
+            "pct": 96.825397,
+            "cls": "s-warn"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "pct": 3.174603,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": null,
+            "anomaly_rate": 0.0,
+            "fail_share": 0.0,
+            "status": "warn",
+            "fault": "61 条 SET trace 缺 Worker 侧数据面行。",
+            "detail": "p50=0.035ms，p90=0.147ms，max=0.189ms；与错误码 37 的 61 次命中数量一致，但不据此宣称因果。"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": null,
+            "anomaly_rate": 100.0,
+            "fail_share": 100.0,
+            "status": "bottleneck",
+            "fault": "2 条 trace 均异常并返回状态码 39。",
+            "detail": "Worker 处理 p50=3.832ms，p90/max=3.997ms；代表 trace 显示 metadata owner Host is down。"
+          }
+        ],
+        "conclusion": "SET 的 CREATE/PUBLISH/URMA 细分列不可用，按实测 5 桶独立展示，不为写路径编造阶段。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 809,
+    "top_error_codes": [
+      {
+        "code": "8",
+        "name": "K_NOT_READY",
+        "pct": 91.718171,
+        "fault": "GET Worker 未就绪"
+      },
+      {
+        "code": "37",
+        "name": "K_NO_AVAILABLE_WORKER",
+        "pct": 7.911001,
+        "fault": "GET 3 + SET 61 次逐码命中"
+      },
+      {
+        "code": "39",
+        "name": "K_METADATA_OWNER_UNAVAILABLE",
+        "pct": 0.247219,
+        "fault": "SET owner RPC 不可用"
+      },
+      {
+        "code": "2005",
+        "name": "K_WORKER_PULL_OBJECT_NOT_FOUND",
+        "pct": 0.123609,
+        "fault": "GET 单次副本对象不存在"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "Worker 未就绪",
+        "pct": 91.718171,
+        "fault": "状态码 8"
+      },
+      {
+        "domain": "路由无可用 Worker",
+        "pct": 7.911001,
+        "fault": "状态码 37"
+      },
+      {
+        "domain": "元数据 owner 不可用/对象不存在",
+        "pct": 0.370828,
+        "fault": "状态码 39/2005"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.110",
+        "host": "未解析",
+        "pct": 38.00738,
+        "fault": "GET 286 + SET 23 个 Pod-trace 归属"
+      },
+      {
+        "pod": "192.168.235.134",
+        "host": "未解析",
+        "pct": 36.285363,
+        "fault": "GET 273 + SET 22 个 Pod-trace 归属"
+      },
+      {
+        "pod": "192.168.189.125",
+        "host": "未解析",
+        "pct": 25.215252,
+        "fault": "GET 187 + SET 18 个 Pod-trace 归属"
+      },
+      {
+        "pod": "192.168.235.187",
+        "host": "未解析",
+        "pct": 0.492005,
+        "fault": "GET 2 + SET 2 个 Pod-trace 归属"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "12:00",
+        "level": "warn",
+        "pct": 1.0,
+        "spike": "SET 状态码 39×2",
+        "fault": "metadata owner unavailable"
+      },
+      {
+        "time": "12:04",
+        "level": "high",
+        "pct": 67.8,
+        "spike": "GET fault trace 100",
+        "fault": "K_NOT_READY 簇发"
+      },
+      {
+        "time": "12:11",
+        "level": "high",
+        "pct": 21.1,
+        "spike": "SET fault trace 31",
+        "fault": "K_NO_AVAILABLE_WORKER"
+      },
+      {
+        "time": "12:13",
+        "level": "high",
+        "pct": 95.9,
+        "spike": "GET fault trace 141",
+        "fault": "K_NOT_READY"
+      },
+      {
+        "time": "12:16",
+        "level": "critical",
+        "pct": 100.0,
+        "spike": "GET fault trace 147",
+        "fault": "全窗峰值"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-3c2c5c09-20261112",
+    "total_steps": 7,
+    "api_calls": 45,
+    "duration": "本会话内完成",
+    "steps": [
+      {
+        "title": "资产与解析完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "资产存在，单日志文件解析成功，809 条故障 trace 已落库。"
+      },
+      {
+        "title": "GET/SET 组件分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 全部归入 cross_window；SET 61 条数据面未观测、2 条 Worker 写处理，URMA timeout 均为 0。"
+      },
+      {
+        "title": "精确统计分布",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap（GET/SET）"
+        ],
+        "result": "GET 以错误码 8 主导，SET 以 37 主导；4 个 Pod 受影响，src/dst 链路字段为空。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "取得 Worker not ready、All workers filtered or excluded、RPC peer dead/Host is down 第一手证据。"
+      },
+      {
+        "title": "Curated 知识解释",
+        "api_calls": [
+          "GET /failure_mode/status_code/{code}",
+          "GET /failure_mode/{id}"
+        ],
+        "result": "状态码 8/37/39 与对应 failure_mode 均与现场证据一致。"
+      },
+      {
+        "title": "经验与已确认案例匹配",
+        "api_calls": [
+          "experience-skill search-experiences",
+          "POST /diag_case_library/search",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "命中 UB-CASE-002543、UB-CASE-002599，均仅在现场证据核对后采用。"
+      },
+      {
+        "title": "报告契约与渲染",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "错误分布由脚本离线提取；报告待契约校验和正式渲染。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+        "experience_type": "SKILL",
+        "name": "ds-cluster-management-diagnosis",
+        "source_path": "data/skill_hub/ds-cluster-management-diagnosis",
+        "keywords_matched": [
+          "Worker",
+          "扩缩容",
+          "节点"
+        ],
+        "search_query_used": "K_NOT_READY K_NO_AVAILABLE_WORKER Worker not ready All workers filtered RPC peer dead",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "节点被标记为 dead 后，会触发元数据迁移，应检查迁移是否成功。",
+        "how_used_in_diagnosis": "用于补充扩缩容后检查节点状态、路由与迁移收敛的建议。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "与现场多 Worker 未就绪和路由过滤相符。"
+      },
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis",
+        "keywords_matched": [
+          "Worker",
+          "异常退出",
+          "K_NOT_READY"
+        ],
+        "search_query_used": "K_NOT_READY K_NO_AVAILABLE_WORKER Worker not ready All workers filtered RPC peer dead",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_evidence",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Worker 进程退出时可能触发 lease 失效，导致集群重平衡。",
+        "how_used_in_diagnosis": "现场已验证 Worker not ready/Host is down，用于解释退出到路由失效的机制。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与现场日志及 curated failure_mode 一致。"
+      },
+      {
+        "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+        "experience_type": "SKILL",
+        "name": "ds-client-log-analysis",
+        "source_path": "data/skill_hub/ds-client-log-analysis",
+        "keywords_matched": [
+          "K_NOT_READY",
+          "Client"
+        ],
+        "search_query_used": "K_NOT_READY K_NO_AVAILABLE_WORKER Worker not ready All workers filtered RPC peer dead",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_NOT_READY=8 | 资源未就绪 | 检查 Worker 是否启动完成、是否在初始化",
+        "how_used_in_diagnosis": "未采用其通用解释，因 curated 与现场已给出更具体的 Worker not ready 证据。",
+        "confidence_on_reference": 0.6,
+        "confidence_reason": "方向一致，但信息增量有限。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+        "keywords_matched": [
+          "RPC peer dead",
+          "Worker 生命周期"
+        ],
+        "search_query_used": "K_NOT_READY K_NO_AVAILABLE_WORKER Worker not ready All workers filtered RPC peer dead",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "传输层连接状态与 Worker 生命周期强相关，远端 Worker 重启会触发连接重建。",
+        "how_used_in_diagnosis": "作为候选考虑；URMA timeout 为 0，未据此归因 RDMA/URMA 故障。",
+        "confidence_on_reference": 0.7,
+        "confidence_reason": "生命周期方向可参考，但现场无 URMA 超时证据。"
+      },
+      {
+        "experience_id": "a43dcf67-d3bb-4fb5-99ba-e47e6343ea7d",
+        "experience_type": "SKILL",
+        "name": "ds-shared-memory-diagnosis",
+        "source_path": "data/skill_hub/ds-shared-memory-diagnosis",
+        "keywords_matched": [
+          "K_NOT_READY"
+        ],
+        "search_query_used": "K_NOT_READY K_NO_AVAILABLE_WORKER Worker not ready All workers filtered RPC peer dead",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_NOT_READY=8 | 资源未就绪 | 检查共享内存是否初始化完成",
+        "how_used_in_diagnosis": "未采用；现场错误发生在 Worker 健康、路由和 owner RPC，不支持共享内存主因。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "仅错误码表面相同，故障域不匹配。"
+      },
+      {
+        "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Worker 错误模式",
+        "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+        "keywords_matched": [
+          "Worker not ready",
+          "K_NOT_READY"
+        ],
+        "search_query_used": "K_NOT_READY K_NO_AVAILABLE_WORKER Worker not ready All workers filtered RPC peer dead",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "检查该节点 Worker 进程是否存活。",
+        "how_used_in_diagnosis": "用于短期处置中核验 Worker 存活、健康状态和系统日志。",
+        "confidence_on_reference": 0.82,
+        "confidence_reason": "与现场 Worker not ready/Host is down 一致。"
+      },
+      {
+        "experience_id": "862f89c4-27af-4ac8-90b9-266f48ff6b32",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 共享内存日志模式",
+        "source_path": "data/wiki_hub/ds-shared-memory-patterns.md",
+        "keywords_matched": [
+          "K_NOT_READY"
+        ],
+        "search_query_used": "K_NOT_READY K_NO_AVAILABLE_WORKER Worker not ready All workers filtered RPC peer dead",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Try connect worker for shm fd transfer, endpoint: ...",
+        "how_used_in_diagnosis": "未采用；代表 trace 未显示 fd 传递或共享内存建立失败。",
+        "confidence_on_reference": 0.3,
+        "confidence_reason": "与本次故障机理不匹配。"
+      },
+      {
+        "experience_id": "4cceeb69-c022-4e21-a00a-f440f681132e",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Client 错误模式",
+        "source_path": "data/wiki_hub/ds-client-error-patterns.md",
+        "keywords_matched": [
+          "Worker",
+          "Client"
+        ],
+        "search_query_used": "K_NOT_READY K_NO_AVAILABLE_WORKER Worker not ready All workers filtered RPC peer dead",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Client 错误通常发生在初始化、连接 Worker、注册、接口调用和共享内存通信阶段。",
+        "how_used_in_diagnosis": "未采用通用 Client 候选；多客户端同时指向 Worker 侧异常。",
+        "confidence_on_reference": 0.45,
+        "confidence_reason": "现场跨客户端一致，排除单客户端故障优先级。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "RPC peer dead",
+          "URMA"
+        ],
+        "search_query_used": "K_NOT_READY K_NO_AVAILABLE_WORKER Worker not ready All workers filtered RPC peer dead",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "本地没有到远端 Worker 的 URMA 连接，需要新建。",
+        "how_used_in_diagnosis": "未采用；GET/SET URMA timeout 桶均为 0。",
+        "confidence_on_reference": 0.35,
+        "confidence_reason": "无现场 URMA 连接或超时命中。"
+      },
+      {
+        "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 访问日志模式",
+        "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+        "keywords_matched": [
+          "status_code",
+          "access log"
+        ],
+        "search_query_used": "K_NOT_READY K_NO_AVAILABLE_WORKER Worker not ready All workers filtered RPC peer dead",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "高频超时（K_RPC_DEADLINE_EXCEEDED / K_WORKER_TIMEOUT / K_MASTER_TIMEOUT）",
+        "how_used_in_diagnosis": "未采用超时路径；本次主导码为 8/37，且 URMA 超时桶为 0。",
+        "confidence_on_reference": 0.3,
+        "confidence_reason": "检索命中但主导错误码不匹配。"
+      }
+    ],
+    "summary": {
+      "total_references": 10,
+      "adopted_as_evidence_count": 1,
+      "adopted_as_suggestion_count": 2,
+      "considered_not_adopted_count": 7,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "诊断前后均检索本地经验；仅采用与现场 trace 和 curated 知识一致的条目，其余候选均记录未采用原因。"
+    }
+  }
+}

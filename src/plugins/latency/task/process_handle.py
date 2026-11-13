@@ -47,6 +47,8 @@ class ProcessHandler:
     # SemLock._rebuild 就会 FileNotFoundError。超时不代表启动失败，
     # 因此保留引用到子进程就绪或进程被回收。
     startup_events = {}
+    #: 每个任务进入进程池的单调时钟起点，看门狗据此判定挂死超时。
+    _task_started_at: dict[str, float] = {}
     lock = multiprocessing.Lock()  # 创建一个锁对象
     max_processes = min(
         Config().get_config().task.cpu_limit,
@@ -56,6 +58,13 @@ class ProcessHandler:
     # 收尾等待（秒）：SIGTERM 优雅退出后等多久、升级 SIGKILL 后再等多久
     _GRACEFUL_JOIN_S = 2
     _KILL_JOIN_S = 2
+    #: 子进程墙钟硬上限（秒）；<=0 关闭看门狗。子进程「活着但永不返回」时，
+    #: ``_cleanup_dead_processes`` 看不到它，并发槽会被永久占满（历史故障）。
+    max_runtime_seconds = Config().get_config().task.task_timeout_seconds
+    #: RUNNING 任务连续无对应存活进程达到该秒数即回收（见 task_handler 看门狗）。
+    stale_running_grace_seconds = (
+        Config().get_config().task.stale_running_grace_seconds
+    )
 
     @staticmethod
     def _signal_owned_group(pgid: int | None, sig: signal.Signals) -> bool:
@@ -193,6 +202,7 @@ class ProcessHandler:
         ]
         for tid in dead_tasks:
             process = ProcessHandler.tasks.pop(tid)
+            ProcessHandler._task_started_at.pop(tid, None)
             process.join()
             exits[tid] = process.exitcode
             pgid = ProcessHandler.process_groups.pop(tid, process.pid)
@@ -201,6 +211,91 @@ class ProcessHandler:
             ProcessHandler.startup_events.pop(tid, None)
             logger.debug(f"[ProcessHandler] 清理已结束的进程: {tid}")
         return exits
+
+    @staticmethod
+    def _kill_process_tree(process) -> bool:
+        """SIGTERM（整进程组）→ 宽限 → SIGKILL，返回进程是否已退出。
+
+        优先 signal 任务自己的进程组（``setsid`` 保证组长 == pid），据此连带
+        回收子进程拉起的原生工具；仅当不是组长时才退化为单进程 terminate/kill。
+        """
+        if not process.is_alive():
+            return True
+        pid = process.pid
+        try:
+            pgid = os.getpgid(pid)
+            if pgid == pid:
+                os.killpg(pgid, signal.SIGTERM)
+            else:
+                process.terminate()
+        except ProcessLookupError:
+            pass
+        process.join(timeout=ProcessHandler._GRACEFUL_JOIN_S)
+        if process.is_alive():
+            try:
+                pgid = os.getpgid(pid)
+                if pgid == pid:
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    process.kill()
+            except ProcessLookupError:
+                pass
+            process.join(timeout=ProcessHandler._KILL_JOIN_S)
+        return not process.is_alive()
+
+    @staticmethod
+    def live_task_ids() -> set[str]:
+        """当前持有存活子进程的任务 ID 集合（供 DB 层回收僵尸 RUNNING 用）。"""
+        if not ProcessHandler.lock.acquire(timeout=ProcessHandler.time_out):
+            return set()
+        try:
+            return {tid for tid, proc in ProcessHandler.tasks.items() if proc.is_alive()}
+        finally:
+            ProcessHandler.lock.release()
+
+    @staticmethod
+    def collect_hung_tasks() -> dict[str, float]:
+        """看门狗：强杀运行超时的子进程并释放并发槽。
+
+        返回 ``{task_id: 已运行秒数}`` 供调度器把任务路由进重试链路。子进程
+        「活着但永不返回」不会触发 ``_cleanup_dead_processes``，必须靠墙钟兜底。
+        """
+        if ProcessHandler.max_runtime_seconds <= 0:
+            return {}
+        if not ProcessHandler.lock.acquire(timeout=ProcessHandler.time_out):
+            return {}
+        try:
+            now = time.monotonic()
+            hung: dict[str, float] = {}
+            for tid, process in list(ProcessHandler.tasks.items()):
+                if not process.is_alive():
+                    continue
+                started = ProcessHandler._task_started_at.get(tid, now)
+                runtime = now - started
+                if runtime < ProcessHandler.max_runtime_seconds:
+                    continue
+                hung[tid] = runtime
+                killed = ProcessHandler._kill_process_tree(process)
+                ProcessHandler.tasks.pop(tid, None)
+                ProcessHandler._task_started_at.pop(tid, None)
+                process.close()
+                if killed:
+                    logger.warning(
+                        "[ProcessHandler] 任务 %s 运行超时(%.0fs)，已强制终止",
+                        tid,
+                        runtime,
+                    )
+                else:
+                    logger.error(
+                        "[ProcessHandler] 任务 %s (PID: %s) 运行 %.0fs 超时后仍存活，"
+                        "强制释放并发槽",
+                        tid,
+                        process.pid,
+                        runtime,
+                    )
+            return hung
+        finally:
+            ProcessHandler.lock.release()
 
     @staticmethod
     def collect_finished_tasks():
@@ -259,6 +354,7 @@ class ProcessHandler:
                 # BaseProcess.start() 会删除 process._args，Process 对象本身不再
                 # 持有 ready_event；必须在管理器中显式保活。
                 ProcessHandler.startup_events[task_id] = ready_event
+                ProcessHandler._task_started_at[task_id] = time.monotonic()
                 logger.debug(f"[ProcessHandler] 任务 {task_id} 已添加到进程池，PID: {process.pid}")
                 # 先放锁再等就绪：等的是子进程 import + 建进程组（可能数秒），
                 # 握锁等会把同一批任务的 spawn 串行化（实测三个任务各差 3.7s）。
@@ -299,31 +395,10 @@ class ProcessHandler:
             try:
                 if process.is_alive():
                     pid = process.pid
-                    try:
-                        pgid = os.getpgid(pid)
-                        if pgid == pid:
-                            os.killpg(pgid, signal.SIGTERM)
-                        else:
-                            # Never signal a group we do not own (for example
-                            # the API server's group if setsid failed).
-                            process.terminate()
-                    except ProcessLookupError:
-                        pass
                     # 收尾等待不能长：这段在调度任务里被 await，等 10s 会把
                     # 1s 的派发节拍整拍吃掉（实测每轮 handle_tasks 跑 ~4s，
                     # 导致后续任务错峰开工）。
-                    process.join(timeout=ProcessHandler._GRACEFUL_JOIN_S)
-                    if process.is_alive():
-                        try:
-                            pgid = os.getpgid(pid)
-                            if pgid == pid:
-                                os.killpg(pgid, signal.SIGKILL)
-                            else:
-                                process.kill()
-                        except ProcessLookupError:
-                            pass
-                        process.join(timeout=ProcessHandler._KILL_JOIN_S)
-                    if process.is_alive():
+                    if not ProcessHandler._kill_process_tree(process):
                         logger.warning(
                             "[ProcessHandler] 任务 %s (PID: %s) 强制终止后仍存活",
                             task_id,
@@ -331,18 +406,18 @@ class ProcessHandler:
                         )
                         ProcessHandler.lock.release()
                         return False
-                    else:
-                        logger.info(
-                            "[ProcessHandler] 任务 %s (PID: %s) 及其子进程已终止",
-                            task_id,
-                            pid,
-                        )
+                    logger.info(
+                        "[ProcessHandler] 任务 %s (PID: %s) 及其子进程已终止",
+                        task_id,
+                        pid,
+                    )
                 else:
                     logger.debug(f"[ProcessHandler] 任务 {task_id} 进程已自然结束")
                     pgid = ProcessHandler.process_groups.get(task_id, process.pid)
                     ProcessHandler._terminate_orphan_group(task_id, pgid)
                 ProcessHandler.tasks.pop(task_id, None)
                 ProcessHandler.process_groups.pop(task_id, None)
+                ProcessHandler._task_started_at.pop(task_id, None)
                 process.close()
                 ProcessHandler.startup_events.pop(task_id, None)
             except Exception as e:

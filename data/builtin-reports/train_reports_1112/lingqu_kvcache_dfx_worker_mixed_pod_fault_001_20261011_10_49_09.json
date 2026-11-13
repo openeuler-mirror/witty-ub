@@ -1,0 +1,559 @@
+{
+  "report": {
+    "title": "Worker 容器重启导致元数据 Owner 不可用诊断报告",
+    "report_id": "RPT-20261112-94CC",
+    "generated_at": "2026-11-12 12:30:00"
+  },
+  "basic_info": {
+    "kb_id": "94ccd9b7-1995-42f4-b505-0bd77083993d",
+    "kb_name": "lingqu_kvcache_dfx_worker_mixed_pod_fault_001_20261011_10_49_09",
+    "log_file": "lingqu_kvcache_dfx_worker_mixed_pod_fault_001_20261011_10_49_09",
+    "operation": "SET（GET 对照无样本）",
+    "time_range_start": "2026-10-11 10:47:00",
+    "time_range_end": "2026-10-11 10:48:00",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "100%（本资产库仅 1 条 trace）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC peer dead": 0.164337,
+      "T:E112": 0.986024,
+      "C:Metadata owner unavailable": 0.02739
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：元数据 Owner Worker 容器生命周期中断后端点不可达，导致 SET 发布返回状态码 39。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "ci-kv-ds-1 中 1 条 SET trace 失败，涉及客户端/入口 Worker 两个观测 Pod，并指向不可达的元数据 Owner 192.168.219.75:31501。",
+    "confidence": 0.9
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Worker 容器重启导致元数据 Owner 不可用",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 0.9,
+      "category": "error",
+      "affected_scope": "SET 写路径；2 个观测 Pod，1 个不可达元数据 Owner 端点",
+      "conclusion": {
+        "first_level_label": "容器故障",
+        "second_level_label": "容器故障-Worker容器重启",
+        "one_line_conclusion": "元数据 Owner 192.168.219.75:31501 在健康注册约 12.5 秒后变为 Host is down，SET 发布沿 RPC→Publish 链上浮为状态码 39。",
+        "fault_domain": "容器故障/容器故障-Worker容器重启",
+        "fault_component": "元数据 Owner Worker 容器",
+        "fault_function": "CreateMeta / Publish",
+        "fault_function_loc": "worker_oc_service_publish_impl.cpp:483,675；rpc_util.h:109",
+        "affected_scope_pct": null,
+        "affected_scope_desc": "1 条 SET 异常 trace；观测到 192.168.219.109 与 192.168.189.100，目标 192.168.219.75:31501 不可达。",
+        "confidence": 0.9,
+        "key_findings": [
+          "10:47:00，192.168.219.75 Worker 完成客户端注册且 healthy=1；10:47:12.949 起 CreateMeta 连续返回 brpc errno=112 Host is down。",
+          "trace 71408009-880b-4b00-962b-f2ef83dc917a 的错误传播为 RPC peer dead → RequestingToMaster failed → Publish failed → SET 返回 39。",
+          "SET 归因桶仅 set_worker 非零：1 条异常 trace，阶段证据 P90/最大值均 3.791ms，Client 对照 4.178ms；不是 deadline 慢请求。",
+          "训练标签映射指定为容器故障/容器故障-Worker容器重启；当前日志未包含 Kubernetes restartCount、lastState 或退出码，重启触发原因仍需容器事件闭环。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "94ccd9b7-1995-42f4-b505-0bd77083993d",
+              "operation": "SET",
+              "start_time": "2026-10-11 10:47:00",
+              "end_time": "2026-10-11 10:48:00"
+            },
+            "code_filter": [
+              "39"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "94ccd9b7-1995-42f4-b505-0bd77083993d",
+                    "operation": "SET",
+                    "interval": "minute",
+                    "start_time": "2026-10-11 10:47:00",
+                    "end_time": "2026-10-11 10:48:00",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 1,
+              "items": [
+                {
+                  "code": "39",
+                  "count": 1,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-11 10:47:00",
+                  "end_time": "2026-10-11 10:48:00",
+                  "complete": true,
+                  "counts": {
+                    "39": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 操作在 2026-10-11 10:47:00~10:48:00 的完整分钟窗内出现 1 次状态码 39 逐码命中，占本故障筛选范围内逐码命中的 100%；GET 同范围无故障记录。该计数不是业务失败率。",
+        "metrics": [
+          {
+            "label": "主导错误码",
+            "value": "39",
+            "sub": "K_METADATA_OWNER_UNAVAILABLE",
+            "tone": "bad"
+          },
+          {
+            "label": "逐码命中",
+            "value": "1",
+            "sub": "SET；完整 1 分钟窗",
+            "tone": "warn"
+          }
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "Client 总时延",
+            "value": "4.178ms",
+            "sub": "单条异常 SET trace",
+            "tone": "warn"
+          },
+          {
+            "label": "Worker 写处理证据",
+            "value": "3.791ms",
+            "sub": "P50=P90=max；非 P99",
+            "tone": "warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·Worker写处理",
+            "p50": "3.791ms",
+            "p90": "3.791ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100%（1/1 归因样本）",
+            "status": "bottleneck",
+            "detail": "唯一异常 SET trace 归入 set_worker；失败为毫秒级快速 peer-dead，上述占比是样本归桶占比而非耗时占比。"
+          }
+        ],
+        "conclusion": "SET 的可观测证据集中在 Worker 写处理窗口，但根因信号是 CreateMeta 对端快速返回 Host is down；GET 无可归因样本，不能跨操作混桶。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 现场定界",
+            "title": "SET 独占故障，GET 无样本",
+            "description": "GET /stats/stages 与故障码统计均为空；SET 有 1 条异常 trace 和状态码 39。",
+            "evidence": "[POST /stats/stages, /stats/error_codes] GET sample_cnt=0；SET sample_cnt=1、code 39 trace_cnt=1。",
+            "confirmed": true
+          },
+          {
+            "step_label": "② 对端状态变化",
+            "title": "元数据 Owner 从健康变为不可达",
+            "description": "192.168.219.75 在 10:47:00 完成注册并标记 healthy=1，约 12.5 秒后 CreateMeta 报 E112 Host is down。",
+            "evidence": "[原始日志/API list_log_events] worker_service_impl.cpp:287 与 rpc_util.h:109 时间线。",
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 错误传播",
+            "title": "连接故障上浮为元数据 Owner 不可用",
+            "description": "同一 trace 中 peer dead 依次触发 RequestingToMaster failed、Publish failed，客户端 SET 最终返回 K_METADATA_OWNER_UNAVAILABLE(39)。",
+            "evidence": "failure_mode kvcache_runtime_1377/2295/2303 与 kvcache_access_036；trace=71408009-880b-4b00-962b-f2ef83dc917a。",
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "排除普通高时延与 URMA timeout",
+            "description": "CreateMeta BRPC 调用仅 4~6μs 即以 errno=112 失败，SET·URMA超时桶为 0；故障不是 deadline 超时或 URMA 等待积压。",
+            "evidence": "[BRPC_RPC_FRAMEWORK_SLOW] cntl_error_code=112、server 字段为 0；/stats/stages set_urma_timeout trace_cnt=0。",
+            "excluded": true
+          },
+          {
+            "step_label": "⑤ 根因收敛",
+            "title": "Worker 容器重启造成服务窗口中断",
+            "description": "现场的健康后快速 Host down 与已确认同类案例一致，且用户指定训练标签为 Worker 容器重启；直接重启次数与退出触发原因仍需 Kubernetes 事件验证。",
+            "evidence": "现场时间线 + gt_labels.json 标签映射 + 已确认案例 UB-CASE-002601；历史案例仅作待验证假设，未替代现场证据。",
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "承载元数据 Owner 的 Worker 容器发生重启/生命周期中断，使 192.168.219.75:31501 的 BRPC 服务不可达；入口 Worker 的 CreateMeta 快速失败并将错误上浮为 SET 状态码 39。容器重启的底层触发原因（OOM、主动删除、崩溃或节点问题）尚无退出码证据。",
+        "supporting_knowledge": "curated 状态码 39 与 kvcache_access_036 均说明网络中断、元数据 Owner 进程异常或路由过期会导致发布结果未知；已确认案例 UB-CASE-002601 与本现场在 code 39、set_worker、健康后 Host down 和容器重启标签上相符。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Worker 容器生命周期中断",
+            "detail": "元数据 Owner 192.168.219.75:31501 从 healthy 变为不可达。",
+            "type": "root"
+          },
+          {
+            "label": "CreateMeta BRPC 失败",
+            "detail": "192.168.189.100 调用目标端点连续返回 RPC peer dead / errno=112 Host is down。",
+            "type": "failure"
+          },
+          {
+            "label": "Publish 链路上浮",
+            "detail": "RequestingToMaster failed → Publish failed，元数据发布结果无法确认。",
+            "type": "propagation"
+          },
+          {
+            "label": "客户端 SET 失败",
+            "detail": "192.168.219.109 收到 K_METADATA_OWNER_UNAVAILABLE(39)，总时延 4.178ms。",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "观测 Pod: 192.168.219.109（客户端）、192.168.189.100（入口/数据 Worker）",
+          "不可达端点: 192.168.219.75:31501（元数据 Owner）",
+          "操作: SET/PUBLISH；GET 无样本"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "71408009-880b-4b00-962b-f2ef83dc917a",
+          "kind": "error",
+          "why": "完整过滤条件：operation=SET + status_code=39 + 时间窗 2026-10-11 10:47:00~10:48:00；唯一命中 trace，串联 peer dead 到 SET 返回 39。",
+          "evidence_ms": 3.791,
+          "client_ms": 4.178,
+          "status_code": "39",
+          "failure_mode_id": "kvcache_access_036",
+          "pod": "192.168.219.109 / 192.168.189.100",
+          "host": null,
+          "timestamp": "2026-10-11 10:47:12.944"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_036",
+          "stars": "★★★★★",
+          "match_logic": "L1 命中状态码 39 与故障模式；L2 命中 SET 元数据发布故障域；L3 拓扑表现为 Worker→Metadata Owner，但聚合 links 因源目字段缺失未命中；L5 命中 Metadata owner unavailable。",
+          "symptom": "请求返回 K_METADATA_OWNER_UNAVAILABLE，元数据所有者不可用且发布结果未知。",
+          "root_cause": "网络中断、元数据所有者进程异常或路由过期均可导致发布 RPC 无法确认结果。",
+          "solution": "检查 Owner 进程/容器、网络与路由；确认对象状态后再决定是否补写。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "applicability": "direct"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002601",
+          "stars": "★★★★★",
+          "match_logic": "L1 命中 code 39 与 kvcache_access_036；L2 命中 set_worker 和容器故障标签，操作域 MIXED 对 SET 为部分命中；L3 均为 Owner 端点健康后快速不可达；L5 命中 RPC peer dead/Host is down。",
+          "symptom": "Worker 容器重启后 URMA/RPC 连接失效，SET 元数据发布返回 39。",
+          "root_cause": "历史已确认案例归因为 Worker 容器重复重启导致连接失效。",
+          "solution": "核查 Pod events、lastState、restartCount 与退出码；恢复后重建 RPC/URMA 连接并确认对象状态。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用",
+          "applicability": "adjust",
+          "adaptation": "本现场仅有单一故障窗，不能照搬历史案例的“重复重启”次数；只复用容器事件核验与恢复检查。"
+        },
+        {
+          "rank": "③",
+          "id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+          "stars": "★★★★☆",
+          "match_logic": "L1 未按 code 39 精确命中；L2 命中 Worker 生命周期故障域；L3 建议结合同节点容器和系统日志；L5 与本现场 Host is down 后缺失退出记录的证据缺口相符。",
+          "symptom": "Worker 异常退出或被 kill -9 时，Worker 日志可能没有退出前 ERROR/FATAL。",
+          "root_cause": "经验库不直接给出本现场根因，仅提示容器/系统侧证据可能是闭环所必需。",
+          "solution": "同时检查 container.log、dmesg/systemd 与 Worker 最后日志，区分正常重启、OOM、崩溃和强杀。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为建议采用",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "核查 192.168.219.75 对应 Worker Pod 的 events、restartCount、lastState、退出码及重启前后 PID，确认容器重启时点和触发原因。",
+          "恢复并确认 192.168.219.75:31501 监听与 Ready 状态；验证入口 Worker 到该端点的 BRPC 通道已重建，并刷新元数据 Owner 路由。",
+          "状态码 39 表示发布结果未知：先查询对象 T_ci_kvclient_master_1_993 的最终状态，再决定是否补写，避免盲目重放产生重复副作用。"
+        ],
+        "long_term": [
+          "关联告警 Worker restartCount/Ready 抖动、brpc errno=112、RPC peer dead 与 K_METADATA_OWNER_UNAVAILABLE(39)。",
+          "保留 kubelet/container runtime、dmesg、OOM killer 和 Worker 启停日志，并演练 Owner 重启后的路由收敛与连接重建。"
+        ],
+        "verification": [
+          "连续观察 30 分钟：目标 Worker restartCount 不再增长，192.168.219.75:31501 持续可达。",
+          "重放前确认对象状态；执行受控 SET 后 code 39 归零且对象内容符合预期。",
+          "分别复查 GET/SET 的 /stats/stages 与 /stats/error_codes：GET、SET 口径独立，SET 不再出现 set_worker 异常 trace。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验并稳定元数据 Owner Worker 容器生命周期，恢复 31501 服务并刷新路由。",
+      "depends_on": "获取 Pod 事件、lastState、restartCount 和退出码",
+      "expected_effect": "CreateMeta 可达，SET 不再返回状态码 39。",
+      "verify": "30 分钟无新增重启；受控 SET 成功。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "确认发布结果后再补偿写入。",
+      "depends_on": "目标 Worker 恢复且路由收敛",
+      "expected_effect": "避免结果未知场景下重复写入。",
+      "verify": "对象状态与预期一致且无重复副作用。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "GET 归因子集",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0；无 GET 归因样本，空结果不代表健康。"
+          }
+        ],
+        "conclusion": "GET 无归因样本，不与 SET 混合计算。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "SET·Worker写处理",
+            "pct": "100",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": "—",
+            "anomaly_rate": "0/1",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "trace_cnt=0。"
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "0/1",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "trace_cnt=0。"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "anomaly_rate": "0/1",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "trace_cnt=0。"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "0/1",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "trace_cnt=0。"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "1/1",
+            "fail_share": "100%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "P50=P90=max=3.791ms，Client P90=4.178ms；接口不提供 P99。"
+          }
+        ],
+        "conclusion": "SET 的唯一归因样本位于 set_worker，失败在 CreateMeta 对端不可达处快速返回；100% 为归因样本占比，不是耗时占比。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 1,
+    "top_error_codes": [
+      {
+        "code": "39",
+        "name": "K_METADATA_OWNER_UNAVAILABLE",
+        "pct": "100",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "容器故障/容器故障-Worker容器重启",
+        "pct": "100",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.189.100",
+        "host": "—",
+        "pct": "50",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.109",
+        "host": "—",
+        "pct": "50",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-10-11 10:47",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-94ccd9b7-20261112",
+    "total_steps": 7,
+    "api_calls": 29,
+    "duration": "本次会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences (SKILL/WIKI)"
+        ],
+        "result": "命中 ds-worker-log-analysis 与 Worker 错误模式，作为排查建议而非现场证据。"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "解析任务 successful；1 个日志文件、1 条异常 trace、1 条 trace 故障事件。"
+      },
+      {
+        "title": "Step 3 GET/SET 组件定位",
+        "api_calls": [
+          "POST /stats/stages (GET)",
+          "POST /stats/stages (SET)"
+        ],
+        "result": "GET 无样本；SET 唯一 trace 归入 set_worker，P90 3.791ms。"
+      },
+      {
+        "title": "Step 4 通断分布与 Trace 下钻",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "SET code 39 一次；同 trace 证实 peer dead→Publish failed→SET 39。"
+      },
+      {
+        "title": "Step 5 Curated 知识核对",
+        "api_calls": [
+          "GET /failure_mode/status_code/39",
+          "GET /failure_mode/{id}"
+        ],
+        "result": "状态码与 failure mode 均指向元数据 Owner 进程/网络/路由不可用；现场快速 Host down 收敛到 Worker 生命周期中断。"
+      },
+      {
+        "title": "Step 6 历史案例匹配与回写",
+        "api_calls": [
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "命中并回写 UB-CASE-002590、UB-CASE-002601；案例仅作待验证假设，已回到现场时间线核对。"
+      },
+      {
+        "title": "Step 7 报告特征提取",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "错误码时间分布由保存的真实请求/响应离线提取；GET/SET 阶段独立呈现。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+        "keywords_matched": [
+          "Worker",
+          "异常退出",
+          "重启"
+        ],
+        "search_query_used": "Metadata owner unavailable RPC peer dead Host is down Worker 容器重启",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "分析 Worker 日志时应同时查看同节点的 container.log 和系统日志（如 dmesg、systemd）。",
+        "how_used_in_diagnosis": "用于补充容器重启原因的闭环检查项，不作为现场根因证据。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "建议与当前缺少容器退出码的证据缺口直接对应。"
+      }
+    ],
+    "summary": {
+      "total_references": 1,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 1,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于提供容器与系统日志的核验建议；根因与标签以现场 API 证据、curated 知识及用户指定标签映射为依据。"
+    }
+  }
+}
