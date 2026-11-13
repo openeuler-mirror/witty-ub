@@ -79,22 +79,26 @@ class BaseWorker:
         flag = await BaseWorker.find_worker_class(worker_name).reinit(task_id)
         await asyncio.to_thread(ProcessHandler.remove_task, task_id)
         if flag:
-            await TaskPGManager.update_task(
+            # A delete request may have installed CANCELLED while the worker's
+            # cleanup hook was running.  Never overwrite that fence with PENDING.
+            transitioned = await TaskPGManager.update_task_if_status(
                 task_id,
+                TaskStatusEnum.FAILED_PENDING_REMOVE,
                 {
                     "status": TaskStatusEnum.PENDING.value,
                     "retry_times": task.retry_times + 1,
                 },
             )
-            return True
+            return transitioned
         else:
             completed_at = local_now()
             duration_seconds = 0.0
             if task.created_at:
                 duration_seconds = (completed_at - task.created_at).total_seconds()
             
-            await TaskPGManager.update_task(
+            await TaskPGManager.update_task_if_status(
                 task_id, 
+                TaskStatusEnum.FAILED_PENDING_REMOVE,
                 {
                     "status": TaskStatusEnum.FAILED.value,
                     "completed_at": completed_at,

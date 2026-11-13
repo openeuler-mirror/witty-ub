@@ -5,6 +5,7 @@ import logging
 import multiprocessing
 import os
 import signal
+import time
 
 from latency.config.config import Config
 from latency.database.engine import PGManager
@@ -36,6 +37,10 @@ class ProcessHandler:
     """进程处理器类"""
 
     tasks = {}  # 存储进程的字典
+    # Keep the process-group id independently from the Process object.  The
+    # worker leader can be OOM-killed while scanner/native descendants remain;
+    # collect_finished_tasks must still be able to terminate that orphan group.
+    process_groups = {}
     # ``spawn`` 子进程在执行 target 前要先重建 Event 里的命名
     # SemLock。并发启动较慢时，ready 等待可能先超时；若父进程此时
     # 丢掉最后一个 Event 引用，/dev/shm/sem.* 会被 unlink，子进程随后
@@ -51,6 +56,48 @@ class ProcessHandler:
     # 收尾等待（秒）：SIGTERM 优雅退出后等多久、升级 SIGKILL 后再等多久
     _GRACEFUL_JOIN_S = 2
     _KILL_JOIN_S = 2
+
+    @staticmethod
+    def _signal_owned_group(pgid: int | None, sig: signal.Signals) -> bool:
+        if not pgid or os.name != "posix" or pgid == os.getpgrp():
+            return False
+        try:
+            os.killpg(pgid, sig)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            logger.exception("[ProcessHandler] 无权终止进程组 %s", pgid)
+            return False
+
+    @staticmethod
+    def _group_exists(pgid: int | None) -> bool:
+        if not pgid or os.name != "posix" or pgid == os.getpgrp():
+            return False
+        try:
+            os.killpg(pgid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+
+    @staticmethod
+    def _terminate_orphan_group(task_id: str, pgid: int | None) -> None:
+        """Terminate descendants left behind after their worker leader exited."""
+        if not ProcessHandler._group_exists(pgid):
+            return
+        logger.warning(
+            "[ProcessHandler] 任务 %s 主进程已退出，清理残留进程组 %s",
+            task_id,
+            pgid,
+        )
+        ProcessHandler._signal_owned_group(pgid, signal.SIGTERM)
+        deadline = time.monotonic() + ProcessHandler._GRACEFUL_JOIN_S
+        while time.monotonic() < deadline and ProcessHandler._group_exists(pgid):
+            time.sleep(0.05)
+        if ProcessHandler._group_exists(pgid):
+            ProcessHandler._signal_owned_group(pgid, signal.SIGKILL)
 
     @staticmethod
     def _process_name(target, task_id: str) -> str:
@@ -148,6 +195,8 @@ class ProcessHandler:
             process = ProcessHandler.tasks.pop(tid)
             process.join()
             exits[tid] = process.exitcode
+            pgid = ProcessHandler.process_groups.pop(tid, process.pid)
+            ProcessHandler._terminate_orphan_group(tid, pgid)
             process.close()
             ProcessHandler.startup_events.pop(tid, None)
             logger.debug(f"[ProcessHandler] 清理已结束的进程: {tid}")
@@ -204,6 +253,9 @@ class ProcessHandler:
                 )
                 process.start()
                 ProcessHandler.tasks[task_id] = process
+                # subprocess_target calls setsid(), so the leader PID becomes
+                # the task process-group id once ready_event is set.
+                ProcessHandler.process_groups[task_id] = process.pid
                 # BaseProcess.start() 会删除 process._args，Process 对象本身不再
                 # 持有 ready_event；必须在管理器中显式保活。
                 ProcessHandler.startup_events[task_id] = ready_event
@@ -287,7 +339,10 @@ class ProcessHandler:
                         )
                 else:
                     logger.debug(f"[ProcessHandler] 任务 {task_id} 进程已自然结束")
+                    pgid = ProcessHandler.process_groups.get(task_id, process.pid)
+                    ProcessHandler._terminate_orphan_group(task_id, pgid)
                 ProcessHandler.tasks.pop(task_id, None)
+                ProcessHandler.process_groups.pop(task_id, None)
                 process.close()
                 ProcessHandler.startup_events.pop(task_id, None)
             except Exception as e:
@@ -296,6 +351,8 @@ class ProcessHandler:
                 return False
             logger.debug(f"[ProcessHandler] 任务 {task_id} 已从进程池移除")
         else:
+            pgid = ProcessHandler.process_groups.pop(task_id, None)
+            ProcessHandler._terminate_orphan_group(task_id, pgid)
             # 防御性清理：正常情况下 tasks 与 startup_events 同步移除。
             ProcessHandler.startup_events.pop(task_id, None)
             logger.debug(f"[ProcessHandler] 任务 {task_id} 不在进程池中，可能已结束或未启动")

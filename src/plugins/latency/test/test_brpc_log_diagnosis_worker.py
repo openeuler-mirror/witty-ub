@@ -935,45 +935,52 @@ def test_delete_brpc_log_stops_active_tasks_before_transactional_delete(
             status=TaskStatusEnum.SUCCESSFUL.value,
         ),
     ]
-    session = SimpleNamespace(
-        execute=AsyncMock(return_value=SimpleNamespace(
-            scalars=lambda: SimpleNamespace(all=lambda: tasks)
-        ))
-    )
-
-    @asynccontextmanager
-    async def open_session():
-        yield session
-
     actions = []
 
-    async def stop_task(task_id):
-        actions.append(("stop", task_id))
-        return True
+    async def begin_deletion(found_tasks, *, log_ids):
+        actions.append(
+            ("fence", [task.id for task in found_tasks], sorted(log_ids))
+        )
+
+    def end_deletion(found_tasks, *, log_ids):
+        actions.append(
+            ("unfence", [task.id for task in found_tasks], sorted(log_ids))
+        )
 
     async def delete_log(log_file_id):
         actions.append(("delete", log_file_id))
         return True
 
-    def cleanup(log_file_id):
-        actions.append(("cleanup", log_file_id))
+    def cleanup(log_file, **_kwargs):
+        actions.append(("cleanup", log_file.id))
 
-    monkeypatch.setattr(
-        log_file_service_module.PGManager, "session", staticmethod(open_session)
-    )
     monkeypatch.setattr(
         log_file_service_module.LogFilePGManager,
         "get_log_file_by_log_file_id",
         AsyncMock(return_value=LogFileModel(id=log_id, log_type="UBSocket")),
     )
-    monkeypatch.setattr(BaseWorker, "stop", stop_task)
+    monkeypatch.setattr(
+        log_file_service_module.TaskPGManager,
+        "list_tasks_by_op_id",
+        AsyncMock(return_value=tasks),
+    )
+    monkeypatch.setattr(
+        log_file_service_module.TaskHandler,
+        "begin_deletion",
+        begin_deletion,
+    )
+    monkeypatch.setattr(
+        log_file_service_module.TaskHandler,
+        "end_deletion",
+        end_deletion,
+    )
     hard_delete = AsyncMock(side_effect=delete_log)
     monkeypatch.setattr(
         log_file_service_module.LogFilePGManager,
         "hard_delete_log_file_with_related_data",
         hard_delete,
     )
-    monkeypatch.setattr(log_file_service_module, "cleanup_preprocess_dir", cleanup)
+    monkeypatch.setattr(log_file_service_module, "cleanup_log_artifacts", cleanup)
     monkeypatch.setattr(log_file_service_module, "witty_dir", str(tmp_path))
 
     result = _run(LogFileService.delete_log_file_by_log_file_id(log_id))
@@ -981,13 +988,19 @@ def test_delete_brpc_log_stops_active_tasks_before_transactional_delete(
     assert result.log_file_ids == [log_id]
     hard_delete.assert_awaited_once_with(log_id)
     assert actions == [
-        ("stop", "brpc-task"),
-        ("stop", "parse-task"),
-        ("delete", log_id),
+        (
+            "fence",
+            ["brpc-task", "parse-task", "finished-task"],
+            [log_id],
+        ),
         ("cleanup", log_id),
+        ("delete", log_id),
+        (
+            "unfence",
+            ["brpc-task", "parse-task", "finished-task"],
+            [log_id],
+        ),
     ]
-    statement = session.execute.await_args.args[0]
-    assert statement.compile().params == {"op_id_1": log_id}
 
 
 def test_build_command_uses_documented_arguments(monkeypatch, tmp_path):

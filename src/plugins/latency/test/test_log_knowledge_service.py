@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from latency.database.engine import PGManager
@@ -11,7 +12,7 @@ from latency.database.managers.task import TaskPGManager
 from latency.exceptions import ConflictBizException
 from latency.schemas.request import CreateLogKnowledgeRequest
 from latency.services.log_knowledge import LogKnowledgeService
-from latency.task.worker.base import BaseWorker
+from latency.task.task_handler import TaskHandler
 
 
 @pytest.fixture
@@ -112,11 +113,19 @@ async def test_delete_kb_cascades_logs_tasks_and_asset_after_stopping_workers(
     monkeypatch,
 ):
     actions = []
-    tasks = [MagicMock(id="task-1"), MagicMock(id="task-2")]
+    tasks = [
+        SimpleNamespace(id="task-1", op_id="log-1"),
+        SimpleNamespace(id="task-2", op_id="orphan-log"),
+    ]
 
-    async def stop_task(task_id):
-        actions.append(("stop", task_id))
-        return True
+    async def begin_deletion(received_tasks, **kwargs):
+        actions.append(("fence", [task.id for task in received_tasks], kwargs))
+
+    def cleanup_log(log_file, **_kwargs):
+        actions.append(("cleanup", log_file.id))
+
+    def cleanup_temp(log_id, **_kwargs):
+        actions.append(("cleanup-temp", log_id))
 
     async def delete_log(log_id):
         actions.append(("delete-log", log_id))
@@ -130,10 +139,18 @@ async def test_delete_kb_cascades_logs_tasks_and_asset_after_stopping_workers(
     monkeypatch.setattr(
         TaskPGManager, "list_tasks_by_kb_id", AsyncMock(return_value=tasks)
     )
-    monkeypatch.setattr(BaseWorker, "stop", stop_task)
+    monkeypatch.setattr(TaskHandler, "begin_deletion", begin_deletion)
+    monkeypatch.setattr(TaskHandler, "end_deletion", MagicMock())
     monkeypatch.setattr(
         LogFilePGManager, "list_log_file_ids", AsyncMock(return_value=["log-1", "log-2"])
     )
+    monkeypatch.setattr(
+        LogFilePGManager,
+        "get_log_file_by_log_file_id",
+        AsyncMock(side_effect=[MagicMock(id="log-1"), MagicMock(id="log-2")]),
+    )
+    monkeypatch.setattr("latency.services.log_knowledge.cleanup_log_artifacts", cleanup_log)
+    monkeypatch.setattr("latency.services.log_knowledge.cleanup_log_temp_dirs", cleanup_temp)
     monkeypatch.setattr(
         LogFilePGManager, "hard_delete_log_file_with_related_data", delete_log
     )
@@ -148,8 +165,17 @@ async def test_delete_kb_cascades_logs_tasks_and_asset_after_stopping_workers(
 
     assert result.kb_id == "kb-id"
     assert actions == [
-        ("stop", "task-1"),
-        ("stop", "task-2"),
+        (
+            "fence",
+            ["task-1", "task-2"],
+            {
+                "log_ids": {"log-1", "log-2", "orphan-log"},
+                "kb_id": "kb-id",
+            },
+        ),
+        ("cleanup", "log-1"),
+        ("cleanup", "log-2"),
+        ("cleanup-temp", "orphan-log"),
         ("delete-log", "log-1"),
         ("delete-log", "log-2"),
     ]
@@ -162,7 +188,7 @@ async def test_delete_kb_cascades_logs_tasks_and_asset_after_stopping_workers(
 
 
 @pytest.mark.asyncio
-async def test_delete_kb_aborts_cascade_when_a_worker_cannot_stop(monkeypatch):
+async def test_delete_kb_aborts_cascade_when_process_tree_cannot_stop(monkeypatch):
     monkeypatch.setattr(
         LogKnowledgePGManager,
         "get_log_kb_by_kb_id",
@@ -173,11 +199,21 @@ async def test_delete_kb_aborts_cascade_when_a_worker_cannot_stop(monkeypatch):
         "list_tasks_by_kb_id",
         AsyncMock(return_value=[MagicMock(id="task-running")]),
     )
-    monkeypatch.setattr(BaseWorker, "stop", AsyncMock(return_value=False))
-    delete_logs = AsyncMock()
-    monkeypatch.setattr(LogFilePGManager, "list_log_file_ids", delete_logs)
+    monkeypatch.setattr(
+        TaskHandler,
+        "begin_deletion",
+        AsyncMock(side_effect=RuntimeError("删除前无法确认任务进程树已终止")),
+    )
+    monkeypatch.setattr(TaskHandler, "end_deletion", MagicMock())
+    monkeypatch.setattr(
+        LogFilePGManager, "list_log_file_ids", AsyncMock(return_value=[])
+    )
+    delete_log = AsyncMock()
+    monkeypatch.setattr(
+        LogFilePGManager, "hard_delete_log_file_with_related_data", delete_log
+    )
 
-    with pytest.raises(RuntimeError, match="取消删除"):
+    with pytest.raises(RuntimeError, match="进程树已终止"):
         await LogKnowledgeService.delete_log_kb_by_kb_id("kb-id")
 
-    delete_logs.assert_not_awaited()
+    delete_log.assert_not_awaited()

@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import tarfile
+import threading
 import zipfile
 from dataclasses import dataclass
 
@@ -17,6 +18,24 @@ _BUFFER_SIZE = 8 * 1024 * 1024
 ARCHIVE_EXTENSIONS = (".tar.gz", ".tgz", ".zip", ".rar")
 # 预处理全部落盘后写入；缺标记说明目录是上次中断留下的半成品，不可复用。
 _PREPROCESS_COMPLETE_MARKER = ".witty_preprocess_done"
+
+
+class PreprocessCancelled(RuntimeError):
+    """Raised cooperatively when deletion preempts log preprocessing."""
+
+
+def _check_cancel(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise PreprocessCancelled("日志预处理已被删除操作取消")
+
+
+def _copy_stream(source, target, cancel_event: threading.Event | None = None) -> None:
+    while True:
+        _check_cancel(cancel_event)
+        chunk = source.read(_BUFFER_SIZE)
+        if not chunk:
+            return
+        target.write(chunk)
 
 
 @dataclass(frozen=True)
@@ -171,8 +190,13 @@ def has_parseable_log(log_dir: str) -> bool:
     return False
 
 
-def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult:
+def preprocess_log_dir(
+    source_path: str,
+    output_dir: str,
+    cancel_event: threading.Event | None = None,
+) -> LogPreprocessResult:
     """Copy/extract logs into output_dir, then split unmatched text logs."""
+    _check_cancel(cancel_event)
     if not os.path.exists(source_path):
         raise FileNotFoundError(f"日志路径不存在: {source_path}")
 
@@ -197,16 +221,25 @@ def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult
     copied_count = 0
     copy_failed = 0
     for source_file, relative_dir in _iter_source_files(source_path):
+        _check_cancel(cancel_event)
         target_dir = os.path.join(output_dir, relative_dir)
         os.makedirs(target_dir, exist_ok=True)
 
         if _is_archive(source_file):
-            extracted_count += _extract_archive(source_file, target_dir)
+            extracted_count += _extract_archive(source_file, target_dir, cancel_event)
             continue
 
         target_file = os.path.join(target_dir, os.path.basename(source_file))
         try:
-            shutil.copy2(source_file, target_file)
+            if cancel_event is None:
+                # Preserve the long-standing direct-call/test contract.  The
+                # scheduler always supplies an event and uses the cancellable
+                # chunked path below.
+                shutil.copy2(source_file, target_file)
+            else:
+                with open(source_file, "rb") as source, open(target_file, "wb") as target:
+                    _copy_stream(source, target, cancel_event)
+                shutil.copystat(source_file, target_file)
             copied_count += 1
         except OSError as exc:
             if exc.errno == errno.ENOSPC:
@@ -217,7 +250,10 @@ def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult
     filename_patterns = (
         Config().get_default_diagnosis_config().log_filename_pattern.model_dump()
     )
-    split_stats = split_unmatched_log_files(output_dir, filename_patterns)
+    split_stats = split_unmatched_log_files(
+        output_dir, filename_patterns, cancel_event=cancel_event
+    )
+    _check_cancel(cancel_event)
     if not _dir_has_output(output_dir):
         if copy_failed:
             # 拷贝失败导致的无产出属于系统问题(权限/磁盘/路径)，必须暴露，
@@ -259,7 +295,9 @@ def preprocess_log_dir(source_path: str, output_dir: str) -> LogPreprocessResult
 
 
 def split_unmatched_log_files(
-    log_dir: str, filename_patterns: dict[str, list[str]]
+    log_dir: str,
+    filename_patterns: dict[str, list[str]],
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, tuple[int, int]]:
     """Split text files not matched by configured patterns into access/runtime logs."""
     patterns = [
@@ -271,6 +309,7 @@ def split_unmatched_log_files(
 
     for root, _, files in os.walk(log_dir):
         for filename in files:
+            _check_cancel(cancel_event)
             source_path = os.path.join(root, filename)
             relative_path = os.path.relpath(source_path, log_dir)
             normalized_rel_path = relative_path.replace(os.sep, "/")
@@ -296,6 +335,7 @@ def split_unmatched_log_files(
                     runtime_path, "w", encoding="utf-8"
                 ) as runtime_file:
                     for line in source:
+                        _check_cancel(cancel_event)
                         delimiter_count = line.count(" | ")
                         if delimiter_count == 7:
                             runtime_file.write(line)
@@ -368,17 +408,23 @@ def is_valid_archive_file(path: str) -> bool:
     return False
 
 
-def _extract_archive(source_file: str, target_dir: str) -> int:
+def _extract_archive(
+    source_file: str,
+    target_dir: str,
+    cancel_event: threading.Event | None = None,
+) -> int:
     lower_path = source_file.lower()
     try:
         if lower_path.endswith((".tar.gz", ".tgz")):
-            return _extract_tar(source_file, target_dir)
+            return _extract_tar(source_file, target_dir, cancel_event)
         if lower_path.endswith(".gz"):
-            return _extract_gzip_file(source_file, target_dir)
+            return _extract_gzip_file(source_file, target_dir, cancel_event)
         if lower_path.endswith(".zip"):
-            return _extract_zip(source_file, target_dir)
+            return _extract_zip(source_file, target_dir, cancel_event)
         if lower_path.endswith(".rar"):
-            return _extract_rar(source_file, target_dir)
+            return _extract_rar(source_file, target_dir, cancel_event)
+    except PreprocessCancelled:
+        raise
     except Exception as exc:
         if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
             raise
@@ -386,37 +432,47 @@ def _extract_archive(source_file: str, target_dir: str) -> int:
     return 0
 
 
-def _extract_gzip_file(source_file: str, target_dir: str) -> int:
+def _extract_gzip_file(
+    source_file: str, target_dir: str, cancel_event: threading.Event | None = None
+) -> int:
     filename = os.path.basename(source_file)
     target_file = os.path.join(target_dir, filename[:-3])
     with gzip.open(source_file, "rb") as source, open(target_file, "wb") as target:
-        shutil.copyfileobj(source, target, length=_BUFFER_SIZE)
+        _copy_stream(source, target, cancel_event)
     return 1
 
 
-def _extract_tar(source_file: str, target_dir: str) -> int:
+def _extract_tar(
+    source_file: str, target_dir: str, cancel_event: threading.Event | None = None
+) -> int:
     extracted = 0
     with tarfile.open(source_file, "r:gz") as archive:
         for member in archive.getmembers():
+            _check_cancel(cancel_event)
             if not member.isfile():
                 continue
-            _safe_extract_tar_member(archive, member, target_dir)
+            _safe_extract_tar_member(archive, member, target_dir, cancel_event)
             extracted += 1
     return extracted
 
 
-def _extract_zip(source_file: str, target_dir: str) -> int:
+def _extract_zip(
+    source_file: str, target_dir: str, cancel_event: threading.Event | None = None
+) -> int:
     extracted = 0
     with zipfile.ZipFile(source_file, "r") as archive:
         for member in archive.infolist():
+            _check_cancel(cancel_event)
             if member.is_dir():
                 continue
-            _safe_extract_zip_member(archive, member, target_dir)
+            _safe_extract_zip_member(archive, member, target_dir, cancel_event)
             extracted += 1
     return extracted
 
 
-def _extract_rar(source_file: str, target_dir: str) -> int:
+def _extract_rar(
+    source_file: str, target_dir: str, cancel_event: threading.Event | None = None
+) -> int:
     try:
         import rarfile  # 懒加载：可选依赖，仅解压 .rar 时用到
     except ImportError:
@@ -424,23 +480,33 @@ def _extract_rar(source_file: str, target_dir: str) -> int:
         return 0
 
     extracted = 0
-    with rarfile.RarFile(source_file, "r") as archive:
-        for member in archive.infolist():
-            if member.isdir():
-                continue
-            target_path = _safe_join(target_dir, member.filename)
-            if target_path is None:
-                logger.warning("跳过不安全的 rar 成员路径: %s", member.filename)
-                continue
-            os.makedirs(os.path.dirname(target_path), exist_ok=True)
-            with archive.open(member) as source, open(target_path, "wb") as target:
-                shutil.copyfileobj(source, target, length=_BUFFER_SIZE)
-            extracted += 1
+    try:
+        with rarfile.RarFile(source_file, "r") as archive:
+            for member in archive.infolist():
+                _check_cancel(cancel_event)
+                if member.isdir():
+                    continue
+                target_path = _safe_join(target_dir, member.filename)
+                if target_path is None:
+                    logger.warning("跳过不安全的 rar 成员路径: %s", member.filename)
+                    continue
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                with archive.open(member) as source, open(target_path, "wb") as target:
+                    _copy_stream(source, target, cancel_event)
+                extracted += 1
+    except PreprocessCancelled:
+        raise
+    except Exception as exc:
+        logger.error("解压 rar 日志文件 %s 失败: %s", source_file, exc)
+        return 0
     return extracted
 
 
 def _safe_extract_tar_member(
-    archive: tarfile.TarFile, member: tarfile.TarInfo, target_dir: str
+    archive: tarfile.TarFile,
+    member: tarfile.TarInfo,
+    target_dir: str,
+    cancel_event: threading.Event | None = None,
 ) -> None:
     target_path = _safe_join(target_dir, member.name)
     if target_path is None:
@@ -451,11 +517,14 @@ def _safe_extract_tar_member(
     if extracted is None:
         return
     with extracted as source, open(target_path, "wb") as target:
-        shutil.copyfileobj(source, target, length=_BUFFER_SIZE)
+        _copy_stream(source, target, cancel_event)
 
 
 def _safe_extract_zip_member(
-    archive: zipfile.ZipFile, member: zipfile.ZipInfo, target_dir: str
+    archive: zipfile.ZipFile,
+    member: zipfile.ZipInfo,
+    target_dir: str,
+    cancel_event: threading.Event | None = None,
 ) -> None:
     target_path = _safe_join(target_dir, member.filename)
     if target_path is None:
@@ -463,7 +532,7 @@ def _safe_extract_zip_member(
         return
     os.makedirs(os.path.dirname(target_path), exist_ok=True)
     with archive.open(member) as source, open(target_path, "wb") as target:
-        shutil.copyfileobj(source, target, length=_BUFFER_SIZE)
+        _copy_stream(source, target, cancel_event)
 
 
 def _safe_join(base_dir: str, member_name: str) -> str | None:
