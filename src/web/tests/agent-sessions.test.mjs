@@ -480,7 +480,7 @@ test('permission and structured question events can be answered without aborting
     await api.answerAgentPermission(api.agentPendingPermissions.value[0], 'always')
     assert.deepEqual(
       requests.find((item) => item.path === '/session/a/permissions/per_session_always')?.body,
-      { response: 'once' },
+      { response: 'always' },
     )
     api.handleOpenCodeEvent(
       new MessageEvent('message', {
