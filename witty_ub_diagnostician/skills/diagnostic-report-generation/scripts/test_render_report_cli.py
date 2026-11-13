@@ -84,6 +84,31 @@ class RenderReportCliTest(unittest.TestCase):
         self.assertNotIn("置信 high", html)
         self.assertNotIn("高90%", html)
 
+    def test_missing_fault_domain_and_component_render_as_dash(self):
+        data = report_data()
+        data["faults"][0]["conclusion"]["fault_domain"] = None
+        data["faults"][0]["conclusion"]["fault_component"] = ""
+        render_report.normalize_compat(data)
+
+        errors, _ = render_report.validate(data)
+        self.assertEqual(errors, [])
+
+        html = render_report.render_report_html(
+            data,
+            render_report.DEFAULT_TEMPLATE,
+            Path("missing-fault-location-test.json"),
+        )
+
+        self.assertIn(
+            '故障域</div><div class="hero-metric-value">-</div>', html
+        )
+        self.assertIn(
+            '故障组件</div><div class="hero-metric-value">-</div>', html
+        )
+        self.assertNotIn(
+            '故障域</div><div class="hero-metric-value">None</div>', html
+        )
+
     def test_validate_only_does_not_load_template_or_write_files(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -1,6 +1,6 @@
+import asyncio
 import logging
 import os
-import shutil
 from latency.schemas.request import (
     CreateLogKnowledgeRequest,
     UpdateLogKnowledgeRequest,
@@ -13,15 +13,19 @@ from latency.schemas.response import (
     ListLogKnowledgeMsg,
     GetLogKnowledgeMsg,
 )
-from latency.ENUM.task import TaskStatusEnum
 from latency.common.convertor import Convertor
 from latency.database.engine import PGManager
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
-from latency.task.worker.base import BaseWorker
-from latency.task.log_preprocessor import cleanup_preprocess_dir, WITTY_DIR_DEFAULT
+from latency.task.deletion import (
+    cleanup_log_artifacts,
+    cleanup_log_temp_dirs,
+    default_upload_root,
+)
+from latency.task.log_preprocessor import WITTY_DIR_DEFAULT
+from latency.task.task_handler import TaskHandler
 from latency.exceptions import ConflictBizException, NotFoundBizException
 
 logger = logging.getLogger(__name__)
@@ -42,54 +46,78 @@ class LogKnowledgeService:
 
     @staticmethod
     async def delete_log_kb_by_kb_id(kb_id: str) -> DeleteLogKnowledgeMsg:
-        log_kb = await LogKnowledgePGManager.get_log_kb_by_kb_id(kb_id)
-        if not log_kb:
-            raise NotFoundBizException(resource="知识库")
+        # Reserve at asset scope before the first database await.  This is
+        # intentionally synchronous so scheduler work in this process yields
+        # to deletion immediately.
+        TaskHandler.reserve_deletion(kb_id=kb_id)
+        tasks = []
+        fenced_log_ids = set()
+        try:
+            log_kb = await LogKnowledgePGManager.get_log_kb_by_kb_id(kb_id)
+            if not log_kb:
+                raise NotFoundBizException(resource="知识库")
 
-        # No worker may survive while its database rows are being removed.
-        tasks = await TaskPGManager.list_tasks_by_kb_id(
-            kb_id, [TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING]
-        )
-        failed_task_ids = []
-        for task in tasks:
-            try:
-                if not await BaseWorker.stop(task.id):
-                    failed_task_ids.append(task.id)
-            except Exception:
-                failed_task_ids.append(task.id)
-                logger.exception("停止资产库任务进程树失败: task_id=%s", task.id)
-        if failed_task_ids:
-            raise RuntimeError(
-                f"资产库中任务进程树未能确认终止，取消删除: {failed_task_ids}"
+            # Fence every state, not only PENDING/RUNNING:
+            # FAILED_PENDING_REMOVE is the automatic-retry window after OOM.
+            tasks = await TaskPGManager.list_tasks_by_kb_id(kb_id)
+            log_file_ids = await LogFilePGManager.list_log_file_ids(
+                kb_id=kb_id, include_inactive=True
             )
+            log_files = []
+            for log_file_id in log_file_ids:
+                log_file = await LogFilePGManager.get_log_file_by_log_file_id(log_file_id)
+                if log_file is not None:
+                    log_files.append(log_file)
 
-        log_file_ids = await LogFilePGManager.list_log_file_ids(
-            kb_id=kb_id, include_inactive=True
-        )
-        for log_file_id in log_file_ids:
-            deleted = await LogFilePGManager.hard_delete_log_file_with_related_data(
-                log_file_id
+            fenced_log_ids = set(log_file_ids)
+            fenced_log_ids.update(
+                task.op_id
+                for task in tasks
+                if isinstance(getattr(task, "op_id", None), str) and task.op_id
             )
-            if not deleted:
-                raise RuntimeError(f"级联删除日志文件失败: {log_file_id}")
+            TaskHandler.reserve_deletion(log_ids=fenced_log_ids)
+            await TaskHandler.begin_deletion(
+                tasks,
+                log_ids=fenced_log_ids,
+                kb_id=kb_id,
+            )
+            for log_file in log_files:
+                await asyncio.to_thread(
+                    cleanup_log_artifacts,
+                    log_file,
+                    witty_dir=witty_dir,
+                    upload_root=default_upload_root(),
+                )
+            # An interrupted upload can leave a task and temp directory after
+            # its log row disappeared.  The task's op_id still gives us the
+            # owned temp-directory names, so cascade those as well.
+            persisted_log_ids = {log_file.id for log_file in log_files}
+            for orphan_log_id in fenced_log_ids - persisted_log_ids:
+                await asyncio.to_thread(
+                    cleanup_log_temp_dirs,
+                    orphan_log_id,
+                    witty_dir=witty_dir,
+                )
 
-            cleanup_preprocess_dir(log_file_id)
-            logger.info("已清理日志文件预处理目录: %s", log_file_id)
-            
-            diagnosis_output_dir = os.path.join(witty_dir, "log_" + log_file_id[:8])
-            if os.path.exists(diagnosis_output_dir):
-                try:
-                    shutil.rmtree(diagnosis_output_dir)
-                    logger.info("已清理诊断输出目录: %s", diagnosis_output_dir)
-                except OSError as e:
-                    logger.error("清理诊断输出目录 %s 失败: %s", diagnosis_output_dir, e)
+            for log_file_id in log_file_ids:
+                deleted = await LogFilePGManager.hard_delete_log_file_with_related_data(
+                    log_file_id
+                )
+                if not deleted:
+                    raise RuntimeError(f"级联删除日志文件失败: {log_file_id}")
 
-        # Remove tasks not tied to a current log row as well (for example,
-        # remnants of an interrupted upload), then physically remove the KB.
-        await TaskPGManager.hard_delete_tasks_by_kb_id(kb_id)
-        await DiagnosisConfigPGManager.delete(kb_id)
-        if not await LogKnowledgePGManager.delete_log_kb_by_kb_id(kb_id):
-            raise RuntimeError("删除资产库失败")
+            # Remove tasks not tied to a current log row as well (for example,
+            # remnants of an interrupted upload), then physically remove the KB.
+            await TaskPGManager.hard_delete_tasks_by_kb_id(kb_id)
+            await DiagnosisConfigPGManager.delete(kb_id)
+            if not await LogKnowledgePGManager.delete_log_kb_by_kb_id(kb_id):
+                raise RuntimeError("删除资产库失败")
+        finally:
+            TaskHandler.end_deletion(
+                tasks,
+                log_ids=fenced_log_ids,
+                kb_id=kb_id,
+            )
         return DeleteLogKnowledgeMsg(kb_id=kb_id)
 
     @staticmethod

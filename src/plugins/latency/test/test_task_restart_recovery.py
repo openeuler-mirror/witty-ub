@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock, Mock, call
 from types import SimpleNamespace
 import asyncio
 import errno
@@ -25,10 +25,20 @@ def _reset_dispatch_state(monkeypatch):
     monkeypatch.setattr(TaskHandler, "_collect_finished_processes", AsyncMock(return_value={}))
     TaskHandler._dispatching_task_ids.clear()
     TaskHandler._preprocess_inflight.clear()
+    TaskHandler._preprocess_cancel_events.clear()
+    TaskHandler._dispatch_tasks_by_id.clear()
+    TaskHandler._deleting_task_ids.clear()
+    TaskHandler._deleting_log_ids.clear()
+    TaskHandler._deleting_kb_ids.clear()
     TaskHandler._disk_stopped_task_ids.clear()
     yield
     TaskHandler._dispatching_task_ids.clear()
     TaskHandler._preprocess_inflight.clear()
+    TaskHandler._preprocess_cancel_events.clear()
+    TaskHandler._dispatch_tasks_by_id.clear()
+    TaskHandler._deleting_task_ids.clear()
+    TaskHandler._deleting_log_ids.clear()
+    TaskHandler._deleting_kb_ids.clear()
     TaskHandler._disk_stopped_task_ids.clear()
 
 
@@ -45,9 +55,48 @@ def _make_task(**overrides):
         op_id="log-id",
         task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
         task_config=None,
+        kb_id="kb-id",
     )
     task.__dict__.update(overrides)
     return task
+
+
+@pytest.mark.asyncio
+async def test_delete_fence_preempts_failed_pending_retry(monkeypatch):
+    task = _make_task(status=TaskStatusEnum.FAILED_PENDING_REMOVE)
+    cancel = AsyncMock(return_value=1)
+    remove = Mock(return_value=True)
+    worker_stop = AsyncMock(return_value=None)
+    monkeypatch.setattr(TaskPGManager, "cancel_tasks_by_task_ids", cancel)
+    monkeypatch.setattr(ProcessHandler, "remove_task", remove)
+    monkeypatch.setattr(
+        BaseWorker,
+        "find_worker_class",
+        Mock(return_value=SimpleNamespace(stop=worker_stop)),
+    )
+
+    await TaskHandler.begin_deletion(
+        [task], log_ids={"log-id"}, kb_id="kb-id"
+    )
+
+    cancel.assert_awaited_once_with(["task-id"])
+    assert remove.call_count == 2
+    worker_stop.assert_awaited_once_with("task-id")
+    assert TaskHandler._is_deleting(task)
+
+    TaskHandler.end_deletion([task], log_ids={"log-id"}, kb_id="kb-id")
+    assert not TaskHandler._is_deleting(task)
+
+
+@pytest.mark.asyncio
+async def test_delete_fence_prevents_stale_pending_dispatch(monkeypatch):
+    task = _make_task()
+    transition = AsyncMock(return_value=True)
+    monkeypatch.setattr(TaskPGManager, "transition_task_status", transition)
+    TaskHandler._deleting_log_ids.add("log-id")
+
+    assert await TaskHandler._dispatch_pending_task(task) is False
+    transition.assert_not_awaited()
 
 
 def _mock_dispatch_claim(monkeypatch, claimed=True, running_status=None):
@@ -72,9 +121,19 @@ def _mock_dispatch_claim(monkeypatch, claimed=True, running_status=None):
 def _reset_dispatch_state():
     TaskHandler._dispatching_task_ids.clear()
     TaskHandler._preprocess_inflight.clear()
+    TaskHandler._preprocess_cancel_events.clear()
+    TaskHandler._dispatch_tasks_by_id.clear()
+    TaskHandler._deleting_task_ids.clear()
+    TaskHandler._deleting_log_ids.clear()
+    TaskHandler._deleting_kb_ids.clear()
     yield
     TaskHandler._dispatching_task_ids.clear()
     TaskHandler._preprocess_inflight.clear()
+    TaskHandler._preprocess_cancel_events.clear()
+    TaskHandler._dispatch_tasks_by_id.clear()
+    TaskHandler._deleting_task_ids.clear()
+    TaskHandler._deleting_log_ids.clear()
+    TaskHandler._deleting_kb_ids.clear()
 
 
 async def _drain_pending_dispatch():
@@ -90,6 +149,7 @@ def _make_task(**overrides):
         op_id="log-id",
         task_type=TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER,
         task_config=None,
+        kb_id="kb-id",
     )
     task.__dict__.update(overrides)
     return task

@@ -2,7 +2,9 @@
 import asyncio
 import concurrent.futures
 import errno
+import inspect
 import logging
+import threading
 from typing import Optional
 
 from latency.common.disk_space import disk_capacity
@@ -11,6 +13,7 @@ from latency.database.managers.task import TaskPGManager
 from latency.ENUM.task import TaskStatusEnum, TaskTypeEnum
 from latency.schemas.parse_config import ParseConfig
 from latency.task.log_preprocessor import (
+    PreprocessCancelled,
     default_preprocess_dir,
     needs_preprocess,
     preprocess_log_dir,
@@ -23,6 +26,16 @@ logger = logging.getLogger(__name__)
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
 
+def _run_preprocess_with_cancel(source_path, output_dir, cancel_event):
+    """Compatibility wrapper for tests/embedders replacing the old 2-arg hook."""
+    parameters = inspect.signature(preprocess_log_dir).parameters
+    if "cancel_event" in parameters:
+        return preprocess_log_dir(
+            source_path, output_dir, cancel_event=cancel_event
+        )
+    return preprocess_log_dir(source_path, output_dir)
+
+
 class TaskHandler:
     """任务队列"""
     
@@ -31,9 +44,109 @@ class TaskHandler:
     _dispatching_task_ids: set[str] = set()
     # 后台派发协程的强引用，避免被 GC；协程结束后自动移除。
     _dispatch_tasks: set["asyncio.Task"] = set()
+    _dispatch_tasks_by_id: dict[str, "asyncio.Task"] = {}
     # 同一日志文件的多个任务共享同一次预处理，避免并发重复解压。
     _preprocess_inflight: dict[str, "asyncio.Future"] = {}
+    _preprocess_cancel_events: dict[str, threading.Event] = {}
     _disk_stopped_task_ids: set[str] = set()
+    # In-process fast path complementing the database CANCELLED fence.  Sets are
+    # mutated before the first await in begin_deletion(), so scheduler jobs in
+    # this event loop immediately yield to delete requests.
+    _deleting_task_ids: set[str] = set()
+    _deleting_log_ids: set[str] = set()
+    _deleting_kb_ids: set[str] = set()
+
+    @staticmethod
+    def _is_deleting(task) -> bool:
+        return (
+            getattr(task, "id", None) in TaskHandler._deleting_task_ids
+            or getattr(task, "op_id", None) in TaskHandler._deleting_log_ids
+            or getattr(task, "kb_id", None) in TaskHandler._deleting_kb_ids
+        )
+
+    @staticmethod
+    def reserve_deletion(
+        *,
+        task_ids: set[str] | None = None,
+        log_ids: set[str] | None = None,
+        kb_id: str | None = None,
+    ) -> None:
+        """Synchronously give deletion priority before doing discovery queries."""
+        TaskHandler._deleting_task_ids.update(task_ids or ())
+        TaskHandler._deleting_log_ids.update(log_ids or ())
+        if kb_id:
+            TaskHandler._deleting_kb_ids.add(kb_id)
+
+    @staticmethod
+    async def begin_deletion(
+        tasks,
+        *,
+        log_ids: set[str] | None = None,
+        kb_id: str | None = None,
+    ) -> None:
+        """Fence, stop and drain task work before database/filesystem deletion."""
+        tasks = list(tasks)
+        task_ids = {task.id for task in tasks}
+        fenced_log_ids = set(log_ids or ())
+        TaskHandler.reserve_deletion(
+            task_ids=task_ids,
+            log_ids=fenced_log_ids,
+            kb_id=kb_id,
+        )
+
+        # Persist the fence before waiting for any process.  All scheduler claims
+        # and retry transitions are conditional and therefore lose to deletion.
+        await TaskPGManager.cancel_tasks_by_task_ids(sorted(task_ids))
+
+        for log_id in fenced_log_ids:
+            cancel_event = TaskHandler._preprocess_cancel_events.get(log_id)
+            if cancel_event is not None:
+                cancel_event.set()
+
+        for task in tasks:
+            if not await asyncio.to_thread(ProcessHandler.remove_task, task.id):
+                logger.warning("删除首次终止任务失败，将在排空派发后重试: %s", task.id)
+            worker_class = BaseWorker.find_worker_class(task.task_type)
+            if worker_class is not None:
+                try:
+                    # Worker-specific stop hooks reap native tools recorded in
+                    # PID files even when the Python wrapper was OOM-killed.
+                    await worker_class.stop(task.id)
+                except Exception:
+                    logger.exception("删除前执行 worker.stop 失败: task_id=%s", task.id)
+
+        dispatches = [
+            TaskHandler._dispatch_tasks_by_id[task_id]
+            for task_id in task_ids
+            if task_id in TaskHandler._dispatch_tasks_by_id
+        ]
+        if dispatches:
+            await asyncio.gather(*dispatches, return_exceptions=True)
+
+        # Close the small race where dispatch passed its last status read just
+        # before the fence and spawned while the first stop pass was running.
+        failed_processes = []
+        for task in tasks:
+            if not await asyncio.to_thread(ProcessHandler.remove_task, task.id):
+                failed_processes.append(task.id)
+        if failed_processes:
+            raise RuntimeError(
+                f"删除前无法确认任务进程树已终止: {sorted(set(failed_processes))}"
+            )
+
+    @staticmethod
+    def end_deletion(
+        tasks,
+        *,
+        log_ids: set[str] | None = None,
+        kb_id: str | None = None,
+    ) -> None:
+        for task in tasks:
+            TaskHandler._deleting_task_ids.discard(task.id)
+        for log_id in log_ids or ():
+            TaskHandler._deleting_log_ids.discard(log_id)
+        if kb_id:
+            TaskHandler._deleting_kb_ids.discard(kb_id)
 
     @staticmethod
     async def _collect_finished_processes() -> dict[str, int | None]:
@@ -53,11 +166,19 @@ class TaskHandler:
         task_type: TaskTypeEnum, op_id: str, parse_config: Optional["ParseConfig"] = None
     ) -> str:
         """初始化任务"""
+        if op_id in TaskHandler._deleting_log_ids:
+            raise RuntimeError("日志正在删除，拒绝创建新任务")
         task_id = None
         try:
             task_id = await BaseWorker.init(task_type, op_id)
             if not task_id:
                 raise RuntimeError(f"{task_type.value} 未创建任务记录")
+            if op_id in TaskHandler._deleting_log_ids:
+                # The delete reservation may have appeared while worker.init
+                # was awaiting database IO.  Fence the just-created row so it
+                # cannot be dispatched; the owning log/asset cascade removes it.
+                await TaskPGManager.cancel_tasks_by_task_ids([task_id])
+                raise RuntimeError("日志正在删除，已取消新建任务")
             TaskHandler._task_configs[task_id] = parse_config
             await TaskPGManager.update_task(
                 task_id,
@@ -80,6 +201,8 @@ class TaskHandler:
     @staticmethod
     async def _fail_preprocess_for_insufficient_space(task) -> None:
         """Remove partial files and persist a user-facing terminal failure."""
+        if TaskHandler._is_deleting(task):
+            return
         from latency.task.log_preprocessor import cleanup_preprocess_dir
 
         await asyncio.to_thread(cleanup_preprocess_dir, task.op_id)
@@ -98,6 +221,8 @@ class TaskHandler:
         FAILED_PENDING_REMOVE 后由 handle_failed_tasks 走 reinit 重试，
         重试耗尽即终态 FAILED。
         """
+        if TaskHandler._is_deleting(task):
+            return
         message = f"任务失败：日志预处理或启动失败，{error}"
         try:
             await TaskPGManager.mark_failed_with_report(
@@ -120,6 +245,8 @@ class TaskHandler:
 
     @staticmethod
     async def _preprocess_log_source(task) -> str | None:
+        if TaskHandler._is_deleting(task):
+            raise PreprocessCancelled("日志正在删除")
         log_file = await LogFilePGManager.get_log_file_by_log_file_id(task.op_id)
         if not log_file:
             return None
@@ -145,15 +272,25 @@ class TaskHandler:
             # “解析中”停留数分钟却没有任何进度反馈。
             await BaseWorker.report(task.id, "正在预处理日志（解压/拷贝）", 1.0)
             output_dir = default_preprocess_dir(log_file.id)
+            cancel_event = TaskHandler._preprocess_cancel_events.setdefault(
+                log_file.id, threading.Event()
+            )
+            if TaskHandler._is_deleting(task):
+                cancel_event.set()
             loop = asyncio.get_running_loop()
             future = loop.run_in_executor(
-                _executor, preprocess_log_dir, log_file.file_path, output_dir
+                _executor,
+                _run_preprocess_with_cancel,
+                log_file.file_path,
+                output_dir,
+                cancel_event,
             )
             TaskHandler._preprocess_inflight[log_file.id] = future
             try:
                 result = await future
             finally:
                 TaskHandler._preprocess_inflight.pop(log_file.id, None)
+                TaskHandler._preprocess_cancel_events.pop(log_file.id, None)
 
         logger.info(
             "日志预处理完成: task=%s log_file=%s source=%s output=%s "
@@ -186,10 +323,11 @@ class TaskHandler:
     @staticmethod
     async def delete_task(task_id: str) -> str | None:
         """删除任务"""
+        task = await TaskPGManager.get_task_by_task_id(task_id)
+        if not task:
+            return None
         try:
-            stop_flag = await BaseWorker.stop(task_id)
-            if not stop_flag:
-                return None
+            await TaskHandler.begin_deletion([task], log_ids={task.op_id})
             delete_flag = await BaseWorker.delete(task_id)
             if not delete_flag:
                 return None
@@ -197,6 +335,8 @@ class TaskHandler:
         except Exception as e:
             err = f"[TaskQueueService] 删除任务失败 {e}"
             logger.exception(err)
+        finally:
+            TaskHandler.end_deletion([task], log_ids={task.op_id})
 
     @staticmethod
     async def handle_successed_tasks():
@@ -205,6 +345,8 @@ class TaskHandler:
             TaskStatusEnum.SUCCESSFUL_PENDING_REMOVE, handle_successed_task_limit
         )
         for task in tasks:
+            if TaskHandler._is_deleting(task):
+                continue
             try:
                 await BaseWorker.deinit(task.id)
             except Exception as e:
@@ -221,6 +363,8 @@ class TaskHandler:
         pending_task_ids = []
         fail_task_ids = []
         for task in tasks:
+            if TaskHandler._is_deleting(task):
+                continue
             try:
                 flag = await BaseWorker.reinit(task.id)
             except Exception as e:
@@ -241,6 +385,8 @@ class TaskHandler:
         不再阻塞成功收尾、失败重试与后续任务派发。
         """
         try:
+            if TaskHandler._is_deleting(task):
+                return False
             # 原子抢占：任务被并发停止/删除时直接放弃，避免复活已取消的任务。
             if not await TaskPGManager.transition_task_status(
                 task.id, TaskStatusEnum.PENDING, TaskStatusEnum.RUNNING
@@ -258,6 +404,8 @@ class TaskHandler:
                     "[TaskQueueService] 任务 %s 预处理期间被停止/删除，跳过启动",
                     task.id,
                 )
+                return False
+            if TaskHandler._is_deleting(task):
                 return False
             worker_kwargs = None
             persisted_config = getattr(task, "task_config", None)
@@ -282,6 +430,15 @@ class TaskHandler:
                     task.id, TaskStatusEnum.RUNNING, TaskStatusEnum.PENDING
                 )
             return flag
+        except PreprocessCancelled:
+            logger.info("[TaskQueueService] 删除操作取消任务派发: task_id=%s", task.id)
+            # For another task sharing this log's preprocessing, restore its
+            # claim after the temporary log-level barrier is removed.  The task
+            # actually being deleted is CANCELLED, so this CAS cannot revive it.
+            await TaskPGManager.transition_task_status(
+                task.id, TaskStatusEnum.RUNNING, TaskStatusEnum.PENDING
+            )
+            return False
         except Exception as e:
             logger.exception(
                 f"[TaskQueueService] 处理待处理任务失败 task_id={task.id}, {e}"
@@ -305,6 +462,8 @@ class TaskHandler:
         )
         dispatch_batch = []
         for task in pending_tasks:
+            if TaskHandler._is_deleting(task):
+                continue
             if len(dispatch_batch) >= single_batch_limit:
                 break
             # 限制在途派发总量：单线程解压队列排队的任务不该抢先占住 RUNNING。
@@ -321,7 +480,14 @@ class TaskHandler:
                 TaskHandler._dispatch_pending_task(task)
             )
             TaskHandler._dispatch_tasks.add(dispatch_task)
-            dispatch_task.add_done_callback(TaskHandler._dispatch_tasks.discard)
+            TaskHandler._dispatch_tasks_by_id[task.id] = dispatch_task
+
+            def _discard(completed, task_id=task.id):
+                TaskHandler._dispatch_tasks.discard(completed)
+                if TaskHandler._dispatch_tasks_by_id.get(task_id) is completed:
+                    TaskHandler._dispatch_tasks_by_id.pop(task_id, None)
+
+            dispatch_task.add_done_callback(_discard)
 
     @staticmethod
     async def reap_finished_processes():
