@@ -43,6 +43,91 @@ def report_data() -> dict:
 
 
 class RenderReportCliTest(unittest.TestCase):
+    @staticmethod
+    def _overview_metric(label: str, mode: str, observed: float = 12.34) -> dict:
+        return {
+            "label": label,
+            "value": "12.340 ms",
+            "sub": "1小时桶 / GET / log-1",
+            "tone": "warn",
+            "source": {
+                "endpoint": "/log_parse_result/metrics/latency",
+                "request": {
+                    "kb_id": "validation-kb",
+                    "log_id": "log-1",
+                    "operation": "GET",
+                    "start_time": "2026-11-08 14:00:00",
+                    "end_time": "2026-11-08 15:00:00",
+                    "bucket_seconds": 3600,
+                    "sample_mode": mode,
+                },
+                "response_path": "result.metrics[0].total_latency",
+                "returned_points": 1,
+                "observed_total_latency_ms": observed,
+            },
+        }
+
+    def test_avg_and_p9999_cards_require_matching_single_bucket_sources(self):
+        data = report_data()
+        data["faults"][0]["latency"] = {
+            "metrics": [
+                self._overview_metric("平均时延", "avg"),
+                self._overview_metric("P99.99 时延", "p9999"),
+            ]
+        }
+
+        errors, _ = render_report.validate(data)
+        self.assertEqual(errors, [])
+
+        data["faults"][0]["latency"]["metrics"][1]["source"]["request"]["end_time"] = (
+            "2026-11-08 16:00:00"
+        )
+        errors, _ = render_report.validate(data)
+        self.assertTrue(any("除 sample_mode 外必须完全一致" in error for error in errors))
+
+    def test_avg_card_without_source_is_rejected(self):
+        data = report_data()
+        data["faults"][0]["latency"] = {
+            "metrics": [{"label": "平均时延", "value": "12.34ms"}]
+        }
+
+        errors, _ = render_report.validate(data)
+        self.assertTrue(any("metrics/latency 同源请求" in error for error in errors))
+
+    def test_avg_card_value_must_match_frontend_formatter(self):
+        data = report_data()
+        metric = self._overview_metric("平均时延", "avg")
+        metric["value"] = "12.34ms"
+        data["faults"][0]["latency"] = {"metrics": [metric]}
+
+        errors, _ = render_report.validate(data)
+        self.assertTrue(any("必须按前端格式显示" in error for error in errors))
+
+        render_report.normalize_compat(data)
+        errors, _ = render_report.validate(data)
+        self.assertEqual(errors, [])
+        self.assertEqual(metric["value"], "12.340 ms")
+
+    def test_latency_card_uses_frontend_small_value_units(self):
+        data = report_data()
+        metric = self._overview_metric("P99.99 时延", "p9999", 0.0004)
+        data["faults"][0]["latency"] = {"metrics": [metric]}
+
+        render_report.normalize_compat(data)
+
+        self.assertEqual(metric["value"], "0.400 us")
+        errors, _ = render_report.validate(data)
+        self.assertEqual(errors, [])
+
+    def test_latency_card_uses_javascript_tie_rounding(self):
+        data = report_data()
+        metric = self._overview_metric("平均时延", "avg", 1.0625)
+        data["faults"][0]["latency"] = {"metrics": [metric]}
+
+        render_report.normalize_compat(data)
+
+        self.assertEqual(metric["value"], "1.063 ms")
+
     def test_confidence_values_are_normalized_to_zero_one_numbers(self):
         data = report_data()
         data["faults"][0]["confidence"] = "high"

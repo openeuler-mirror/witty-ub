@@ -2399,7 +2399,7 @@ const isAgentSessionPermissionApproved = (request: OpenCodePermissionRequest) =>
 
 const replyAgentPermissionRequest = (
   request: OpenCodePermissionRequest,
-  response: 'once' | 'reject',
+  response: 'once' | 'always' | 'reject',
 ) =>
   requestAgentApi<boolean>(
     `/session/${encodeURIComponent(request.sessionID)}/permissions/${encodeURIComponent(request.id)}`,
@@ -2503,7 +2503,9 @@ const answerAgentPermission = async (
   agentInteractionSubmitting.value = request.id
   agentInteractionError.value = ''
   try {
-    await replyAgentPermissionRequest(request, reply === 'reject' ? 'reject' : 'once')
+    // 将 always 原样交给 OpenCode，避免 Agent 继续后的下一条命令再次请求授权。
+    // 前端会话规则仍用于重连或重复事件场景。
+    await replyAgentPermissionRequest(request, reply)
     if (reply === 'always') {
       const rules = agentSessionPermissionRules.value[request.sessionID] || []
       agentSessionPermissionRules.value[request.sessionID] = [

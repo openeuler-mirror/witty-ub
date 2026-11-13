@@ -255,6 +255,23 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 - 所有比例只描述参与分类的样本；保留 `sample_cnt`、`truncated`、口径注记和请求范围。
   Top trace 补查覆盖率不代表全量数据覆盖率，不从 Top 样本推断总体节点集中度。
 
+### 页头平均时延 / P99.99 时延口径
+
+报告若展示“平均时延”或“P99.99 时延”指标卡，数值必须来自本次已保存的两次
+`POST /log_parse_result/metrics/latency` 响应：请求除 `sample_mode` 分别为 `avg`、
+`p9999` 外完全相同，并显式使用 `bucket_seconds=3600`、相同 `kb_id`、`log_id`、
+`operation`、`start_time`、`end_time`。两次响应都只能有一个 `metrics[]` 点；把该点
+`total_latency` 原始数值逐字保存到 `source.observed_total_latency_ms`，卡片 `value`
+由渲染器按前端 tooltip 的相同规则生成（ms/us/ns、固定 3 位）；`sub` 注明
+“1小时桶 / operation / log_id”。禁止让模型
+自行计算、对多个桶二次聚合、跨日志文件合并，或从 `/stats/stages` 的 P90/max 推导。
+响应不是单桶时省略这两张全局卡片，或收窄故障时间窗后重新取证。此规则保证报告值与
+前端关键时延趋势选择 1 小时时的单点 AVG/P9999 完全同源。
+卡片必须保留 `source.endpoint`、完整 `source.request`、
+`source.response_path="result.metrics[0].total_latency"`、`source.returned_points=1` 和
+`source.observed_total_latency_ms`；渲染前校验器会拒绝缺少原始值、同源证据或两个
+请求范围不一致的报告，并覆盖模型手写的卡片值，从而保证与前端显示一致。
+
 ### 知识库匹配纪律
 
 - 1~3 条、按匹配度降序；`match_logic` 必须写明 **L1(错误码)/L2(故障域)/L3(拓扑)**

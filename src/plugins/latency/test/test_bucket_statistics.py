@@ -214,18 +214,19 @@ def test_pick_percentile_rows_hand_computed():
     # 100 行严格递增：排序位置 k 的行索引就是 k
     lat100 = np.arange(100, dtype=np.float64)
     kth100 = percentile_kth_positions(100)
-    # 手算 floor(cnt*p)-1：median=49, p99=98, p9999=98, pmax=99
+    # 代表行位置：avg 行仍取中部 trace 承载阶段分解；
+    # 实际 total_latency 会在聚合阶段改写为算术平均值。
     assert kth100 == [49, 98, 98, 99]
     assert pick_percentile_rows(lat100) == [49, 98, 98, 99]
 
     # 奇数桶 cnt=5：[0,1,2,3,4] 手算
-    #   median floor(2.5)-1=1；p99 floor(4.95)-1=3；p9999 floor(4.9995)-1=3；
+    #   avg 代表行 floor(2.5)-1=1；p99 floor(4.95)-1=3；p9999 代表行=3；
     #   pmax floor(5)-1=4
     kth5 = percentile_kth_positions(5)
     assert kth5 == [1, 3, 3, 4]
     assert pick_percentile_rows(np.arange(5, dtype=np.float64)) == [1, 3, 3, 4]
 
-    # 小桶 cnt=2：[10, 20] → median/p99/p9999 同落 index0，pmax=index1
+    # 小桶 cnt=2：[10, 20] → avg/p99/p9999 代表行同落 index0，pmax=index1
     kth2 = percentile_kth_positions(2)
     assert kth2 == [0, 0, 0, 1]
     assert pick_percentile_rows(np.array([10.0, 20.0])) == [0, 0, 0, 1]
@@ -235,7 +236,7 @@ def test_pick_percentile_rows_hand_computed():
 
     # mode 列名与顺序
     assert [m for m, _ in PERCENTILE_MODES] == [
-        "median", "p99", "p9999", "pmax",
+        "avg", "p99", "p9999l", "pmax",
     ]
 
 
@@ -413,10 +414,8 @@ def _trace_index_to_labeled(trace_index):
     return by_label
 
 
-def test_bucket_percentiles_match_golden_field_table_source():
-    """分位值 == golden fixture：单 (桶,op) 组 100 行 latency 严格递增 [0..99]，
-    代表行的 total_latency 可手算 floor(cnt*p)-1（median=49, p99=98, p9999=98,
-    pmax=99）；timestamp 齐全 → 无 epoch-0 桶行。"""
+def test_bucket_representative_rows_match_field_table_source():
+    """阶段分解代表行保持稳定；AVG/P99.99 端到端值由生产聚合阶段覆盖。"""
     rows = [_make_row(i, "2026-05-10 12:00:00", "GET", float(i)) for i in range(100)]
     valid, per_gran, reps = _pick_reps(rows)
     by_gran = _np_build_bucket_rows(valid, per_gran, reps, "kb", "lg")
@@ -428,7 +427,7 @@ def test_bucket_percentiles_match_golden_field_table_source():
         assert lats == expected, f"granularity {g} 分位值 != golden"
         # 4 个 mode 齐全且顺序稳定
         assert sorted(r[4] for r in by_gran[g]) == [
-            "median", "p99", "p9999", "pmax",
+            "avg", "p99", "p9999l", "pmax",
         ]
         # 无 0 桶行：桶起点为 2026 年（epoch 远大于 0）
         assert all(r[2].year == 2026 for r in by_gran[g]), f"granularity {g} 含 0 桶行"
@@ -564,11 +563,16 @@ def test_bucket_stats_from_frame_matches_numpy_path():
         1: 1200, 10: 240, 60: 40, 600: 8, 3600: 8,
     }
     for g in GRANULARITY_KEYS:
-        # 前 22 列（8 固定键 + 14 legacy 指标）tuple 集合相等
-        # （mode/trace_id/src/dst/bucket_start + 14 值）；yuanrong 33 列只走
-        # polars 路径，numpy 参考不含，故只比前 22 列。
-        legacy_np = {tuple(r[:22]) for r in rows_np[g]}
-        got = {tuple(r[:22]) for r in _frame_rows_as_tuples(frames_pl[g])}
+        # AVG/P99.99 的 total_latency 是全量聚合值，不再等于代表
+        # trace 的值；比较代表行其余字段时排除该列。
+        def representative_shape(row):
+            values = list(row[:22])
+            if values[4] in {"avg", "p9999l"}:
+                values[8] = None
+            return tuple(values)
+
+        legacy_np = {representative_shape(r) for r in rows_np[g]}
+        got = {representative_shape(r) for r in _frame_rows_as_tuples(frames_pl[g])}
         assert got == legacy_np, f"granularity {g} rep-rows 不一致"
         assert len(frames_pl[g].columns) == len(BUCKET_COLUMNS) == 55
         # BUCKET_COLUMNS 里的 total_latency_us 由拷贝路径写库，frame 里应非空
@@ -774,16 +778,17 @@ def test_bucket_rep_rows_merge_local_remote_qg_segments():
             row["mode"]: row
             for row in frames[g].iter_rows(named=True)
         }
-        assert set(by_mode) == {"median", "p99", "p9999", "pmax"}
+        assert set(by_mode) == {"avg", "p99", "p9999l", "pmax"}
 
-        # 整体分位：median=tr-lo(300)、p99/p9999=tl-hi(450)、pmax=tr-hi(500)
-        assert by_mode["median"]["total_latency"] == 300.0
+        # 整体 AVG/P99.99 使用全量真实聚合，不再取代表行值。
+        assert by_mode["avg"]["total_latency"] == 375.0
         assert by_mode["p99"]["total_latency"] == 450.0
+        assert by_mode["p9999l"]["total_latency"] == pytest.approx(499.985)
         assert by_mode["pmax"]["total_latency"] == 500.0
 
         # 传输分段合并：local/remote 网络/框架恒取自各自传输类型代表
-        # median 行：local 代表 tl-lo(20/180)、remote 代表 tr-lo(30/210)
-        for m in ("median", "p99", "p9999"):
+        # avg 行：local 代表 tl-lo(20/180)、remote 代表 tr-lo(30/210)
+        for m in ("avg", "p99", "p9999l"):
             r = by_mode[m]
             assert r["query_get_local_rpc_network_us"] == 20.0
             assert r["query_get_local_rpc_framework_us"] == 180.0
