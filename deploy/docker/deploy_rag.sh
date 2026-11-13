@@ -29,6 +29,7 @@ _ENV_RAG_RERANK_MODEL_PROVIDER="${RAG_RERANK_MODEL_PROVIDER:-}"
 _ENV_RAG_RERANK_ENDPOINT="${RAG_RERANK_ENDPOINT:-}"
 _ENV_OPENGAUSS_RAG_IMAGE="${OPENGAUSS_RAG_IMAGE:-}"
 _ENV_OPENGAUSS_RAG_IMAGE_NO_LSE="${OPENGAUSS_RAG_IMAGE_NO_LSE:-}"
+_ENV_OPENGAUSS_RAG_IMAGE_X86_AVX2="${OPENGAUSS_RAG_IMAGE_X86_AVX2:-}"
 _ENV_WITTY_RAG_CORE_IMAGE="${WITTY_RAG_CORE_IMAGE:-}"
 _ENV_WITTY_RAG_MCP_IMAGE="${WITTY_RAG_MCP_IMAGE:-}"
 _ENV_WITTY_NETWORK="${WITTY_NETWORK:-}"
@@ -55,10 +56,12 @@ fi
 [ -n "$_ENV_RAG_RERANK_ENDPOINT" ] && RAG_RERANK_ENDPOINT="$_ENV_RAG_RERANK_ENDPOINT"
 [ -n "$_ENV_OPENGAUSS_RAG_IMAGE" ] && OPENGAUSS_RAG_IMAGE="$_ENV_OPENGAUSS_RAG_IMAGE"
 [ -n "$_ENV_OPENGAUSS_RAG_IMAGE_NO_LSE" ] && OPENGAUSS_RAG_IMAGE_NO_LSE="$_ENV_OPENGAUSS_RAG_IMAGE_NO_LSE"
+[ -n "$_ENV_OPENGAUSS_RAG_IMAGE_X86_AVX2" ] && OPENGAUSS_RAG_IMAGE_X86_AVX2="$_ENV_OPENGAUSS_RAG_IMAGE_X86_AVX2"
 [ -n "$_ENV_WITTY_RAG_CORE_IMAGE" ] && WITTY_RAG_CORE_IMAGE="$_ENV_WITTY_RAG_CORE_IMAGE"
 [ -n "$_ENV_WITTY_RAG_MCP_IMAGE" ] && WITTY_RAG_MCP_IMAGE="$_ENV_WITTY_RAG_MCP_IMAGE"
 [ -n "$_ENV_WITTY_NETWORK" ] && WITTY_NETWORK="$_ENV_WITTY_NETWORK"
 unset _ENV_RAG_CONFIG_FILE _ENV_RAG_RUNTIME_DIR _ENV_RAG_RERANK_MODEL_API_KEY_SECRET_FILE _ENV_RAG_DB_SECRET_FILE _ENV_RAG_ACCESS_KEY_SECRET_FILE _ENV_RAG_MODEL_API_KEY_SECRET_FILE _ENV_OPENGAUSS_RAG_IMAGE _ENV_OPENGAUSS_RAG_IMAGE_NO_LSE \
+    _ENV_OPENGAUSS_RAG_IMAGE_X86_AVX2 \
     _ENV_RAG_EMBEDDING_MODEL_NAME _ENV_RAG_EMBEDDING_MODEL_PROVIDER _ENV_RAG_EMBEDDING_ENDPOINT \
     _ENV_RAG_EMBEDDING_API_KEY _ENV_RAG_EMBEDDING_DIMENSION _ENV_RAG_RERANK_ENABLED \
     _ENV_RAG_RERANK_MODEL_NAME _ENV_RAG_RERANK_MODEL_PROVIDER _ENV_RAG_RERANK_ENDPOINT \
@@ -67,6 +70,10 @@ unset _ENV_RAG_CONFIG_FILE _ENV_RAG_RUNTIME_DIR _ENV_RAG_RERANK_MODEL_API_KEY_SE
 WITTY_NETWORK="${WITTY_NETWORK:-${PG_NETWORK:-witty-ub-network}}"
 OPENGAUSS_RAG_CONTAINER="${OPENGAUSS_RAG_CONTAINER:-opengauss-rag}"
 OPENGAUSS_RAG_IMAGE_NO_LSE="${OPENGAUSS_RAG_IMAGE_NO_LSE:-hub-harbor.oepkgs.net/neocopilot/opengauss:7.0.0-lite-noLSE}"
+OPENGAUSS_RAG_IMAGE_X86_AVX2="${OPENGAUSS_RAG_IMAGE_X86_AVX2:-}"
+
+# shellcheck source=deploy/docker/lib/opengauss_cpu.sh
+source "${SCRIPT_DIR}/lib/opengauss_cpu.sh"
 
 cpu_has_lse() {
     grep -qw atomics "${1:-/proc/cpuinfo}" 2>/dev/null
@@ -87,7 +94,13 @@ if [ -z "${OPENGAUSS_RAG_IMAGE:-}" ]; then
             fi
             ;;
         x86_64|amd64)
-            OPENGAUSS_RAG_IMAGE="hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:4fd44608ca3571d3ceb5bc2bc5cbcde131dde2ed2b8068ff3f58effc8c60d885"
+            if ! opengauss_select_x86_image; then
+                log_error "x86 openGauss requires AVX2 and FMA, and OPENGAUSS_RAG_IMAGE_X86_AVX2 must be configured."
+                log_error "OPENGAUSS_RAG_IMAGE remains an explicit override."
+                exit 1
+            fi
+            OPENGAUSS_RAG_IMAGE="$OPENGAUSS_RAG_SELECTED_IMAGE"
+            log_info "x86 CPU tier ${OPENGAUSS_RAG_CPU_TIER}: using openGauss image ${OPENGAUSS_RAG_IMAGE}"
             ;;
         *)
             log_error "Unsupported host architecture: $(uname -m); set OPENGAUSS_RAG_IMAGE explicitly in deploy.conf"
@@ -269,23 +282,59 @@ connect_network() {
     fi
 }
 
-ensure_image "$OPENGAUSS_RAG_IMAGE"
-if docker container inspect "$OPENGAUSS_RAG_CONTAINER" >/dev/null 2>&1; then
-    log_warn "复用已有容器 ${OPENGAUSS_RAG_CONTAINER}，不会删除其数据"
-    connect_network "$OPENGAUSS_RAG_CONTAINER"
-    [ "$(docker inspect -f '{{.State.Running}}' "$OPENGAUSS_RAG_CONTAINER")" = "true" ] || \
-        docker start "$OPENGAUSS_RAG_CONTAINER" >/dev/null
-else
-    RAG_DB_PASSWORD="$(tr -d '\r\n' <"$RAG_DB_SECRET_FILE")"
+start_opengauss_container() {
+    local db_password
+    db_password="$(tr -d '\r\n' <"$RAG_DB_SECRET_FILE")"
     docker run -d \
         --name "$OPENGAUSS_RAG_CONTAINER" \
         --restart unless-stopped \
         --network "$WITTY_NETWORK" \
         -p "${OPENGAUSS_RAG_HOST_PORT}:5432" \
         -v "${OPENGAUSS_RAG_VOLUME}:/var/lib/opengauss" \
-        -e GS_PASSWORD="$RAG_DB_PASSWORD" \
+        -e GS_PASSWORD="$db_password" \
         "$OPENGAUSS_RAG_IMAGE" >/dev/null
-    unset RAG_DB_PASSWORD
+    unset db_password
+}
+
+rollback_opengauss_container() {
+    local rollback_container="$1"
+    docker rm -f "$OPENGAUSS_RAG_CONTAINER" >/dev/null 2>&1 || true
+    docker rename "$rollback_container" "$OPENGAUSS_RAG_CONTAINER"
+    docker start "$OPENGAUSS_RAG_CONTAINER" >/dev/null
+}
+
+ensure_image "$OPENGAUSS_RAG_IMAGE"
+OPENGAUSS_RAG_ROLLBACK_CONTAINER=""
+if docker container inspect "$OPENGAUSS_RAG_CONTAINER" >/dev/null 2>&1; then
+    CURRENT_OPENGAUSS_IMAGE_ID="$(docker inspect -f '{{.Image}}' "$OPENGAUSS_RAG_CONTAINER")"
+    TARGET_OPENGAUSS_IMAGE_ID="$(docker image inspect -f '{{.Id}}' "$OPENGAUSS_RAG_IMAGE")"
+    if [ "$CURRENT_OPENGAUSS_IMAGE_ID" = "$TARGET_OPENGAUSS_IMAGE_ID" ]; then
+        log_warn "复用已有容器 ${OPENGAUSS_RAG_CONTAINER}，不会删除其数据"
+        connect_network "$OPENGAUSS_RAG_CONTAINER"
+        [ "$(docker inspect -f '{{.State.Running}}' "$OPENGAUSS_RAG_CONTAINER")" = "true" ] || \
+            docker start "$OPENGAUSS_RAG_CONTAINER" >/dev/null
+    else
+        CURRENT_OPENGAUSS_VOLUME="$(docker inspect "$OPENGAUSS_RAG_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/var/lib/opengauss"}}{{.Name}}{{end}}{{end}}')"
+        if [ "$CURRENT_OPENGAUSS_VOLUME" != "$OPENGAUSS_RAG_VOLUME" ]; then
+            log_error "现有 ${OPENGAUSS_RAG_CONTAINER} 未使用预期数据卷 ${OPENGAUSS_RAG_VOLUME}，拒绝自动切换镜像"
+            exit 1
+        fi
+        OPENGAUSS_RAG_ROLLBACK_CONTAINER="${OPENGAUSS_RAG_CONTAINER}-pre-cpu-switch"
+        if docker container inspect "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" >/dev/null 2>&1; then
+            log_error "回滚容器名已存在: ${OPENGAUSS_RAG_ROLLBACK_CONTAINER}，请先人工确认后处理"
+            exit 1
+        fi
+        log_warn "openGauss 镜像已变化，将保留数据卷并切换容器；健康检查失败时自动回滚"
+        docker stop "$OPENGAUSS_RAG_CONTAINER" >/dev/null
+        docker rename "$OPENGAUSS_RAG_CONTAINER" "$OPENGAUSS_RAG_ROLLBACK_CONTAINER"
+        if ! start_opengauss_container; then
+            rollback_opengauss_container "$OPENGAUSS_RAG_ROLLBACK_CONTAINER"
+            log_error "新 openGauss 容器启动失败，已恢复旧容器"
+            exit 1
+        fi
+    fi
+else
+    start_opengauss_container
     log_ok "已启动 ${OPENGAUSS_RAG_CONTAINER}"
 fi
 
@@ -300,8 +349,16 @@ for _ in $(seq 1 60); do
     sleep 3
 done
 if [ "$db_ready" != true ]; then
+    if [ -n "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" ]; then
+        rollback_opengauss_container "$OPENGAUSS_RAG_ROLLBACK_CONTAINER"
+        log_error "新 openGauss 未能就绪，已恢复旧容器（数据卷未删除）"
+    fi
     log_error "openGauss 未在规定时间内就绪，请检查: docker logs ${OPENGAUSS_RAG_CONTAINER}"
     exit 1
+fi
+if [ -n "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" ]; then
+    docker rm "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" >/dev/null
+    log_ok "openGauss 新镜像健康检查通过，旧容器已移除（数据卷保留）"
 fi
 docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
     "gs_guc reload -D /var/lib/opengauss/data -c \"behavior_compat_options='accept_empty_str'\"" >/dev/null

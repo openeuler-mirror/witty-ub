@@ -19,7 +19,12 @@ Witty-UB/OpenCode -> http://witty-rag-core:12312/sse
 # 手动部署时按架构与 CPU 指令集选择镜像。
 case "$(uname -m)" in
   x86_64|amd64)
-    export OPENGAUSS_RAG_IMAGE="${OPENGAUSS_RAG_IMAGE:-hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:4fd44608ca3571d3ceb5bc2bc5cbcde131dde2ed2b8068ff3f58effc8c60d885}"
+    if grep -qw avx2 /proc/cpuinfo && grep -qw fma /proc/cpuinfo; then
+      export OPENGAUSS_RAG_IMAGE="${OPENGAUSS_RAG_IMAGE:-${OPENGAUSS_RAG_IMAGE_X86_AVX2:?请先配置同版本 AVX2 镜像}}"
+    else
+      echo "x86_64 部署要求 AVX2 与 FMA" >&2
+      exit 1
+    fi
     export WITTY_RAG_CORE_IMAGE="${WITTY_RAG_CORE_IMAGE:-hub-harbor.oepkgs.net/neocopilot/witty-rag-core:0.10.2-release-x86}" ;;
   aarch64|arm64)
     if grep -qw atomics /proc/cpuinfo; then
@@ -39,7 +44,8 @@ export RAG_CONFIG_FILE="$(pwd)/deploy/rag-core.toml"
 （`/proc/cpuinfo` 不含 `atomics`）时使用
 `OPENGAUSS_RAG_IMAGE_NO_LSE`（默认 `hub-harbor.oepkgs.net/neocopilot/opengauss:7.0.0-lite-noLSE`）。
 ARM64 有 LSE 时优先复用本地 Kunpeng HNSW 镜像，不存在时使用 ARM64 固定摘要；
-x86_64 使用 x86_64 固定摘要。显式设置 `OPENGAUSS_RAG_IMAGE` 可覆盖自动选择。
+x86_64 只支持 AVX2+FMA 镜像。镜像需从同一 openGauss 提交构建，并配置
+`OPENGAUSS_RAG_IMAGE_X86_AVX2`。显式设置 `OPENGAUSS_RAG_IMAGE` 可覆盖自动选择。
 noLSE 镜像基于 openGauss-Lite，支持 HNSW，但不包含鲲鹏 SRA Recall 的 PQ 加速。
 
 `config.toml` 中标量库和向量库应使用容器 DNS 名：
