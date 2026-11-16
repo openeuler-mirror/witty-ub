@@ -151,6 +151,34 @@ class TestDeployConf:
         assert r.returncode != 0
         assert "Unsupported host architecture: riscv64" in r.stderr
 
+    def test_avx2_image_preserves_chinese_parser_addon(self):
+        dockerfile = (_DEPLOY_DIR / "docker/opengauss-x86.Dockerfile").read_text()
+        assert "AS opengauss-base" in dockerfile
+        assert "chparser.so" in dockerfile
+        assert "chparser.control" in dockerfile
+        assert "chparser--1.0.sql" in dockerfile
+        assert "dict.utf8.xdb" in dockerfile
+        assert "--from=opengauss-base" in dockerfile
+
+    def test_rag_deploy_exercises_chinese_parser_before_removing_rollback(self):
+        src = (_DEPLOY_DIR / "docker/deploy_rag.sh").read_text()
+        parser_check = src.index("SELECT to_tsvector(c.oid::regconfig")
+        rollback_removal = src.index(
+            'docker rm "$OPENGAUSS_RAG_ROLLBACK_CONTAINER"', parser_check
+        )
+        assert parser_check < rollback_removal
+        assert "cfgname = 'chinese'" in src
+        assert "rollback_opengauss_container" in src[parser_check:rollback_removal]
+
+    def test_rag_core_restarts_after_database_authentication_repair(self):
+        src = (_DEPLOY_DIR / "docker/deploy_rag.sh").read_text()
+        assert "RAG_DB_SESSION_RESET_REQUIRED=false" in src
+        assert "RAG_DB_SESSION_RESET_REQUIRED=true" in src
+        reuse_condition = src.split(
+            'if docker container inspect "$WITTY_RAG_CORE_CONTAINER"', 1
+        )[1].split("then\n        log_warn", 1)[0]
+        assert '[ "$RAG_DB_SESSION_RESET_REQUIRED" != true ]' in reuse_condition
+
     @pytest.mark.parametrize(
         "loader",
         [

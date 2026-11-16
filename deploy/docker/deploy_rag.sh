@@ -356,6 +356,27 @@ if [ "$db_ready" != true ]; then
     log_error "openGauss 未在规定时间内就绪，请检查: docker logs ${OPENGAUSS_RAG_CONTAINER}"
     exit 1
 fi
+
+# `select 1` only proves that the server accepts connections.  Witty RAG also
+# requires the Chinese parser for document tsvector writes and hybrid keyword
+# search.  Exercise the persisted text-search configuration before accepting a
+# replacement image, so a missing chparser add-on triggers the existing image
+# rollback instead of surfacing later as RAG HTTP 500 responses.
+CHPARSER_CHECK_OUTPUT=""
+if ! CHPARSER_CHECK_OUTPUT="$(docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
+    "gsql -d ${RAG_DB_NAME} -p 5432 -tAc \"SELECT to_tsvector(c.oid::regconfig, '中文分词健康检查') FROM pg_ts_config c WHERE c.cfgname = 'chinese' LIMIT 1\"" \
+    2>/dev/null)" || [ -z "$(printf '%s' "$CHPARSER_CHECK_OUTPUT" | tr -d '[:space:]')" ]; then
+    if [ -n "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" ]; then
+        rollback_opengauss_container "$OPENGAUSS_RAG_ROLLBACK_CONTAINER"
+        log_error "新 openGauss 中文分词自检失败，已恢复旧容器（数据卷未删除）"
+    else
+        log_error "openGauss 中文分词自检失败，请确认镜像包含 chparser.so 及扩展定义"
+    fi
+    exit 1
+fi
+unset CHPARSER_CHECK_OUTPUT
+log_ok "openGauss 中文分词自检通过"
+
 if [ -n "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" ]; then
     docker rm "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" >/dev/null
     log_ok "openGauss 新镜像健康检查通过，旧容器已移除（数据卷保留）"
@@ -363,6 +384,121 @@ fi
 docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
     "gs_guc reload -D /var/lib/opengauss/data -c \"behavior_compat_options='accept_empty_str'\"" >/dev/null
 log_ok "openGauss 已就绪并启用 accept_empty_str"
+
+# GS_PASSWORD only initializes a new openGauss data directory.  Recreating the
+# container while reusing OPENGAUSS_RAG_VOLUME therefore does not update the
+# password stored in the database.  Always verify the secret over the Docker
+# network (localhost is configured as trust and cannot validate a password),
+# then reconcile a stale volume in place before RAG Core starts.
+rag_db_password_is_current() {
+    local db_password="$1"
+    docker exec --user omm \
+        -e RAG_SYNC_PASSWORD="$db_password" \
+        -e RAG_SYNC_HOST="$OPENGAUSS_RAG_CONTAINER" \
+        -e RAG_SYNC_USER="$RAG_DB_USER" \
+        -e RAG_SYNC_DB="$RAG_DB_NAME" \
+        "$OPENGAUSS_RAG_CONTAINER" bash -lc \
+        'gsql -h "$RAG_SYNC_HOST" -p 5432 -U "$RAG_SYNC_USER" -W "$RAG_SYNC_PASSWORD" -d "$RAG_SYNC_DB" -tAc "select 1"' \
+        >/dev/null 2>&1
+}
+
+run_rag_db_admin_sql() {
+    local sql="$1"
+    printf '%s\n' "$sql" | \
+        docker exec -i --user omm \
+            -e RAG_SYNC_DB="$RAG_DB_NAME" \
+            "$OPENGAUSS_RAG_CONTAINER" bash -lc \
+            'gsql -d "$RAG_SYNC_DB" -p 5432 -v ON_ERROR_STOP=1' \
+            >/dev/null
+}
+
+validate_rag_db_user() {
+    # The role name becomes an SQL identifier below.  Reject unexpected input
+    # instead of interpolating arbitrary configuration into a privileged query.
+    if [[ ! "$RAG_DB_USER" =~ ^[A-Za-z_][A-Za-z0-9_\$]*$ ]]; then
+        log_error "Invalid RAG_DB_USER for password synchronization: ${RAG_DB_USER}"
+        return 1
+    fi
+}
+
+sync_rag_db_password() {
+    local db_password="$1"
+    printf 'ALTER USER %s WITH PASSWORD :\x27rag_password\x27;\n' "$RAG_DB_USER" | \
+        docker exec -i --user omm \
+            -e RAG_SYNC_PASSWORD="$db_password" \
+            -e RAG_SYNC_DB="$RAG_DB_NAME" \
+            "$OPENGAUSS_RAG_CONTAINER" bash -lc \
+            'gsql -d "$RAG_SYNC_DB" -p 5432 -v ON_ERROR_STOP=1 -v rag_password="$RAG_SYNC_PASSWORD"' \
+            >/dev/null
+}
+
+sync_rag_db_password_allow_reuse() {
+    local db_password="$1"
+    local reuse_time sync_rc=0 restore_rc=0
+    reuse_time="$(docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
+        "gsql -d ${RAG_DB_NAME} -p 5432 -tAc 'show password_reuse_time'" 2>/dev/null | tr -d '[:space:]')"
+    if [[ ! "$reuse_time" =~ ^[0-9]+$ ]]; then
+        log_error "无法读取 openGauss password_reuse_time（实际值: ${reuse_time:-empty}）"
+        return 1
+    fi
+
+    # A secret recreated during partial cleanup may still be in openGauss's
+    # password history.  Temporarily allow that one managed password to be
+    # restored, then immediately put the cluster-wide policy back.
+    if [ "$reuse_time" != "0" ]; then
+        docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
+            "gs_guc reload -D /var/lib/opengauss/data -c \"password_reuse_time=0\"" \
+            >/dev/null || return 1
+    fi
+    sync_rag_db_password "$db_password" || sync_rc=$?
+    if [ "$reuse_time" != "0" ]; then
+        docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
+            "gs_guc reload -D /var/lib/opengauss/data -c \"password_reuse_time=${reuse_time}\"" \
+            >/dev/null || restore_rc=$?
+    fi
+    if [ "$restore_rc" -ne 0 ]; then
+        log_error "openGauss password_reuse_time 恢复失败，请检查数据库配置"
+        return 1
+    fi
+    return "$sync_rc"
+}
+
+RAG_DB_SESSION_RESET_REQUIRED=false
+RAG_DB_PASSWORD_CURRENT="$(tr -d '\r\n' <"$RAG_DB_SECRET_FILE")"
+if ! validate_rag_db_user; then
+    unset RAG_DB_PASSWORD_CURRENT
+    exit 1
+fi
+if rag_db_password_is_current "$RAG_DB_PASSWORD_CURRENT"; then
+    log_ok "openGauss 口令与密钥文件一致"
+else
+    # Repeated failures from an old RAG Core can lock the account.  Unlock and
+    # retry first: attempting to set an already-current password is rejected by
+    # openGauss's password-reuse policy.
+    # The existing RAG Core may still hold the old password in its in-memory
+    # connection pools.  Force a stateless service-container rebuild after any
+    # authentication repair so it cannot immediately lock the account again.
+    RAG_DB_SESSION_RESET_REQUIRED=true
+    log_warn "openGauss 当前口令认证失败，正在解锁账号并检查密钥一致性"
+    if ! run_rag_db_admin_sql "ALTER USER ${RAG_DB_USER} ACCOUNT UNLOCK;"; then
+        unset RAG_DB_PASSWORD_CURRENT
+        log_error "openGauss 账号自动解锁失败"
+        exit 1
+    fi
+    if rag_db_password_is_current "$RAG_DB_PASSWORD_CURRENT"; then
+        log_ok "openGauss 账号已解锁，口令与密钥文件一致"
+    else
+        log_warn "检测到持久化 openGauss 口令与密钥文件不一致，正在保留数据并自动对齐"
+        if ! sync_rag_db_password_allow_reuse "$RAG_DB_PASSWORD_CURRENT" || \
+            ! rag_db_password_is_current "$RAG_DB_PASSWORD_CURRENT"; then
+            unset RAG_DB_PASSWORD_CURRENT
+            log_error "openGauss 口令自动对齐失败"
+            exit 1
+        fi
+        log_ok "openGauss 口令已对齐（数据卷未删除）"
+    fi
+fi
+unset RAG_DB_PASSWORD_CURRENT
 
 # Keep model and service settings supplied by the user, but force both RAG
 # database sections to use the dedicated openGauss container.
@@ -526,6 +662,12 @@ else
 fi
 
 RAG_CORE_PATCH_FILE_RESOLVED="${RAG_CORE_PATCH_FILE:-${SCRIPT_DIR}/../patches/rag-core/process_handler.py}"
+if [ -f "$RAG_CORE_PATCH_FILE_RESOLVED" ]; then
+    # Docker records a canonical bind-mount source.  Canonicalize our side too,
+    # otherwise a path containing "../" makes every healthy container look
+    # stale and forces an unnecessary rebuild on each deployment.
+    RAG_CORE_PATCH_FILE_RESOLVED="$(readlink -f "$RAG_CORE_PATCH_FILE_RESOLVED")"
+fi
 
 rag_core_patch_is_current() {
     [ -f "$RAG_CORE_PATCH_FILE_RESOLVED" ] || return 0
@@ -564,13 +706,14 @@ start_rag_core_container() {
 if docker container inspect "$WITTY_RAG_CORE_CONTAINER" >/dev/null 2>&1; then
     if [ "$(docker inspect -f '{{.State.Running}}' "$WITTY_RAG_CORE_CONTAINER")" = "true" ] &&
         [ "$RAG_CONFIG_CHANGED" != true ] &&
+        [ "$RAG_DB_SESSION_RESET_REQUIRED" != true ] &&
         rag_core_patch_is_current &&
         [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/rag-service/rag_core/file"}}yes{{end}}{{end}}' 2>/dev/null)" = "yes" ] &&
         [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/witty-rag"}}yes{{end}}{{end}}' 2>/dev/null)" = "yes" ] &&
         docker exec "$WITTY_RAG_CORE_CONTAINER" \
             curl -fsS --max-time 3 http://127.0.0.1:9988/health_check >/dev/null 2>&1 &&
         docker exec "$WITTY_RAG_CORE_CONTAINER" sh -lc \
-            'status=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:12312/sse || true); [ "$status" = 200 ]'; then
+            'status=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:12312/sse 2>/dev/null || true); [ "$status" = 200 ]'; then
         log_warn "复用正在运行的容器 ${WITTY_RAG_CORE_CONTAINER}，不会中断现有 RAG 服务"
         connect_network "$WITTY_RAG_CORE_CONTAINER"
     else
