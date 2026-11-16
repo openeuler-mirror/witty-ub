@@ -827,8 +827,12 @@ def validate(data) -> tuple[list[str], list[str]]:
                     if not isinstance(slot, dict) or slot.get("time") in (None, ""):
                         errors.append(f"statistics.time_heatmap[{i}]: 缺少 time（HH:MM）")
                         continue
-                    if _as_num(slot.get("pct")) is None:
-                        errors.append(f"statistics.time_heatmap[{i}].pct: 必须是百分比数值")
+                    pct = _as_num(slot.get("pct"))
+                    if pct is None or not math.isfinite(pct) or not 0 <= pct <= 100:
+                        errors.append(
+                            f"statistics.time_heatmap[{i}].pct: 必须是 0~100 的有限百分比数值"
+                            "（按峰值归一化，不带 % 符号）"
+                        )
 
     workflow = data.get("workflow")
     if isinstance(workflow, dict) and not workflow.get("steps"):
@@ -937,6 +941,7 @@ heatmap_metric=fault|latency, dist_total
 top_error_codes[]{code,name,pct,fault}, top_failure_domains[]{domain,pct,fault}
 top_pods[]{pod,host,pct,fault}, top_hosts[]{host,pct,fault}
 time_heatmap[]{time,level,pct,spike,lat_ms,fault}
+time_heatmap[].pct: 0~100 的有限百分比数值（不带 %），故障量/时延分别按故障数/P99 峰值归一化 ×100；峰值为 0 时填 0
 GET/SET 阶段清单（报告阶段名 ↔ 字段 ↔ 阈值）：references/REPORT_BLOCKS.md""",
     "workflow": "session_id,total_steps,api_calls,duration,steps[]{title,api_calls[],result}",
     "source_code": "component,failure_mode_id,call_chain[]{function,file,line,role,role_label,call_site,code[]{num,text,highlight,ellipsis},analysis},fix_suggestion",
@@ -1081,6 +1086,48 @@ def validate_report_json(data: dict, data_path: Path) -> list[str]:
     return warnings
 
 
+def _time_hotspot_chart(statistics: dict) -> dict:
+    """Build a display-only broken scale without changing report evidence.
+
+    Omit an empty interval only when adjacent positive values differ by at
+    least 8x and their gap covers at least 30% of the chart's maximum value.
+    The two visible ranges are linear, separated by a 12% visual break.
+    """
+    slots = statistics.get("time_heatmap") or []
+    chart = {"slots": [dict(slot=slot, height=slot.get("pct"), broken=False)
+                       for slot in slots], "axis": None}
+    key = "lat_ms" if statistics.get("heatmap_metric") == "latency" else "pct"
+    values = [_as_num(slot.get(key)) for slot in slots]
+    if not values or any(v is None or not math.isfinite(v) or v < 0 for v in values):
+        return chart
+    positive = sorted(set(v for v in values if v > 0))
+    if len(positive) < 2:
+        return chart
+    peak = positive[-1]
+    gaps = [(high - low, low, high) for low, high in zip(positive, positive[1:])
+            if high / low >= 8 and high - low >= peak * 0.3]
+    if not gaps:
+        return chart
+
+    _, low, high = max(gaps)
+    lower, upper = low * 1.2, high * 0.8
+    unit = " ms" if key == "lat_ms" else "%"
+
+    def label(value):
+        return f"{value:.4g}{unit}"
+
+    chart["axis"] = {
+        "ticks": [(0, label(0)), (40, label(lower)),
+                  (52, label(upper)), (100, label(peak))],
+        "omitted": f"{label(lower)}～{label(upper)}",
+    }
+    for item, value in zip(chart["slots"], values):
+        item["broken"] = value >= upper
+        item["height"] = (52 + (value - upper) / (peak - upper) * 48
+                          if item["broken"] else value / lower * 40)
+    return chart
+
+
 def render_report_html(data: dict, template_path: Path, data_path: Path) -> str:
     """Render validated data in memory; this function performs no writes."""
     try:
@@ -1104,6 +1151,7 @@ def render_report_html(data: dict, template_path: Path, data_path: Path) -> str:
     )
     env.filters["safe_report_html"] = lambda value: Markup(_safe_report_html(value))
     env.filters["confidence_pct"] = _format_confidence
+    env.filters["time_hotspot_chart"] = _time_hotspot_chart
     try:
         return env.get_template(template_path.name).render(**data)
     except Exception as exc:  # 模板语法/结构问题：给出模板侧定位

@@ -43,6 +43,60 @@ def report_data() -> dict:
 
 
 class RenderReportCliTest(unittest.TestCase):
+    def test_time_hotspot_accepts_normalized_heights_in_both_modes(self):
+        for mode in ("fault", "latency"):
+            with self.subTest(mode=mode):
+                data = report_data()
+                data["statistics"] = {
+                    "heatmap_metric": mode,
+                    "time_heatmap": [
+                        {"time": "11:01", "pct": 0, "level": 0},
+                        {"time": "11:04", "pct": 18.5, "level": 1},
+                        {"time": "11:06", "pct": 100, "level": 3, "spike": True},
+                    ],
+                }
+                if mode == "latency":
+                    for slot in data["statistics"]["time_heatmap"]:
+                        slot["lat_ms"] = slot["pct"] * 20
+
+                errors, _ = render_report.validate(data)
+                self.assertEqual(errors, [])
+                html = render_report.render_report_html(
+                    data, render_report.DEFAULT_TEMPLATE, Path("hotspot-test.json")
+                )
+                self.assertIn('style="height: 100%;"', html)
+                if mode == "latency":
+                    self.assertIn('2000<span style="font-size:9px;">ms</span>', html)
+
+    def test_time_hotspot_rejects_out_of_range_and_nonfinite_heights(self):
+        for pct in (-1, 100.01, 3010.3, float("nan"), float("inf"),
+                    float("-inf"), "NaN", "Infinity", None, "bad"):
+            with self.subTest(pct=pct):
+                data = report_data()
+                data["statistics"]["time_heatmap"] = [{"time": "11:06", "pct": pct}]
+                errors, _ = render_report.validate(data)
+                self.assertTrue(any(
+                    "statistics.time_heatmap[0].pct" in error and "0~100" in error
+                    for error in errors
+                ), errors)
+
+    def test_invalid_hotspot_height_blocks_validation_and_render_without_writes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "report.json"
+            data = report_data()
+            data["statistics"]["time_heatmap"] = [{"time": "11:06", "pct": 3010.3}]
+            source.write_text(json.dumps(data), encoding="utf-8")
+            for options in (["--validate-only"], [str(root / "out.html")]):
+                with self.subTest(options=options), \
+                        patch("sys.stderr", new_callable=io.StringIO) as stderr, \
+                        patch.object(render_report, "render_report_html") as render:
+                    result = render_report.main([str(source), *options])
+                self.assertEqual(result, 2)
+                self.assertIn("statistics.time_heatmap[0].pct", stderr.getvalue())
+                render.assert_not_called()
+                self.assertEqual(list(root.iterdir()), [source])
+
     @staticmethod
     def _overview_metric(label: str, mode: str, observed: float = 12.34) -> dict:
         return {
@@ -249,6 +303,73 @@ class RenderReportCliTest(unittest.TestCase):
             self.assertEqual(result, 2)
             self.assertIn("不接受输出 HTML 路径", stderr.getvalue())
             self.assertFalse((root / "out.html").exists())
+
+
+class TimeHotspotChartTest(unittest.TestCase):
+    def test_regular_and_zero_only_series_keep_the_linear_scale(self):
+        for values in ([], [0, 0], [0, 100], [10, 20, 50, 100], [90, 100]):
+            with self.subTest(values=values):
+                stats = {"time_heatmap": [{"pct": v} for v in values]}
+                chart = render_report._time_hotspot_chart(stats)
+                self.assertIsNone(chart["axis"])
+                self.assertEqual([s["height"] for s in chart["slots"]], list(values))
+                self.assertFalse(any(s["broken"] for s in chart["slots"]))
+
+    def test_broken_scale_skips_only_an_empty_interval_and_preserves_evidence(self):
+        stats = {"time_heatmap": [{"pct": v} for v in [0, 2, 3, 80, 100]]}
+        original = json.dumps(stats)
+        chart = render_report._time_hotspot_chart(stats)
+
+        self.assertEqual(chart["axis"]["ticks"],
+                         [(0, "0%"), (40, "3.6%"), (52, "64%"), (100, "100%")])
+        self.assertEqual([s["broken"] for s in chart["slots"]],
+                         [False, False, False, True, True])
+        heights = [s["height"] for s in chart["slots"]]
+        self.assertEqual(heights, sorted(heights))
+        self.assertEqual((heights[0], heights[-1]), (0, 100))
+        self.assertTrue(all(0 <= h <= 40 or 52 <= h <= 100 for h in heights))
+        self.assertAlmostEqual(heights[1] / heights[2], 2 / 3)
+        self.assertAlmostEqual((heights[3] - 52) / (heights[4] - 52), 16 / 36)
+        self.assertEqual(json.dumps(stats), original)
+
+    def test_small_gap_and_gradual_growth_do_not_trigger_a_break(self):
+        for values in ([0.001, 0.01, 1, 2, 5, 10, 20, 50, 100], [1, 4, 16, 64, 100]):
+            with self.subTest(values=values):
+                chart = render_report._time_hotspot_chart(
+                    {"time_heatmap": [{"pct": v} for v in values]}
+                )
+                self.assertIsNone(chart["axis"])
+
+    def test_latency_axis_uses_actual_milliseconds_and_shows_zero_as_ms(self):
+        data = report_data()
+        data["statistics"] = {
+            "heatmap_metric": "latency",
+            "time_heatmap": [
+                {"time": f"11:{i:02d}", "pct": value / 10,
+                 "lat_ms": value, "level": 3, "spike": i == 4}
+                for i, value in enumerate([0, 1, 2, 900, 1000])
+            ],
+        }
+        self.assertEqual(render_report.validate(data)[0], [])
+        html = render_report.render_report_html(
+            data, render_report.DEFAULT_TEMPLATE, Path("broken-latency.json")
+        )
+        self.assertIn('class="tchart has-break"', html)
+        self.assertEqual(html.count('<svg class="tbreak"'), 3)  # axis + two tall bars
+        self.assertIn("省略 2.4 ms～720 ms 区间", html)
+        self.assertIn('>1000 ms</span>', html)
+        self.assertIn('0<span style="font-size:9px;">ms</span>', html)
+        self.assertIn('1000<span style="font-size:9px;">ms</span>', html)
+
+    def test_missing_or_nonfinite_latency_cannot_create_a_broken_axis(self):
+        for value in (None, "bad", -1, float("inf"), float("nan")):
+            with self.subTest(value=value):
+                chart = render_report._time_hotspot_chart({
+                    "heatmap_metric": "latency",
+                    "time_heatmap": [{"pct": 1, "lat_ms": value},
+                                     {"pct": 100, "lat_ms": 1000}],
+                })
+                self.assertIsNone(chart["axis"])
 
 
 class CleanupTest(unittest.TestCase):

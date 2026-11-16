@@ -705,10 +705,16 @@ SET 走 CREATE/PUBLISH 写路径，**可用字段与 GET 不同**，阶段表按
   `detail` 可选，用于补充关键对比（如"C2W 异常而 W2W 正常"这种区分性证据）
 
 **时间热点图（time_heatmap）两种模式**
-- 故障量模式（默认，`"heatmap_metric": "fault"` 或不填）：柱高与数值为该时段故障 trace 占比
+- 故障量模式（默认，`"heatmap_metric": "fault"` 或不填）：柱高与数值为该时段故障 trace 数相对峰值槽的百分比
 - 时延模式（`"heatmap_metric": "latency"`）：每个 slot 额外填 `"lat_ms"`（该时段 P99 毫秒数），
   柱高仍按 `pct` 归一化，数值区显示 P99 ms，标题自动标注"各时段 P99 时延"
+- 两种模式的 `pct` 均为 **0~100 的有限数值**（不带 `%`）；时延模式用
+  `lat_ms / 各槽 P99 最大值 × 100`。峰值为 0 时各槽填 0，不直接把计数或毫秒值用作柱高。
 - `slot.fault`：该尖峰归属的故障编号（`top_*` 条目同理可带 `"fault"` 显示 F 标签）
+- 相邻非零数值相差至少 8 倍，且间隔占最大值至少 30% 时，渲染器自动在无数据区间
+  断轴：高柱及纵轴同步显示两条平行锯齿线，纵轴跳过该区间，上下两段各自线性缩放。
+  时延模式刻度使用 `lat_ms` 毫秒值，故障量模式使用相对峰值百分比；柱顶保留原始值，
+  图下注明省略区间。此为展示转换，不修改输入 JSON，也不放宽 `pct` 的合法范围。
 
 **数据来源和注意事项**
 - `top_error_codes` / `top_pods` / `top_hosts`: `POST /stats/error_codes`（`items[]` 的
@@ -724,7 +730,7 @@ SET 走 CREATE/PUBLISH 写路径，**可用字段与 GET 不同**，阶段表按
   数据中不需要填颜色；「其他」扇区固定灰 `#C3CBD4`
 - `time_heatmap`: `POST /stats/heatmap`（自动选窗 1m/10m/1h，返回 `items[]` 的 `window_start`
   +`fault_trace_cnt`；显式传 `window_size` 控制槽宽，如故障窗短用 `"1m"`；6~12 个时间槽为宜），
-  `pct` = `fault_trace_cnt` / 峰值槽，`time` 取 `window_start` 的 `HH:MM`；渲染为垂直迷你柱图，
+  `pct` = `fault_trace_cnt` / 峰值槽故障数 × 100，`time` 取 `window_start` 的 `HH:MM`；渲染为垂直迷你柱图，
   `level` 0 → 灰=无故障、1 → `--brand-pale`、2 → `--brand-soft`、3 → `--brand`；
   **红色仅由 `spike: true` 触发**（不随 level 变化），尖峰柱顶部显示红色徽章且时间标签变红；
   时间维度是趋势不是构成，故用柱图不用饼图
