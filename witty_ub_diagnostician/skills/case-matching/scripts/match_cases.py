@@ -452,7 +452,7 @@ def _extract_soft_features(features: dict) -> dict:
         "time_shape": _normalize(features["time_shape"]) if features.get("time_shape") else None,
         "affected_scope": _normalize(features["affected_scope"]) if features.get("affected_scope") else None,
         # 保守版仅 link_pair 参与打分；其余形状（bi_pair/conc/spread）案例侧暂无法提取，置空不参与。
-        "topology_shape": "link_pair" if _normalize(features["topology_shape"]) == "link_pair" else None,
+        "topology_shape": "link_pair" if _normalize(features.get("topology_shape")) == "link_pair" else None,
         # 日志语义码通道的查询侧索引（见 LOG_SEMANTIC_*）：优先 log_id，回退报告 basic_info.kb_name。
         "log_id": str(features.get("log_id") or "").strip() or None,
         "kb_name": (
@@ -973,16 +973,18 @@ def _print_rows(
     if not rows:
         print("候选案例: 0 条（宽召回下仍为空，说明库内无同类故障；不代表系统健康）")
         return
-    print(f"候选案例: {len(rows)} 条（按分布特征软匹配分降序，并列时按文本余弦破平局）")
+    print(f"候选案例: {len(rows)} 条（按默认观测匹配分降序，最终并列保留底座原顺序）")
     if vote and vote.get("label"):
         method_label = {
             "top1_margin": "top1 明显胜出，直接采用",
             "topK_vote": "top1 并列，top10 一级标签多数投票",
             "fallback_top1": "无有效标签候选，回退 top1",
+            "fixed_feature_vote": "固定特征评分投票",
+            "user_usage_rule": "用户使用问题故障码规则",
         }
         print(
-            f"一级标签投票: {vote['label']}（{method_label.get(vote['method'], vote['method'])}；"
-            f"top10 分布 {vote['distribution']}）"
+            f"一级标签选择: {vote['label']}（{method_label.get(vote['method'], vote['method'])}；"
+            f"候选前4项分布 {vote.get('distribution', {})}）"
         )
     for index, row in enumerate(rows, start=1):
         prefix = f"[{index}] {row['case_no']} " if row.get("case_no") else f"[{index}] "
@@ -1025,6 +1027,10 @@ def _mark_hit(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="历史诊断案例检索（case-matching Skill）")
     parser.add_argument("features", nargs="?", help="现场特征 JSON 路径（步骤 2）")
+    parser.add_argument("--local-cases", help="本地固定方案入口；features为观测profile，参数为候选信封JSON")
+    parser.add_argument("--local-structured-query", help="已有evidence-v1观测旁车的位置")
+    parser.add_argument("--local-raw-query", help="已有固定原始观测旁车；默认自动读取同名.raw.json")
+    parser.add_argument("--local-exclude-source-id", action="append", default=[], help="本地入口排除来源ID，可多次指定")
     parser.add_argument("--hit", metavar="CASE_ID", help="命中回写指定案例（步骤 5，可脱离特征文件单独执行）")
     parser.add_argument("--api-base", default=DEFAULT_API_BASE, help="API 基址，默认取 WITTY_API_BASE")
     parser.add_argument(
@@ -1041,37 +1047,30 @@ def main(argv: list[str] | None = None) -> int:
         help="启用服务端 operation 过滤（默认关闭：拉全后由 operation 特征软处理操作域）",
     )
     parser.add_argument("--timeout", type=int, default=30, help="单次请求超时（秒），默认 30")
-    parser.add_argument(
-        "--no-log-semantic",
-        action="store_true",
-        help="关闭日志语义码次级通道（默认为开启，用于消融对比）",
-    )
-    parser.add_argument(
-        "--no-log-semantic-idf",
-        action="store_true",
-        help="日志语义码通道退回纯 TF（不按 IDF 重加权，用于消融对比）",
-    )
-    parser.add_argument(
-        "--log-semantic-prior",
-        action="store_true",
-        help="启用「码→标签先验」通道（默认关闭：按池内 语义码→一级标签 分布投票加分）",
-    )
     parser.add_argument("--json", dest="json_out", help="候选结果落盘路径")
     args = parser.parse_args(argv)
-
-    global LOG_SEMANTIC_ENABLED, LOG_SEMANTIC_IDF, LOG_SEMANTIC_PRIOR_ENABLED, OPERATION_FILTER_ENABLED
-    if args.no_log_semantic:
-        LOG_SEMANTIC_ENABLED = False
-    if args.no_log_semantic_idf:
-        LOG_SEMANTIC_IDF = False
-    if args.log_semantic_prior:
-        LOG_SEMANTIC_PRIOR_ENABLED = True
+    global OPERATION_FILTER_ENABLED
     OPERATION_FILTER_ENABLED = args.operation_filter
 
     if args.hit:
         return _mark_hit(args.api_base, args.hit, args.timeout, args.source)
     if not args.features:
         parser.error("需要提供特征 JSON 路径，或使用 --hit CASE_ID")
+
+    if args.local_cases:
+        if not args.json_out:
+            parser.error("--local-cases需要--json输出路径")
+        if args.operation_filter:
+            parser.error("本地候选池由输入文件确定，不使用HTTP operation过滤")
+        from match_baseline import main as baseline_main
+        local_args = ["--query", args.features, "--cases", args.local_cases, "--out", args.json_out]
+        if args.local_structured_query:
+            local_args += ["--structured-query", args.local_structured_query]
+        if args.local_raw_query:
+            local_args += ["--raw-query", args.local_raw_query]
+        for source_id in args.local_exclude_source_id:
+            local_args += ["--exclude-source-id", source_id]
+        return baseline_main(local_args)
 
     try:
         features = _load_features(args.features)
@@ -1089,7 +1088,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if not _soft_feature_count(soft):
-        print("警告: 特征文件未提供任何分布特征，软打分全部为 0（仍按 confidence/hit_count 排序）")
+        print("特征文件未提供分布特征；评分仅使用已有观测，未知通道增量为零")
 
     # 查询侧日志语义码轮廓：优先用特征 JSON 内联；否则按 kb_id 向后端现算
     # （新资产尚未进离线资产时也能自动启用该通道，无需人工步骤）。
@@ -1138,14 +1137,75 @@ def main(argv: list[str] | None = None) -> int:
             f"案例库暂无 {USER_USAGE_FIRST_LEVEL}/{USER_USAGE_SECOND_LEVEL} 案例，"
             "按「严格只召回」口径返回空候选（不回退到其他类别）"
         )
-    rows = _rerank(matches, soft, features.get("query_text") or "")
-    vote = _label_vote(rows)
+    # Fixed default policy: query report prose must not steer retrieval ranking.
+    scoring_soft = {**soft, "log_keywords": []}
+    base_rows = _rerank(matches, scoring_soft, "")
+    from combination_matching import apply_default
+    query_observed = features.get("structured")
+    companion = os.path.splitext(args.features)[0] + ".structured.json"
+    if query_observed is None and os.path.isfile(companion):
+        with open(companion, encoding="utf-8") as handle:
+            query_observed = json.load(handle)
+    profiles = {(m.get("case") or {}).get("id"): (m.get("case") or {}).get("structured") for m in matches}
+    rows = apply_default(base_rows, query_observed, profiles)
+    retrieval_vote = _label_vote(rows)
+    raw_observed = features.get("raw_observations")
+    raw_companion = os.path.splitext(args.features)[0] + ".raw.json"
+    if raw_observed is None and os.path.isfile(raw_companion):
+        with open(raw_companion, encoding="utf-8") as handle:
+            raw_observed = json.load(handle)
+    from default_matching import match as default_match
+    query_context=features.get('mined_observations')
+    context_companion=os.path.splitext(args.features)[0]+'.mined.json'
+    if query_context is None and os.path.isfile(context_companion):
+        with open(context_companion,encoding='utf-8') as handle:query_context=json.load(handle)
+    query_profile = {
+        "schema_version": "legacy-evidence-v1",
+        "status_codes": list(dict.fromkeys(_normalize(v) for v in features.get("status_codes", []))),
+        "failure_mode_ids": list(dict.fromkeys(_normalize(v) for v in features.get("failure_mode_ids", []))),
+        "latency_components": list(dict.fromkeys(_normalize(v) for v in features.get("latency_components", []))),
+        "operation": scoring_soft.get("operation"),
+        "log_semantic_profile": scoring_soft.get("log_semantic_profile") or {},
+    }
+    if query_profile['operation'] not in ('GET', 'SET', 'MIXED'):
+        query_profile['operation'] = None
+    envelopes = []
+    for match in matches:
+        case = match.get('case') or {}
+        profile = {"schema_version": "legacy-evidence-v1",
+            **{key: list(dict.fromkeys(_normalize(v) for v in case.get(key) or []))
+               for key in ('status_codes', 'failure_mode_ids', 'latency_components')},
+            'operation': _normalize_operation(case.get('operation') or '') or None,
+            'log_semantic_profile': case.get('log_semantic_profile') or {}}
+        if profile['operation'] not in ('GET', 'SET', 'MIXED'):
+            profile['operation'] = None
+        envelopes.append({'id': case['id'], 'source_id': case.get('report_id') or case['id'],
+                          'label': case.get('first_level_label'), 'profile': profile,
+                          'structured': case.get('structured'), 'raw_observations':case.get('raw_observations'),
+                          'identity':list(case.get('identity') or [])+
+                              (['kb_id:'+str(case['kb_id'])] if case.get('kb_id') else []),
+                          'all_context_vector':case.get('all_context_vector'),
+                          'second_level_label': case.get('second_level_label')})
+    try:
+        result = default_match(query_profile,envelopes,query_observed,raw_observed,query_context)
+    except ValueError as error:
+        parser.error(str(error))
+    # Historical prose and case popularity are display metadata only. Both
+    # Candidate ranking and label vote use only the closed observation schema.
+    display = {row['case_id']: row for row in rows}
+    rows, vote, retrieval_vote = result['candidates'], result['decision'], result['retrieval_decision']
+    display_keys = ('case_no', 'second_level_label', 'status', 'title', 'fault_type', 'operation','confidence',
+                    'revision', 'hit_count', 'updated_at', 'symptom_summary', 'root_cause',
+                    'root_cause_detail', 'recommendation', 'verification_closed', 'verification_result',
+                    'scope_limits', 'counter_evidence_count', 'evidence_ref_count', 'fingerprint')
+    for row in rows:
+        row.update({key: display[row['case_id']].get(key) for key in display_keys})
     _print_rows(
         rows[: args.top],
         payload["total"],
         features.get("operation"),
         query,
-        soft,
+        scoring_soft,
         args.source,
         vote,
     )
@@ -1155,6 +1215,7 @@ def main(argv: list[str] | None = None) -> int:
             json.dump(
                 {
                     "source": args.source,
+                    "policy": result['policy'],
                     "source_confirmed": args.source == SOURCE_LIBRARY,
                     "source_label": SOURCE_LABEL[args.source],
                     "operation": features.get("operation"),
@@ -1167,11 +1228,17 @@ def main(argv: list[str] | None = None) -> int:
                         if user_usage_codes else None
                     ),
                     "recall_query": query,
-                    "soft_features": soft,
+                    "soft_features": scoring_soft,
                     "api_total": payload["total"],
                     "excluded_control_plane": dropped,
                     "candidates": rows,
                     "label_vote": vote,
+                    "decision": vote,
+                    "retrieval_decision": retrieval_vote,
+                    "feature_usage": result.get('feature_usage'),
+                    "fallback_used": result.get('fallback_used'),
+                    "disagreement": result.get('disagreement',False),
+                    "case_envelopes": envelopes,
                 },
                 handle,
                 ensure_ascii=False,

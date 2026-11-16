@@ -1,5 +1,10 @@
 # 超节点日志案例特征清单（六层）
 
+Agent 的固定新增特征流程见 [FIXED_FEATURE_MATCHING.md](FIXED_FEATURE_MATCHING.md)。
+候选评分复用本页软评分、候选池先验、语义 IDF 及 BM25/角色/范围，最终一级标签由固定 K4 投票选择。
+查询观测不读取 GT、报告结论或身份名字。训练、LOO、消融与历史增强对照在
+仓库根目录的 `scripts/fault_label_loo/`维护，不是 Agent 的调用流程。
+
 本文件是**查表型**参考：定义"一个日志案例该记录哪些特征、每个特征从哪个 API/表取、在匹配里起什么作用"。
 判决标准与纪律在 `SKILL.md`，本文件不重复。
 
@@ -203,7 +208,7 @@ KVCache 侧：`log_parse_result.request_mode`（如 `__cn` 单跳/多跳相关�
   旧数据缺失时回退静态资产 `references/log_semantic_profiles.json` 的 `by_case_id`。
 - 查询侧：优先用特征 JSON 的内联 `log_semantic_profile`；否则按 `kb_id` 调同一接口现算；
   再否则按 `log_id`/`kb_name` 查静态资产。全都没有则该通道自动关闭（对结果无副作用）。
-  可用 `--no-log-semantic` 关闭做消融。
+  消融由独立实验目录维护，Agent 入口不切换该通道。
 - 实测（188 条不含C / 237 案例池，冻结口径）：top1 66.5%→**70.7%**、K4 69.7%→**70.7%**；
   收益全部落在"硬件↔Worker"边界（URMA 时延族 vs Not ready/RPC peer dead 族）；
   SDK/OS/容器 等无 E/W 日志的小类不受影响（无提升也无误伤）。

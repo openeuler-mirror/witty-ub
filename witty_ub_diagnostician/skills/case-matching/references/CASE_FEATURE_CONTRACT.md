@@ -1,5 +1,10 @@
 # 案例特征契约（写入侧 ↔ 检索侧 ↔ 后续 RAG 共用）
 
+无文本匹配默认使用独立legacy-evidence-v1 sidecar，详见 [BASELINE_MATCHING.md](BASELINE_MATCHING.md)。
+Agent 的 evidence-v1 与 raw-observations-v1 旁车供全部特征评分/K4 与显式分类器共同使用；两条路径的观测向量来自 feature_vectors.py。
+两者均不自动改变下述数据库契约；新字段必须先显式扩展schema/建案映射才可持久化，
+不能假定新增JSON已进入confirmed案例或原 `_soft_score`。候选标签在信封中，查询profile不含标签。
+
 本文件定义**一份案例文档长什么样**：结构化头（供精确过滤/打分）+ 正文（供语义检索）。
 规则通道与将来的向量通道消费的是**同一份特征**，只是用法不同——结构化字段做过滤与加权打分，
 文本化字段做 embedding 召回。任何一侧改了字段口径，两侧必须同时改。
@@ -53,7 +58,7 @@ legacy 把上述信号与正文压缩进 `fingerprint_json` + `symptom_summary` 
 | IP / Pod / 主机 / 集群 | library：独立列 `src_ips` / `dst_ips` / `pods` / `hosts` / `cluster_name`；legacy：`fingerprint_json` 对应数组 | **仅作来源标注（provenance）**，v2 检索侧不提交身份信号、不参与打分（不同现场必然不同，不可迁移） |
 | 阶段桶 | library：`latency_components` 列（+ `stage_features_json` 快照）；legacy：`fingerprint_json.latency_components` | 值域 = `/stats/stages` 桶 key（见 FEATURE_SPEC.md） |
 | 日志关键词 | library：`log_keywords` 列；legacy：`fingerprint_json.log_keywords` | 权重 1.0；须是现场观测到的原文短语 |
-| `operation`（GET/SET） | library：`operation` 列 —— **服务端过滤字段，不计分**；legacy：`fingerprint_json.operation` | library 一提交即隔离 GET/SET；legacy 查询侧不构造该信号类型，写了也匹配不上，只能靠"分两次查询" |
+| `operation`（GET/SET） | library：`operation`列；legacy：`fingerprint_json.operation` | 当前脚本默认软匹配；`--operation-filter`显式开启服务端过滤。GET/SET证据仍各自独立 |
 | 时间形状 | `fault_shape`（library 列 / legacy `fingerprint_json.fault_shape`） | 参与软匹配弱加分（0.5，相等即加），无服务端查询信号 |
 | 组件与版本 | library：`version_json`（kernel/os/urma/umq/ubsocket）+ `node_type`；legacy：`fingerprint_json.components` / `versions` | 无对应查询信号；作为可迁移性判据进正文 |
 | 反证 | `counter_evidence_json`（两库同名） | 检索结果会带条数，便于"借力排除" |

@@ -4,16 +4,16 @@ description: >
   历史案例特征匹配与检索 Skill。从现场证据提取分布特征（错误码分布、超时时延段、
   故障模式、时间形态、影响范围、机理关键词），调用
   POST /diag_case_library/search 从**已人工确认**的超节点诊断案例库宽召回候选，
-  再做分布特征软匹配打分，按 L1/L2/L5 逐级判定与 applicability 判定可迁移性，
+  再做候选检索；用新增数值特征分类器选择报告级标签，退化为全特征余弦 K4；按 applicability 判定可迁移性，
   采纳后回写命中。身份特征（IP/Pod/主机/集群名）不参与匹配。
   当需要判断"这个现象以前是否发生过"、"有没有可复用的处置经验"、"这个根因是否有先例"时使用。
 license: MIT
 compatibility: >
-  Requires HTTP API access to FastAPI backend on port 9772 via bash curl for evidence retrieval.
-  scripts/match_cases.py 仅依赖 Python 标准库。
+  Bundled numeric inference and cosine matching require Python 3 standard library only.
+  HTTP API access to FastAPI backend on port 9772 is used for explicit case-library lookup.
 metadata:
   author: witty-ub-diagnostician
-  version: "2.2"
+  version: "3.3"
   keywords: [案例匹配, 历史案例, 分布特征, 软匹配, 经验复用, 知识库匹配, L1L2L5, diag_case_library, diagnosis_case, 反证检查]
 allowed-tools: >
   Bash(curl:*) Bash(cd:*) Bash(python3:*)
@@ -22,8 +22,29 @@ allowed-tools: >
 
 # 案例特征匹配 (Case Matching)
 
+普通诊断和 Agent 报告标签统一使用
+[数值分类器与余弦 K4 默认方案](references/DEFAULT_LABEL_POLICY.md)。共用入口是
+`scripts/default_matching.py`：新增数值特征（统一单位）＋冻结分类器为主，
+全特征余弦 K4 同时作为案例参照和退化路径。默认资源随 skill 打包，不需指定实验目录或模型路径。
+普通 `match_baseline.py` / `match_cases.py` 和报告入口统一使用这一策略；不在诊断时训练或调整模型。
+
+使用 `match_baseline.py --report ... --log-dir ... --out ...`一次导出基线、`.structured.json`、
+`.raw.json`、`.mined.json`，匹配时自动读取。历史观测未知不能补造；报告答案、GT和身份名字不进入查询特征。
+新报告通过 `diagnostic-report-generation/scripts/generate_report.py`调用同一实现后渲染，
+详细输入、故障索引对齐和运行依赖见上面的默认方案文档；
+[旧底座说明](references/BASELINE_MATCHING.md)与[候选评分说明](references/COMBINATION_MATCHING.md)解释运行时底层计算。
+单故障采用报告级主预测；多故障保留报告级预测，各故障使用余弦 K4 退化，不复制同一个全局标签。
+离线训练与评估位于仓库根 `scripts/fault_label_loo/`；运行只依赖 skill 内代码和 assets，标准库推理。
+部署权重由全部 474 份数据离线拟合一次；v6 的逐折权重和 79.96% 成绩是评估记录，不是部署模型的独立测试。
+
+需要用真实标签挖掘更有区分力的日志模式时，参见
+[监督特征挖掘](references/SUPERVISED_FEATURE_MINING.md)。候选提取器不读取 GT；
+标签仅用于离线关联分析和训练；正式默认输入采用统一单位数值表示，其余表示保留为研究对照。
+
 输入：本次现场证据（KVCache `/stats/*`、BRPC `/brpc-diagnosis/*`）或已完成的诊断结论。
 输出：候选案例列表，每条带分布特征软匹配分、L1/L2/L5 逐级判定与 applicability。
+
+下文权重和历史实验描述旧候选评分底座；当前默认以本页顶部的数值分类器和余弦 K4 决策，报告文字不参与特征。
 
 **匹配口径（v2，分布特征软匹配）**：不按 IP/Pod/主机/集群**名字**做精确匹配（不同现场
 必然不同，不可迁移），改用分布/语义特征软打分——故障模式（最强 4.0）、主导错误码
@@ -54,7 +75,7 @@ token，各自归一化为单位向量），cosine 相似度按 `0.5` 加到 `sc
 `diag_case_library.log_semantic_profile`（文档未带该字段时后端按来源资产兜底现算）。检索时：
 候选侧直接读 `/search` 返回的案例自带轮廓；查询侧优先用特征 JSON 的内联 `log_semantic_profile`，
 否则按 `kb_id` 调同一接口现算（新资产无需人工步骤即可自动启用该通道）。
-`references/log_semantic_profiles.json` 静态资产降级为旧数据兜底；`--no-log-semantic` 可关闭做消融。
+`references/log_semantic_profiles.json` 静态资产降级为旧数据兜底；该通道消融在独立实验目录维护，Agent 入口不切换。
 实测（188 条不含C / 237 案例池）top1 66.5%→**70.7%**、K4 69.7%→**70.7%**，
 收益集中在"硬件↔Worker"边界；SDK/OS/容器 等无 E/W 日志的小类不受影响（无提升亦无误伤）。
 
@@ -135,9 +156,9 @@ POST /phenomenon/search
 4. **不许只给笼统匹配分**：每条候选必须给 L1/L2/L5 逐级"命中/不命中"判定（软匹配口径，
    写明命中哪些分布特征、对应 share 与权重），并给出 applicability。分数只是排序依据，
    不是采用依据。
-5. **GET / SET 分开检索**：library 通道 `operation` 是纯过滤器（提交即隔离，不计入
-   归一化分母）；legacy 通道没有该字段，隔离只能靠"分两次查询、各自只提交本
-   operation 的信号"。任何通道都禁止把两种操作的信号合并成一次查询。
+5. **GET / SET 分开取证**：保留各operation独立信号与分母。library脚本默认关闭服务端
+   operation硬过滤，用operation软匹配；显式 `--operation-filter` 才下发过滤。
+   legacy无对应服务端过滤。不得把两种操作的分布混成一个比例，增强模式使用独立view后在报告层决策。
    `operation=MIXED` 或未标注操作的案例对两种操作都成立，会同时出现在 GET 与 SET 的
    结果里；`MIXED` 只说明整份报告覆盖该操作，判定故障归属仍须回取报告。
 6. **特征只能来自现场观测**：不得为了凑匹配填入未观测到的错误码/故障模式/阶段桶；
@@ -187,7 +208,8 @@ python3 match_cases.py /tmp/case_match/features.json --source legacy   # 仅在 
 
 - **`--source library`（默认，正解通道）**：打 `POST /diag_case_library/search`，只召回
   `status=confirmed` 的已确认案例。`kb_id` 可省略（留空 = 跨知识库召回，`kb_id` 只作来源标注），
-  `operation` 由服务端精确过滤，不参与计分。
+  默认不下发服务端 `operation` 硬过滤，由客户端进行操作域软计分；
+  只有显式 `--operation-filter` 才启用服务端过滤。
 - **`--source legacy`（降级通道）**：打 `POST /diagnosis_case/search`，`kb_id` 必填且服务端校验
   存在性，**不能传空串做跨库检索**；检索范围 = 本次知识库 + 全局案例。该通道案例未经人工确认，
   输出必须标注其来源属性。

@@ -1,0 +1,46 @@
+{
+  "schema_version": "default-label-assets-v1",
+  "policy": "numeric-units-classifier-cosine-fallback-v1",
+  "feature_version": "contextual-log-observations-v2",
+  "training_reports": 474,
+  "reference_cases": 514,
+  "files": {
+    "numeric_classifier": {
+      "path": "numeric_classifier.json.gz",
+      "sha256": "f0444c6ec388fa09d81b897f5a7832b8e0a7d5f6e9df56ea57382c3c9598e21c"
+    },
+    "cosine_bank": {
+      "path": "cosine_bank.json.gz",
+      "sha256": "2f0a5112f5bc921259eee7b7851914c20b6be6a8396ee9e3584e378021a25829"
+    }
+  },
+  "gt_sha256": "9685f6eda7d22a29911b87782a230aeea2c8873532610f23fa0898e23be82c79",
+  "prepared_sha256": "ee60f1c27d47a316e823f1ecdb0935d53318cee411eb30ddaa9f6b12354c578f",
+  "extractor_sha256": {
+    "mined_log_features.py": "c7415fa19c3760d7a594a670aab86522429339a39a58514a068f13de8e767920",
+    "mined_log_features_v2.py": "75bdfda8de948905dd1d9b6512e59b398b1da88117cdc5cab2c912c21c07b24d",
+    "log_message_features.py": "98bd83fcea48c301c194c2988136bdeff33c52373b3bb1d6cee8e97aba976174"
+  },
+  "deployment_training": true,
+  "independent_test_score": null,
+  "evaluation_note": "79.96% is the v6 fold-retrained LOO procedure score, not a test of these full-data weights",
+  "dataset_audit": {
+    "status": "passed",
+    "reports_root": "/home/witty-ub-logs/reports",
+    "truth_source": "/home/witty-ub-logs/gt_labels.json",
+    "truth_sha256": "9685f6eda7d22a29911b87782a230aeea2c8873532610f23fa0898e23be82c79",
+    "report_counts": {
+      "train": 229,
+      "v7": 332
+    },
+    "included_counts": {
+      "train": 194,
+      "v7": 280
+    },
+    "excluded_counts": {
+      "train": 35,
+      "v7": 52
+    },
+    "excluded_reason": "Coordinator故障 and UB管控面故障; fixed five-label scope"
+  }
+}

@@ -9,7 +9,7 @@ description: >
 license: MIT
 metadata:
   author: witty-ub-diagnostician
-  version: "2.3"
+  version: "2.8"
   keywords: [诊断报告, 定界报告, 定界文档, report, HTML报告, 推理链, 故障传播, 源码分析, 统计分析, 知识库匹配, 工作追踪, brpc, ubsocket, umq, urma]
 allowed-tools: >
   Bash(curl:*) Bash(cd:*) Bash(python3:*)
@@ -17,6 +17,21 @@ allowed-tools: >
 ---
 
 # 诊断报告生成 (Diagnostic Report Generation)
+
+新诊断报告必须通过 `scripts/generate_report.py`：先用 case-matching 的
+[数值分类器与余弦 K4 默认方案](../case-matching/references/DEFAULT_LABEL_POLICY.md)选择一级标签，
+再调用原渲染器。默认无需额外参数即加载 skill 内的新增数值特征（统一单位）分类器，
+同时计算全特征余弦 K4 参照；数值不可用、模型不可用或逐故障归属时使用余弦 K4 退化。
+Agent 准备观测与诊断数据，不独立手写一级标签判定。报告级及逐故障策略、模型 ID、观测哈希、退化原因写入 `label_matching`。
+单故障采用报告级预测；多故障保留总体预测，各故障以自身观测走余弦退化，不把一个全局预测复制给全部故障。
+`--log-dir`提供现场原始日志。默认使用 skill 内带标签参考库；`--cases`显式提供候选，`--api-base`显式检索案例库。
+已有标签不进入查询特征；二级标签按有效标签对和现场证据细分。
+
+已有报告用于匹配时，按[观测导出](references/EVIDENCE_EXPORT.md)生成基线、
+`.structured.json`、`.raw.json`，不重生成报告、不改 GT。
+`render_report.py --spec/--validate-only`继续用于格式查询和校验；直接重渲染历史报告仅改变展示，
+不能当作已运行新标签诊断。默认模型、参考库、配置和推理代码均在 skills 下，推理只依赖标准库；渲染另需 Jinja2。
+运行不读取实验目录或 GT，也不训练模型。部署全量权重与 LOO 逐折权重分开，离线训练与评估工具不随 skill 打包。
 
 把诊断结论渲染为**独立 HTML 报告**（7 个带编号的顶层章节，内含 9 类内容板块）。
 零 JS 依赖，CSS 绘制图表、内联 SVG 绘制断轴锯齿，可直接在浏览器打开或打印。
@@ -42,33 +57,35 @@ allowed-tools: >
 （`templates/report.html` 约 98 KB）或预读整份 references：
 
 ```bash
-cd witty_ub_diagnostician/.opencode/skills/diagnostic-report-generation/scripts
+cd witty_ub_diagnostician/skills/diagnostic-report-generation/scripts
 python3 render_report.py --spec top          # 顶层契约、枚举与单故障兼容规则
 python3 render_report.py --spec statistics   # 单板块字段清单（可换任意板块名）
 ```
 
 字段含义、示例与各板块撰写原则按需查 `references/REPORT_BLOCKS.md` 对应小节。
 每次生成报告前必须读取 [references/log_label.json](references/log_label.json)，
-按下文「故障标签」规则为每条故障填写一级、二级标签。
+先按下文「故障标签」规则准备观测；一级由共用默认标签策略生成，二级只填写有现场依据的已有标签。
 
 **步骤 3 校验 JSON（强制）**：写完 JSON 后必须先运行独立校验；即使用户明确要求
 不生成 HTML，也不能跳过：
 
 ```bash
-cd witty_ub_diagnostician/.opencode/skills/diagnostic-report-generation/scripts
-python3 render_report.py /tmp/report_data.json --validate-only
+cd witty_ub_diagnostician/skills/diagnostic-report-generation/scripts
+python3 generate_report.py /tmp/report_data.json /tmp/report_labelled.json --labels-only \
+  --cases /path/cases.json --log-dir /path/raw_logs
+python3 render_report.py /tmp/report_labelled.json --validate-only
 ```
 
 该模式与正式渲染调用同一个校验函数，但**不加载 Jinja2/模板、不写 HTML 或侧车、
 不清理报告目录**。退出码 `0` 才表示 JSON 满足当前渲染契约；退出码 `2` 时按错误修正
-JSON 并重跑。用户只要 JSON 或明确说“不渲染 HTML”时，到此即可交付该 JSON。
+JSON 并重跑。用户只要 JSON 或明确说“不渲染 HTML”时，到此交付已应用固定标签的 report_labelled.json。
 
 **步骤 4 渲染（需要 HTML 时）**：宽泛的“生成诊断报告”默认继续生成 HTML；只有用户
 明确只要 JSON / 不渲染时才跳过：
 
 ```bash
-cd witty_ub_diagnostician/.opencode/skills/diagnostic-report-generation/scripts
-python3 render_report.py /tmp/report_data.json
+cd witty_ub_diagnostician/skills/diagnostic-report-generation/scripts
+python3 render_report.py /tmp/report_labelled.json
 # 默认输出 $WITTY_REPORT_DIR/<kb_id>/report_<kb_id>_<时间戳>.html（容器内
 # WITTY_REPORT_DIR=/var/witty-ub/reports，由 witty-ub-reports 卷持久化），
 # 同目录写同名侧车 .json（原样报告数据，前端「诊断报告」列表靠它取标题/故障数）。
@@ -176,9 +193,9 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
   出现，均不具备使用问题的判别力。
   命中后按案例匹配规则只召回 `用户相关故障/使用问题` 案例；库中暂无该类案例时保留该标签，
   不回落其他类别（`knowledge_matches` 允许为空）。
-- 仅根据本次诊断的根因、故障组件、异常表现和现场证据，与两级标签做语义匹配，
-  尽可能选择最具体且有依据的标签。不得利用日志文件名、训练样例名称或样例到标签的映射
-  推断标签，也不能只看到超时就推断为网卡故障。
+- 一级标签由 `generate_report.py`调用共用默认标签策略写入，不依据根因文字重新手工选择。
+  二级标签根据现场证据与标签目录细分。不得利用日志文件名、训练样例名称或样例到标签的映射
+  推断标签，也不能只看到超时就推断为网卡故障。匹配用查询观测不读取结论或根因文字。
 - 非空值必须逐字使用参考文件中的值，不翻译、不改大小写、不自造标签；
   二级标签非空时，两级标签必须来自参考文件中的同一对，不能通过二级标签的文字前缀推导一级标签。
 - 能确定一级、不能确定二级时，保留一级并将二级写为 `null`；两级都不匹配或证据不足时均写 `null`。

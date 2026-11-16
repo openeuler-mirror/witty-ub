@@ -12,7 +12,7 @@ compatibility: >
   Requires HTTP API access to FastAPI backend on port 9772 via bash curl.
 metadata:
   author: witty-ub-diagnostician
-  version: "2.1"
+  version: "2.5"
   keywords: [故障码, 通断故障, 状态码, connectivity, 错误码, status_code, failure_mode, trace, ERR, 连接失败]
 allowed-tools: >
   Bash(curl:*) Bash(cd:*)
@@ -20,6 +20,17 @@ allowed-tools: >
 ---
 
 # 故障码与通断诊断 (Failure Code & Connectivity Analysis)
+
+用于增强案例匹配时，保留GET/SET独立错误分布、计数分母、other_count、分页完整性和真实请求来源，
+交给报告skill的 `error_features.py`，不把逐码命中次数称为业务失败率。
+匹配和报告标签统一使用
+[固定特征匹配方案](../case-matching/references/FIXED_FEATURE_MATCHING.md)。
+保留 GET/SET 独立观测、计数分母、完整性及来源；将原始日志交给共用导出器生成
+基线、`.structured.json`和`.raw.json`，由固定特征评分和 K4 投票选择一级标签。
+不让 Agent 手写另一套权重或按报告目录选择算法，缺失观测保持未知。
+actor×错误族×阶段、传输/回退及生命周期只从已观测原文提取，不从注入场景名猜测；
+未见码可继续用原有相近码工具，不能将知识映射当成现场已出现的码。
+缺RPC/URMA/进程日志不等于对应组件健康；需要否定事实时必须补足采集范围与独立证据。
 
 引导 Agent 按**五阶段流程**顺序调用 HTTP API 的故障码类接口，
 从时间定位 → 故障域识别 → 证据下钻 → 知识解读，层层收敛。
