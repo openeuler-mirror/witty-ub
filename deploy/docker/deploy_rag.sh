@@ -356,6 +356,27 @@ if [ "$db_ready" != true ]; then
     log_error "openGauss 未在规定时间内就绪，请检查: docker logs ${OPENGAUSS_RAG_CONTAINER}"
     exit 1
 fi
+
+# `select 1` only proves that the server accepts connections.  Witty RAG also
+# requires the Chinese parser for document tsvector writes and hybrid keyword
+# search.  Exercise the persisted text-search configuration before accepting a
+# replacement image, so a missing chparser add-on triggers the existing image
+# rollback instead of surfacing later as RAG HTTP 500 responses.
+CHPARSER_CHECK_OUTPUT=""
+if ! CHPARSER_CHECK_OUTPUT="$(docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
+    "gsql -d ${RAG_DB_NAME} -p 5432 -tAc \"SELECT to_tsvector(c.oid::regconfig, '中文分词健康检查') FROM pg_ts_config c WHERE c.cfgname = 'chinese' LIMIT 1\"" \
+    2>/dev/null)" || [ -z "$(printf '%s' "$CHPARSER_CHECK_OUTPUT" | tr -d '[:space:]')" ]; then
+    if [ -n "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" ]; then
+        rollback_opengauss_container "$OPENGAUSS_RAG_ROLLBACK_CONTAINER"
+        log_error "新 openGauss 中文分词自检失败，已恢复旧容器（数据卷未删除）"
+    else
+        log_error "openGauss 中文分词自检失败，请确认镜像包含 chparser.so 及扩展定义"
+    fi
+    exit 1
+fi
+unset CHPARSER_CHECK_OUTPUT
+log_ok "openGauss 中文分词自检通过"
+
 if [ -n "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" ]; then
     docker rm "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" >/dev/null
     log_ok "openGauss 新镜像健康检查通过，旧容器已移除（数据卷保留）"
@@ -442,6 +463,7 @@ sync_rag_db_password_allow_reuse() {
     return "$sync_rc"
 }
 
+RAG_DB_SESSION_RESET_REQUIRED=false
 RAG_DB_PASSWORD_CURRENT="$(tr -d '\r\n' <"$RAG_DB_SECRET_FILE")"
 if ! validate_rag_db_user; then
     unset RAG_DB_PASSWORD_CURRENT
@@ -453,6 +475,10 @@ else
     # Repeated failures from an old RAG Core can lock the account.  Unlock and
     # retry first: attempting to set an already-current password is rejected by
     # openGauss's password-reuse policy.
+    # The existing RAG Core may still hold the old password in its in-memory
+    # connection pools.  Force a stateless service-container rebuild after any
+    # authentication repair so it cannot immediately lock the account again.
+    RAG_DB_SESSION_RESET_REQUIRED=true
     log_warn "openGauss 当前口令认证失败，正在解锁账号并检查密钥一致性"
     if ! run_rag_db_admin_sql "ALTER USER ${RAG_DB_USER} ACCOUNT UNLOCK;"; then
         unset RAG_DB_PASSWORD_CURRENT
@@ -680,6 +706,7 @@ start_rag_core_container() {
 if docker container inspect "$WITTY_RAG_CORE_CONTAINER" >/dev/null 2>&1; then
     if [ "$(docker inspect -f '{{.State.Running}}' "$WITTY_RAG_CORE_CONTAINER")" = "true" ] &&
         [ "$RAG_CONFIG_CHANGED" != true ] &&
+        [ "$RAG_DB_SESSION_RESET_REQUIRED" != true ] &&
         rag_core_patch_is_current &&
         [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/rag-service/rag_core/file"}}yes{{end}}{{end}}' 2>/dev/null)" = "yes" ] &&
         [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/witty-rag"}}yes{{end}}{{end}}' 2>/dev/null)" = "yes" ] &&
