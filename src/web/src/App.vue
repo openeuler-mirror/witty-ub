@@ -107,6 +107,7 @@ type OpenCodeSession = {
   title?: string
   parentID?: string
   time?: { created?: number; updated?: number }
+  metadata?: Record<string, unknown>
 }
 
 type OpenCodeMessage = {
@@ -179,6 +180,7 @@ type OpenCodeEvent = {
       role?: string
       title?: string
       time?: { created?: number; completed?: number }
+      metadata?: Record<string, unknown>
       error?: unknown
       finish?: string
     }
@@ -1191,6 +1193,9 @@ const isAgentSessionSaving = ref(false)
 const agentSessionDialogError = ref('')
 const agentSessionAssetIndex = ref<Record<string, string>>({})
 const agentSessionIndexStorageKey = 'witty-ub.agent-session-assets'
+// OpenCode 会话 metadata 里保存知识库关联：换浏览器或清理 localStorage 后，
+// 仍能从服务端恢复会话与知识库的对应关系。旧会话由首条 prompt 前缀回填。
+const agentSessionKbMetadataKey = 'witty_ub_kb_id'
 const agentStorageKey = (key: string) => `${key}:${agentApiBase.value}`
 const activeAgentSessionTitle = computed(
   () =>
@@ -1229,6 +1234,19 @@ const availableAgentProviders = computed(() => {
 const newProviderModels = computed(() =>
   selectedAgentProvider.value ? Object.values(selectedAgentProvider.value.models) : [],
 )
+const getAgentSessionKbId = (session: { metadata?: Record<string, unknown> }): string => {
+  const value = session.metadata?.[agentSessionKbMetadataKey]
+  return typeof value === 'string' ? value : ''
+}
+const getAgentSessionAssetIdFromMessages = (messages: OpenCodeMessage[]): string => {
+  for (const message of messages) {
+    if (message.info.role !== 'user') continue
+    const context = message.parts?.find((part) => part.type === 'text')?.text
+    const assetId = context?.match(/^当前(?:页面选中|会话对应)的知识库 ID 是 ([^。]+)。/)?.[1]
+    if (assetId) return assetId
+  }
+  return ''
+}
 const getAgentSessionAssetName = (sessionId: string) => {
   const assetId = agentSessionAssetIndex.value[sessionId]
   return assets.value.find((asset) => asset.id === assetId)?.name || assetId || '未知资产库'
@@ -1922,13 +1940,67 @@ const withAgentQuestionReplies = (
   return result
 }
 
-const indexAgentSession = (sessionId: string) => {
-  if (!selectedAssetId.value) return
+const setAgentSessionAssetId = (sessionId: string, assetId: string) => {
+  if (!sessionId || !assetId || agentSessionAssetIndex.value[sessionId] === assetId) return
   agentSessionAssetIndex.value = {
     ...agentSessionAssetIndex.value,
-    [sessionId]: selectedAssetId.value,
+    [sessionId]: assetId,
   }
   saveAgentSessionAssetIndex()
+}
+
+const persistAgentSessionKb = async (sessionId: string, assetId: string) => {
+  const session = agentSessions.value.find((item) => item.id === sessionId)
+  if (!session || !assetId || getAgentSessionKbId(session) === assetId) return
+  try {
+    const updated = await requestAgentApi<OpenCodeSession>(
+      `/session/${encodeURIComponent(sessionId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          metadata: {
+            ...session.metadata,
+            [agentSessionKbMetadataKey]: assetId,
+          },
+        }),
+      },
+    )
+    if (updated?.id) {
+      agentSessions.value = agentSessions.value.map((item) =>
+        item.id === updated.id ? { ...item, ...updated } : item,
+      )
+    }
+  } catch {
+    // 老版本 OpenCode 或临时失败：打开会话时仍可用首条 prompt 前缀恢复。
+  }
+}
+
+const restoreAgentSessionAssetIndex = (sessions: OpenCodeSession[]) => {
+  const next = { ...agentSessionAssetIndex.value }
+  let changed = false
+  for (const session of sessions) {
+    if (session.parentID) continue
+    const kbId = getAgentSessionKbId(session)
+    if (!kbId || next[session.id] === kbId) continue
+    next[session.id] = kbId
+    changed = true
+  }
+  if (changed) {
+    agentSessionAssetIndex.value = next
+    saveAgentSessionAssetIndex()
+  }
+  for (const session of sessions) {
+    if (session.parentID) continue
+    const assetId = next[session.id]
+    if (assetId && !getAgentSessionKbId(session)) void persistAgentSessionKb(session.id, assetId)
+  }
+}
+
+const indexAgentSession = (sessionId: string) => {
+  if (!selectedAssetId.value) return
+  const assetId = selectedAssetId.value
+  setAgentSessionAssetId(sessionId, assetId)
+  void persistAgentSessionKb(sessionId, assetId)
 }
 
 const loadAgentSessions = async () => {
@@ -1942,6 +2014,7 @@ const loadAgentSessions = async () => {
     ])
     if (sequence !== agentSessionListSequence) return
     agentSessions.value = sessions
+    restoreAgentSessionAssetIndex(sessions)
     agentSessionStatuses.value = statuses
   } catch (error) {
     if (sequence !== agentSessionListSequence) return
@@ -1992,13 +2065,14 @@ const createAgentSession = async () => {
   try {
     const created = await requestAgentApi<OpenCodeSession>('/session', {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        metadata: { [agentSessionKbMetadataKey]: assetId },
+      }),
     })
     if (!created?.id) throw new Error('Agent 服务没有返回会话 ID。')
     if (sequence !== agentRequestSequence) throw new Error('当前会话已切换。')
     agentSessionId.value = created.id
-    agentSessionAssetIndex.value[created.id] = assetId
-    saveAgentSessionAssetIndex()
+    setAgentSessionAssetId(created.id, getAgentSessionKbId(created) || assetId)
     saveActiveAgentSession()
     agentSessionListSequence += 1
     isAgentSessionsLoading.value = false
@@ -2007,6 +2081,7 @@ const createAgentSession = async () => {
     )
     if (sequence !== agentRequestSequence) throw new Error('当前会话已切换。')
     agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)]
+    if (!getAgentSessionKbId(session)) void persistAgentSessionKb(session.id, assetId)
     return session
   } finally {
     isAgentSessionCreating.value = false
@@ -2105,13 +2180,11 @@ const openAgentSession = async (session: OpenCodeSession) => {
     if (sequence !== agentRequestSequence) return
     agentSessionStatuses.value = statuses
     agentChatMessages.value = withAgentQuestionReplies(session.id, toAgentChatMessages(messages))
-    const context = messages
-      .find((message) => message.info.role === 'user')
-      ?.parts?.find((part) => part.type === 'text')?.text
-    const assetId = context?.match(/^当前(?:页面选中|会话对应)的知识库 ID 是 ([^。]+)。/)?.[1]
-    if (assetId && !agentSessionAssetIndex.value[session.id]) {
-      agentSessionAssetIndex.value[session.id] = assetId
-      saveAgentSessionAssetIndex()
+    const sessionKbId = getAgentSessionKbId(session)
+    const assetId = sessionKbId || getAgentSessionAssetIdFromMessages(messages)
+    if (assetId) {
+      setAgentSessionAssetId(session.id, assetId)
+      if (!sessionKbId) void persistAgentSessionKb(session.id, assetId)
     }
     const model = [...messages].reverse().find((message) => message.info.model)?.info.model
     const provider = agentProviders.value?.all.find((item) => item.id === model?.providerID)
@@ -2648,6 +2721,8 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     agentSessions.value = agentSessions.value.map((item) =>
       item.id === updated.id ? { ...item, ...updated } : item,
     )
+    const kbId = getAgentSessionKbId(updated)
+    if (updated.id && kbId) setAgentSessionAssetId(updated.id, kbId)
   }
   const eventSessionId =
     properties?.sessionID || properties?.info?.sessionID || properties?.part?.sessionID
