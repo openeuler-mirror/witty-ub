@@ -389,20 +389,22 @@ fi
 # search.  Exercise the persisted text-search configuration before accepting a
 # replacement image, so a missing chparser add-on triggers the existing image
 # rollback instead of surfacing later as RAG HTTP 500 responses.
-CHPARSER_CHECK_OUTPUT=""
-if ! CHPARSER_CHECK_OUTPUT="$(docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
-    "gsql -d ${RAG_DB_NAME} -p 5432 -tAc \"SELECT to_tsvector(c.oid::regconfig, '中文分词健康检查') FROM pg_ts_config c WHERE c.cfgname = 'chinese' LIMIT 1\"" \
-    2>/dev/null)" || [ -z "$(printf '%s' "$CHPARSER_CHECK_OUTPUT" | tr -d '[:space:]')" ]; then
-    if [ -n "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" ]; then
+#
+# Only a replacement image can lose the add-on: a fresh data directory has no
+# `chinese` configuration yet (RAG Core creates it on first start), so checking
+# it unconditionally would reject every first-time deployment.
+if [ -n "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" ]; then
+    CHPARSER_CHECK_OUTPUT=""
+    if ! CHPARSER_CHECK_OUTPUT="$(docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
+        "gsql -d ${RAG_DB_NAME} -p 5432 -tAc \"SELECT to_tsvector(c.oid::regconfig, '中文分词健康检查') FROM pg_ts_config c WHERE c.cfgname = 'chinese' LIMIT 1\"" \
+        2>/dev/null)" || [ -z "$(printf '%s' "$CHPARSER_CHECK_OUTPUT" | tr -d '[:space:]')" ]; then
         rollback_opengauss_container "$OPENGAUSS_RAG_ROLLBACK_CONTAINER"
         log_error "新 openGauss 中文分词自检失败，已恢复旧容器（数据卷未删除）"
-    else
-        log_error "openGauss 中文分词自检失败，请确认镜像包含 chparser.so 及扩展定义"
+        exit 1
     fi
-    exit 1
+    unset CHPARSER_CHECK_OUTPUT
+    log_ok "openGauss 中文分词自检通过"
 fi
-unset CHPARSER_CHECK_OUTPUT
-log_ok "openGauss 中文分词自检通过"
 
 if [ -n "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" ]; then
     docker rm "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" >/dev/null
