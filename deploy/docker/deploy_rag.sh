@@ -305,14 +305,17 @@ rollback_opengauss_container() {
 
 ensure_image "$OPENGAUSS_RAG_IMAGE"
 OPENGAUSS_RAG_ROLLBACK_CONTAINER=""
+RAG_DB_SESSION_RESET_REQUIRED=false
 if docker container inspect "$OPENGAUSS_RAG_CONTAINER" >/dev/null 2>&1; then
     CURRENT_OPENGAUSS_IMAGE_ID="$(docker inspect -f '{{.Image}}' "$OPENGAUSS_RAG_CONTAINER")"
     TARGET_OPENGAUSS_IMAGE_ID="$(docker image inspect -f '{{.Id}}' "$OPENGAUSS_RAG_IMAGE")"
     if [ "$CURRENT_OPENGAUSS_IMAGE_ID" = "$TARGET_OPENGAUSS_IMAGE_ID" ]; then
         log_warn "复用已有容器 ${OPENGAUSS_RAG_CONTAINER}，不会删除其数据"
         connect_network "$OPENGAUSS_RAG_CONTAINER"
-        [ "$(docker inspect -f '{{.State.Running}}' "$OPENGAUSS_RAG_CONTAINER")" = "true" ] || \
+        if [ "$(docker inspect -f '{{.State.Running}}' "$OPENGAUSS_RAG_CONTAINER")" != "true" ]; then
             docker start "$OPENGAUSS_RAG_CONTAINER" >/dev/null
+            RAG_DB_SESSION_RESET_REQUIRED=true
+        fi
     else
         CURRENT_OPENGAUSS_VOLUME="$(docker inspect "$OPENGAUSS_RAG_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/var/lib/opengauss"}}{{.Name}}{{end}}{{end}}')"
         if [ "$CURRENT_OPENGAUSS_VOLUME" != "$OPENGAUSS_RAG_VOLUME" ]; then
@@ -325,6 +328,7 @@ if docker container inspect "$OPENGAUSS_RAG_CONTAINER" >/dev/null 2>&1; then
             exit 1
         fi
         log_warn "openGauss 镜像已变化，将保留数据卷并切换容器；健康检查失败时自动回滚"
+        RAG_DB_SESSION_RESET_REQUIRED=true
         docker stop "$OPENGAUSS_RAG_CONTAINER" >/dev/null
         docker rename "$OPENGAUSS_RAG_CONTAINER" "$OPENGAUSS_RAG_ROLLBACK_CONTAINER"
         if ! start_opengauss_container; then
@@ -334,6 +338,7 @@ if docker container inspect "$OPENGAUSS_RAG_CONTAINER" >/dev/null 2>&1; then
         fi
     fi
 else
+    RAG_DB_SESSION_RESET_REQUIRED=true
     start_opengauss_container
     log_ok "已启动 ${OPENGAUSS_RAG_CONTAINER}"
 fi
@@ -463,7 +468,6 @@ sync_rag_db_password_allow_reuse() {
     return "$sync_rc"
 }
 
-RAG_DB_SESSION_RESET_REQUIRED=false
 RAG_DB_PASSWORD_CURRENT="$(tr -d '\r\n' <"$RAG_DB_SECRET_FILE")"
 if ! validate_rag_db_user; then
     unset RAG_DB_PASSWORD_CURRENT
@@ -662,30 +666,46 @@ else
 fi
 
 RAG_CORE_PATCH_FILE_RESOLVED="${RAG_CORE_PATCH_FILE:-${SCRIPT_DIR}/../patches/rag-core/process_handler.py}"
+RAG_CORE_SITE_PATCH_FILE_RESOLVED="${RAG_CORE_SITE_PATCH_FILE:-${SCRIPT_DIR}/../patches/rag-core/sitecustomize.py}"
 if [ -f "$RAG_CORE_PATCH_FILE_RESOLVED" ]; then
     # Docker records a canonical bind-mount source.  Canonicalize our side too,
     # otherwise a path containing "../" makes every healthy container look
     # stale and forces an unnecessary rebuild on each deployment.
     RAG_CORE_PATCH_FILE_RESOLVED="$(readlink -f "$RAG_CORE_PATCH_FILE_RESOLVED")"
 fi
+if [ -f "$RAG_CORE_SITE_PATCH_FILE_RESOLVED" ]; then
+    RAG_CORE_SITE_PATCH_FILE_RESOLVED="$(readlink -f "$RAG_CORE_SITE_PATCH_FILE_RESOLVED")"
+fi
 
 rag_core_patch_is_current() {
     [ -f "$RAG_CORE_PATCH_FILE_RESOLVED" ] || return 0
+    [ -f "$RAG_CORE_SITE_PATCH_FILE_RESOLVED" ] || return 0
     [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" \
         --format '{{range .Mounts}}{{if eq .Destination "/rag-service/rag_core/task/process_handler.py"}}{{.Source}}{{end}}{{end}}' \
-        2>/dev/null)" = "$RAG_CORE_PATCH_FILE_RESOLVED" ]
+        2>/dev/null)" = "$RAG_CORE_PATCH_FILE_RESOLVED" ] &&
+        [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" \
+            --format '{{range .Mounts}}{{if eq .Destination "/rag-service/sitecustomize.py"}}{{.Source}}{{end}}{{end}}' \
+            2>/dev/null)" = "$RAG_CORE_SITE_PATCH_FILE_RESOLVED" ]
 }
 
 start_rag_core_container() {
     # 本地补丁：修复「解析子进程退出后任务槽位不回收」导致的解析永久被拒问题。
     # 镜像内置版本缺少该修复，故以只读挂载方式覆盖对应文件。
     local -a rag_patch_mount=()
+    local -a rag_site_patch_mount=()
     local rag_patch_file="$RAG_CORE_PATCH_FILE_RESOLVED"
+    local rag_site_patch_file="$RAG_CORE_SITE_PATCH_FILE_RESOLVED"
     if [ -f "$rag_patch_file" ]; then
         rag_patch_mount=(-v "${rag_patch_file}:/rag-service/rag_core/task/process_handler.py:ro")
         log_info "应用 RAG Core 槽位回收补丁: ${rag_patch_file}"
     else
         log_warn "未找到 RAG Core 补丁 ${rag_patch_file}，容器将使用镜像内置版本"
+    fi
+    if [ -f "$rag_site_patch_file" ]; then
+        rag_site_patch_mount=(-v "${rag_site_patch_file}:/rag-service/sitecustomize.py:ro")
+        log_info "应用 RAG Core 启动补丁: ${rag_site_patch_file}"
+    else
+        log_warn "未找到 RAG Core 启动补丁 ${rag_site_patch_file}，容器将使用镜像内置版本"
     fi
     docker run -d \
         --name "$WITTY_RAG_CORE_CONTAINER" \
@@ -699,6 +719,7 @@ start_rag_core_container() {
         -v "${RAG_FILE_DIR}:/rag-service/rag_core/file" \
         -v "${RAG_ACCESS_KEY_SECRET_DIR}:/run/secrets/witty-rag:ro" \
         "${rag_patch_mount[@]+"${rag_patch_mount[@]}"}" \
+        "${rag_site_patch_mount[@]+"${rag_site_patch_mount[@]}"}" \
         "$WITTY_RAG_MCP_IMAGE" >/dev/null
     log_ok "已启动 ${WITTY_RAG_CORE_CONTAINER}"
 }
