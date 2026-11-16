@@ -215,7 +215,6 @@ networks:
   witty-ub-network:
     name: ${WITTY_NETWORK:-witty-ub-network}
     driver: bridge
-    name: witty-ub-network
 
 secrets:
   pg_password:
