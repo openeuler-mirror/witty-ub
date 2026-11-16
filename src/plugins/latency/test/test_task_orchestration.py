@@ -73,10 +73,20 @@ def _reset_task_handler_state():
     TaskHandler._task_configs.clear()
     TaskHandler._dispatching_task_ids.clear()
     TaskHandler._preprocess_inflight.clear()
+    TaskHandler._preprocess_cancel_events.clear()
+    TaskHandler._dispatch_tasks_by_id.clear()
+    TaskHandler._deleting_task_ids.clear()
+    TaskHandler._deleting_log_ids.clear()
+    TaskHandler._deleting_kb_ids.clear()
     yield
     TaskHandler._task_configs.clear()
     TaskHandler._dispatching_task_ids.clear()
     TaskHandler._preprocess_inflight.clear()
+    TaskHandler._preprocess_cancel_events.clear()
+    TaskHandler._dispatch_tasks_by_id.clear()
+    TaskHandler._deleting_task_ids.clear()
+    TaskHandler._deleting_log_ids.clear()
+    TaskHandler._deleting_kb_ids.clear()
 
 
 async def _drain_pending_dispatch():
@@ -221,6 +231,8 @@ class _FakeRemovableProcess:
 def _patch_process_pool(
     monkeypatch,
     tasks=None,
+    process_groups=None,
+    startup_events=None,
     lock=None,
     max_processes=2,
     event_wait=True,
@@ -243,6 +255,8 @@ def _patch_process_pool(
 
     monkeypatch.setattr(process_handle_module, "multiprocessing", _FakeSpawnContext)
     monkeypatch.setattr(ProcessHandler, "tasks", dict(tasks or {}))
+    monkeypatch.setattr(ProcessHandler, "process_groups", dict(process_groups or {}))
+    monkeypatch.setattr(ProcessHandler, "startup_events", dict(startup_events or {}))
     monkeypatch.setattr(ProcessHandler, "lock", lock or _FakeLock())
     monkeypatch.setattr(ProcessHandler, "max_processes", max_processes)
     return created
@@ -268,6 +282,7 @@ class TestProcessHandlerAddTask:
         # master：child_nice 随 kwargs 传给子进程
         assert process.kwargs == {"k": 1, "child_nice": 0}
         assert ProcessHandler.tasks["t-1"] is process
+        assert ProcessHandler.startup_events == {}
 
     def test_add_task_lock_timeout_returns_false(self, monkeypatch):
         lock = _FakeLock(acquire_result=False)
@@ -324,6 +339,22 @@ class TestProcessHandlerAddTask:
 
         assert ProcessHandler.add_task("t-1", _sample_target) is True
         assert "t-1" in ProcessHandler.tasks
+        # 超时后仍要保活 Event，否则慢启动子进程在
+        # SemLock._rebuild 时会因 /dev/shm/sem.* 已被 unlink 而退出。
+        assert ProcessHandler.startup_events["t-1"] is created[0].args[0]
+
+    def test_two_ready_timeouts_keep_independent_events_alive(self, monkeypatch):
+        created = _patch_process_pool(
+            monkeypatch, max_processes=2, event_wait=False
+        )
+
+        assert ProcessHandler.add_task("t-1", _sample_target) is True
+        assert ProcessHandler.add_task("t-2", _sample_target) is True
+
+        assert set(ProcessHandler.startup_events) == {"t-1", "t-2"}
+        assert ProcessHandler.startup_events["t-1"] is created[0].args[0]
+        assert ProcessHandler.startup_events["t-2"] is created[1].args[0]
+        assert created[0].args[0] is not created[1].args[0]
 
 
 class TestProcessHandlerHasCapacity:
@@ -334,14 +365,23 @@ class TestProcessHandlerHasCapacity:
     def test_has_capacity_cleans_dead_and_reports_room(self, monkeypatch):
         dead = _FakeRemovableProcess(alive=False)
         live = _FakeRemovableProcess(alive=True)
+        terminate_orphan = Mock()
+        monkeypatch.setattr(ProcessHandler, "_terminate_orphan_group", terminate_orphan)
         _patch_process_pool(
-            monkeypatch, tasks={"dead": dead, "live": live}, max_processes=2
+            monkeypatch,
+            tasks={"dead": dead, "live": live},
+            process_groups={"dead": dead.pid, "live": live.pid},
+            startup_events={"dead": object(), "live": object()},
+            max_processes=2,
         )
 
         assert ProcessHandler.has_capacity() is True
         assert dead.closed is True
         assert "dead" not in ProcessHandler.tasks
         assert "live" in ProcessHandler.tasks
+        assert ProcessHandler.process_groups == {"live": live.pid}
+        assert set(ProcessHandler.startup_events) == {"live"}
+        terminate_orphan.assert_called_once_with("dead", dead.pid)
 
     def test_has_capacity_false_when_pool_full(self, monkeypatch):
         live = _FakeRemovableProcess(alive=True)
@@ -362,11 +402,18 @@ class TestProcessHandlerRemoveTask:
 
     def test_remove_task_dead_process_closes_and_pops(self, monkeypatch):
         dead = _FakeRemovableProcess(alive=False)
-        _patch_process_pool(monkeypatch, tasks={"t-1": dead})
+        _patch_process_pool(
+            monkeypatch,
+            tasks={"t-1": dead},
+            process_groups={"t-1": dead.pid},
+            startup_events={"t-1": object()},
+        )
 
         assert ProcessHandler.remove_task("t-1") is True
         assert dead.closed is True
         assert ProcessHandler.tasks == {}
+        assert ProcessHandler.process_groups == {}
+        assert ProcessHandler.startup_events == {}
 
     def test_remove_task_kills_owned_process_group(self, monkeypatch):
         process = _FakeRemovableProcess(pid=4321, alive=True, join_kills=True)
@@ -489,6 +536,56 @@ class TestProcessHandlerRemoveTask:
 
         assert ProcessHandler.remove_task("t-1") is False
         assert lock.release_count == 1
+
+
+class TestProcessHandlerWatchdog:
+    def test_collect_hung_tasks_kills_and_releases_slot(self, monkeypatch):
+        monkeypatch.setattr(process_handle_module.time, "monotonic", lambda: 1000.0)
+        process = _FakeRemovableProcess(pid=4321, alive=True, join_kills=True)
+        killed = []
+        monkeypatch.setattr(os, "getpgid", lambda pid: pid)
+        monkeypatch.setattr(
+            os, "killpg", lambda pgid, sig: killed.append((pgid, sig))
+        )
+        _patch_process_pool(monkeypatch, tasks={"hung": process}, max_processes=5)
+        monkeypatch.setattr(ProcessHandler, "max_runtime_seconds", 60)
+        monkeypatch.setattr(ProcessHandler, "_task_started_at", {"hung": 100.0})
+
+        hung = ProcessHandler.collect_hung_tasks()
+
+        assert hung == {"hung": 900.0}
+        assert killed == [(4321, signal.SIGTERM)]
+        assert ProcessHandler.tasks == {}
+        assert ProcessHandler._task_started_at == {}
+        assert process.closed is True
+
+    def test_collect_hung_tasks_keeps_running_within_timeout(self, monkeypatch):
+        monkeypatch.setattr(process_handle_module.time, "monotonic", lambda: 1000.0)
+        process = _FakeRemovableProcess(pid=4321, alive=True)
+        _patch_process_pool(monkeypatch, tasks={"fresh": process}, max_processes=5)
+        monkeypatch.setattr(ProcessHandler, "max_runtime_seconds", 60)
+        monkeypatch.setattr(ProcessHandler, "_task_started_at", {"fresh": 980.0})
+
+        assert ProcessHandler.collect_hung_tasks() == {}
+        assert "fresh" in ProcessHandler.tasks
+        assert process.closed is False
+
+    def test_collect_hung_tasks_disabled_when_zero(self, monkeypatch):
+        _patch_process_pool(monkeypatch, tasks={"t": _FakeRemovableProcess()})
+        monkeypatch.setattr(ProcessHandler, "max_runtime_seconds", 0)
+
+        assert ProcessHandler.collect_hung_tasks() == {}
+
+    def test_live_task_ids_returns_only_alive(self, monkeypatch):
+        _patch_process_pool(
+            monkeypatch,
+            tasks={
+                "live": _FakeRemovableProcess(alive=True),
+                "dead": _FakeRemovableProcess(alive=False),
+            },
+        )
+
+        assert ProcessHandler.live_task_ids() == {"live"}
 
 
 class _FakePGManager:
@@ -721,14 +818,15 @@ class TestBaseWorkerLifecycle:
         removed = Mock(return_value=True)
         monkeypatch.setattr(ProcessHandler, "remove_task", removed)
         update = AsyncMock(return_value=True)
-        monkeypatch.setattr(TaskPGManager, "update_task", update)
+        monkeypatch.setattr(TaskPGManager, "update_task_if_status", update)
 
         assert await BaseWorker.reinit("t-1") is True
         removed.assert_called_once_with("t-1")
         args, _ = update.await_args
         assert args[0] == "t-1"
-        assert args[1]["status"] == TaskStatusEnum.PENDING.value
-        assert args[1]["retry_times"] == 3
+        assert args[1] == TaskStatusEnum.FAILED_PENDING_REMOVE
+        assert args[2]["status"] == TaskStatusEnum.PENDING.value
+        assert args[2]["retry_times"] == 3
 
     async def test_reinit_failure_marks_task_failed(self, monkeypatch):
         task = _task_row(retry_times=2)
@@ -740,10 +838,11 @@ class TestBaseWorkerLifecycle:
         )
         monkeypatch.setattr(ProcessHandler, "remove_task", Mock(return_value=True))
         update = AsyncMock(return_value=True)
-        monkeypatch.setattr(TaskPGManager, "update_task", update)
+        monkeypatch.setattr(TaskPGManager, "update_task_if_status", update)
 
         assert await BaseWorker.reinit("t-1") is False
-        payload = update.await_args.args[1]
+        assert update.await_args.args[1] == TaskStatusEnum.FAILED_PENDING_REMOVE
+        payload = update.await_args.args[2]
         assert payload["status"] == TaskStatusEnum.FAILED.value
         assert payload["duration_seconds"] > 0
         assert "completed_at" in payload
@@ -760,10 +859,10 @@ class TestBaseWorkerLifecycle:
         )
         monkeypatch.setattr(ProcessHandler, "remove_task", Mock(return_value=True))
         update = AsyncMock(return_value=True)
-        monkeypatch.setattr(TaskPGManager, "update_task", update)
+        monkeypatch.setattr(TaskPGManager, "update_task_if_status", update)
 
         assert await BaseWorker.reinit("t-1") is False
-        assert update.await_args.args[1]["duration_seconds"] == 0.0
+        assert update.await_args.args[2]["duration_seconds"] == 0.0
 
     async def test_deinit_returns_empty_when_task_missing(self, monkeypatch):
         monkeypatch.setattr(
@@ -1126,6 +1225,36 @@ class TestBaseWorkerDeleteReport:
 
 
 class TestTaskHandlerInitTask:
+    async def test_init_task_refuses_pre_reserved_log(self, monkeypatch):
+        init = AsyncMock(return_value="tid-1")
+        monkeypatch.setattr(BaseWorker, "init", init)
+        TaskHandler.reserve_deletion(log_ids={"op-1"})
+
+        with pytest.raises(RuntimeError, match="日志正在删除"):
+            await TaskHandler.init_task(
+                TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER, "op-1"
+            )
+
+        init.assert_not_awaited()
+
+    async def test_init_task_cancels_row_when_delete_starts_during_init(
+        self, monkeypatch
+    ):
+        async def init_while_delete_starts(_task_type, op_id):
+            TaskHandler.reserve_deletion(log_ids={op_id})
+            return "tid-1"
+
+        monkeypatch.setattr(BaseWorker, "init", init_while_delete_starts)
+        cancel = AsyncMock(return_value=1)
+        monkeypatch.setattr(TaskPGManager, "cancel_tasks_by_task_ids", cancel)
+
+        with pytest.raises(RuntimeError, match="已取消新建任务"):
+            await TaskHandler.init_task(
+                TaskTypeEnum.KV_CACHE_LOG_PARSE_WORKER, "op-1"
+            )
+
+        cancel.assert_awaited_once_with(["tid-1"])
+
     async def test_init_task_raises_when_worker_creates_no_record(self, monkeypatch):
         monkeypatch.setattr(BaseWorker, "init", AsyncMock(return_value=None))
         with pytest.raises(RuntimeError, match="未创建任务记录"):
@@ -1373,28 +1502,55 @@ class TestTaskHandlerStopDelete:
         )
         assert await TaskHandler.stop_task("t-1") is None
 
-    async def test_delete_task_returns_none_when_stop_fails(self, monkeypatch):
-        monkeypatch.setattr(BaseWorker, "stop", AsyncMock(return_value=False))
+    async def test_delete_task_returns_none_when_fence_fails(self, monkeypatch):
+        task = _task_row()
+        monkeypatch.setattr(
+            TaskPGManager, "get_task_by_task_id", AsyncMock(return_value=task)
+        )
+        monkeypatch.setattr(
+            TaskHandler, "begin_deletion", AsyncMock(side_effect=RuntimeError("boom"))
+        )
+        monkeypatch.setattr(TaskHandler, "end_deletion", Mock())
         delete = AsyncMock(return_value=True)
         monkeypatch.setattr(BaseWorker, "delete", delete)
         assert await TaskHandler.delete_task("t-1") is None
         delete.assert_not_awaited()
 
     async def test_delete_task_returns_none_when_delete_fails(self, monkeypatch):
-        monkeypatch.setattr(BaseWorker, "stop", AsyncMock(return_value=True))
+        task = _task_row()
+        monkeypatch.setattr(
+            TaskPGManager, "get_task_by_task_id", AsyncMock(return_value=task)
+        )
+        monkeypatch.setattr(TaskHandler, "begin_deletion", AsyncMock())
+        monkeypatch.setattr(TaskHandler, "end_deletion", Mock())
         monkeypatch.setattr(BaseWorker, "delete", AsyncMock(return_value=False))
         assert await TaskHandler.delete_task("t-1") is None
 
     async def test_delete_task_succeeds(self, monkeypatch):
-        monkeypatch.setattr(BaseWorker, "stop", AsyncMock(return_value=True))
+        task = _task_row()
+        monkeypatch.setattr(
+            TaskPGManager, "get_task_by_task_id", AsyncMock(return_value=task)
+        )
+        begin = AsyncMock()
+        end = Mock()
+        monkeypatch.setattr(TaskHandler, "begin_deletion", begin)
+        monkeypatch.setattr(TaskHandler, "end_deletion", end)
         delete = AsyncMock(return_value=True)
         monkeypatch.setattr(BaseWorker, "delete", delete)
         assert await TaskHandler.delete_task("t-1") == "t-1"
+        begin.assert_awaited_once_with([task], log_ids={task.op_id})
         delete.assert_awaited_once_with("t-1")
+        end.assert_called_once_with([task], log_ids={task.op_id})
 
     async def test_delete_task_swallows_exception(self, monkeypatch):
+        task = _task_row()
         monkeypatch.setattr(
-            BaseWorker, "stop", AsyncMock(side_effect=RuntimeError("boom"))
+            TaskPGManager, "get_task_by_task_id", AsyncMock(return_value=task)
+        )
+        monkeypatch.setattr(TaskHandler, "begin_deletion", AsyncMock())
+        monkeypatch.setattr(TaskHandler, "end_deletion", Mock())
+        monkeypatch.setattr(
+            BaseWorker, "delete", AsyncMock(side_effect=RuntimeError("boom"))
         )
         assert await TaskHandler.delete_task("t-1") is None
 

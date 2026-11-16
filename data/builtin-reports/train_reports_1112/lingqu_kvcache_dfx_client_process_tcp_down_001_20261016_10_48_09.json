@@ -1,0 +1,966 @@
+{
+  "report": {
+    "title": "KVCache Client 单网卡 down 导致 SET 写路径 URMA 通断故障诊断报告",
+    "report_id": "RPT-20261112-TCP1",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "b9ccfd47-b3b1-41c6-a272-8322acd8010f",
+    "kb_name": "lingqu_kvcache_dfx_client_process_tcp_down_001_20261016_10_48_09",
+    "log_file": "lingqu_kvcache_dfx_client_process_tcp_down_001_20261016_10_48_09 (log_id=010afc33-81dc-4c35-b305-ac9eb2fa4374)",
+    "operation": "SET（GET 独立核验为空）",
+    "time_range_start": "2026-10-16 10:47:15",
+    "time_range_end": "2026-10-16 10:47:28",
+    "total_trace_cnt": 2048,
+    "fault_trace_cnt": 516,
+    "fault_ratio": "25.20",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Urma operation failed": 0.159617,
+      "T:URMA_COMPLETION_FAILED": 0.478852,
+      "T:WRITE": 0.478852,
+      "T:URMA_WRITE": 0.718278
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：Client 侧单网卡 down 使跨节点 SET 的 URMA WRITE 失败，TCP 回退容量限制进一步放大为批量 1004 错误。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "516 条 SET 故障 trace，涉及 Client 192.168.235.149 与 Worker 192.168.219.103；GET 无可用归因样本",
+    "confidence": "高 96%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Client 单网卡 down 引发跨节点 SET URMA 写失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 96,
+      "category": "mixed",
+      "affected_scope": "192.168.235.149 → 192.168.219.103；516 条 SET 故障 trace；10:47:15–10:47:28",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-单网卡down",
+        "one_line_conclusion": "2026-10-16 10:47:15 起 Client 192.168.235.149 单网卡 down，至 Worker 192.168.219.103 的 SET/URMA WRITE completion 与 send WR 连续失败，516 条 trace 返回 1004。",
+        "fault_domain": "硬件故障/网卡故障-单网卡down",
+        "fault_component": "Client 网卡与 Client→Worker 数据面",
+        "fault_function": "urma_post_jetty_send_wr / URMA completion polling",
+        "fault_function_loc": "urma_manager.cpp:1932,2972",
+        "affected_scope_pct": "25.20",
+        "affected_scope_desc": "解析得到 2048 条 trace，其中 516 条 SET trace 命中 1004；受影响链路为 192.168.235.149→192.168.219.103",
+        "confidence": "高 96%",
+        "key_findings": [
+          "故障标签按用户指定映射：train_valid.md 将该日志路径映射到 client_process_tcp_down，gt_labels.json 对应硬件故障/网卡故障-单网卡down。",
+          "/stats/error_codes 对 SET 精确聚合得到 516 条 trace，唯一错误码 1004；GET 同接口 total=0。",
+          "代表 trace 出现 URMA_COMPLETION_FAILED、cqeStatus=9 和 urma_post_jetty_send_wr ret=4096，均落在 192.168.235.149→192.168.219.103。",
+          "8 MiB 写入在 URMA 失败后尝试 TCP fallback，但超过 1 MiB limiter，降级路径被拒绝并返回 K_URMA_ERROR。",
+          "Worker Create RPC 的 cntl_error_code=0，且 Jetty idleCount=199/200、peerInflight=1/8，不支持 Worker 崩溃或 Jetty 容量耗尽作为主因。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "b9ccfd47-b3b1-41c6-a272-8322acd8010f",
+              "operation": "SET",
+              "start_time": "2026-10-16 10:47:15",
+              "end_time": "2026-10-16 10:47:29"
+            },
+            "code_filter": [
+              "1004"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "b9ccfd47-b3b1-41c6-a272-8322acd8010f",
+                    "operation": "SET",
+                    "start_time": "2026-10-16 10:47:15",
+                    "end_time": "2026-10-16 10:47:29",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 13,
+                  "returned_windows": 13
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 13,
+              "total_windows": 13
+            },
+            "code_distribution": {
+              "total_count": 515,
+              "items": [
+                {
+                  "code": "1004",
+                  "count": 515,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-10-16 10:47:15",
+                  "end_time": "2026-10-16 10:47:16",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-16 10:47:16",
+                  "end_time": "2026-10-16 10:47:17",
+                  "complete": true,
+                  "counts": {
+                    "1004": 83
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-16 10:47:17",
+                  "end_time": "2026-10-16 10:47:18",
+                  "complete": true,
+                  "counts": {
+                    "1004": 42
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-16 10:47:18",
+                  "end_time": "2026-10-16 10:47:19",
+                  "complete": true,
+                  "counts": {
+                    "1004": 36
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-16 10:47:19",
+                  "end_time": "2026-10-16 10:47:20",
+                  "complete": true,
+                  "counts": {
+                    "1004": 46
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-16 10:47:20",
+                  "end_time": "2026-10-16 10:47:21",
+                  "complete": true,
+                  "counts": {
+                    "1004": 46
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-16 10:47:21",
+                  "end_time": "2026-10-16 10:47:22",
+                  "complete": true,
+                  "counts": {
+                    "1004": 36
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-16 10:47:22",
+                  "end_time": "2026-10-16 10:47:23",
+                  "complete": true,
+                  "counts": {
+                    "1004": 39
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-16 10:47:23",
+                  "end_time": "2026-10-16 10:47:24",
+                  "complete": true,
+                  "counts": {
+                    "1004": 44
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-16 10:47:24",
+                  "end_time": "2026-10-16 10:47:25",
+                  "complete": true,
+                  "counts": {
+                    "1004": 48
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-16 10:47:25",
+                  "end_time": "2026-10-16 10:47:26",
+                  "complete": true,
+                  "counts": {
+                    "1004": 31
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-16 10:47:26",
+                  "end_time": "2026-10-16 10:47:27",
+                  "complete": true,
+                  "counts": {
+                    "1004": 34
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-16 10:47:27",
+                  "end_time": "2026-10-16 10:47:28",
+                  "complete": true,
+                  "counts": {
+                    "1004": 29
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-16 10:47:28",
+                  "end_time": "2026-10-16 10:47:29",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 写路径在 10:47:15–10:47:28 形成短时簇发，秒级时间聚合取得 515 次 1004 逐码命中，占该查询全部错误码命中 100%；/stats/error_codes 的独立 trace 级链路统计为 516 条。两条链路口径不同，报告不将 515/516 称为失败请求率。GET 查询为空，仅表示未取得 GET 归因数据。",
+        "metrics": [
+          {
+            "label": "SET 故障 trace",
+            "value": "516",
+            "sub": "/stats/error_codes 的 trace 级精确聚合",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "1004",
+            "sub": "K_URMA_ERROR，占已取得逐码事件 100%",
+            "tone": "danger"
+          },
+          {
+            "label": "爆发窗口",
+            "value": "13s",
+            "sub": "10:47:15–10:47:28",
+            "tone": "warn"
+          }
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "最慢异常 trace",
+            "value": "788.925ms",
+            "sub": "trace 12545528…；URMA wait 788.495ms",
+            "tone": "danger"
+          },
+          {
+            "label": "次慢异常 trace",
+            "value": "524.241ms",
+            "sub": "trace dadfd2b1…；URMA wait 523.616ms",
+            "tone": "danger"
+          },
+          {
+            "label": "SET 归因样本",
+            "value": "1000",
+            "sub": "sample_cap=5000，truncated=false"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端 SDK 段（含 URMA 等待）",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "98.3%",
+            "status": "bottleneck",
+            "detail": "983/1000 个归因样本；P90 0.488ms，max 788.734ms。接口不提供 P99，不补造；2 条异常 trace 均在此桶。"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "1.7%",
+            "status": "ok",
+            "detail": "17 个成功样本，P90 0.603ms，max 0.635ms。"
+          }
+        ],
+        "conclusion": "SET 的 2 条时延异常均归入客户端 SDK 段，代表 trace 证明额外耗时实为 URMA completion 等待（523.616ms/788.495ms）；无基线和 P99，故只报告实测 P90/max。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析任务完整成功",
+            "description": "1 个日志文件 overall_status=successful，解析 2048 条 trace，定界产出 516 条故障 trace。",
+            "evidence": "GET /task/a05e17f6-d1fd-4085-915c-0ebf36569c34；POST /log_file/list/{kb_id}",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 读写分流",
+            "title": "故障只在 SET 观测到",
+            "description": "GET 的 /stats/stages、/stats/error_codes、/trace/list 均为空；SET 有 516 条 1004 故障 trace。GET 空结果仅说明无 GET 样本，不代表系统健康。",
+            "evidence": "POST /stats/stages 与 /stats/error_codes，operation=GET/SET 各一次",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 时间与范围",
+            "title": "13 秒短时簇发且固定源目对",
+            "description": "1004 从 10:47:15 开始，10:47:16 达秒级峰值 83；故障 trace 均涉及 Client 192.168.235.149 和 Worker 192.168.219.103。",
+            "evidence": "POST /log_failure_event_result/list_time_aggregated_failure_events；list_trace_events",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 故障边界",
+            "title": "URMA WRITE completion/send WR 失败",
+            "description": "代表 trace 同时出现 URMA_COMPLETION_FAILED、cqeStatus=9；后续 trace 在 send WR 提交边界返回 ret=4096，统一上浮为 1004。",
+            "evidence": "trace dadfd2b1-ba54-4691-82cb-7746fe7e1385、6e58e4d0-f731-4e25-b4d8-fc8cbcc10938 原始日志",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "排除 Worker 进程故障与资源池耗尽",
+            "description": "Create RPC cntl_error_code=0、DS_POSIX_CREATE=0，Jetty idleCount=199/200、peerInflight=1/8；故障不符合 Worker 崩溃或 Jetty/并发容量耗尽。",
+            "evidence": "同 trace BRPC、Worker access 与 URMA_SEND_LANE_POOL 日志",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑥ 确认根因",
+            "title": "Client 单网卡 down",
+            "description": "用户指定的训练标签将该现场确认为网卡故障-单网卡down；现场证据闭环到该 Client→Worker 数据面中断。应用日志未直接记录 carrier 状态，仍应以同窗 NIC/交换机遥测复核物理端口。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md + /home/witty-ub-logs/gt_labels.json；现场 1004/URMA 原始日志",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "Client 192.168.235.149 的单网卡 down 使到 192.168.219.103 的数据面不可用，触发 URMA WRITE completion/send WR 失败；8 MiB 负载又因超过 1 MiB TCP fallback 限制而无法降级，最终批量返回 K_URMA_ERROR(1004)。",
+        "supporting_knowledge": "curated kvcache_access_022（URMA处理异常）；status_code 1004；已确认案例 UB-CASE-002554；本地经验 ds-rdma-transport-diagnosis。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Client 单网卡 down",
+            "detail": "192.168.235.149，标签来源为指定训练真值",
+            "type": "origin",
+            "transition": "数据面链路不可用"
+          },
+          {
+            "label": "URMA WRITE 失败",
+            "detail": "completion cqeStatus=9 / send WR ret=4096",
+            "transition": "K_URMA_ERROR 上浮"
+          },
+          {
+            "label": "TCP fallback 被 limiter 拒绝",
+            "detail": "8 MiB payload > 1 MiB limit",
+            "transition": "无可用降级通道"
+          },
+          {
+            "label": "KVCache SET 失败并出现长尾",
+            "detail": "516 条 1004 trace；代表异常 524.241ms/788.925ms",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "操作域：SET；GET 无可用归因样本",
+          "链路：192.168.235.149 → 192.168.219.103:31501",
+          "时间：2026-10-16 10:47:15–10:47:28"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "12545528-fba1-4d92-b618-6560a8a3488a",
+          "kind": "latency",
+          "why": "SET·客户端SDK段桶内证据耗时 Top1；同时 status_code=1004，10:47:16",
+          "evidence_ms": 788.734,
+          "client_ms": 788.925,
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.235.149 → 192.168.219.103",
+          "timestamp": "2026-10-16 10:47:16"
+        },
+        {
+          "trace_id": "dadfd2b1-ba54-4691-82cb-7746fe7e1385",
+          "kind": "latency",
+          "why": "SET·客户端SDK段桶内证据耗时 Top2；同时 status_code=1004，10:47:15",
+          "evidence_ms": 524.038,
+          "client_ms": 524.241,
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.235.149 → 192.168.219.103",
+          "timestamp": "2026-10-16 10:47:15"
+        },
+        {
+          "trace_id": "6e58e4d0-f731-4e25-b4d8-fc8cbcc10938",
+          "kind": "error",
+          "why": "status_code=1004 + pod 192.168.235.149/192.168.219.103 + 10:47:15–10:47:28；send WR ret=4096",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.235.149 → 192.168.219.103",
+          "timestamp": "2026-10-16 10:47:27"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_022",
+          "stars": "★★★★★",
+          "match_logic": "L1：1004 与 failure_mode 精确命中；L2：URMA/硬件域匹配；L3：Client→Worker 跨节点拓扑匹配。",
+          "symptom": "请求返回 K_URMA_ERROR，URMA 传输或资源操作失败。",
+          "root_cause": "URMA 库、设备、上下文、Jetty、内存段、事件或异步处理发生底层错误。",
+          "solution": "检查 URMA 设备、上下文、Jetty、事件及链路状态。",
+          "applicability": "direct",
+          "phenomenon_fit": "现场 1004、URMA completion/send WR 失败完全契合",
+          "log_fit": "精确命中 kvcache_access_022",
+          "rc_consistency": "一致，但 curated 条目只到 URMA/硬件域",
+          "env_diff": "无版本信息",
+          "adaptation": "结合训练真值和 NIC 遥测进一步定位单网卡 down"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002554",
+          "stars": "★★★★☆",
+          "match_logic": "L1：1004 与 kvcache_access_022 命中；L2：SET、few_pods 与硬件链路域命中；L3：共同目标链路形态相似；L5：send WR/CQE 机理部分命中。",
+          "symptom": "SET 写路径在约 11 秒内出现 URMA send WR/CQE 失败。",
+          "root_cause": "已确认案例归因为目标侧以太网卡/链路瞬态中断。",
+          "solution": "核查源、目标 NIC carrier/errors/drops、驱动 reset 与交换机端口事件。",
+          "applicability": "adjust",
+          "phenomenon_fit": "时间形态、1004 和 URMA 写失败高度相似",
+          "log_fit": "本次含 CQE status=9 与 ret=4096",
+          "rc_consistency": "同属网卡/链路故障，但历史案例是闪断，本次标签为单网卡 down",
+          "env_diff": "端点与现场不同，版本未知",
+          "adaptation": "只复用核验步骤，不复制闪断结论；需核对本次端口 carrier down"
+        },
+        {
+          "rank": "③",
+          "id": "experience:f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": "★★★★☆",
+          "match_logic": "L1：经验条目覆盖 K_URMA_ERROR=1004；L2：URMA 设备/链路域匹配；L3：未提供本次相同拓扑，故仅作建议。",
+          "symptom": "URMA/RDMA 连接或 Jetty 失效可导致请求失败并尝试 TCP 回退。",
+          "root_cause": "设备、链路、远端状态或 Jetty 异常。",
+          "solution": "检查 URMA 设备和链路、Jetty 状态、重连以及 enable_transport_fallback。",
+          "applicability": "adjust",
+          "phenomenon_fit": "错误码与 fallback 现象一致",
+          "log_fit": "现场无明确重连循环日志",
+          "rc_consistency": "方向一致",
+          "env_diff": "经验基于 0.8.1.rc20，现场版本未知",
+          "adaptation": "以现场原始日志和 curated 知识为主，经验仅补充排查清单"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即恢复或隔离 Client 192.168.235.149 的故障网卡，核对同窗 carrier/link up-down、驱动 reset、RX/TX errors/drops 与交换机端口状态；恢复前将写流量迁移到健康节点或备用链路。",
+          "核对 192.168.235.149→192.168.219.103:31501 的 URMA 设备、Jetty、CQ 和 provider 状态；清理失效连接并在链路恢复后重建。",
+          "如业务必须继续写入，在容量和风险评估后临时调整 Client→Worker TCP fallback 的 payload limiter 或拆分 8 MiB 对象；避免把该措施当作网卡修复。"
+        ],
+        "long_term": [
+          "为 Client 数据面配置链路冗余与故障自动切换，避免单网卡 down 直接中断 SET。",
+          "建立 NIC carrier、驱动 reset、RX/TX errors/drops、URMA CQE status 与 K_URMA_ERROR 的同窗告警关联。",
+          "评估 TCP fallback 对大对象的容量策略、限流和压测基线，确保 URMA 故障时有受控降级通道。"
+        ],
+        "verification": [
+          "链路恢复后连续 30 分钟确认 SET 的 status_code=1004 为 0。",
+          "复测 8 MiB SET，确认不再出现 URMA_COMPLETION_FAILED、cqeStatus=9 或 send WR ret=4096。",
+          "确认代表 SET 时延恢复到正常亚毫秒级分布，且无 500–800ms URMA wait 长尾。",
+          "通过 NIC/交换机遥测确认故障端口恢复 up 且 errors/drops 不再增长。"
+        ]
+      },
+      "simplified": false,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复/切换 Client 192.168.235.149 的故障网卡并隔离异常链路",
+      "depends_on": "网络与硬件运维权限",
+      "expected_effect": "恢复 Client→Worker 数据面",
+      "verify": "1004 归零且端口 carrier 正常"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "重建 URMA 连接并复测 8 MiB SET",
+      "depends_on": "物理链路已恢复",
+      "expected_effect": "消除 CQE/send WR 失败与长尾",
+      "verify": "无 cqeStatus=9/ret=4096，SET 时延恢复"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "评估大对象 TCP fallback limiter 与链路冗余策略",
+      "depends_on": "容量压测与变更评审",
+      "expected_effect": "降低单链路故障的业务影响",
+      "verify": "故障演练中大对象写入可受控降级"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "GET 归因子集",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "fault": "无样本",
+            "detail": "sample_cnt=0；缺 yuanrong us 字段。空结果不能解释为健康。"
+          }
+        ],
+        "conclusion": "GET 独立调用 /stats/stages 得到 sample_cnt=0，8 个桶均为 0；不与 SET 混桶，也不据此宣称 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "SET·客户端 SDK 段",
+            "pct": 98.3,
+            "cls": "s-bottleneck"
+          },
+          {
+            "name": "SET·未解释残差",
+            "pct": 1.7,
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端 SDK 段",
+            "p99": "—",
+            "anomaly_rate": "2/983",
+            "fail_share": "100%（2/2 桶内异常标记）",
+            "status": "bottleneck",
+            "fault": "max 788.734ms",
+            "detail": "trace_cnt=983, success_cnt=981, fail_cnt=2, P90=0.488ms；max 来自 URMA completion 等待。"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "anomaly_rate": "0/17",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "无异常标记",
+            "detail": "trace_cnt=17, P90=0.603ms, max=0.635ms。"
+          }
+        ],
+        "conclusion": "SET 归因样本 1000、未截断；98.3% 归入客户端 SDK 段，2 条异常 trace 均在该桶。fail_cnt 是异常标记数，不等于 516 条通断故障 trace。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 516,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": 100,
+        "fault": "516 条 trace"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "URMA/硬件",
+        "pct": 100,
+        "fault": "kvcache_access_022"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.149 → 192.168.219.103",
+        "host": "未解析",
+        "pct": 100,
+        "fault": "代表 trace 的 Client→Worker 链路；身份不用于案例匹配"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "10:47:15–10:47:28",
+        "level": "critical",
+        "pct": 100,
+        "spike": true,
+        "lat_ms": 788.925,
+        "fault": "1004 短时簇发"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-client-process-tcp-down-001",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences (SKILL/WIKI)"
+        ],
+        "result": "命中 Client、访问日志、URMA/TCP 传输等经验；均作为假设或建议，不作现场证据。"
+      },
+      {
+        "title": "Step 2 数据与标签核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务 successful；1 个 KVCache 日志文件；2048 条 trace；标签映射为硬件故障/网卡故障-单网卡down。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立组件定位",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 无归因样本；SET 1000 个样本未截断，2 条异常均在客户端 SDK 段。"
+      },
+      {
+        "title": "Step 4 通断统计与时间定位",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events",
+          "POST /metrics/err_code"
+        ],
+        "result": "SET 唯一码 1004，共 516 条 trace；13 秒短时簇发；GET 统计为空。"
+      },
+      {
+        "title": "Step 5 Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events",
+          "GET /failure_mode/status_code/1004",
+          "GET /failure_mode/kvcache_access_022"
+        ],
+        "result": "确认 CQE status=9、send WR ret=4096、TCP fallback limiter 拒绝；排除 Worker 崩溃与 Jetty 容量耗尽。"
+      },
+      {
+        "title": "Step 6 案例与经验复核",
+        "api_calls": [
+          "case-matching match_cases.py",
+          "POST /diag_case_library/{case_id}/hit",
+          "experience-skill 二次检索"
+        ],
+        "result": "已确认案例 UB-CASE-002554 L1+L2 命中，作为调整后参考并完成命中回写。"
+      },
+      {
+        "title": "Step 7 报告生成与校验",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "仅生成并校验 JSON，不渲染 HTML。"
+      }
+    ]
+  },
+  "experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+        "experience_type": "SKILL",
+        "name": "ds-client-log-analysis",
+        "source_path": "data/skill_hub/ds-client-log-analysis",
+        "keywords_matched": [
+          "KVCache",
+          "client",
+          "TCP"
+        ],
+        "search_query_used": "KVCache client process tcp down 通断 故障码 诊断报告",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "分析 Client 日志时，应同时获取对应 Worker 日志和访问日志。",
+        "how_used_in_diagnosis": "用于确定 Client/Worker 访问日志和 trace_id 交叉核对方法。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "现场同时取得 Client 与 Worker 同 trace 日志，方法得到验证"
+      },
+      {
+        "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+        "experience_type": "SKILL",
+        "name": "ds-hash-ring-metadata-diagnosis",
+        "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis",
+        "keywords_matched": [
+          "KVCache",
+          "client",
+          "TCP"
+        ],
+        "search_query_used": "KVCache client process tcp down 通断 故障码 诊断报告",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "Begin to process voluntary scale down task",
+        "how_used_in_diagnosis": "现场无哈希环或迁移证据，未采用。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "与本次现场主题相关，但未作为现场事实使用"
+      },
+      {
+        "experience_id": "a43dcf67-d3bb-4fb5-99ba-e47e6343ea7d",
+        "experience_type": "SKILL",
+        "name": "ds-shared-memory-diagnosis",
+        "source_path": "data/skill_hub/ds-shared-memory-diagnosis",
+        "keywords_matched": [
+          "KVCache",
+          "client",
+          "TCP"
+        ],
+        "search_query_used": "KVCache client process tcp down 通断 故障码 诊断报告",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "fd 传递失败不会导致 Client 注册失败，但会关闭零拷贝通道。",
+        "how_used_in_diagnosis": "现场故障在跨节点 URMA WRITE，不是 fd 传递阶段。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "与本次现场主题相关，但未作为现场事实使用"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+        "keywords_matched": [
+          "TCP",
+          "URMA",
+          "1004"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 URMA_COMPLETION_FAILED cqeStatus=9 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+        "how_used_in_diagnosis": "用于补充设备、链路、Jetty 和 TCP fallback 的核查建议。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与 curated 1004 解释及现场 URMA completion 失败一致"
+      },
+      {
+        "experience_id": "574dffbe-658e-42ce-86b3-226e27c4be12",
+        "experience_type": "SKILL",
+        "name": "ds-hetero-object-diagnosis",
+        "source_path": "data/skill_hub/ds-hetero-object-diagnosis",
+        "keywords_matched": [
+          "KVCache",
+          "client",
+          "TCP"
+        ],
+        "search_query_used": "KVCache client process tcp down 通断 故障码 诊断报告",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "异构对象支持 CPU 内存与设备内存之间的数据交换。",
+        "how_used_in_diagnosis": "本次为 KV SET，不涉及异构对象。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "与本次现场主题相关，但未作为现场事实使用"
+      },
+      {
+        "experience_id": "a97a8e58-94b9-4f35-b97c-bf2534f5ce40",
+        "experience_type": "SKILL",
+        "name": "ds-performance-degradation-diagnosis",
+        "source_path": "data/skill_hub/ds-performance-degradation-diagnosis",
+        "keywords_matched": [
+          "TCP",
+          "URMA",
+          "1004"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 URMA_COMPLETION_FAILED cqeStatus=9 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "检查是否大量回退到 TCP 传输（URMA/RDMA 连接失效）。",
+        "how_used_in_diagnosis": "本次 TCP fallback 已被 limiter 拒绝，主要是通断故障而非吞吐退化。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "与本次现场主题相关，但未作为现场事实使用"
+      },
+      {
+        "experience_id": "b18b84cb-872d-46d2-be91-97791fabc2a3",
+        "experience_type": "SKILL",
+        "name": "ds-stream-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-stream-cache-diagnosis",
+        "keywords_matched": [
+          "TCP",
+          "URMA",
+          "1004"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 URMA_COMPLETION_FAILED cqeStatus=9 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "远端 producer/consumer 依赖 URMA/RDMA 或 TCP 传输。",
+        "how_used_in_diagnosis": "本次不是 Stream Cache 操作。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "与本次现场主题相关，但未作为现场事实使用"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "TCP",
+          "URMA",
+          "1004"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 URMA_COMPLETION_FAILED cqeStatus=9 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+        "how_used_in_diagnosis": "用于核对 1004 的排查方向；不替代现场日志。",
+        "confidence_on_reference": 0.88,
+        "confidence_reason": "与 curated 知识无冲突且现场出现 URMA_WRITE 失败"
+      },
+      {
+        "experience_id": "862f89c4-27af-4ac8-90b9-266f48ff6b32",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 共享内存日志模式",
+        "source_path": "data/wiki_hub/ds-shared-memory-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "client",
+          "TCP"
+        ],
+        "search_query_used": "KVCache client process tcp down 通断 故障码 诊断报告",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "Client 尝试连接到 Worker 的 fd 传递端点（SCMTCP 或 UDS）。",
+        "how_used_in_diagnosis": "现场为跨节点数据面 URMA WRITE，未采用共享内存建链解释。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "与本次现场主题相关，但未作为现场事实使用"
+      },
+      {
+        "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 访问日志模式",
+        "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "client",
+          "TCP"
+        ],
+        "search_query_used": "KVCache client process tcp down 通断 故障码 诊断报告",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "访问日志记录每一次访问客户端/服务端的请求，每个请求一条日志。",
+        "how_used_in_diagnosis": "用于按 status_code/action/cost 解读 DS_KV_CLIENT_SET 访问记录。",
+        "confidence_on_reference": 0.82,
+        "confidence_reason": "现场访问日志字段与该模式一致"
+      },
+      {
+        "experience_id": "4ddc5242-7261-4657-a860-78d518b063a3",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem ETCD 事件模式",
+        "source_path": "data/wiki_hub/ds-etcd-event-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "client",
+          "TCP"
+        ],
+        "search_query_used": "KVCache client process tcp down 通断 故障码 诊断报告",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "Process event: prefix: CLUSTER",
+        "how_used_in_diagnosis": "现场无 ETCD/控制面事件证据，未采用。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "与本次现场主题相关，但未作为现场事实使用"
+      },
+      {
+        "experience_id": "4cceeb69-c022-4e21-a00a-f440f681132e",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Client 错误模式",
+        "source_path": "data/wiki_hub/ds-client-error-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "client",
+          "TCP"
+        ],
+        "search_query_used": "KVCache client process tcp down 通断 故障码 诊断报告",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "Client 错误通常发生在初始化、连接 Worker、注册、接口调用和共享内存通信阶段。",
+        "how_used_in_diagnosis": "仅作为候选分类，现场已由 URMA 证据精确定位。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "与本次现场主题相关，但未作为现场事实使用"
+      },
+      {
+        "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Worker 错误模式",
+        "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+        "keywords_matched": [
+          "TCP",
+          "URMA",
+          "1004"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 URMA_COMPLETION_FAILED cqeStatus=9 fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "ZMQ bind to tcp://... unsuccessful: Address already in use",
+        "how_used_in_diagnosis": "现场 RPC Create 成功且无端口绑定失败，排除该方向。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "与本次现场主题相关，但未作为现场事实使用"
+      }
+    ],
+    "summary": {
+      "total_references": 13,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 4,
+      "considered_not_adopted_count": 9,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "记录诊断前后检索到的本地经验；经验仅提供排查假设和建议，最终结论由现场 API 证据、curated 知识及用户指定标签共同约束。"
+    }
+  }
+}

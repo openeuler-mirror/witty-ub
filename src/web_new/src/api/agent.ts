@@ -54,7 +54,7 @@ export type OpenCodeMessage = {
 
 export type OpenCodeSessionStatus = { type?: string }
 
-/** 受限操作授权请求：Agent 要执行 bash 等操作时由服务端挂起，等前端答复（once / reject）。 */
+/** 受限操作授权请求：Agent 要执行 bash 等操作时由服务端挂起，等前端答复。 */
 export type AgentPermissionRequest = {
   id: string
   sessionID: string
@@ -265,8 +265,11 @@ export class AgentApi {
     return this.request<AgentPermissionRequest[]>('/permission')
   }
 
-  // 服务端只认 once / reject；「本会话始终允许」由前端记规则后继续用 once 应答
-  respondPermission(sessionId: string, requestId: string, response: 'once' | 'reject') {
+  respondPermission(
+    sessionId: string,
+    requestId: string,
+    response: 'once' | 'always' | 'reject',
+  ) {
     return this.request<boolean>(
       `/session/${encodeURIComponent(sessionId)}/permissions/${encodeURIComponent(requestId)}`,
       { method: 'POST', body: JSON.stringify({ response }) },

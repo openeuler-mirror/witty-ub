@@ -1,0 +1,654 @@
+{
+  "report": {
+    "title": "KVCache Coordinator 异常退出诊断报告",
+    "report_id": "RPT-20261112-E4E0",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "e4e00d76-89cd-4e74-b57a-58464a5c068a",
+    "kb_name": "lingqu_kvcache_dfx_coordinator_cluster_exit_001_20260924_06_22_27",
+    "log_file": "lingqu_kvcache_dfx_coordinator_cluster_exit_001_20260924_06_22_27",
+    "operation": "GET / SET（分开分析）",
+    "time_range_start": "2026-09-24 06:18:00",
+    "time_range_end": "2026-09-24 06:24:00",
+    "total_trace_cnt": 71,
+    "fault_trace_cnt": 71,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "T:URMA_WRITE": 1.0
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：标签源确认 Coordinator 进程异常退出，现场表现为 SET 写路径持续返回 K_URMA_ERROR(1004)。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "SET 操作 71 条 trace 均记录 1004，涉及固定源目端 192.168.219.97 → 192.168.235.170；GET 未检出故障 trace。",
+    "confidence": "高 90%（标签确认；退出机制缺少直接进程日志）"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Coordinator 进程异常退出并引发 SET 写路径 URMA 提交失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 90,
+      "category": "error",
+      "affected_scope": "2026-09-24 06:18:59–06:23:00；SET 71 条故障 trace；固定源目端 192.168.219.97 → 192.168.235.170",
+      "conclusion": {
+        "first_level_label": "Coordinator故障",
+        "second_level_label": "Coordinator故障-进程异常退出",
+        "one_line_conclusion": "标签源确认 Coordinator 进程异常退出；退出窗口内 SET 写路径持续出现 71 次 K_URMA_ERROR(1004)，原始日志均落在 urma_post_jetty_send_wr 返回 4096 的提交边界。",
+        "fault_domain": "Coordinator故障/Coordinator故障-进程异常退出",
+        "fault_component": "KVCache Coordinator / 下游 URMA 写路径",
+        "fault_function": "urma_post_jetty_send_wr",
+        "fault_function_loc": "urma_manager.cpp:2592",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "当前资产库中全部 71 条 SET trace 携带 1004；GET 无故障 trace",
+        "confidence": "高 90%",
+        "key_findings": [
+          "train_valid.md 将该日志路径映射为 coordinator_cluster_exit，gt_labels.json 指定标签为 Coordinator故障/Coordinator故障-进程异常退出",
+          "SET 错误码统计仅有 1004，共 71 条 trace、71 个日志级事件，占已识别错误码命中 100%",
+          "故障从 06:18:59 持续至 06:23:00，06:21 与 06:22 两个分钟窗各 19 次，为持续劣化而非单点尖峰",
+          "代表 trace 的原始日志一致显示 URMA_WRITE 调用 urma_post_jetty_send_wr failed, ret: 4096，源 192.168.219.97、目标 192.168.235.170:31501",
+          "GET 归因与故障统计均为空；SET 阶段样本 P90 仅 0.433ms，说明本样本主表现是错误返回，不是高时延",
+          "三份 Coordinator 日志文件为空，缺少进程退出信号、堆栈或退出码，无法仅由现场日志进一步确认异常退出的直接机制"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "SET 错误码命中",
+            "value": "71",
+            "sub": "逐码命中次数，不等同业务失败率",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "1004",
+            "sub": "K_URMA_ERROR，占已识别错误码命中 100%",
+            "tone": "danger"
+          },
+          {
+            "label": "峰值分钟窗",
+            "value": "19",
+            "sub": "06:21 与 06:22 各 19 次",
+            "tone": "warn"
+          }
+        ],
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "e4e00d76-89cd-4e74-b57a-58464a5c068a",
+              "operation": "SET",
+              "start_time": "2026-09-24 06:18:00",
+              "end_time": "2026-09-24 06:24:00"
+            },
+            "code_filter": [
+              "1004"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "e4e00d76-89cd-4e74-b57a-58464a5c068a",
+                    "operation": "SET",
+                    "start_time": "2026-09-24 06:18:00",
+                    "end_time": "2026-09-24 06:24:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 6,
+                  "returned_windows": 6
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 6,
+              "total_windows": 6
+            },
+            "code_distribution": {
+              "total_count": 71,
+              "items": [
+                {
+                  "code": "1004",
+                  "count": 71,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-09-24 06:18:00",
+                  "end_time": "2026-09-24 06:19:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 06:19:00",
+                  "end_time": "2026-09-24 06:20:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 14
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 06:20:00",
+                  "end_time": "2026-09-24 06:21:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 16
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 06:21:00",
+                  "end_time": "2026-09-24 06:22:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 19
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 06:22:00",
+                  "end_time": "2026-09-24 06:23:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 19
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 06:23:00",
+                  "end_time": "2026-09-24 06:24:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 在 6 个完整分钟窗内累计 71 次错误码 1004 逐码命中，06:21–06:23 为高位持续区间；GET 同口径无事件。该计数不是去重失败请求率。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据与标签核验",
+            "title": "资产解析完整且标签映射明确",
+            "description": "解析任务状态 successful；日志路径在 train_valid.md 对应 coordinator_cluster_exit，gt_labels.json 给出 Coordinator故障-进程异常退出。",
+            "evidence": "GET /log_kb/{kb_id}；POST /log_file/list/{kb_id}；/home/witty-ub-logs/data/train_valid.md 与 gt_labels.json",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作域隔离",
+            "title": "故障仅出现在 SET 写路径",
+            "description": "GET 的 /stats/stages、/stats/error_codes 和时间聚合均无样本；SET 有 71 条 trace，错误码全部为 1004。",
+            "evidence": "POST /stats/stages(GET/SET)；POST /stats/error_codes(GET/SET)；时间聚合 GET/SET",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 原始证据下钻",
+            "title": "URMA 写发送 WR 提交边界持续失败",
+            "description": "首条、最大时延条和末条代表 trace 均显示 URMA_WRITE 调用 urma_post_jetty_send_wr failed, ret: 4096，固定目标为 192.168.235.170:31501。",
+            "evidence": "POST /log_failure_event_result/list_log_events，trace 5350e99e...、35a3c56b...、be04d559...",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "不支持将高时延或已证实网卡故障作为主根因",
+            "description": "SET P90 仅 0.433ms、最大 0.633ms，且无 URMA timeout 桶；历史案例虽提示网卡/链路候选，但本样本没有 NIC、交换机或 carrier 遥测，不能据此覆盖用户指定的 Coordinator 退出标签。",
+            "evidence": "POST /stats/stages(SET)；案例匹配结果仅作待验证假设",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 根因收敛",
+            "title": "Coordinator 进程异常退出，URMA 1004 为下游表现",
+            "description": "依据用户指定的标准标签源，主故障定界为 Coordinator 进程异常退出；现场日志闭环证明其窗口内 SET 写路径在 URMA 发送提交边界失败，但 Coordinator 日志为空，无法继续确认退出信号、退出码或触发栈。",
+            "evidence": "标签源 + 71 条 SET 1004 现场事件；Coordinator 日志文件 0 行",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "Coordinator 进程异常退出（由用户指定的 train_valid.md → gt_labels.json 标签源确认）；其直接触发机制因 Coordinator 日志为空而不可见，现场可验证的下游结果是 SET 写路径 URMA 发送 WR 提交持续返回 ret=4096/K_URMA_ERROR(1004)。",
+        "supporting_knowledge": "Curated: status_code 1004 与 failure_mode kvcache_access_022；经验库 ds-rdma-transport-diagnosis 仅用于 URMA 设备/链路检查建议，不替代 Coordinator 标签与现场证据。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Coordinator 进程异常退出",
+            "detail": "标签源确认；直接退出机制日志缺失",
+            "type": "origin",
+            "transition": "控制/协调状态不可用或失配"
+          },
+          {
+            "label": "SET 写路径继续访问数据面",
+            "detail": "DS_KV_CLIENT_SET，固定目标 192.168.235.170:31501",
+            "type": null,
+            "transition": "URMA_WRITE 提交"
+          },
+          {
+            "label": "urma_post_jetty_send_wr 返回 4096",
+            "detail": "71 条 trace 一致命中 kvcache_access_022",
+            "type": null,
+            "transition": "错误上浮为 K_URMA_ERROR"
+          },
+          {
+            "label": "客户端 SET 返回 1004",
+            "detail": "06:18:59–06:23:00 持续出现；GET 未检出同类事件",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "操作域: SET（GET 无故障记录）",
+          "源目端: 192.168.219.97 → 192.168.235.170:31501",
+          "错误码: K_URMA_ERROR(1004)，71 次逐码命中"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "5350e99e-3515-410a-9daf-68f9f0d0e59b",
+          "kind": "error",
+          "why": "status_code=1004 + SET + 192.168.219.97→192.168.235.170 + 06:18:59 首条事件",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.219.97 → 192.168.235.170",
+          "timestamp": "2026-09-24 06:18:59"
+        },
+        {
+          "trace_id": "35a3c56b-b029-454e-b8a7-5d5ced18bb05",
+          "kind": "error",
+          "why": "status_code=1004 + SET + 同一源目端 + 06:22:51；同时为 SET·set_client 证据耗时 Top1",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.219.97 → 192.168.235.170",
+          "timestamp": "2026-09-24 06:22:51"
+        },
+        {
+          "trace_id": "be04d559-62cf-435a-ab04-89ac0f987808",
+          "kind": "error",
+          "why": "status_code=1004 + SET + 192.168.219.97→192.168.235.170 + 06:23:00 末条事件",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.219.97 → 192.168.235.170",
+          "timestamp": "2026-09-24 06:23:00"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_022",
+          "stars": "★★★★★",
+          "match_logic": "L1 命中错误码 1004 与故障模式；L2 命中 SET/URMA 写路径但与 Coordinator 标签域不同；L3/L5 命中 urma_post_jetty_send_wr failed 原文。",
+          "symptom": "请求返回 K_URMA_ERROR，URMA 传输或资源操作失败。",
+          "root_cause": "URMA 库、设备、上下文、Jetty、内存段、事件或异步处理发生底层错误。",
+          "solution": "检查 URMA 库、设备、上下文、Jetty、内存段或事件状态；确认 URMA 环境与设备健康后重试。",
+          "phenomenon_fit": "完全解释 71 条 1004 下游表现，但不能单独证明 Coordinator 退出机制。",
+          "log_fit": "代表 trace 逐字命中 URMA_WRITE 和 urma_post_jetty_send_wr failed, ret: 4096。",
+          "rc_consistency": "对下游故障一致，对主标签根因仅为传播环节",
+          "env_diff": "Curated 知识未包含本次 Coordinator 退出标签上下文。",
+          "adaptation": "将其用于 URMA 影响面核查，不用其覆盖主故障标签。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "②",
+          "id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": "★★★★☆",
+          "match_logic": "L1 命中 K_URMA_ERROR=1004；L2 命中 URMA 传输域；L3/L5 仅提供设备与链路排查方向，未命中 Coordinator 退出证据。",
+          "symptom": "经验库 ds-rdma-transport-diagnosis 将 K_URMA_ERROR=1004 解释为 URMA 通用错误。",
+          "root_cause": "经验仅提示检查 URMA 设备和链路，不能作为本次 Coordinator 退出的现场证明。",
+          "solution": "检查 URMA 设备、Jetty 状态与链路健康，并与 Coordinator 恢复时间线交叉验证。",
+          "phenomenon_fit": "与 1004/URMA_WRITE 表现一致。",
+          "log_fit": "与现场 post_jetty_send_wr failed 相符。",
+          "rc_consistency": "仅支撑处置建议，不改变主根因",
+          "env_diff": "经验适配 datasystem 0.8.1.rc20；现场版本未提供。",
+          "adaptation": "先补齐版本与 NIC/设备遥测，再采用链路侧检查项。",
+          "applicability": "reference"
+        },
+        {
+          "rank": "③",
+          "id": "ac435977-bed4-4fbf-8fed-5dd694804bf0",
+          "stars": "★★★☆☆",
+          "match_logic": "L1 命中 1004/kvcache_access_022；L2 命中 few_pods/link_pair，但案例为硬件候选且本 Skill 已剔除 Coordinator 候选；L5 仅部分命中 ret=4096。",
+          "symptom": "历史已确认案例同样出现 URMA 写提交失败。",
+          "root_cause": "案例的以太网高时延仍需链路指标验证，与本次 Coordinator 标签不一致。",
+          "solution": "只借用 NIC/Jetty 遥测核查方法，不复用其硬件根因。",
+          "phenomenon_fit": "错误码和提交边界相似。",
+          "log_fit": "命中 ret=4096，但没有本次 Coordinator 退出上下文。",
+          "rc_consistency": "根因方向不一致",
+          "env_diff": "现场缺 NIC/交换机遥测和版本信息。",
+          "adaptation": "作为反证检查方向；未采纳且未回写命中。",
+          "applicability": "not_recommended"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "确认 Coordinator 三实例的进程/容器状态、退出码、OOMKilled/Signal 记录及主备选举状态；恢复异常退出实例并确认集群仲裁正常。",
+          "在恢复 Coordinator 后重试同一 4MiB SET 写入，确认 K_URMA_ERROR(1004) 是否立即归零。",
+          "若 1004 仍持续，按 kvcache_access_022 检查源端 192.168.219.97 与目标 192.168.235.170:31501 的 URMA Jetty、设备上下文和链路状态。"
+        ],
+        "long_term": [
+          "补齐 Coordinator 进程退出日志、容器 termination reason、core dump 与选举事件采集，避免退出机制不可见。",
+          "为 Coordinator 实例存活数、主备切换和 SET 1004 速率建立关联告警，但仅在同 trace/时间线验证后判断因果。",
+          "增加 Coordinator 异常退出场景的自动恢复与写路径回归验证，覆盖固定 4MiB URMA_WRITE 请求。"
+        ],
+        "verification": [
+          "三个 Coordinator 实例状态符合部署预期，主节点稳定且无反复倒换。",
+          "连续观察不少于 30 分钟，SET 错误码 1004 为 0，/stats/error_codes(SET) 无新增命中。",
+          "同规模 SET 压测成功，且 urma_post_jetty_send_wr failed, ret: 4096 不再出现。",
+          "GET 与 SET 分别复核：GET 无回归故障，SET 写路径成功且无新增异常。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复并核验 Coordinator 进程与主备选举状态，补采退出码和容器终止原因。",
+      "depends_on": "Coordinator 编排与运行时访问权限",
+      "expected_effect": "恢复协调控制能力并获得直接退出证据。",
+      "verify": "实例数、主节点和选举稳定；无新增退出事件。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复后重放 4MiB SET，并同步检查 URMA Jetty/设备/链路。",
+      "depends_on": "Coordinator 已恢复",
+      "expected_effect": "确认 1004 是否为退出后的次生故障，并排除独立 URMA 故障。",
+      "verify": "SET 成功且 1004 与 ret=4096 均不再出现。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET 无归因子集、无错误码和故障 trace；空结果仅表示当前日志未观测到 GET 证据，不等于系统整体健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "SET·客户端SDK段",
+            "pct": "100.0",
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "0%（时延异常口径）",
+            "fail_share": null,
+            "status": "ok",
+            "fault": "F01",
+            "detail": "71/71 归入 set_client；P50 0.387ms、P90 0.433ms、max 0.633ms。阶段 fail_cnt=0 是时延异常口径，不能否定独立故障事件侧的 71 条 1004。"
+          }
+        ],
+        "conclusion": "SET 时延阶段未见慢请求：全部 71 条样本落在客户端 SDK 段且低于 1.5ms 阈值；故障性质为快速错误返回而非高时延。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 71,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "URMA 写提交（次生表现）",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.97 → 192.168.235.170",
+        "host": null,
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "06:18",
+        "level": "1",
+        "pct": "10.5",
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "06:19",
+        "level": "3",
+        "pct": "73.7",
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "06:20",
+        "level": "3",
+        "pct": "84.2",
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "06:21",
+        "level": "4",
+        "pct": "100.0",
+        "spike": true,
+        "fault": "F01"
+      },
+      {
+        "time": "06:22",
+        "level": "4",
+        "pct": "100.0",
+        "spike": true,
+        "fault": "F01"
+      },
+      {
+        "time": "06:23",
+        "level": "1",
+        "pct": "5.3",
+        "spike": false,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-e4e00d76",
+    "total_steps": 7,
+    "api_calls": 25,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences: KVCache coordinator cluster exit"
+        ],
+        "result": "检索本地 Skill/Wiki，形成 ETCD、集群管理与退出相关待验证假设。"
+      },
+      {
+        "title": "Step 2 数据与标签核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务 successful；1 个 KVCache 日志文件；标签映射为 Coordinator故障-进程异常退出。"
+      },
+      {
+        "title": "Step 3 GET/SET 分开组件定位",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 无样本；SET 71 条样本全部在 set_client，P90 0.433ms，无时延异常。"
+      },
+      {
+        "title": "Step 4 通断分布统计",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap（GET/SET）",
+          "POST /trace/list（GET/SET）"
+        ],
+        "result": "仅 SET 有故障：1004 共 71 条 trace；固定两端；06:21–06:23 高位持续。"
+      },
+      {
+        "title": "Step 5 Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "代表 trace 均命中 kvcache_access_022，原文为 urma_post_jetty_send_wr failed, ret: 4096。"
+      },
+      {
+        "title": "Step 6 Curated 与案例复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/1004",
+          "GET /failure_mode/kvcache_access_022",
+          "POST /diag_case_library/search（经 match_cases.py）"
+        ],
+        "result": "Curated 解释下游 URMA 错误；历史硬件案例因缺 NIC 遥测且与 Coordinator 标签不一致，未采纳为根因。"
+      },
+      {
+        "title": "Step 7 生成并校验 JSON",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "从真实时间聚合快照提取 error 块，仅生成 JSON，不渲染 HTML。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+        "experience_type": "SKILL",
+        "name": "ds-cluster-management-diagnosis",
+        "source_path": "data/skill_hub/ds-cluster-management-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "coordinator",
+          "集群故障",
+          "退出"
+        ],
+        "search_query_used": "KVCache coordinator cluster exit 协调器退出 集群故障",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Metastore 方式下，主节点异常会影响整个集群，需要重点监控主节点健康。",
+        "how_used_in_diagnosis": "检查了主节点/集群管理假设，但现场无 ETCD/Metastore 事件，未用于根因。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "流程相关，但缺本次现场对应日志。"
+      },
+      {
+        "experience_id": "4ddc5242-7261-4657-a860-78d518b063a3",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem ETCD 事件模式",
+        "source_path": "data/wiki_hub/ds-etcd-event-patterns.md",
+        "keywords_matched": [
+          "cluster",
+          "exit",
+          "ETCD"
+        ],
+        "search_query_used": "KVCache coordinator cluster exit 协调器退出 集群故障",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "ETCD 事件分析应结合所有 Worker 和 Master 日志，按时间线串联。",
+        "how_used_in_diagnosis": "作为集群事件检查清单；本样本没有 ETCD 事件证据，未采纳。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "知识可靠但与本次可观测证据不直接匹配。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "K_URMA_ERROR",
+          "1004",
+          "URMA"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 coordinator exit kvcache_access_022",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+        "how_used_in_diagnosis": "用于补充 URMA 设备与链路检查建议，不作为 Coordinator 退出证据。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与现场 1004 和 curated kvcache_access_022 一致。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "K_URMA_ERROR",
+          "1004"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 coordinator exit",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+        "how_used_in_diagnosis": "与已采用 Skill 内容重复，且 curated 解释更权威，未重复采用。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "内容与现场相符但没有新增信息。"
+      }
+    ],
+    "summary": {
+      "total_references": 4,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 1,
+      "considered_not_adopted_count": 3,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于形成和筛除假设及补充处置建议；主结论依据用户指定标签源与本次现场 API 证据。"
+    }
+  }
+}

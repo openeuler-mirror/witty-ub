@@ -1,0 +1,477 @@
+{
+  "report": {
+    "title": "KVCache Worker 进程反复重启诊断报告",
+    "report_id": "diag-4939253b-worker-repeat-exit-20260930",
+    "generated_at": "2026-11-12 15:00:00"
+  },
+  "basic_info": {
+    "kb_id": "4939253b-cf56-4cfa-9c57-30d30037d81f",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_repeat_exit_001_20260930_02_28_01",
+    "log_file": "lingqu_kvcache_dfx_worker_process_repeat_exit_001_20260930_02_28_01",
+    "operation": "GET（SET 无样本）",
+    "time_range_start": "2026-09-30 02:25:46",
+    "time_range_end": "2026-09-30 02:26:06",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 0,
+    "fault_ratio": "0.00（结构化故障表；原始日志另有 1 条 1001）",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个疑似主故障：按指定训练标签归类为 Worker 进程反复重启；现场仅确认 GET EXIST 返回 1001，重启次数与直接退出诱因仍待平台侧证据闭环。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "原始客户端日志中 1 条 GET EXIST 请求在约 10.17 秒后返回 1001；结构化故障事件为 0，SET 无样本。",
+    "confidence": "中 62%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Worker 进程反复重启导致短时不可服务（待生命周期证据确认）",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 62,
+      "category": "error",
+      "affected_scope": "GET EXIST；客户端 Pod 192.168.235.145；2026-09-30 02:26:06 单点超时",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程反复重启",
+        "one_line_conclusion": "训练描述 worker_process_repeat_exit 固定映射为 Worker故障/Worker故障-进程反复重启；本次现场确认客户端 GET EXIST 返回 1001，但缺少 Worker 启停与容器重启记录，根因保持疑似。",
+        "fault_domain": "Worker故障/Worker故障-进程反复重启",
+        "fault_component": "KVCache Worker 进程生命周期",
+        "fault_function": null,
+        "fault_function_loc": null,
+        "affected_scope_pct": null,
+        "affected_scope_desc": "1 个客户端 Pod 的 1 条 GET EXIST 原始日志；无 SET 证据，不能外推到写路径",
+        "confidence": "中 62%",
+        "key_findings": [
+          "训练清单中的日志路径对应描述为 worker_process_repeat_exit，gt_labels.json 固定映射到 Worker故障-进程反复重启。",
+          "原始 ds_client_access_7831.log 在 02:26:06.290 记录状态码 1001、DS_KV_CLIENT_EXIST、耗时 10171us，并出现 RPC deadline exceeded / API deadline exceeded。",
+          "Curated 状态码知识确认 1001 为 K_RPC_DEADLINE_EXCEEDED，但其根因可能是网络、服务端处理或本地等待超期，不能单凭该码唯一证明 Worker 重启。",
+          "三个 Worker kvcache.INFO.log 与 coordinator 日志均为空，无法核对启动 banner、PID 更替、退出信号、restartCount 或 OOM 记录。",
+          "GET /stats/stages 仅保留另一条状态码 0 的 22.639ms GET 异常样本；SET 样本为 0，且结构化故障码统计为空。"
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 标签核对",
+            "title": "固定故障标签为 Worker 进程反复重启",
+            "description": "train_valid.md 将本资产路径映射到 worker_process_repeat_exit；按用户约束从 gt_labels.json 取得 Worker故障/Worker故障-进程反复重启，不用文件名自行推断标签。",
+            "evidence": "[/home/witty-ub-logs/data/train_valid.md:192；/home/witty-ub-logs/gt_labels.json:166-169]",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 现场表现",
+            "title": "GET EXIST 请求发生 RPC 截止超时",
+            "description": "客户端 192.168.235.145 的 DS_KV_CLIENT_EXIST 请求返回 1001，耗时约 10.17 秒；INFO 日志同步记录 RPC deadline exceeded。",
+            "evidence": "[本地原始日志] ci-kvclient-worker1-1/ds_client_access_7831.log:2；ds_client_7831.INFO.log:1",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 状态码解释",
+            "title": "1001 只证明超期，不唯一指向进程重启",
+            "description": "Curated 知识将 1001 解释为 RPC 调用超过截止时间，候选包括网络、服务端处理或本地等待未在期限内完成。",
+            "evidence": "[GET /failure_mode/status_code/1001] symptom/root_cause",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 结构化反证",
+            "title": "数据库未保留该 1001 trace",
+            "description": "按原始 trace_id 直查 /trace/list、list_log_events、list_trace_events 与 log_parse_result/list 均返回 404；/stats/error_codes 与时间聚合结果均为 0。因此不能把另一条 22.639ms、status=0 的解析异常当成本故障证据。",
+            "evidence": "[POST /trace/list 等四接口] trace_id=09612860-653f-4fb2-8096-b19168886471 返回 Trace不存在；[POST /stats/error_codes] GET/SET total=0",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 生命周期证据检查",
+            "title": "Worker 重启直接证据缺失",
+            "description": "三个 Worker INFO 文件和 coordinator INFO 文件均为空，当前资产无法证明 PID 多次更替、容器 restartCount 增长、退出码或 OOM/SIGKILL。历史案例只作为待验证假设。",
+            "evidence": "[本地文件核验] ci-worker-worker1-1、ci-worker-worker2-1、ci-worker-master-1 的 kvcache.INFO.log 均为 0 行",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑥ 综合定界",
+            "title": "Worker 反复重启为最优先验证假设",
+            "description": "固定标签、客户端超时表现与已确认历史案例方向一致，但现场证据不足以确认反复重启及其底层诱因；故障状态标记为 suspected，禁止进一步断言网络、OOM 或探针杀进程。",
+            "evidence": "[diag_case_library] UB-CASE-002626；本次现场原始日志与证据缺口交叉核对",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "尚未确认。当前最优先验证 Worker 进程反复重启或短时不可服务；已确认事实仅为 GET EXIST 的 1001 RPC 截止超时。",
+        "supporting_knowledge": "Curated status_code=1001；已人工确认案例 UB-CASE-002626（仅作待验证假设）；本地经验 ds-worker-log-analysis。"
+      },
+      "evidence_traces": [],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "status_code:1001",
+          "stars": "★★★★★",
+          "match_logic": "L1 命中状态码 1001；L2 仅定位到 GET RPC 截止超时，不能确定 Worker 生命周期域；L3/L5 命中原文 RPC deadline exceeded。",
+          "symptom": "请求返回 K_RPC_DEADLINE_EXCEEDED，RPC 调用超过截止时间。",
+          "root_cause": "网络、服务端处理或本地等待未能在用户请求的 RPC 期限内完成。",
+          "solution": "围绕同一时间窗补查 Worker 生命周期、网络与服务端处理证据，不能只靠放大超时时间。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "解释已采用，根因未直接采用",
+          "phenomenon_fit": "状态码和错误短语完全一致。",
+          "log_fit": "本地 access/INFO 日志均出现 1001 与 RPC deadline exceeded。",
+          "rc_consistency": "与 Worker 重启假设兼容但不具有唯一性。",
+          "env_diff": "Curated 条目为通用错误码解释。",
+          "adaptation": "必须补充本资产 Worker/container 生命周期证据。",
+          "applicability": "reference"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002626",
+          "stars": "★★★★☆",
+          "match_logic": "L1 命中 1001；L2 操作域为 MIXED 对本次 GET 仅部分命中，故障域标签同为 Worker故障-进程反复重启；L5 未命中案例专属生命周期证据，本次也缺少 Worker 启停日志。",
+          "symptom": "Worker 可用性波动伴随约 10 秒 RPC 截止超时，Worker 日志为空。",
+          "root_cause": "案例也将 Worker 进程反复重启保留为优先验证假设，而非仅凭 1001 确认。",
+          "solution": "检查 restartCount、lastState、PID/启动时间、退出码、OOM 与探针事件，并补采 Worker 日志。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "部分采用并已回写命中",
+          "phenomenon_fit": "同为 1001、约 10 秒超时和 Worker 日志缺失。",
+          "log_fit": "本次只有一个日期单点，不具备案例的跨日期重复证据。",
+          "rc_consistency": "方向一致，但本次缺少独立生命周期证明。",
+          "env_diff": "案例为 MIXED 操作，本次仅观测 GET；样本规模也更小。",
+          "adaptation": "仅复用核验步骤，不直接复制根因确认程度。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "③",
+          "id": "experience:a0227481-5a5a-4b93-8fb7-de128596e844",
+          "stars": "★★★☆☆",
+          "match_logic": "L1 对 1001 给出网络、负载、线程池排查方向；L2 命中 Worker 生命周期检查；L3/L5 仅有通用日志模式，未命中本次直接退出日志。",
+          "symptom": "Worker 异常退出或重启恢复需要结合最后 ERROR/FATAL、lease、信号和平台日志判断。",
+          "root_cause": "经验未给出本次根因，只提供检查框架。",
+          "solution": "同时查看同节点 container.log、dmesg/systemd，并区分正常重启与异常退出。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "仅采用排查建议",
+          "phenomenon_fit": "适用于 Worker 生命周期故障排查。",
+          "log_fit": "本次 Worker 日志为空，无法匹配其关键启动/退出模式。",
+          "rc_consistency": "不冲突，但不能作为现场证据。",
+          "env_diff": "经验基于 yuanrong-datasystem 0.8.1.rc20，现场版本未知。",
+          "adaptation": "先取得平台层生命周期数据后再应用日志模式。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "P0：查询相关 Worker Pod 的 restartCount、lastState.terminated.reason、exitCode、当前/前一实例 PID 与启动时间，并与 2026-09-30 02:26:06 对齐。",
+          "P0：补采三个 Worker 的 container.log、完整 kvcache.INFO、Kubernetes Events，以及宿主机 dmesg/OOM killer/systemd 日志；当前资产中的 Worker INFO 均为空。",
+          "若确认 restartCount 持续增长，先保留退出现场并隔离异常实例，检查 liveness/readiness 探针、资源限制与退出信号，避免自动拉起风暴扩大影响。",
+          "并行核查网络与 RPC 队列/线程池，因为 1001 的 curated 解释不唯一；不要仅通过增大 deadline 掩盖问题。"
+        ],
+        "long_term": [
+          "建立 Worker 启动次数、退出码、OOM、探针失败、lease 续约失败与 RPC 1001 的统一时间线告警。",
+          "将 Worker 生命周期日志和容器事件设为训练资产必采项，并校验非空，避免只能从客户端侧反推。",
+          "为连续重启设置抑制与熔断策略：达到阈值后停止盲目拉起、隔离实例并触发人工处置。"
+        ],
+        "verification": [
+          "证据闭环标准：同一 Worker 在故障窗存在至少两次启动/PID 更替或 restartCount 增长，并有对应退出原因。",
+          "处置后持续观察至少 30 分钟，确认 restartCount 不再增长、Worker readiness 稳定且 GET EXIST 不再返回 1001。",
+          "分别复测 GET 与 SET；当前 SET 无样本，恢复结论不得只依赖 GET。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "取得 Worker/container 生命周期证据并对齐 02:26:06。",
+      "depends_on": "Kubernetes/容器平台与宿主机只读日志权限",
+      "expected_effect": "确认或排除反复重启，并获得退出直接诱因。",
+      "verify": "restartCount、PID 时间线、exitCode/terminated.reason 与客户端 1001 时间窗形成闭环。"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "若存在重启风暴，隔离异常实例并修正探针、资源或退出触发因素。",
+      "depends_on": "完成现场保全，避免销毁退出证据",
+      "expected_effect": "停止连续拉起与短时不可服务。",
+      "verify": "30 分钟内 restartCount 不再增长，readiness 稳定。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "补齐 GET/SET 双路径回归与统一生命周期告警。",
+      "depends_on": "Worker 恢复稳定",
+      "expected_effect": "确认读写面均恢复并提升后续定界可观测性。",
+      "verify": "GET EXIST 与 SET 回归成功，1001 归零，生命周期日志完整。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—（接口仅提供 P90/max）",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": "100.0",
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "1/1 样本被标记异常",
+            "fail_share": null,
+            "status": "warn",
+            "fault": null,
+            "detail": "状态码 0，证据耗时 P90/max 均为 22.639ms；这是 02:25:46 的另一条解析异常，不作为 F01 的 1001 或 Worker 重启证据。"
+          }
+        ],
+        "conclusion": "GET 归因子集仅 1 条且落在 cross_window；归因桶占比是参与分类样本计数占比，不是耗时占比。该样本与 02:26:06 的 1001 trace 不同，不能据此确认 F01 根因。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "SET sample_cnt=0，无可用写路径归因样本；未跨 operation 混桶，也不外推 GET 结论。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 0,
+    "top_error_codes": [],
+    "top_failure_domains": [],
+    "top_pods": [],
+    "top_hosts": [],
+    "time_heatmap": []
+  },
+  "workflow": {
+    "session_id": "diag-4939253b-20261112",
+    "total_steps": 7,
+    "api_calls": 37,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": ["experience-skill search-experiences: KVCache Worker 进程反复重启 repeat exit"],
+        "result": "命中 Worker 日志分析 Skill 与 Worker 错误模式 Wiki，作为先验排查框架。"
+      },
+      {
+        "title": "Step 2 标签与资产核验",
+        "api_calls": ["POST /log_kb/list", "GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "POST /task/list", "GET /log_parse_result/options"],
+        "result": "资产存在，日志任务 successful；train_valid 描述映射到 gt_labels 的 Worker故障-进程反复重启。"
+      },
+      {
+        "title": "Step 3 GET/SET 组件分诊",
+        "api_calls": ["POST /stats/stages operation=GET", "POST /stats/stages operation=SET", "POST /stats/error_codes|pods|links|heatmap"],
+        "result": "GET 仅 1 条 cross_window 解析异常；SET 0 样本；结构化故障码为 0。"
+      },
+      {
+        "title": "Step 4 Trace 与原始证据下钻",
+        "api_calls": ["POST /trace/list", "POST /log_failure_event_result/list_log_events", "POST /log_failure_event_result/list_trace_events", "POST /log_parse_result/list"],
+        "result": "解析异常 trace 可回取；原始 1001 trace 在四个结构化接口均不存在，转而核验资产中的原始客户端日志。"
+      },
+      {
+        "title": "Step 5 Curated 知识与反证",
+        "api_calls": ["GET /failure_mode/status_code/1001", "POST /log_failure_event_result/list_time_aggregated_failure_events"],
+        "result": "1001 仅能证明 RPC 截止超时；时间聚合无记录，Worker 空日志导致重启机理无法直接确认。"
+      },
+      {
+        "title": "Step 6 历史案例与二次经验检索",
+        "api_calls": ["POST /diag_case_library/search（match_cases.py）", "POST /diag_case_library/{case_id}/hit", "experience-skill 二次检索"],
+        "result": "UB-CASE-002626 与本次证据缺口最接近，按 adjust 采用核验步骤并完成命中回写。"
+      },
+      {
+        "title": "Step 7 报告生成",
+        "api_calls": [],
+        "result": "按 GET/SET 独立口径生成契约 JSON，待校验并渲染 HTML。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+        "keywords_matched": ["Worker", "异常退出", "重启", "1001"],
+        "search_query_used": "1001 RPC deadline exceeded Worker 反复重启 空日志",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "分析 Worker 日志时应同时查看同节点的 `container.log` 和系统日志（如 dmesg、systemd）。",
+        "how_used_in_diagnosis": "用于制定 Worker 生命周期补证与退出原因核验步骤。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "与本次 Worker INFO 为空的证据缺口直接对应。"
+      },
+      {
+        "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Worker 错误模式",
+        "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+        "keywords_matched": ["Worker", "1001", "后台线程"],
+        "search_query_used": "1001 RPC deadline exceeded Worker 反复重启 空日志",
+        "used_in_stage": "recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_RPC_DEADLINE_EXCEEDED=1001 | RPC 超时 | 检查网络、负载、线程池",
+        "how_used_in_diagnosis": "提醒并行核查网络、负载和线程池，避免把 1001 唯一归因到重启。",
+        "confidence_on_reference": 0.75,
+        "confidence_reason": "与 curated 对 1001 的多因解释一致。"
+      },
+      {
+        "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+        "experience_type": "SKILL",
+        "name": "ds-client-log-analysis",
+        "source_path": "data/skill_hub/ds-client-log-analysis/skill_def.md",
+        "keywords_matched": ["Client", "1001"],
+        "search_query_used": "1001 RPC deadline exceeded Worker 反复重启 空日志",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_RPC_DEADLINE_EXCEEDED=1001 | RPC 超时 | 检查 Worker 负载、网络延迟",
+        "how_used_in_diagnosis": "仅作为候选方向考虑；未获得负载和网络现场数据，未采纳为根因。",
+        "confidence_on_reference": 0.6,
+        "confidence_reason": "方向合理但本次无对应现场证据。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+        "keywords_matched": ["RPC deadline", "URMA"],
+        "search_query_used": "1001 RPC deadline exceeded Worker 反复重启 空日志",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "远端 Worker 重启会触发连接重建。",
+        "how_used_in_diagnosis": "考虑过传输连接重建假设，但本次没有 URMA/连接失效日志。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "缺少本次传输层现场证据。"
+      },
+      {
+        "experience_id": "a43dcf67-d3bb-4fb5-99ba-e47e6343ea7d",
+        "experience_type": "SKILL",
+        "name": "ds-shared-memory-diagnosis",
+        "source_path": "data/skill_hub/ds-shared-memory-diagnosis/skill_def.md",
+        "keywords_matched": ["共享内存", "1001"],
+        "search_query_used": "1001 RPC deadline exceeded Worker 反复重启 空日志",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "共享内存不可用，回退 RPC 超时",
+        "how_used_in_diagnosis": "未观测到共享内存建立或回退失败，未采用该路径。",
+        "confidence_on_reference": 0.45,
+        "confidence_reason": "本次 1001 日志未携带共享内存故障证据。"
+      },
+      {
+        "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+        "experience_type": "SKILL",
+        "name": "ds-cluster-management-diagnosis",
+        "source_path": "data/skill_hub/ds-cluster-management-diagnosis/skill_def.md",
+        "keywords_matched": ["Worker", "lease", "1001"],
+        "search_query_used": "KVCache Worker 进程反复重启 repeat exit",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "ETCD 方式需要外部 ETCD 集群；Metastore 方式由主节点 Worker 内置提供。",
+        "how_used_in_diagnosis": "考虑集群管理依赖，但资产无 lease/ETCD 失败日志，未采用。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "缺少 ETCD 或 lease 现场证据。"
+      },
+      {
+        "experience_id": "4cceeb69-c022-4e21-a00a-f440f681132e",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Client 错误模式",
+        "source_path": "data/wiki_hub/ds-client-error-patterns.md",
+        "keywords_matched": ["1001", "超时"],
+        "search_query_used": "1001 RPC deadline exceeded Worker 反复重启 空日志",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "超时（K_RPC_DEADLINE_EXCEEDED=1001 / K_WORKER_TIMEOUT=24）",
+        "how_used_in_diagnosis": "其解释未超过 curated 状态码知识，未单独用于根因。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "curated 解释更权威且已覆盖该含义。"
+      },
+      {
+        "experience_id": "862f89c4-27af-4ac8-90b9-266f48ff6b32",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 共享内存日志模式",
+        "source_path": "data/wiki_hub/ds-shared-memory-patterns.md",
+        "keywords_matched": ["共享内存", "Worker"],
+        "search_query_used": "KVCache Worker 进程反复重启 repeat exit",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Client 尝试连接到 Worker 的 fd 传递端点（SCMTCP 或 UDS）。",
+        "how_used_in_diagnosis": "本次无 fd 传递或共享内存错误，未采用。",
+        "confidence_on_reference": 0.35,
+        "confidence_reason": "与本次唯一 1001 证据关联弱。"
+      },
+      {
+        "experience_id": "e5945607-c7a2-4913-91ee-f350be409cbc",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 流缓存指标日志模式",
+        "source_path": "data/wiki_hub/ds-sc-metrics-patterns.md",
+        "keywords_matched": ["Worker"],
+        "search_query_used": "KVCache Worker 进程反复重启 repeat exit",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "sc_metrics.log 记录 Worker 上 stream 的运行数据",
+        "how_used_in_diagnosis": "资产无流缓存指标，且故障为 KV GET EXIST，未采用。",
+        "confidence_on_reference": 0.25,
+        "confidence_reason": "场景不匹配。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": ["1001", "URMA"],
+        "search_query_used": "1001 RPC deadline exceeded Worker 反复重启 空日志",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_RPC_DEADLINE_EXCEEDED=1001 | RPC 超时 | 检查网络、负载、线程池",
+        "how_used_in_diagnosis": "未观测到 URMA 失败或链路日志，未采用传输层根因。",
+        "confidence_on_reference": 0.45,
+        "confidence_reason": "通用 1001 方向成立，但缺少 URMA 现场证据。"
+      },
+      {
+        "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 访问日志模式",
+        "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+        "keywords_matched": ["access log", "1001"],
+        "search_query_used": "1001 RPC deadline exceeded Worker 反复重启 空日志",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "1000–1010：RPC/传输错误（如 K_RPC_DEADLINE_EXCEEDED=1001）",
+        "how_used_in_diagnosis": "访问日志格式已由现场直接解析，未额外采用其根因说明。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "可辅助格式识别，但不增加根因证据。"
+      }
+    ],
+    "summary": {
+      "total_references": 11,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 2,
+      "considered_not_adopted_count": 9,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于形成核验步骤和候选方向；现场事实、curated 状态码解释与历史案例分别表述，未把经验条目当成本次证据。"
+    }
+  }
+}

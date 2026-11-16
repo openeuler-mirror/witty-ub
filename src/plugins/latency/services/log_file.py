@@ -6,15 +6,12 @@ import ipaddress
 import json
 import logging
 import re
-import shutil
 import socket
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 from fastapi import UploadFile
-from sqlalchemy import select
 from latency.database.engine import PGManager
-from latency.database.models import Task
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.task import TaskPGManager
 from latency.database.managers.task_report import TaskReportPGManager
@@ -43,13 +40,15 @@ from latency.schemas.response import (
 from latency.ENUM.task import TaskTypeEnum, TaskStatusEnum
 from latency.task.task_handler import TaskHandler
 from latency.task.progress import parallel_overall_progress
-from latency.task.worker.base import BaseWorker
 from latency.task.log_preprocessor import (
     ARCHIVE_EXTENSIONS,
     WITTY_DIR_DEFAULT,
-    cleanup_preprocess_dir,
     get_archive_extension,
     is_valid_archive_file,
+)
+from latency.task.deletion import (
+    cleanup_log_artifacts,
+    default_upload_root,
 )
 from latency.common.zip_handler import ZipHandler
 from latency.exceptions import (
@@ -619,49 +618,39 @@ class LogFileService:
     @staticmethod
     async def delete_log_file_by_log_file_id(log_file_id: str) -> DeleteLogFilesMsg:
         logger.warning(f"==================== 开始删除日志文件: {log_file_id} ====================")
-        log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(log_file_id)
-        if not log_file_model or not getattr(log_file_model, "existed_status", True):
-            raise NotFoundBizException(resource="日志文件")
-        
-        # 直接查询该日志文件的所有任务（不分状态），参考删除资产库的实现
-        stmt = select(Task).where(Task.op_id == log_file_id)
-        async with PGManager.session() as session:
-            result = await session.execute(stmt)
-            tasks = result.scalars().all()
-        
-        logger.warning(f"找到 {len(tasks)} 个任务与日志文件 {log_file_id} 相关")
-        for task in tasks:
-            logger.warning(f"任务 {task.id} 状态: {task.status} 类型: {task.task_type}")
-            if task.status in [TaskStatusEnum.PENDING.value, TaskStatusEnum.RUNNING.value]:
-                logger.warning(f"正在停止任务 {task.id}")
-                stopped = await BaseWorker.stop(task.id)
-                if not stopped:
-                    raise RuntimeError(
-                        f"任务 {task.id} 的进程树未能确认终止，取消删除日志"
-                    )
-                logger.warning(f"已停止任务 {task.id}")
+        # Reserve priority before the first database await, so a concurrent
+        # task creation/dispatch cannot slip outside the deletion snapshot.
+        TaskHandler.reserve_deletion(log_ids={log_file_id})
+        tasks = []
+        try:
+            log_file_model = await LogFilePGManager.get_log_file_by_log_file_id(
+                log_file_id
+            )
+            if not log_file_model or not getattr(log_file_model, "existed_status", True):
+                raise NotFoundBizException(resource="日志文件")
 
-        # 所有数据库记录在同一事务内硬删除，避免部分提交后留下孤儿诊断数据。
-        deleted = await LogFilePGManager.hard_delete_log_file_with_related_data(
-            log_file_id
-        )
-        if not deleted:
-            raise NotFoundBizException(resource="日志文件")
-        
-        # 清理临时文件
-        preprocess_dir = cleanup_preprocess_dir(log_file_id)
-        if preprocess_dir:
-            logger.warning(f"已清理日志文件预处理目录: {preprocess_dir}")
-        else:
-            logger.warning(f"日志文件预处理目录不存在或清理失败: {log_file_id}")
-        
-        diagnosis_output_dir = os.path.join(witty_dir, "log_" + log_file_id[:8])
-        if os.path.exists(diagnosis_output_dir):
-            try:
-                shutil.rmtree(diagnosis_output_dir)
-                logger.warning(f"已清理诊断输出目录: {diagnosis_output_dir}")
-            except OSError as e:
-                logger.error("清理诊断输出目录 %s 失败: %s", diagnosis_output_dir, e)
+            # 删除屏障覆盖所有状态，包括 FAILED_PENDING_REMOVE 自动重试窗口。
+            tasks = await TaskPGManager.list_tasks_by_op_id(log_file_id)
+            logger.warning(f"找到 {len(tasks)} 个任务与日志文件 {log_file_id} 相关")
+            await TaskHandler.begin_deletion(tasks, log_ids={log_file_id})
+            # Writers have drained, so filesystem cleanup cannot race with retry.
+            # Delete files first: a cleanup error leaves DB metadata available for
+            # a safe retry instead of creating an unreachable orphan directory.
+            await asyncio.to_thread(
+                cleanup_log_artifacts,
+                log_file_model,
+                witty_dir=witty_dir,
+                upload_root=default_upload_root(),
+            )
+
+            # 所有数据库记录在同一事务内硬删除，避免部分提交后留下孤儿诊断数据。
+            deleted = await LogFilePGManager.hard_delete_log_file_with_related_data(
+                log_file_id
+            )
+            if not deleted:
+                raise NotFoundBizException(resource="日志文件")
+        finally:
+            TaskHandler.end_deletion(tasks, log_ids={log_file_id})
         
         logger.warning(f"==================== 完成删除日志文件: {log_file_id} ====================")
         return DeleteLogFilesMsg(log_file_ids=[log_file_id])

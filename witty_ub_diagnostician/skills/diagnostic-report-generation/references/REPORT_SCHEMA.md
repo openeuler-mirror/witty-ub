@@ -278,7 +278,7 @@
 | `root_cause_detail` | string | ❌ | 板块 4 `reasoning_chain[]` 逐级拼接（机理长文） |
 | `operation` | `GET`/`SET` | ❌ | 板块 1 `operation`；GET 与 SET 不许混写一条案例 |
 | `fault_type` | string | ✅ | 报告 `fault_type`：`latency` / `connectivity` / `mixed` / `unknown` |
-| `confidence` | number | ❌ | 板块 2 `confidence` 转 0~1 数值（如 `"高 92%"` → `0.92`）；仅知识库解释支撑的不得给高值 |
+| `confidence` | number | ❌ | 直接沿用板块 2 的 0~1 数值（如 `0.92`）；仅知识库解释支撑的不得给高值 |
 | `status_codes[]` | string[] | ❌ | 按顺序去重：对应故障 `error.breakdowns[].code_distribution.items[]` 中 `count > 0` 的 `code` → `evidence_traces[].status_code`；仅单故障旧报告才回落板块 6 `top_error_codes[].code`。均为**原始码**，不是名称；`other_count` 无具体码，不反推；不要把仅筛选但未观测到的码存为信号。信号权重 3.0 |
 | `failure_mode_ids[]` | string[] | ❌ | 板块 7 `knowledge_matches[].id`（故障模式 ID），信号权重 3.0 |
 | `latency_components[]` | string[] | ❌ | 取对应故障 `latency.stages[].features.bucket_key`（由 `latency_features.py` 从 `/stats/stages` 提取，如 `set_client` / `urma`）；**禁止**照抄阶段展示名（`URMA 网络`），否则 L2 信号全部打空（见 `CASE_FEATURE_CONTRACT.md` §三） |

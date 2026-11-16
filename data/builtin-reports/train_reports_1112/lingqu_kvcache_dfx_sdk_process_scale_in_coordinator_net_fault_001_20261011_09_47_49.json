@@ -1,0 +1,613 @@
+{
+  "report": {
+    "title": "Coordinator 网络不可用引发 SET 元数据 RPC 超时诊断报告",
+    "report_id": "report_b97bdd6f_20261112_coordinator_net_fault",
+    "generated_at": "2026-11-12T12:40:50+08:00"
+  },
+  "basic_info": {
+    "kb_id": "b97bdd6f-b6d7-435a-aa37-34f60569033a",
+    "kb_name": "lingqu_kvcache_dfx_sdk_process_scale_in_coordinator_net_fault_001_20261011_09_47_49",
+    "log_file": "lingqu_kvcache_dfx_sdk_process_scale_in_coordinator_net_fault_001_20261011_09_47_49 (log_id=8d9520b8-aa56-4779-9570-c2a81c082466)",
+    "operation": "GET / SET（独立分析）",
+    "time_range_start": "2026-10-11 09:47:40.505",
+    "time_range_end": "2026-10-11 09:53:42.136",
+    "total_trace_cnt": 9,
+    "fault_trace_cnt": 9,
+    "fault_ratio": "100%（解析出的 9 条 SET trace 均被标记为时延异常；非业务失败率）",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：Coordinator 网络不可用背景下，SET 写路径的 CreateMeta 到 master RPC 在 20 ms 截止时间内未返回，并伴随 9 条客户端 SDK 段长尾异常。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "SET 元数据创建出现 K_RPC_DEADLINE_EXCEEDED(1001)，同一观测窗口内 9 条 SET 请求时延为 35.459~59.045 ms；GET 无可归因样本。",
+    "confidence": 0.9
+  },
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复并核验 Coordinator/控制面网络可达性，同时检查 192.168.189.100:31501 到 192.168.235.172:31501 的 BRPC 链路、目标监听和 ScaleIn 时序。",
+      "depends_on": "保留 2026-10-11 09:49:41 前后网络、进程及交换机遥测",
+      "expected_effect": "CreateMeta RPC 不再超过 20 ms deadline，SET 1001 消失。",
+      "verify": "分别复测 GET/SET；SET status_code=1001 为 0，SET·客户端SDK段 P90 明显回落，Coordinator 健康检查持续成功。"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "为 ScaleIn 增加 quiesce→停止新路由→等待 inflight→撤销快照→下线的有序握手，并接入链路 flap/BRPC deadline 告警。",
+      "depends_on": "P1 恢复后",
+      "expected_effect": "避免缩容窗口中的旧路由和控制面短断放大为业务超时。",
+      "verify": "连续执行不少于 20 轮 ScaleIn 回归，GET/SET 错误码均为 0，路由快照无陈旧目标。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET /stats/stages 返回 sample_cnt=0，不能把空结果解释为 GET 健康，也不与 SET 混桶。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "SET·客户端SDK段",
+            "pct": 100.0,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p99": null,
+            "anomaly_rate": 100.0,
+            "fail_share": 100.0,
+            "status": "bottleneck",
+            "fault": "9/9 个分类样本均为异常标记；这是异常样本占比，不是请求失败率。",
+            "detail": "证据耗时 P50=49.828 ms、P90=58.991 ms、max=58.991 ms；Worker 内部仅 54~69 us，等待集中在 SDK 段（含数据面返回等待）。"
+          }
+        ],
+        "conclusion": "SET 的 9 条未截断分类样本全部落入 set_client，客户端 SDK 段（含等待数据面返回）为主导归因桶；/stats/stages 不提供 P99，报告不以 P90/max 冒充 P99。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": "9",
+    "top_error_codes": [],
+    "top_failure_domains": [],
+    "top_pods": [
+      {
+        "pod": "192.168.235.150",
+        "host": null,
+        "pct": 27.78,
+        "fault": "5 条异常 trace"
+      },
+      {
+        "pod": "192.168.235.172",
+        "host": null,
+        "pct": 22.22,
+        "fault": "4 条异常 trace"
+      },
+      {
+        "pod": "192.168.189.100",
+        "host": null,
+        "pct": 16.67,
+        "fault": "3 条异常 trace"
+      },
+      {
+        "pod": "192.168.189.66",
+        "host": null,
+        "pct": 16.67,
+        "fault": "3 条异常 trace"
+      },
+      {
+        "pod": "192.168.219.75",
+        "host": null,
+        "pct": 11.11,
+        "fault": "2 条异常 trace"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "09:47",
+        "level": 1,
+        "pct": 25.0,
+        "spike": false,
+        "lat_ms": null,
+        "fault": "1"
+      },
+      {
+        "time": "09:48",
+        "level": 3,
+        "pct": 100.0,
+        "spike": true,
+        "lat_ms": null,
+        "fault": "4"
+      },
+      {
+        "time": "09:49",
+        "level": 1,
+        "pct": 25.0,
+        "spike": false,
+        "lat_ms": null,
+        "fault": "1"
+      },
+      {
+        "time": "09:50",
+        "level": 2,
+        "pct": 50.0,
+        "spike": false,
+        "lat_ms": null,
+        "fault": "2"
+      },
+      {
+        "time": "09:53",
+        "level": 1,
+        "pct": 25.0,
+        "spike": false,
+        "lat_ms": null,
+        "fault": "1"
+      }
+    ]
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Coordinator 网络不可用导致 SET CreateMeta RPC 超时",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 0.9,
+      "category": "mixed",
+      "affected_scope": "SET 写路径；至少涉及 6 个 Pod/IP 端点，直接失败链路为 192.168.189.100:31501 → 192.168.235.172:31501。",
+      "conclusion": {
+        "first_level_label": "Coordinator故障",
+        "second_level_label": "Coordinator故障-网络不可用",
+        "one_line_conclusion": "Coordinator 网络不可用与 ScaleIn 场景叠加，造成 SET CreateMeta 到 master 的 BRPC deadline exceeded，并在客户端侧形成 35~59 ms 长尾。",
+        "fault_domain": "Coordinator故障/Coordinator故障-网络不可用",
+        "fault_component": "Coordinator/元数据控制路径（现场表现为 Worker→master CreateMeta BRPC）",
+        "fault_function": "CreateMeta RPC / ScaleIn 控制与路由更新",
+        "fault_function_loc": "worker_oc_service_publish_impl.h:186；object_client_impl.cpp:2841",
+        "affected_scope_pct": 100.0,
+        "affected_scope_desc": "解析出的 9 条 SET trace 全部为时延异常；仅代表本资产解析样本，不代表全量业务失败率。",
+        "confidence": 0.9,
+        "key_findings": [
+          "用户指定的 train_valid.md 路径映射到 gt_labels.json 的 sdk_process_scale_in_coordinator_net_fault，标签为 Coordinator故障/Coordinator故障-网络不可用。",
+          "09:49:41.772，trace=26a015ac-be1b-44fe-9b0d-8fd174399107 的 CreateMeta 从 192.168.189.100:31501 到 192.168.235.172:31501 超过 20 ms deadline，客户端上浮 DS_ERR:1001。",
+          "GET 独立归桶 sample_cnt=0；SET sample_cnt=9 且未截断，全部归入 set_client，P50=49.828 ms、P90=58.991 ms。",
+          "SET 的 Worker 内部处理仅约 54~69 us，而 SDK 段约 35~59 ms，排除 Worker 业务处理耗时主导。",
+          "故障事件 API 未收录该 warmup trace，/trace 与 /list_log_events 对其返回 404；原始日志提供第一手证据，报告保留此数据缺口。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET 异常样本",
+            "value": "9/9",
+            "sub": "归因样本，未截断",
+            "tone": "bad"
+          },
+          {
+            "label": "SET SDK段 P90",
+            "value": "58.991 ms",
+            "sub": "不是 P99",
+            "tone": "bad"
+          },
+          {
+            "label": "Client P90",
+            "value": "59.045 ms",
+            "sub": "同桶对照",
+            "tone": "warn"
+          },
+          {
+            "label": "GET 样本",
+            "value": "0",
+            "sub": "空结果不等于健康",
+            "tone": "neutral"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p99": null,
+            "baseline": null,
+            "ratio": null,
+            "share": 100.0,
+            "status": "bottleneck",
+            "detail": "9/9 条 SET 分类样本落入 set_client；阶段含 SDK 排队/重试与等待数据面返回，不能据此单独断言 SDK 进程自身故障。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "b97bdd6f-b6d7-435a-aa37-34f60569033a",
+                  "log_id": "8d9520b8-aa56-4779-9570-c2a81c082466",
+                  "operation": "SET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 9,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 9,
+              "normal_cnt": 0,
+              "anomalous_cnt": 9,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 49.828,
+                "p90_ms": 58.991,
+                "max_ms": 58.991,
+                "client_p50_ms": 49.892,
+                "client_p90_ms": 59.045
+              },
+              "tail_ratio_p90_p50": 1.183893,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 9",
+              "action": "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 侧排队/重试与端到端 deadline，再看 Worker 侧是否已返回。",
+              "top_traces": [
+                {
+                  "trace_id": "f1bdb732-3d9a-48f2-b1ea-b3257462b2e0",
+                  "evidence_ms": 58.991,
+                  "client_ms": 59.045
+                },
+                {
+                  "trace_id": "d78e3ef9-ecb1-48cc-839c-0fb44581b385",
+                  "evidence_ms": 58.431,
+                  "client_ms": 58.489
+                },
+                {
+                  "trace_id": "9574a6da-2671-4b05-83ba-197ed8097c0a",
+                  "evidence_ms": 52.718,
+                  "client_ms": 52.787
+                },
+                {
+                  "trace_id": "26ce5227-e9fd-4bc7-b643-44a118fb5ebf",
+                  "evidence_ms": 50.195,
+                  "client_ms": 50.254
+                },
+                {
+                  "trace_id": "075dcf71-1312-4115-9da3-c5212da20820",
+                  "evidence_ms": 49.828,
+                  "client_ms": 49.892
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "现场同时存在 1001 超时和 SET 时延异常。归因显示等待主要暴露在客户端 SDK 段，但原始日志把直接超时点进一步定位为 Worker→master 的 CreateMeta BRPC；两者构成上下游一致证据。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "数据核验",
+            "title": "解析任务完整",
+            "description": "日志任务 successful、overall_progress=100%，共解析 9 条 trace；但 trace_failure_event 侧未落库。",
+            "evidence": "GET /task/df5632eb-4ede-4405-b0f5-c31923322cb5；POST /log_file/list/...",
+            "confirmed": true
+          },
+          {
+            "step_label": "读写分流",
+            "title": "异常仅在 SET 样本可见",
+            "description": "GET sample_cnt=0；SET sample_cnt=9，全部归入 set_client，禁止跨 operation 混桶。",
+            "evidence": "POST /stats/stages，operation=GET/SET 各一次",
+            "confirmed": true
+          },
+          {
+            "step_label": "直接故障点",
+            "title": "CreateMeta 到 master 超过 20 ms deadline",
+            "description": "Worker 192.168.189.100:31501 调用 192.168.235.172:31501 的 CreateMeta，BRPC errno=1008 表示该 RPC 调用超时，业务状态上浮为 1001。",
+            "evidence": "ci-worker-worker2-1/kvcache.INFO.log:54；ci-kvclient-worker2-1/ds_client_75502.INFO.log:51-52",
+            "confirmed": true
+          },
+          {
+            "step_label": "标签核对",
+            "title": "训练标签指向 Coordinator 网络不可用",
+            "description": "按用户指定映射，train_valid.md 中该路径对应 sdk_process_scale_in_coordinator_net_fault；gt_labels.json 给出的标签为 Coordinator故障-网络不可用。标签用于分类，现场日志用于验证其后果。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md:109；/home/witty-ub-logs/gt_labels.json:258-260",
+            "confirmed": true
+          },
+          {
+            "step_label": "反证",
+            "title": "排除 URMA completion 超时和 Worker 业务执行主导",
+            "description": "GET urma_timeout 与 SET set_urma_timeout 均为 0；SET Worker 内部耗时仅微秒级，且多条相邻 CreateMeta 先成功后单次超时，更符合短时网络/可达性异常而非持续计算拥塞。",
+            "evidence": "POST /stats/stages；kvcache.INFO.log:46-54",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "证据边界",
+            "title": "物理链路机理仍需遥测闭环",
+            "description": "Coordinator 日志文件为空，且缺少 NIC、内核和交换机遥测；无法仅凭应用日志区分链路闪断、对端短暂停止监听或调度停顿。",
+            "evidence": "coordinator/ci-coodinator-0/kvcache_coordinator.INFO.log 为 0 行；options.hosts=[]",
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "按指定真值标签，主故障为 Coordinator 网络不可用。现场可确认的直接后果是 ScaleIn/元数据写路径中 Worker→master 的 CreateMeta BRPC 未在 20 ms 内完成并上浮 K_RPC_DEADLINE_EXCEEDED(1001)；具体物理网络失效机制因缺少 Coordinator/NIC/交换机遥测仍待闭环。",
+        "supporting_knowledge": "Curated 状态码 1001 表示 RPC 超过截止时间，已确认案例 UB-CASE-002633 说明 ScaleIn 短断可传播为 1001；本地经验 ds-cluster-management-diagnosis 建议联合 Master、源/目标节点和网络证据复核。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Coordinator 网络不可用",
+            "detail": "训练真值标签；控制/缩容路径可达性异常。"
+          },
+          {
+            "label": "ScaleIn 元数据/路由控制受扰",
+            "detail": "作为机理推断；本资产缺少直接 Coordinator 日志，不能把该节点当作独立现场事实。"
+          },
+          {
+            "label": "Worker→master CreateMeta BRPC 超时",
+            "detail": "192.168.189.100:31501 → 192.168.235.172:31501，20 ms deadline，业务码 1001。"
+          },
+          {
+            "label": "客户端 SET 失败与长尾",
+            "detail": "warmup 写失败；另有 9 条 SET trace 的客户端总时延 35.459~59.045 ms。"
+          }
+        ],
+        "impact_scope": [
+          "操作域：SET；GET 无归因样本，不能据此宣称 GET 不受影响。",
+          "空间范围：解析样本涉及 6 个 Pod/IP 端点，直接超时源目为 192.168.189.100→192.168.235.172。",
+          "时间范围：SET 异常 trace 分布在 09:47~09:53，直接 1001 证据发生于 09:49:41。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "f1bdb732-3d9a-48f2-b1ea-b3257462b2e0",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top-1；代表阶段耗时最极端请求，不代表总体严重度排序。",
+          "evidence_ms": 58.991,
+          "client_ms": 59.045,
+          "pod": "192.168.219.109, 192.168.235.172",
+          "timestamp": "2026-10-11 09:47:39.497"
+        },
+        {
+          "trace_id": "d78e3ef9-ecb1-48cc-839c-0fb44581b385",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top-2；代表阶段耗时极端请求，不代表业务失败。",
+          "evidence_ms": 58.431,
+          "client_ms": 58.489,
+          "pod": "192.168.189.66, 192.168.235.172",
+          "timestamp": "2026-10-11 09:49:43.064"
+        },
+        {
+          "trace_id": "9574a6da-2671-4b05-83ba-197ed8097c0a",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top-3；用于复核 SDK 等待与 Worker 微秒级处理差异。",
+          "evidence_ms": 52.718,
+          "client_ms": 52.787,
+          "pod": "192.168.235.150, 192.168.189.100",
+          "timestamp": "2026-10-11 09:48:43.252"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "status_code:1001",
+          "stars": 5,
+          "match_logic": "L1 命中：现场业务码 1001；L2 命中：SET 元数据 RPC 截止超时；L3 命中：源目链路与 CreateMeta 原文可复核。",
+          "symptom": "K_RPC_DEADLINE_EXCEEDED：RPC 调用超过截止时间。",
+          "root_cause": "Curated 解释为网络、服务端处理或本地等待未能在用户 RPC 期限内完成。",
+          "solution": "结合阶段耗时和原始日志继续区分网络、服务端执行与本地等待；本次已定位到 CreateMeta BRPC 20 ms deadline。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致",
+          "env_diff": "无",
+          "adaptation": "直接用于解释 1001，不把 BRPC errno=1008 误当作 KVC 业务码 1008。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 2,
+          "id": "UB-CASE-002633",
+          "stars": 3,
+          "match_logic": "L1 命中 1001；L2 命中 SET/MIXED 与 few_pods，未命中当前 set_client 阶段；L3/机理不命中：历史案例有 E110/旧快照，本次仅观测到 E1008 deadline。",
+          "symptom": "已确认历史案例：ScaleIn 期间 TCP 短时不可达并出现 1001。",
+          "root_cause": "历史案例为 Worker ScaleIn 期间 TCP 链路瞬态可达性丢失；它是待现场核对的类比，不是本次事实。",
+          "solution": "可复用其 ScaleIn quiesce、路由撤销和链路遥测思路，但不能直接复用其网卡闪断结论。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "参考",
+          "phenomenon_fit": "中",
+          "log_fit": "部分",
+          "rc_consistency": "方向一致但机理证据不同",
+          "env_diff": "历史案例有 E110、37、1002 和 NIC 闪断假设；本次没有这些信号。",
+          "adaptation": "仅采用 ScaleIn 顺序与遥测验证方案，必须补齐 Coordinator/NIC/交换机证据。",
+          "applicability": "reference"
+        },
+        {
+          "rank": 3,
+          "id": "experience:ds-cluster-management-diagnosis",
+          "stars": 3,
+          "match_logic": "L1 命中经验中的 K_RPC_DEADLINE_EXCEEDED=1001；L2 命中扩缩容/控制面域；L3 无具体拓扑匹配，经验仅作排查方法。",
+          "symptom": "本地经验指出扩缩容涉及节点状态、路由和元数据迁移，1001 需检查网络与控制面负载。",
+          "root_cause": "经验提出网络或控制面异常假设；本次由 CreateMeta 超时与真值标签支持，但经验本身不是现场证据。",
+          "solution": "联合源 Worker、目标 master、Coordinator 与网络遥测按同一时间线复核。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "建议采用",
+          "phenomenon_fit": "中",
+          "log_fit": "部分",
+          "rc_consistency": "与 curated 1001 解释一致",
+          "env_diff": "经验基于 datasystem 0.8.1.rc20，本资产日志显示 client 0.9.2。",
+          "adaptation": "保留其多节点时间线方法，不照搬 ETCD/lease 结论。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "暂停当前 ScaleIn，恢复 Coordinator/控制面网络，并确认相关健康检查、端口监听及路由更新恢复。",
+          "对 192.168.189.100:31501→192.168.235.172:31501 做连续 TCP/BRPC 探测；同步采集两端进程状态、线程栈、CPU throttling 与 socket 重传。",
+          "在恢复前隔离不可达节点，避免新的 SET CreateMeta 继续路由到异常目标；恢复后刷新路由/transport snapshot。"
+        ],
+        "long_term": [
+          "固化 ScaleIn 的 quiesce 和有序下线协议：停止新流量、等待 inflight、撤销路由与快照后再关闭监听。",
+          "接入 Coordinator 可达性、BRPC deadline、TCP retrans/drop、NIC carrier 与交换机端口 flap 的统一时间线告警。",
+          "补充 ScaleIn + 1~3 秒控制面网络短断故障注入回归，覆盖 GET/SET 独立验证和恢复时的快照刷新。"
+        ],
+        "verification": [
+          "GET/SET 分别复测：SET 1001=0，GET 无新增故障码；不得合并两种操作统计。",
+          "连续 20 轮 ScaleIn 中，CreateMeta BRPC 均在 deadline 内完成，SET set_client P90 回落且无 warmup failed。",
+          "对齐故障前后 5 秒的 Coordinator、Worker、内核、NIC 与交换机遥测，确认物理机理并更新根因闭环。"
+        ]
+      },
+      "source_code": null,
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "workflow": {
+    "session_id": "train-diagnosis-b97bdd6f",
+    "total_steps": 7,
+    "api_calls": 38,
+    "duration": "约 20 分钟",
+    "steps": [
+      {
+        "title": "经验预检索",
+        "api_calls": [
+          "experience-skill search-experiences (SKILL/WIKI)"
+        ],
+        "result": "命中扩缩容、集群管理经验"
+      },
+      {
+        "title": "资产与任务核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务 successful，解析 9 条 trace"
+      },
+      {
+        "title": "GET/SET 组件定位",
+        "api_calls": [
+          "POST /stats/stages ×2",
+          "POST /stats/error_codes|pods|links|heatmap ×8"
+        ],
+        "result": "GET 无样本；SET 全落 set_client"
+      },
+      {
+        "title": "Trace 与故障码下钻",
+        "api_calls": [
+          "POST /trace/list ×2",
+          "POST /log_parse_result/list",
+          "GET /trace/{id} ×4",
+          "POST /log_failure_event_result/*"
+        ],
+        "result": "9 条 SET 异常；故障事件侧为空"
+      },
+      {
+        "title": "原始日志与 Curated 核对",
+        "api_calls": [
+          "本地原始日志读取",
+          "GET /failure_mode/status_code/1001",
+          "GET /failure_mode/status_code/1008"
+        ],
+        "result": "确认 CreateMeta 1001；区分 errno 1008"
+      },
+      {
+        "title": "历史案例匹配",
+        "api_calls": [
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "UB-CASE-002633 仅作参考"
+      },
+      {
+        "title": "报告特征与契约",
+        "api_calls": [
+          "latency_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "待校验并渲染"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+        "experience_type": "SKILL",
+        "name": "ds-hash-ring-metadata-diagnosis",
+        "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "scale down",
+          "CreateMeta",
+          "master"
+        ],
+        "search_query_used": "1001 RPC deadline exceeded CreateMeta master scale down network failure",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "分析迁移问题时，需要同时查看源节点、目标节点和 Master 的日志。",
+        "how_used_in_diagnosis": "用于建议按多节点时间线补齐证据，不作为现场事实。",
+        "confidence_on_reference": 0.78,
+        "confidence_reason": "流程适用，但版本和现场日志覆盖不完全一致。"
+      },
+      {
+        "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+        "experience_type": "SKILL",
+        "name": "ds-cluster-management-diagnosis",
+        "source_path": "data/skill_hub/ds-cluster-management-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "1001",
+          "RPC deadline exceeded",
+          "扩缩容",
+          "网络"
+        ],
+        "search_query_used": "1001 RPC deadline exceeded CreateMeta master scale down network failure",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_RPC_DEADLINE_EXCEEDED=1001 | RPC 超时 | 检查网络、ETCD 负载",
+        "how_used_in_diagnosis": "辅助形成网络与控制面排查建议，curated 1001 解释优先。",
+        "confidence_on_reference": 0.82,
+        "confidence_reason": "与现场 1001 和扩缩容上下文一致。"
+      },
+      {
+        "experience_id": "4ddc5242-7261-4657-a860-78d518b063a3",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem ETCD 事件模式",
+        "source_path": "data/wiki_hub/ds-etcd-event-patterns.md",
+        "keywords_matched": [
+          "scale down",
+          "网络故障",
+          "节点事件"
+        ],
+        "search_query_used": "KVCache coordinator scale in network fault 连接失败 通断",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "当 Worker 与 ETCD 断开时，本地生成伪造 DELETE 事件，触发状态更新。",
+        "how_used_in_diagnosis": "现场未观测到 lease/DELETE 日志，因此未采用该机理。",
+        "confidence_on_reference": 0.35,
+        "confidence_reason": "与网络故障相关，但缺少本次 ETCD 现场证据。"
+      }
+    ],
+    "summary": {
+      "total_references": 3,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 2,
+      "considered_not_adopted_count": 1,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于提出排查方法和验证假设；根因与标签由现场日志、Curated 状态码和用户指定真值映射共同支撑。"
+    }
+  }
+}

@@ -1,0 +1,626 @@
+{
+  "report": {
+    "title": "KVCache 客户端单网卡 down 诊断报告（JSON）",
+    "report_id": "RPT-20261112-TCP1",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+        "keywords_matched": ["TCP", "连接失败", "传输层"],
+        "search_query_used": "KVCache TCP down 客户端进程 连接失败 通断",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Jetty 失效通常由远端 Worker 重启或网络抖动触发，需要观察是否自动恢复。",
+        "how_used_in_diagnosis": "作为连接失效候选签名清单；现场未见 Jetty 失效或重连日志，未用于根因确认。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "项目版本相关，但本次现场缺少该经验所列关键日志签名。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": ["TCP", "UB", "传输层"],
+        "search_query_used": "BRPC_RPC_FRAMEWORK_SLOW actual transport UB TCP down",
+        "used_in_stage": "recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "检查是否大量回退到 TCP（`enable_transport_fallback`）。",
+        "how_used_in_diagnosis": "用于建议复核传输回退与链路状态；不作为本次单网卡 down 的现场证据。",
+        "confidence_on_reference": 0.7,
+        "confidence_reason": "建议与传输链路排查相关，但代表 trace 实际显示 actual transport: UB。"
+      }
+    ],
+    "summary": {
+      "total_references": 2,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 1,
+      "considered_not_adopted_count": 1,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库用于补充传输链路验证项；所有根因判断仍以本资产库 API 现场证据为准。"
+    }
+  },
+  "basic_info": {
+    "kb_id": "142fc7c1-6fb3-4a4a-83e7-c42621c849f5",
+    "kb_name": "lingqu_kvcache_dfx_client_process_tcp_down_001_20261016_16_47_18",
+    "log_file": "lingqu_kvcache_dfx_client_process_tcp_down_001_20261016_16_47_18",
+    "operation": "GET / SET（独立分析）",
+    "time_range_start": "2026-10-16 16:45:00",
+    "time_range_end": "2026-10-16 16:47:59",
+    "total_trace_cnt": 1000,
+    "fault_trace_cnt": 548,
+    "fault_ratio": "54.80",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个疑似硬件网络故障：外部标签指向客户端单网卡 down；现场确认同窗 GET/SET 异常，但缺少网卡 carrier/端口计数器，根因尚待硬件侧闭环。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "1000 条参与归因的 trace 中 548 条被标记异常；GET 283 条、SET 265 条，涉及 4 个 Pod IP。",
+    "confidence": "中 60%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "客户端单网卡 down 候选与短时 GET/SET 时延异常",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 60,
+      "category": "latency",
+      "affected_scope": "集群 zzz-kv-ds-1；4 个 Pod IP；2026-10-16 16:45-16:47；548 条异常 trace",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-单网卡down",
+        "one_line_conclusion": "按 train_valid.md 的日志描述 client_process_tcp_down 映射 gt_labels.json，故障标签为硬件故障/网卡故障-单网卡down；现场 API 仅确认短时跨操作时延异常，未直接捕获网卡 down 事件。",
+        "fault_domain": "硬件故障/网卡故障-单网卡down",
+        "fault_component": "客户端 TCP 网卡链路（待硬件遥测确认）",
+        "fault_function": null,
+        "fault_function_loc": null,
+        "affected_scope_pct": "54.80",
+        "affected_scope_desc": "GET 283/732、SET 265/268 归因样本被标记异常；多 Pod 统计存在重复计数",
+        "confidence": "中 60%",
+        "key_findings": [
+          "日志文件解析任务 successful，1000 条 trace 参与 GET/SET 独立归因，数据可用于诊断。",
+          "GET 异常集中在 16:45-16:47，283 条；cross_window 占 66.26%，data_worker 占 33.47%，URMA 占 0.27%。",
+          "SET 异常集中在 16:46，265 条；set_client 占 97.39%，该桶证据耗时 P90=16.908ms、最大=52.982ms。",
+          "GET/SET 的 /stats/error_codes 与时间聚合故障事件均为空，代表 trace failure_codes 为空且 access 状态码为 0。",
+          "代表 GET trace 显示 actual transport: UB 且成功返回；因此 TCP 单网卡 down 由指定标签给出，尚缺现场 carrier、NIC 计数器或明确断链日志闭环。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "异常 trace",
+            "value": "548 / 1000",
+            "sub": "GET 283；SET 265",
+            "tone": "danger"
+          },
+          {
+            "label": "SET 客户端段 P90",
+            "value": "16.908ms",
+            "sub": "最大 52.982ms；261 条归入 set_client",
+            "tone": "danger"
+          },
+          {
+            "label": "GET Data Worker P90",
+            "value": "2.544ms",
+            "sub": "最大 5.208ms；245 条归入 data_worker",
+            "tone": "warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "GET·Client/Worker交叉窗口未细分",
+            "p50": "1.951ms",
+            "p90": "2.011ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "66.26%",
+            "status": "warn",
+            "detail": "485/732 条归入该桶，其中 76 条异常；接口不提供 P99，未以 max 冒充。"
+          },
+          {
+            "name": "GET·Data Worker服务端处理",
+            "p50": "1.549ms",
+            "p90": "2.544ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "33.47%",
+            "status": "warn",
+            "detail": "245/732 条归入该桶，其中 205 条异常；最大证据耗时 5.208ms。"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p50": "4.513ms",
+            "p90": "16.908ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "97.39%",
+            "status": "bottleneck",
+            "detail": "261/268 条归入该桶，其中 258 条异常；最大证据耗时 52.982ms。"
+          }
+        ],
+        "conclusion": "GET 与 SET 口径独立：GET 主要落在 cross_window/data_worker，SET 几乎全部落在 set_client。现场可确认短时长尾与客户端等待，但无 P99、基线和 NIC 遥测，不能仅凭时延确认单网卡 down。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析任务成功且异常样本非空",
+            "description": "日志文件 overall_status=successful，解析任务完成；GET 732 条、SET 268 条参与归因，合计 1000 条。",
+            "evidence": "GET /log_kb/{kb_id}；POST /log_file/list/{kb_id}；GET /task/{task_id}；POST /stats/stages(GET/SET)",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 时间与范围",
+            "title": "GET/SET 在同一短窗集中异常",
+            "description": "GET 异常分布于 16:45-16:47，SET 异常集中于 16:46；故障范围涉及 4 个 Pod IP 和多个源目对。",
+            "evidence": "POST /stats/heatmap(GET/SET)；POST /stats/pods(GET/SET)；POST /stats/links(GET/SET)",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 阶段定位",
+            "title": "SET 客户端等待最突出",
+            "description": "SET 的 set_client 桶占 97.39%，P90=16.908ms、最大=52.982ms；Worker 侧处理为百微秒量级，额外等待主要留在客户端段。",
+            "evidence": "POST /stats/stages operation=SET；POST /log_parse_result/list；trace_id=c32c5b4f-254d-48c5-b39b-d86fd0d5d340",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "未发现通断错误码或明确 TCP 断链签名",
+            "description": "两种 operation 的 Top 错误码和时间故障聚合均为空；代表 trace failure_codes=[]，access 状态码为 0，GET 日志还显示 actual transport: UB。故不能把时间共现直接升级为已确认 TCP 网卡 down。",
+            "evidence": "POST /stats/error_codes(GET/SET)；POST /log_failure_event_result/list_time_aggregated_failure_events(GET/SET)；GET /trace/{trace_id}；POST /log_failure_event_result/list_log_events",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 标签与候选根因",
+            "title": "外部标签映射为单网卡 down，现场证据待补齐",
+            "description": "train_valid.md 将本路径映射为 client_process_tcp_down，gt_labels.json 将其映射为硬件故障/网卡故障-单网卡down。该标签按用户要求写入报告，但网卡 carrier、端口状态与计数器尚未由诊断 API 提供。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md:38；/home/witty-ub-logs/gt_labels.json:422-425",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "supporting_knowledge": "经验库 ds-rdma-transport-diagnosis 与 ds-rdma-transport-patterns 仅用于列出连接失效、回退和链路复核项；历史案例 UB-CASE-002632 仅 L2 阶段部分相似，不能替代本次现场证据。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "候选起点：客户端单网卡 down",
+            "detail": "来自指定训练标签；需 ethtool/ip-link/carrier 证据确认",
+            "type": "origin",
+            "transition": "可能造成 TCP 控制/数据路径不可达或重试"
+          },
+          {
+            "label": "客户端等待与阶段残差抬升",
+            "detail": "SET set_client 占 97.39%；GET cross_window/data_worker 为主",
+            "transition": "短窗内形成长尾",
+            "type": null
+          },
+          {
+            "label": "GET/SET 异常 trace 集中",
+            "detail": "GET 283 条、SET 265 条；未观察到业务错误码",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "Cluster: zzz-kv-ds-1",
+          "Pod IP: 192.168.235.146、192.168.219.103、192.168.219.105、192.168.235.136",
+          "GET 主链路: 192.168.235.146 → 192.168.219.105",
+          "时间窗: 2026-10-16 16:45:00-16:47:59"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "c32c5b4f-254d-48c5-b39b-d86fd0d5d340",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top1；该桶 P90=16.908ms，非故障严重度排序",
+          "evidence_ms": 52.982,
+          "client_ms": 53.373
+        },
+        {
+          "trace_id": "b71a0b3b-674c-46fb-8f58-4a7cf300c233",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top2；用于复核客户端等待，非故障严重度排序",
+          "evidence_ms": 50.896,
+          "client_ms": 51.294
+        },
+        {
+          "trace_id": "5b99a446-e83d-4079-9328-d0d02cc2116c",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top3；用于复核客户端等待，非故障严重度排序",
+          "evidence_ms": 45.866,
+          "client_ms": 46.269
+        },
+        {
+          "trace_id": "b3a1a003-c4a3-4a25-9975-e8b3f7c87198",
+          "kind": "latency",
+          "why": "GET·data_worker 桶内证据耗时 Top1；成功返回且状态码 0，非故障严重度排序",
+          "evidence_ms": 5.208,
+          "client_ms": 6.563
+        },
+        {
+          "trace_id": "a352cd15-1f08-44d4-9536-351965983a5b",
+          "kind": "latency",
+          "why": "GET·urma 桶内证据耗时 Top1；日志显示 actual transport: UB，非故障严重度排序",
+          "evidence_ms": 3.611,
+          "client_ms": 5.464
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002632",
+          "stars": "★★★☆☆",
+          "match_logic": "L1: 本次无错误码/故障模式，未命中；L2: GET cross_window 与 SET set_client 阶段部分命中；L3: 历史案例为跨节点 TCP/RPC，本次 SET Top 链路多为 src=dst，拓扑不一致。",
+          "symptom": "历史案例表现为跨节点 TCP/RPC 路径高时延，GET 与 SET 同窗长尾。",
+          "root_cause": "历史案例指向跨节点 TCP/RPC 等待，但具体网卡端口仍需 NIC 指标确认。",
+          "solution": "仅复用其 NIC 计数器、重传和队列指标采集方法，不复用根因结论。",
+          "phenomenon_fit": "阶段桶和多操作短时异常部分相似。",
+          "log_fit": "本次没有其 RPC 截止超时或明确 TCP 跨节点签名。",
+          "rc_consistency": "待验证，不能确认一致",
+          "env_diff": "IP、拓扑和错误码证据均不同。",
+          "adaptation": "先确认客户端物理 NIC 与路由，再按实际网卡采集计数器。",
+          "applicability": "reference"
+        },
+        {
+          "rank": "②",
+          "id": "experience:443f893e-644d-441e-a551-ef1fdaabb2f6",
+          "stars": "★★☆☆☆",
+          "match_logic": "L1: 无错误码可匹配；L2: 仅传输层概念相关；L3: 未观测 Jetty 失效、连接重建或 TCP fallback，代表 GET trace 反而显示 actual transport: UB。",
+          "symptom": "经验库总结 URMA/RDMA 连接失效、重建与 TCP 回退的日志模式。",
+          "root_cause": "可用于提出网络链路或远端状态候选，不构成本次现场事实。",
+          "solution": "检查传输回退配置、连接重建日志及两端链路状态。",
+          "phenomenon_fit": "仅网络传输方向相关。",
+          "log_fit": "关键签名未命中。",
+          "rc_consistency": "证据不足",
+          "env_diff": "经验面向 URMA/RDMA 与 TCP 回退，本次无明确回退记录。",
+          "adaptation": "将其作为反证清单和补采清单使用。",
+          "applicability": "reference"
+        },
+        {
+          "rank": "③",
+          "id": "curated:none",
+          "stars": "☆☆☆☆☆",
+          "match_logic": "L1: /stats/error_codes 与 trace failure_codes 均为空；L2: 无 failure_mode_id；L3: 因此没有可查询并命中的 curated 状态码/故障模式。",
+          "symptom": "本次没有可用于 curated 查询的状态码或 failure_mode_id。",
+          "root_cause": "curated 知识库未形成匹配，不可据此推断系统健康或确认根因。",
+          "solution": "先补采网卡、链路和断链日志，再根据新出现的状态码或模式查询 curated 知识。",
+          "applicability": "not_recommended"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在客户端所在节点核对 TCP 业务网卡 `ip -br link`、`cat /sys/class/net/<nic>/carrier` 与 `ethtool <nic>`，确认是否存在单网卡 DOWN/NO-CARRIER，并记录故障窗前后状态。",
+          "同步采集两端 `ip -s link`、`ethtool -S <nic>`、`nstat`、`ss -ti` 和交换机端口状态，核对 drop/error/retransmit/CRC 是否在 16:45-16:47 增长。",
+          "核对路由和多网卡绑定，确认 192.168.235.146→192.168.219.105 的 GET 路径以及 SET 客户端使用的物理 NIC；不要仅凭 Pod IP 推断网卡。",
+          "若确认单网卡 down，切换到健康链路或恢复接口/交换机端口后，使用同样 8MiB GET/SET 负载复测。"
+        ],
+        "long_term": [
+          "为客户端双网卡的 carrier、链路状态、CRC/drop/retransmit 和路由切换建立统一监控，并与 trace_id 时间窗关联。",
+          "完善 SET 客户端段的 URMA/TCP/排队子阶段观测，避免 set_client 粗桶无法区分数据面等待、回退和本地调度。",
+          "将 TCP fallback、连接重建和网卡 down 事件写入可关联 trace 的结构化日志。"
+        ],
+        "verification": [
+          "硬件闭环：可疑网卡恢复为 UP 且 carrier=1，交换机对应端口状态正常，错误计数不再增长。",
+          "业务闭环：连续 30 分钟 `/stats/heatmap` 无同类异常簇发，SET set_client 的 P90 明显回落且无 40ms 以上 Top trace。",
+          "对照闭环：逐网卡 A/B 隔离复测；异常只随可疑网卡出现，切换健康网卡后消失，方可确认单网卡 down 因果。",
+          "通断闭环：复测 `/stats/error_codes` 与代表 trace，确认无新增错误码，并保留 NIC 遥测作为独立证据。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "补采并确认客户端物理网卡 carrier、NIC 错误计数和交换机端口状态。",
+      "depends_on": "获取 Pod IP 到宿主机物理 NIC 的映射",
+      "expected_effect": "把外部单网卡 down 标签转化为可复核的现场硬件证据。",
+      "verify": "carrier/端口状态与 16:45-16:47 异常窗对齐，且 A/B 隔离可复现。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "恢复或切换可疑 TCP 网卡后重放同规模 GET/SET 请求。",
+      "depends_on": "完成网卡定位并准备健康备用链路",
+      "expected_effect": "GET/SET 短时长尾消失，SET 客户端等待恢复。",
+      "verify": "连续 30 分钟无异常簇发，SET set_client P90 回落且 Top trace 不再超过 40ms。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": "66.26",
+            "cls": "s-warn"
+          },
+          {
+            "name": "Data Worker服务端处理",
+            "pct": "33.47",
+            "cls": "s-warn"
+          },
+          {
+            "name": "URMA",
+            "pct": "0.27",
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "RPC网络",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "归因桶 trace_cnt=0。"
+          },
+          {
+            "name": "RPC排队",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "归因桶 trace_cnt=0。"
+          },
+          {
+            "name": "QueryMeta",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "归因桶 trace_cnt=0。"
+          },
+          {
+            "name": "URMA",
+            "p99": "—",
+            "anomaly_rate": "100%",
+            "fail_share": "0.71%",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "2 条且均异常；P90=3.611ms，接口不提供 P99。"
+          },
+          {
+            "name": "Data Worker服务端处理",
+            "p99": "—",
+            "anomaly_rate": "83.67%",
+            "fail_share": "72.44%",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "245 条中 205 条异常；P90=2.544ms。"
+          },
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "15.67%",
+            "fail_share": "26.86%",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "485 条中 76 条异常；P90=2.011ms。"
+          },
+          {
+            "name": "未解释残差",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "归因桶 trace_cnt=0。"
+          },
+          {
+            "name": "URMA超时",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "未观测 URMA_WAIT_TIMEOUT。"
+          }
+        ],
+        "conclusion": "GET 732 条样本未截断；异常主要分布在 data_worker 与 cross_window。share_bar 是归因样本占比，不是耗时占比。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "客户端SDK段",
+            "pct": "97.39",
+            "cls": "s-bottleneck"
+          },
+          {
+            "name": "未解释残差",
+            "pct": "2.61",
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "未观测 timeout 文本命中。"
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "归因桶 trace_cnt=0。"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "anomaly_rate": "100%",
+            "fail_share": "2.64%",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "7 条且均异常；P90=1.102ms。"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "98.85%",
+            "fail_share": "97.36%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "261 条中 258 条异常；P90=16.908ms，最大=52.982ms。"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "归因桶 trace_cnt=0。"
+          }
+        ],
+        "conclusion": "SET 268 条样本未截断；97.39% 归入客户端 SDK 段。SET 与 GET 桶口径未混合。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 548,
+    "top_error_codes": [],
+    "top_failure_domains": [],
+    "top_pods": [
+      {
+        "pod": "192.168.235.146",
+        "host": "—",
+        "pct": "34.1",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.105",
+        "host": "—",
+        "pct": "31.7",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.103",
+        "host": "—",
+        "pct": "23.8",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.136",
+        "host": "—",
+        "pct": "10.3",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "16:45",
+        "level": "0",
+        "pct": "0.3",
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "16:46",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      },
+      {
+        "time": "16:47",
+        "level": "2",
+        "pct": "42.8",
+        "spike": false,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-142fc7c1",
+    "total_steps": 7,
+    "api_calls": 34,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences --query 'KVCache TCP down 客户端进程 连接失败 通断' --type SKILL/WIKI"
+        ],
+        "result": "命中传输层诊断 Skill/Wiki，仅作为先验与补采清单。"
+      },
+      {
+        "title": "Step 2 数据与标签核验",
+        "api_calls": [
+          "GET /log_kb/142fc7c1-6fb3-4a4a-83e7-c42621c849f5",
+          "POST /log_file/list/142fc7c1-6fb3-4a4a-83e7-c42621c849f5",
+          "GET /task/a88c8c4b-9cd4-472d-8106-c0526003cbf6",
+          "GET /log_parse_result/options"
+        ],
+        "result": "解析成功；路径描述 client_process_tcp_down 映射标签为硬件故障/网卡故障-单网卡down。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立组件定位",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 732 条、SET 268 条；SET set_client 占 97.39%，两套桶未混合。"
+      },
+      {
+        "title": "Step 4 分布与时间窗统计",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap operation=GET",
+          "POST /stats/error_codes|pods|links|heatmap operation=SET"
+        ],
+        "result": "异常集中于 16:45-16:47；错误码为空，涉及 4 个 Pod IP。"
+      },
+      {
+        "title": "Step 5 Trace 与原始日志复核",
+        "api_calls": [
+          "POST /trace/list operation=GET/SET",
+          "GET /trace/{trace_id}",
+          "POST /log_parse_result/list",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "代表 trace 均无 failure_codes；access 状态码为 0；GET 代表日志显示 actual transport: UB。"
+      },
+      {
+        "title": "Step 6 历史案例匹配与反证",
+        "api_calls": [
+          "POST /diag_case_library/search（由 match_cases.py 分 GET/SET 调用）",
+          "POST /diag_case_library/91226444-8fea-4e1b-b66a-c01f0d1f5a71/hit"
+        ],
+        "result": "UB-CASE-002632 仅 L2 部分相似，作为 NIC 遥测排查方向引用，不复用根因。"
+      },
+      {
+        "title": "Step 7 JSON 报告生成与契约校验",
+        "api_calls": [],
+        "result": "生成指定 report.json；不渲染 HTML。"
+      }
+    ]
+  }
+}

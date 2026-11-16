@@ -1,6 +1,7 @@
 import io
 import errno
 import tarfile
+import threading
 import zipfile
 from types import SimpleNamespace
 
@@ -8,12 +9,27 @@ import pytest
 
 import latency.task.log_preprocessor as preprocessor_module
 from latency.task.log_preprocessor import (
+    PreprocessCancelled,
     get_archive_extension,
     is_valid_archive_file,
     needs_preprocess,
     preprocess_log_dir,
     split_unmatched_log_files,
 )
+
+
+def test_preprocess_cancellation_preempts_copy(tmp_path):
+    source_path = tmp_path / "source"
+    source_path.mkdir()
+    (source_path / "access.log").write_bytes(b"x" * 1024)
+    output_dir = tmp_path / "preprocessed"
+    cancelled = threading.Event()
+    cancelled.set()
+
+    with pytest.raises(PreprocessCancelled):
+        preprocess_log_dir(str(source_path), str(output_dir), cancelled)
+
+    assert not output_dir.exists()
 
 
 def test_split_unmatched_log_files(tmp_path):

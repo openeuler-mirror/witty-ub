@@ -1,0 +1,535 @@
+{
+  "report": {
+    "title": "lingqu_kvcache_dfx_worker_process_double_exit_001_20261011_01_19_28 诊断报告",
+    "report_id": "diag-0edff690-c146-4a36-b1c7-989fcc28581b-worker-exit",
+    "generated_at": "2026-11-12 14:30:00"
+  },
+  "basic_info": {
+    "kb_id": "0edff690-c146-4a36-b1c7-989fcc28581b",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_double_exit_001_20261011_01_19_28",
+    "log_file": "lingqu_kvcache_dfx_worker_process_double_exit_001_20261011_01_19_28",
+    "operation": "SET",
+    "time_range_start": "2026-10-11 01:17:39.793",
+    "time_range_end": "2026-10-11 01:17:41.551",
+    "total_trace_cnt": 2,
+    "fault_trace_cnt": 2,
+    "fault_ratio": "100.0",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC peer dead": 0.164337,
+      "T:E112": 0.986024,
+      "C:Metadata owner unavailable": 0.02739
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：元数据所有者 Worker 端点不可用，连续两次 SET 发布失败；现场形态与 Worker 进程退出一致。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "2 条 SET 故障 trace、2 个来源 Worker、4 个观测 Pod，均返回状态码 39。",
+    "confidence": "高 88%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "元数据所有者 Worker 不可用导致两次 SET 发布失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 88,
+      "category": "error",
+      "affected_scope": "2026-10-11 01:17:39.793~01:17:41.551；2 条 SET trace；目标 192.168.219.107:31501",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程退出",
+        "one_line_conclusion": "两个不同 Worker 在 1.758 秒内向同一元数据所有者 192.168.219.107:31501 发起 CreateMeta 均收到 E112 Host is down，错误沿发布链上浮为 K_METADATA_OWNER_UNAVAILABLE(39)，与 Worker 进程退出场景一致。",
+        "fault_domain": "Worker故障/Worker故障-进程退出",
+        "fault_component": "元数据所有者 Worker",
+        "fault_function": "CreateMeta / PublishObjectWithLock",
+        "fault_function_loc": "rpc_util.h:109；worker_oc_service_publish_impl.cpp:483,675",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "本资产库 2/2 条 trace 均为 SET 失败；来源 Worker 为 192.168.235.157、192.168.189.88，目标均为 192.168.219.107:31501。",
+        "confidence": "高 88%",
+        "key_findings": [
+          "状态码 39 在故障码统计中覆盖 2 条 trace，占本次故障码 trace 的 100%；日志级事件数为 4。",
+          "两条独立 SET trace 均出现 RPC peer dead、brpc errno=112 Host is down、Not connected to 192.168.219.107:31501 yet。",
+          "错误链一致：CreateMeta RPC 不可达 → RequestingToMaster failed → Publish failed → 客户端 SET 返回 39。",
+          "SET 阶段归桶的 2 个样本均落在 set_worker，P90/max 为 3.955ms；这不是慢请求根因，而是 Worker 发布流程快速失败的观测窗口。",
+          "日志未包含目标 Worker 的退出信号、退出码或容器事件，因此可确认端点不可用；进程退出原因仍需目标节点系统证据闭环。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "故障 Trace",
+            "value": "2",
+            "sub": "本资产库全部 trace",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "39",
+            "sub": "K_METADATA_OWNER_UNAVAILABLE · 100%",
+            "tone": "danger"
+          },
+          {
+            "label": "故障时间形态",
+            "value": "双脉冲",
+            "sub": "01:17:39 与 01:17:41",
+            "tone": "warn"
+          }
+        ],
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "0edff690-c146-4a36-b1c7-989fcc28581b",
+              "operation": "SET",
+              "start_time": "2026-10-11 01:17:39",
+              "end_time": "2026-10-11 01:17:42"
+            },
+            "code_filter": [
+              "39"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "0edff690-c146-4a36-b1c7-989fcc28581b",
+                    "operation": "SET",
+                    "start_time": "2026-10-11 01:17:39",
+                    "end_time": "2026-10-11 01:17:42",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 2,
+              "items": [
+                {
+                  "code": "39",
+                  "count": 2,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-10-11 01:17:39",
+                  "end_time": "2026-10-11 01:17:40",
+                  "complete": true,
+                  "counts": {
+                    "39": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-11 01:17:40",
+                  "end_time": "2026-10-11 01:17:41",
+                  "complete": true,
+                  "counts": {
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-11 01:17:41",
+                  "end_time": "2026-10-11 01:17:42",
+                  "complete": true,
+                  "counts": {
+                    "39": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 错误码分布完整覆盖 2 个有数据秒窗：状态码 39 占逐码命中次数的 100%，分别在 01:17:39 和 01:17:41 各出现 1 次；计数口径为逐码命中次数，不等同于业务失败率。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "现场确认",
+            "title": "两条 SET 写入均返回 39",
+            "description": "trace/list 与 list_trace_events 均返回 2 条异常 SET trace，状态码均为 39。",
+            "evidence": "/stats/error_codes: status_code=39, trace_cnt=2, event_cnt=4；/trace/list: total=2。",
+            "confirmed": true,
+            "excluded": false
+          },
+          {
+            "step_label": "链路定位",
+            "title": "CreateMeta 访问同一元数据所有者失败",
+            "description": "来源 Worker 192.168.235.157 与 192.168.189.88 均无法连接 192.168.219.107:31501。",
+            "evidence": "rpc_util.h:109 原文同时包含 RPC peer dead、brpc errno=112 Host is down、E112 Not connected。",
+            "confirmed": true,
+            "excluded": false
+          },
+          {
+            "step_label": "错误传播",
+            "title": "RPC 不可达沿发布链上浮",
+            "description": "CreateMeta 失败后出现 RequestingToMaster failed 与 Publish failed，客户端最终返回 Metadata owner unavailable。",
+            "evidence": "同一 trace 命中 kvcache_runtime_1377、2295、2303、247 与 kvcache_access_036。",
+            "confirmed": true,
+            "excluded": false
+          },
+          {
+            "step_label": "反证检查",
+            "title": "排除慢请求与单一来源 Worker 故障",
+            "description": "两条请求均在约 4.3ms 内快速失败，且来自不同来源 Worker，却指向同一目标端点。",
+            "evidence": "Client 总时延 4.271ms/4.357ms；来源 Worker 分别为 192.168.235.157、192.168.189.88。",
+            "confirmed": true,
+            "excluded": true
+          },
+          {
+            "step_label": "根因边界",
+            "title": "端点不可用已确认，退出方式待系统日志闭环",
+            "description": "现场形态及指定训练标签均指向 Worker 进程退出，但当前资产未收录目标侧退出码、信号、OOM 或容器事件。",
+            "evidence": "目标 Worker 最后一条可见健康日志为 01:17:16.298 的 Register client done, healthy: 1；约 23 秒后开始出现 E112。",
+            "confirmed": true,
+            "excluded": false
+          }
+        ],
+        "confirmed_root_cause": "元数据所有者 Worker 192.168.219.107:31501 在故障窗内不可用，导致两个来源 Worker 的 CreateMeta RPC 快速失败并上浮为状态码 39。结合训练标签映射与同类已确认案例，故障归类为 Worker 进程退出；具体退出信号/退出码尚需目标节点系统与容器日志补证。",
+        "supporting_knowledge": "curated failure mode kvcache_access_036 将状态码 39 解释为网络中断、元数据所有者进程异常或路由过期；现场两个不同来源同时指向同一端点，支持对端 Worker 异常分支。experience-skill 的 ds-worker-log-analysis 提醒 kill -9/OOM 场景可能无退出前 ERROR/FATAL，需联合 container.log、dmesg/systemd 核验。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "元数据所有者 Worker 不可用",
+            "detail": "192.168.219.107:31501 无法建立 BRPC 连接",
+            "type": "root"
+          },
+          {
+            "label": "CreateMeta RPC 失败",
+            "detail": "E112 Host is down / RPC peer dead",
+            "type": "propagation"
+          },
+          {
+            "label": "RequestingToMaster 失败",
+            "detail": "kvcache_runtime_2295",
+            "type": "propagation"
+          },
+          {
+            "label": "PUBLISH 失败",
+            "detail": "kvcache_runtime_2303，发布结果不可确认",
+            "type": "propagation"
+          },
+          {
+            "label": "客户端 SET 返回 39",
+            "detail": "K_METADATA_OWNER_UNAVAILABLE",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "2 条 SET trace 全部失败",
+          "2 个来源 Worker、2 个客户端观测 Pod",
+          "故障集中在 01:17:39~01:17:41 的短时双脉冲"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "7b5a1d67-a7a9-4484-81b6-65da10b42a7c",
+          "kind": "error",
+          "why": "status_code=39 + pod=192.168.235.157 + 时间窗 01:17:39~01:17:40 的首条故障 trace",
+          "status_code": "39",
+          "failure_mode_id": "kvcache_access_036",
+          "pod": "192.168.235.157",
+          "timestamp": "2026-10-11 01:17:39"
+        },
+        {
+          "trace_id": "400123eb-bff5-46a0-a798-f4acef4ad778",
+          "kind": "error",
+          "why": "status_code=39 + pod=192.168.189.88 + 时间窗 01:17:41~01:17:42 的第二条故障 trace",
+          "status_code": "39",
+          "failure_mode_id": "kvcache_access_036",
+          "pod": "192.168.189.88",
+          "timestamp": "2026-10-11 01:17:41"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_036",
+          "stars": "★★★★★",
+          "match_logic": "L1 命中状态码 39 与 failure mode；L2 命中 Worker故障/Worker故障-进程退出方向；L3 两条链路共同汇聚到同一 metadata owner 端点。",
+          "symptom": "K_METADATA_OWNER_UNAVAILABLE，元数据所有者不可用且发布结果未知。",
+          "root_cause": "网络中断、元数据所有者进程异常或路由过期导致发布 RPC 无法确认结果。",
+          "solution": "检查元数据所有者进程、网络连通性和路由；确认对象状态后再决定是否补写。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "状态码与发布链完全一致。",
+          "log_fit": "现场命中 RPC peer dead、RequestingToMaster failed、Publish failed。",
+          "rc_consistency": "支持元数据所有者进程异常分支。",
+          "env_diff": "curated 知识不包含本次具体端点与时间窗。",
+          "adaptation": "结合本次双来源、同目标拓扑排除单一来源异常。",
+          "applicability": "direct"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002590",
+          "stars": "★★★★☆",
+          "match_logic": "L1 命中 39、kvcache_access_036、kvcache_runtime_1377；L2 命中 SET 与 few_pods，分类同为 Worker故障/Worker故障-进程退出；L3 均为多来源调用同一 metadata owner。",
+          "symptom": "SET 发布调用元数据所有者时连续返回 RPC peer dead，最终上浮为 39。",
+          "root_cause": "元数据所有者 Worker 端点不可用，形态与进程退出一致，但需退出码闭环。",
+          "solution": "恢复目标 Worker/31501 服务并刷新路由；结果未知时先查询对象状态；补采退出码、OOM 和容器事件。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "错误码、调用阶段、快速失败形态高度一致。",
+          "log_fit": "均包含 errno=112 Host is down 与同 trace 发布链上浮。",
+          "rc_consistency": "一致，但本次仍缺目标侧退出记录。",
+          "env_diff": "IP、时间窗与软件版本信息不同；身份特征不参与匹配。",
+          "adaptation": "只复用排查与补偿方案，不复用历史现场的具体 IP。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "③",
+          "id": "experience:ds-worker-log-analysis",
+          "stars": "★★★☆☆",
+          "match_logic": "L1 未提供状态码专门映射；L2 命中 Worker 异常退出排查域；L3 建议联合 Worker、container 与系统日志核验。",
+          "symptom": "Worker 异常退出前可能有 ERROR/FATAL，但 kill -9 时可能没有。",
+          "root_cause": "进程异常退出、被杀或 OOM 等需结合退出侧证据区分。",
+          "solution": "检查最后 ERROR/FATAL、信号处理、container.log、dmesg/systemd 与进程退出码。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考",
+          "phenomenon_fit": "解释了为何当前资产可能仅见对端不可达而无退出日志。",
+          "log_fit": "本资产目标 Worker 日志在健康注册后中断，未出现退出行。",
+          "rc_consistency": "与进程退出方向一致，但不构成现场事实。",
+          "env_diff": "经验基于通用 yuanrong-datasystem Worker 生命周期。",
+          "adaptation": "需在目标节点补采系统与容器证据后使用。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即核验 192.168.219.107 对应 Worker 进程、容器状态和 31501 监听；若未运行，按变更流程恢复并确认 Ready。",
+          "核对服务发现、元数据 Owner 角色与路由是否已刷新，清理调用端指向旧实例/server_id 的 BRPC channel。",
+          "对两条返回 39 的对象写入先查询实际发布状态，再按幂等策略补偿，避免发布结果未知时盲目重放。"
+        ],
+        "long_term": [
+          "将 Worker 退出码、信号、OOM Kill、容器 restartCount 与 RPC peer-dead 指标关联采集和告警。",
+          "演练元数据 Owner Worker 退出后的路由刷新和角色迁移，建立秒级恢复目标与自动化复测。",
+          "为状态码 39 建立短窗聚集告警，并持续监控目标端口监听、Owner 角色和路由收敛状态。"
+        ],
+        "verification": [
+          "连续执行同类 SET/PUBLISH，确认不再返回 39，CreateMeta 可到达当前 Owner。",
+          "观察至少 10 分钟：/stats/error_codes 中状态码 39 无新增，/stats/heatmap 无新故障槽。",
+          "核对两条原故障对象的最终状态与预期一致，无重复对象、重复发布或结果未知。",
+          "取得目标 Worker 的退出码/信号或网络反证，闭环区分进程退出、OOM、容器重启与纯网络故障。"
+        ]
+      },
+      "source_code": null,
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复并核验元数据所有者 Worker 与 31501 监听，刷新 Owner 路由和 BRPC channel。",
+      "depends_on": "目标节点与容器平台访问权限",
+      "expected_effect": "CreateMeta 恢复可达，SET/PUBLISH 不再返回 39。",
+      "verify": "连续 SET 成功，10 分钟内状态码 39 零新增。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核对两条结果未知写入的对象状态，并按幂等策略补偿。",
+      "depends_on": "Owner 服务与路由恢复",
+      "expected_effect": "消除结果未知，避免重复写。",
+      "verify": "对象内容、版本和引用状态与业务预期一致。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补采目标 Worker 的退出码、信号、OOM、容器事件和系统日志。",
+      "depends_on": "日志与监控留存可用",
+      "expected_effect": "将进程退出从形态判断提升为直接证据闭环。",
+      "verify": "获得可追溯退出事件，或用端口/网络证据证伪进程退出。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "GET 读路径",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "本资产明细无 GET 归因子集；空结果仅表示无 GET 样本，不代表读路径健康。"
+          }
+        ],
+        "conclusion": "GET 视角 sample_cnt=0，无法形成读路径阶段分解，不与 SET 口径混合。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "Worker 写处理归因桶",
+            "pct": "100",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Worker 写处理",
+            "p99": "—",
+            "anomaly_rate": "100.0%",
+            "fail_share": "100.0%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "2/2 样本归入 set_worker；证据耗时 P50 3.922ms、P90/max 3.955ms。接口不提供 P99，故不补造。"
+          }
+        ],
+        "conclusion": "SET 的 2 个样本全部归入 Worker 写处理桶并携带失败标记；故障实质是 CreateMeta 对端不可达，不将约 4ms 快速失败误判为性能瓶颈。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": "2",
+    "top_error_codes": [
+      {
+        "code": "39",
+        "name": "K_METADATA_OWNER_UNAVAILABLE",
+        "pct": "100",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "Worker故障-进程退出",
+        "pct": "100",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.157",
+        "host": "来源 Worker",
+        "pct": "50",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.88",
+        "host": "来源 Worker",
+        "pct": "50",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "01:17",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-0edff690",
+    "total_steps": 7,
+    "api_calls": 29,
+    "duration": "约 10 分钟",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences: Worker process exit / K_METADATA_OWNER_UNAVAILABLE"
+        ],
+        "result": "命中 ds-worker-log-analysis 与 Worker 错误模式 Wiki。"
+      },
+      {
+        "title": "Step 2 资产与任务核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "POST /task/list"
+        ],
+        "result": "解析成功，1 个日志目录，2 条异常 trace。"
+      },
+      {
+        "title": "Step 3 GET/SET 组件分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 无样本；SET 2 条均归入 set_worker。"
+      },
+      {
+        "title": "Step 4 故障分布与 Trace 下钻",
+        "api_calls": [
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/links",
+          "POST /stats/heatmap",
+          "POST /trace/list",
+          "GET /trace/{trace_id}",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "39 占 100%，两条 trace 指向同一 metadata owner。"
+      },
+      {
+        "title": "Step 5 curated 知识核验",
+        "api_calls": [
+          "GET /failure_mode/status_code/39",
+          "GET /failure_mode/{failure_mode_id}"
+        ],
+        "result": "确认 39 与 CreateMeta→Publish 错误上浮链。"
+      },
+      {
+        "title": "Step 6 历史案例匹配与反证",
+        "api_calls": [
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "命中已确认同类案例；IP 不参与匹配，退出码仍需补证。"
+      },
+      {
+        "title": "Step 7 报告数据构建",
+        "api_calls": [
+          "POST /log_failure_event_result/list_time_aggregated_failure_events",
+          "error_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "形成 GET/SET 分离、证据可追溯的报告契约数据。"
+      }
+    ]
+  }
+}

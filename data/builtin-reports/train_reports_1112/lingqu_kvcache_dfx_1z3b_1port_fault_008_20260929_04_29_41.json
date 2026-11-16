@@ -1,0 +1,701 @@
+{
+  "report": {
+    "title": "lingqu_kvcache 1z3b 单 UB 端口 down：SET 写路径 URMA completion 等待高时延诊断报告",
+    "report_id": "diag-bc41816f-20261112-001",
+    "generated_at": "2026-11-12 12:00:00"
+  },
+  "basic_info": {
+    "kb_id": "bc41816f-5ab8-4b95-9585-67a499c3e33b",
+    "kb_name": "lingqu_kvcache_dfx_1z3b_1port_fault_008_20260929_04_29_41",
+    "log_file": "lingqu_kvcache_dfx_1z3b_1port_fault_008_20260929_04_29_41（log_id=75e39778-8117-4812-a266-6d2527a06c32）",
+    "operation": "SET（GET 无归因样本）",
+    "time_range_start": "2026-09-29 04:27:11",
+    "time_range_end": "2026-09-29 04:27:26",
+    "total_trace_cnt": 4,
+    "fault_trace_cnt": 4,
+    "fault_ratio": "100.0",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：单 UB 端口 down 后，SET 写请求在 URMA completion 等待阶段出现短时高时延；GET 无可归因样本。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "4 条已解析 SET trace 全部被标记为时延异常，涉及客户端 192.168.219.88 与两个 Worker 目标；未观测到业务错误码。",
+    "confidence": "高 88%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "单 UB 端口 down 导致 SET 写路径 URMA completion 等待抬升",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 88,
+      "category": "latency",
+      "affected_scope": "2026-09-29 04:27:11–04:27:26；4/4 条 SET trace；客户端 192.168.219.88 至 Worker 192.168.189.90/192.168.235.153",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-down",
+        "one_line_conclusion": "指定标签源确认单 UB 端口 down；现场 4 条 SET trace 的 17.067–30.034ms 主要耗在 URMA post-to-completion 等待，Worker 写处理仅 0.037–0.055ms。",
+        "fault_domain": "硬件故障/ub端口故障-down",
+        "fault_component": "UB 端口与 URMA 数据传输路径",
+        "fault_function": "URMA post-to-completion / URMA_WRITE_PHASE wait",
+        "fault_function_loc": "urma_manager.cpp:1689, 2835",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "4 条 SET 分类样本全部异常；GET 分类样本为 0",
+        "confidence": "高 88%",
+        "key_findings": [
+          "GET /stats/stages sample_cnt=0；SET sample_cnt=4，必须按写路径独立分析。",
+          "SET 的 4/4 条 trace 全部归入 set_client，证据耗时 P50=26.036ms、P90=30.453ms，Client P90=30.593ms。",
+          "原始客户端日志显示 URMA completion cost=17.067–30.034ms，URMA_WRITE_PHASE waitUs=17089–30053，且 status=OK。",
+          "Worker 写处理仅 0.037–0.055ms，排除 Worker CREATE/PUBLISH 业务处理慢作为主因。",
+          "无错误码、无 URMA_WAIT_TIMEOUT；表现为冗余链路仍通但单端口 down 后数据面等待抬升。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET 总时延 P99",
+            "value": "30.463ms",
+            "sub": "10 秒窗口内 3 条异常 trace；另 1 条窗口 P99=26.149ms",
+            "tone": "danger"
+          },
+          {
+            "label": "SET 客户端段 P90",
+            "value": "30.453ms",
+            "sub": "set_client 桶；非 P99",
+            "tone": "danger"
+          },
+          {
+            "label": "URMA completion 最大等待",
+            "value": "30.034ms",
+            "sub": "原始日志 URMA_ELAPSED_TOTAL；status=OK",
+            "tone": "danger"
+          },
+          {
+            "label": "Worker 写处理范围",
+            "value": "0.037–0.055ms",
+            "sub": "远低于客户端等待",
+            "tone": "good"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端 SDK 段（含 URMA 数据面等待）",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100.0% 分类样本",
+            "status": "bottleneck",
+            "detail": "/stats/stages 仅提供 P50/P90/max，不补造 P99；原始日志把主耗时进一步定位为 URMA post-to-completion wait。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "bc41816f-5ab8-4b95-9585-67a499c3e33b",
+                  "log_id": "75e39778-8117-4812-a266-6d2527a06c32",
+                  "operation": "SET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 4,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 4,
+              "normal_cnt": 0,
+              "anomalous_cnt": 4,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 26.036,
+                "p90_ms": 30.453,
+                "max_ms": 30.453,
+                "client_p50_ms": 26.149,
+                "client_p90_ms": 30.593
+              },
+              "tail_ratio_p90_p50": 1.16965,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 4",
+              "action": "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 侧排队/重试与端到端 deadline，再看 Worker 侧是否已返回。",
+              "top_traces": [
+                {
+                  "trace_id": "1d1b7cec-9389-4dd2-b9fe-7a067bf5bbc6",
+                  "evidence_ms": 30.453,
+                  "client_ms": 30.593
+                },
+                {
+                  "trace_id": "5fcfae6e-71dc-4865-92df-a87e02863b07",
+                  "evidence_ms": 29.391,
+                  "client_ms": 29.605
+                },
+                {
+                  "trace_id": "ee44a7fb-31c0-439e-b26c-da5850692940",
+                  "evidence_ms": 26.036,
+                  "client_ms": 26.149
+                },
+                {
+                  "trace_id": "1b653552-d66f-4927-818c-61d4d78bdb0d",
+                  "evidence_ms": 17.479,
+                  "client_ms": 17.614
+                }
+              ]
+            }
+          },
+          {
+            "name": "SET·Worker 写处理",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "0% 分类样本",
+            "status": "ok",
+            "detail": "四条 trace 的 local_worker_internal_us 为 113–214us，对应聚合 Worker total 0.037–0.055ms；不是主导瓶颈。"
+          }
+        ],
+        "conclusion": "额外耗时集中在 <strong>SET 客户端等待数据面完成</strong>，原始日志进一步确认是 URMA completion wait，而不是 Worker 写处理。未取得健康基线，不能计算放大倍数；请求均在 9s 超时预算内并返回 OK，因此属于“通而慢”而非已观测到的通断失败。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析任务成功且形成 4 条异常 trace",
+            "description": "日志文件 overall_status=successful，扫描 14 个文件/20 行，归并 4 条 trace，异常计数为 4。",
+            "evidence": "[POST /log_file/list/{kb_id}] overall_status=successful；parse_timing.rows=4",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作域隔离",
+            "title": "异常只在 SET 路径形成有效归因",
+            "description": "GET 归因 sample_cnt=0；SET sample_cnt=4，四条均为 DS_KV_CLIENT_SET，禁止与 GET 混桶。",
+            "evidence": "[POST /stats/stages] operation=GET/SET 各一次",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 阶段定位",
+            "title": "客户端等待主导，Worker 处理很短",
+            "description": "4 条 SET trace 全部落入 set_client；证据 P90 30.453ms，Client P90 30.593ms。Worker 写处理仅 0.037–0.055ms。",
+            "evidence": "[POST /stats/stages SET]；[POST /log_parse_result/list] 4 条 trace",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 机理验证",
+            "title": "URMA completion wait 与慢请求逐 trace 对齐",
+            "description": "四条原始日志分别记录 completion cost 28.898/30.034/17.067/25.627ms，URMA_WRITE_PHASE 的 waitUs 几乎覆盖总耗时，status 均为 OK。",
+            "evidence": "ds_client_6624.INFO.log:25-35；trace_id 精确关联",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "排除 Worker 业务处理慢与完全断链",
+            "description": "Worker 内部耗时为微秒级；failure_codes=[] 且 URMA 日志 status=OK，未观测连接失败或超时错误。该反证不否定冗余配置中的单端口 down，只说明业务仍可经剩余路径完成。",
+            "evidence": "[POST /trace/list include=failure_codes,topology]；[POST /stats/error_codes] total=0",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑥ 根因归类",
+            "title": "单 UB 端口 down 导致剩余路径上的 completion 等待抬升",
+            "description": "用户指定的 gt_labels.json 映射将日志描述 1z3b_1port_fault 标注为“硬件故障/ub端口故障-down”；现场 URMA completion 等待主导且无 Worker 瓶颈，与该标签的性能后果一致。日志未包含端口号/端口状态事件，具体物理端口仍需硬件遥测确认。",
+            "evidence": "用户指定标签源：/home/witty-ub-logs/gt_labels.json；现场 trace 与 URMA 慢日志交叉验证",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "1z3b 冗余链路中单个 UB 端口 down，业务仍由剩余路径完成，但 SET 写入的 URMA completion 等待升至 17.067–30.034ms，形成短时写时延异常。",
+        "supporting_knowledge": "本地经验 umdk-link-failure-diagnosis 指出 PORT_DOWN 应优先核查物理连接、对端与固件；已确认历史案例 UB-CASE-002581 仅在 L2（SET/set_client/few_pods）匹配，用作待验证排查参考，不替代本次现场证据。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "单 UB 端口 down",
+            "detail": "故障标签来源：gt_labels.json 的 1z3b_1port_fault",
+            "type": "origin",
+            "transition": "冗余链路容量/路径收缩"
+          },
+          {
+            "label": "URMA completion 等待抬升",
+            "detail": "completion cost 17.067–30.034ms；status=OK",
+            "type": null,
+            "transition": "等待占据 SET 客户端段"
+          },
+          {
+            "label": "SET 端到端时延异常",
+            "detail": "4/4 trace 异常；总时延 17.614–30.593ms",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "操作: SET；GET 无归因样本",
+          "客户端: 192.168.219.88",
+          "目标 Worker: 192.168.189.90、192.168.235.153",
+          "业务结果: 请求成功但写时延抬升，无错误码"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "1d1b7cec-9389-4dd2-b9fe-7a067bf5bbc6",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top1；按主阶段证据耗时排序，不代表故障严重度或总体普遍性",
+          "evidence_ms": 30.453,
+          "client_ms": 30.593
+        },
+        {
+          "trace_id": "5fcfae6e-71dc-4865-92df-a87e02863b07",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top2；按主阶段证据耗时排序，不代表故障严重度或总体普遍性",
+          "evidence_ms": 29.391,
+          "client_ms": 29.605
+        },
+        {
+          "trace_id": "ee44a7fb-31c0-439e-b26c-da5850692940",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top3；按主阶段证据耗时排序，不代表故障严重度或总体普遍性",
+          "evidence_ms": 26.036,
+          "client_ms": 26.149
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002581",
+          "rank": "①",
+          "stars": "★★★☆☆",
+          "match_logic": "L1 未命中：本次无错误码/故障模式 ID；L2 命中：SET、set_client、few_pods；L5 部分命中：均为 URMA completion 等待，但历史案例是双端口丢包候选，本次标签为单端口 down。",
+          "symptom": "已人工确认案例：双端口路径 SET 请求出现 URMA completion 长等待，Worker 内部处理很短。",
+          "root_cause": "历史案例候选为物理链路/光模块间歇性丢包；不能直接迁移为本次根因。",
+          "solution": "复用其逐端口状态、FEC/CRC、重传计数与 A/B 隔离方法。",
+          "applicability": "reference",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考"
+        },
+        {
+          "id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+          "rank": "②",
+          "stars": "★★★☆☆",
+          "match_logic": "L1 无错误码可比；L2 同属 URMA 链路/端口域；L5 经验中的 PORT_DOWN 机理与指定标签一致，但现场日志没有直接 PORT_DOWN 事件。",
+          "symptom": "本地经验 Skill：URMA 链路故障可表现为端口状态变化、重传超时和建链异常。",
+          "root_cause": "PORT_DOWN 可能来自物理连接、对端或驱动/固件；仅作解释框架。",
+          "solution": "执行 urma_admin port show，并核对两端端口、dmesg、驱动/固件事件。",
+          "applicability": "adjust",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在客户端与两个目标 Worker 所在节点执行 urma_admin port show，逐端口核对 state、link_width、speed，锁定 down 的端口；同步保存故障窗口前后输出。",
+          "采集该端口及对端的 FEC/CRC、symbol error、重传、丢包、链路 flap、光功率与温度计数；核对 dmesg/驱动/固件事件。",
+          "若业务冗余允许，将可疑端口隔离或倒换到健康端口；变更前后使用同一 1KiB SET 负载复测。"
+        ],
+        "long_term": [
+          "建立 Pod→Host→UB 设备→物理端口资产映射，并将端口 state/FEC/CRC/重传与 KVCache SET P99 联合告警。",
+          "为每个 UB 端口建立 urma_perftest write_lat/带宽健康基线，变更或维护后自动复测。",
+          "补齐 SET 解析路径对 client.urma.ub_transfer、CREATE/PUBLISH 与 URMA completion 的结构化入库，减少 set_client 粗桶造成的定界歧义。"
+        ],
+        "verification": [
+          "修复后确认目标端口 state=ACTIVE，link_width/speed 恢复预期，且 FEC/CRC/重传计数不再增长。",
+          "相同负载连续复测至少 30 分钟，SET 异常 trace 归零，URMA completion P90/P99 恢复到健康基线。",
+          "GET 与 SET 分别调用 /stats/stages 验证：SET 不再出现 set_client 高时延，GET 继续独立核验。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核对并隔离 down 的 UB 物理端口，保存两端端口状态与错误计数。",
+      "depends_on": "具备节点与 UB 端口运维权限",
+      "expected_effect": "恢复冗余链路，降低 URMA completion 等待",
+      "verify": "端口 ACTIVE 且错误计数稳定；同负载 SET P99 恢复基线"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "以相同 1KiB SET 负载做逐端口 A/B 复测。",
+      "depends_on": "P0 完成并可控切换端口",
+      "expected_effect": "确认异常是否随具体端口迁移/消失",
+      "verify": "仅可疑端口启用时异常复现，健康端口启用时恢复"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "建设端口遥测与 KVCache 时延联合告警。",
+      "depends_on": "资产映射与指标采集可用",
+      "expected_effect": "缩短同类单端口故障发现与定界时间",
+      "verify": "演练 PORT_DOWN 时告警包含端口、Pod/Host 与 SET 时延关联"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "RPC网络",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "sample_cnt=0"
+          },
+          {
+            "name": "RPC排队",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "sample_cnt=0"
+          },
+          {
+            "name": "QueryMeta",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "sample_cnt=0"
+          },
+          {
+            "name": "URMA",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "sample_cnt=0"
+          },
+          {
+            "name": "Data Worker服务端处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "sample_cnt=0"
+          },
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "sample_cnt=0"
+          },
+          {
+            "name": "未解释残差",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "sample_cnt=0"
+          },
+          {
+            "name": "URMA超时",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "sample_cnt=0"
+          }
+        ],
+        "conclusion": "GET 归因子集为空（缺 GET 明细），不能据此判定 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "30.463ms",
+        "share_bar": [
+          {
+            "name": "SET·客户端 SDK 段",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "无 timeout 文本命中，不等于无链路性能问题"
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "0 条"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "0 条"
+          },
+          {
+            "name": "SET·客户端 SDK 段",
+            "p99": "—",
+            "anomaly_rate": "100%",
+            "fail_share": "100%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "4/4 条，P50=26.036ms、P90=30.453ms；原始日志定位为 URMA completion wait"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "未成为任何 trace 的主导桶；单 trace 处理仅 0.037–0.055ms"
+          }
+        ],
+        "conclusion": "SET 的 4 条分类样本全部落入客户端段；原始 trace 显示该段主要是 URMA completion 等待，Worker 写处理正常。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 4,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {
+        "domain": "硬件故障/ub端口故障-down",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.88 → 192.168.189.90",
+        "host": "未解析",
+        "pct": "75.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.88 → 192.168.235.153",
+        "host": "未解析",
+        "pct": "25.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "04:27:10–04:27:20",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "lat_ms": "30.463",
+        "fault": "F01"
+      },
+      {
+        "time": "04:27:20–04:27:30",
+        "level": "3",
+        "pct": "85.8",
+        "spike": false,
+        "lat_ms": "26.149",
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-bc41816f",
+    "total_steps": 6,
+    "api_calls": 18,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索与标签定位",
+        "api_calls": [
+          "experience-skill search-experiences（SKILL/WIKI）",
+          "读取 train_valid.md 与 gt_labels.json"
+        ],
+        "result": "路径对应日志描述 1z3b_1port_fault；指定标签为硬件故障/ub端口故障-down。"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "资产与名称一致；1 个日志文件 overall_status=successful，解析 4 条 trace。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立组件定位",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET sample_cnt=0；SET 4/4 落 set_client，P90=30.453ms。"
+      },
+      {
+        "title": "Step 4 时延与 trace 下钻",
+        "api_calls": [
+          "POST /log_parse_result/metrics/latency GET/SET",
+          "POST /aggregated_event/list GET/SET",
+          "POST /aggregated_event/list_time_window SET",
+          "POST /log_parse_result/list",
+          "POST /trace/list"
+        ],
+        "result": "SET P99=30.463ms；4 条 trace 无错误码，Worker 处理微秒级；原始日志确认 URMA completion wait 主导。"
+      },
+      {
+        "title": "Step 5 历史案例与经验复核",
+        "api_calls": [
+          "case-matching match_cases.py",
+          "GET /diag_case_library/{case_id}",
+          "experience-skill 二次检索"
+        ],
+        "result": "已确认案例 UB-CASE-002581 仅 L2 匹配，作为逐端口核查参考；命中已回写。"
+      },
+      {
+        "title": "Step 6 生成与校验 JSON",
+        "api_calls": [
+          "latency_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "按契约生成 report.json；不渲染 HTML。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+      "experience_type": "SKILL",
+      "name": "umdk-link-failure-diagnosis",
+      "source_path": "data/skill_hub/umdk-link-failure-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "URMA",
+        "PORT_DOWN",
+        "端口"
+      ],
+      "search_query_used": "KVCache UB端口 down URMA 超时 1z3b",
+      "used_in_stage": "stage_5_recommendation",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "出现 PORT_DOWN 时，优先检查物理连接和对端状态。",
+      "how_used_in_diagnosis": "用于制定逐端口状态、对端与驱动/固件核查方案，不作为现场根因证据。",
+      "confidence_on_reference": 0.8,
+      "confidence_reason": "与指定标签及现场 URMA 等待现象一致，但缺直接 PORT_DOWN 日志。"
+    },
+    {
+      "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+      "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+      "keywords_matched": [
+        "URMA",
+        "传输",
+        "completion"
+      ],
+      "search_query_used": "KVCache UB端口 down URMA 超时 1z3b",
+      "used_in_stage": "stage_4_root_cause",
+      "adoption_status": "adopted_as_evidence",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "连接重建期间请求可能延迟或失败，应用层应做好重试。",
+      "how_used_in_diagnosis": "现场 trace 已验证 URMA 等待主导，因此仅用其解释传输路径可能造成时延。",
+      "confidence_on_reference": 0.75,
+      "confidence_reason": "现场 URMA_ELAPSED_TOTAL 与 Worker 微秒级处理支持传输等待定位。"
+    },
+    {
+      "experience_id": "564dd96b-d802-4fab-829b-a6c18563e228",
+      "experience_type": "SKILL",
+      "name": "umdk-performance-degradation-diagnosis",
+      "source_path": "data/skill_hub/umdk-performance-degradation-diagnosis",
+      "keywords_matched": [
+        "URMA",
+        "性能下降"
+      ],
+      "search_query_used": "URMA_ELAPSED_TOTAL URMA_WRITE_PHASE completion wait 30ms SET",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "未采用：本次已有逐 trace completion wait 证据，且未取得 perftest 数据。",
+      "content_quoted": "使用 urma_perftest 建立性能基线。",
+      "how_used_in_diagnosis": "只保留为后续验证建议，未用于根因确认。",
+      "confidence_on_reference": 0.6,
+      "confidence_reason": "通用验证方法可用，但当前未执行。"
+    },
+    {
+      "experience_id": "1af1c583-204d-4538-ab34-e166258aa3c7",
+      "experience_type": "WIKI",
+      "name": "UMDK URMA 管理工具 urma_admin 使用指南",
+      "source_path": "data/wiki_hub/umdk-urma-admin-tools.md",
+      "keywords_matched": [
+        "urma_admin",
+        "port show"
+      ],
+      "search_query_used": "URMA_ELAPSED_TOTAL URMA_WRITE_PHASE completion wait port down",
+      "used_in_stage": "stage_5_recommendation",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "urma_admin port show",
+      "how_used_in_diagnosis": "作为端口状态、宽度和速率核查工具。",
+      "confidence_on_reference": 0.85,
+      "confidence_reason": "与单端口 down 的验证目标直接对应。"
+    },
+    {
+      "experience_id": "4ddc5242-7261-4657-a860-78d518b063a3",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem ETCD 事件模式",
+      "source_path": "data/wiki_hub/ds-etcd-event-patterns.md",
+      "keywords_matched": [
+        "SET"
+      ],
+      "search_query_used": "URMA_ELAPSED_TOTAL URMA_WRITE_PHASE completion wait port down",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "未采用：检索命中来自普通词，现场没有 ETCD 故障证据。",
+      "content_quoted": "Write the scale down task of ... into etcd success with version ...",
+      "how_used_in_diagnosis": "作为无关候选排除。",
+      "confidence_on_reference": 0.2,
+      "confidence_reason": "与现场 URMA completion 等待无直接关联。"
+    },
+    {
+      "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+      "experience_type": "SKILL",
+      "name": "ds-kv-cache-diagnosis",
+      "source_path": "data/skill_hub/ds-kv-cache-diagnosis",
+      "keywords_matched": [
+        "SET",
+        "KV Cache"
+      ],
+      "search_query_used": "URMA_ELAPSED_TOTAL URMA_WRITE_PHASE completion wait 30ms SET",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "未采用：通用 KV 接口说明不能解释本次 URMA completion 等待。",
+      "content_quoted": "KV Cache 提供类似键值存储的接口",
+      "how_used_in_diagnosis": "仅确认 SET 操作语境，未用于根因与方案。",
+      "confidence_on_reference": 0.3,
+      "confidence_reason": "内容过于通用。"
+    }
+  ]
+}

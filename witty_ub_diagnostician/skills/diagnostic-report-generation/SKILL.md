@@ -121,6 +121,13 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 **新报告必须直接使用渲染契约字段名产出数据**，不允许沿用历史旧字段结构；旧结构只是
 渲染器 `normalize_compat` 兼容转换的兜底输入（针对存量报告自动映射，不改变 Agent 生成口径）：
 
+**置信度统一口径**：报告内所有名为 `confidence` 或 `confidence_on_reference` 的字段，
+数据层一律使用 **0~1 的 JSON number**，最多保留两位小数（例如 `0.9`），禁止新产出
+`high`、`高`、`90`、`"90%"`、`"高90%"` 等字符串或百分制数值。HTML 展示层统一转为
+百分比（`0.9` 显示为 `90%`）。渲染器仅为存量报告兼容 `high/medium/low`、
+`高/中/低`、百分制数字及带百分号写法并归一化；纯定性存量值固定映射为
+`high/高=0.90`、`medium/中=0.60`、`low/低=0.30`，无法识别的文本会被校验拒绝。
+
 | 板块 | 渲染契约字段（必须产出） | 旧结构（仅兜底，禁止新报告使用） |
 |------|------------------------|----------------------------------|
 | 根因分析 | `root_cause.reasoning_chain[]{step_label,title,description,evidence}`、`root_cause.confirmed_root_cause`、`root_cause.supporting_knowledge` | `root_cause{primary, hypotheses[]{cause,evidence}, reasoning}` |
@@ -136,6 +143,11 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 > `knowledge_matches[]` 每项至少含 `id` 与 `match_logic/symptom/root_cause` 之一。
 > 校验与渲染前都会执行 `normalize_compat` 就地转换，保证两者对同一份数据口径一致。
 
+> 自动附加字段：`render_report.py` 在渲染/落盘前会调用
+> `POST /log_failure_event_result/log_semantic_profile`（需 `WITTY_API_BASE` + `kb_id`/`kb_name`）
+> 把「日志语义错误码轮廓」写入 `basic_info.log_semantic_profile`。该字段随文档持久化，报告确认
+> 建案时自动进入案例库，并在案例检索的「日志语义码次级通道」中作为排序信号使用；Agent 无需手工填写。
+
 ### 故障标签
 
 [references/log_label.json](references/log_label.json) 是随 Skill 固化的标签参考，
@@ -146,6 +158,16 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
   **新报告必须始终产出 `faults[]`，单故障也不允许把 `conclusion` 等故障字段写在顶层**（扁平
   结构仅限存量/历史报告导入兜底，见「单故障兼容」）。两者类型均为 `string | null`，
   侧车 JSON 原样保留。
+- **用户使用问题硬判定（优先于语义匹配）**：把该故障全部证据中的错误码
+  （`evidence_traces[].status_code` 与 `error.code_distribution.items[].code`）去重，
+  只要命中下列任一码，`first_level_label` 直接写 `用户相关故障`、`second_level_label`
+  直接写 `使用问题`，不再进入语义匹配：
+  `1、3、9、12、17、28、2000、2001、2004、2006、3000、3001、3002、3004、3006、3007、3009`。
+  判定集**不含** `0`（无错误/成功码）、`2`（K_INVALID）、`8`（K_NOT_READY）、`36`（K_NOT_SUPPORTED）
+  ——`0` 在正常链路与各类故障场景中都会出现，后三个码在硬件/Worker/容器/Coordinator 场景中同样
+  出现，均不具备使用问题的判别力。
+  命中后按案例匹配规则只召回 `用户相关故障/使用问题` 案例；库中暂无该类案例时保留该标签，
+  不回落其他类别（`knowledge_matches` 允许为空）。
 - 仅根据本次诊断的根因、故障组件、异常表现和现场证据，与两级标签做语义匹配，
   尽可能选择最具体且有依据的标签。不得利用日志文件名、训练样例名称或样例到标签的映射
   推断标签，也不能只看到超时就推断为网卡故障。
@@ -233,6 +255,23 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 - 所有比例只描述参与分类的样本；保留 `sample_cnt`、`truncated`、口径注记和请求范围。
   Top trace 补查覆盖率不代表全量数据覆盖率，不从 Top 样本推断总体节点集中度。
 
+### 页头平均时延 / P99.99 时延口径
+
+报告若展示“平均时延”或“P99.99 时延”指标卡，数值必须来自本次已保存的两次
+`POST /log_parse_result/metrics/latency` 响应：请求除 `sample_mode` 分别为 `avg`、
+`p9999` 外完全相同，并显式使用 `bucket_seconds=3600`、相同 `kb_id`、`log_id`、
+`operation`、`start_time`、`end_time`。两次响应都只能有一个 `metrics[]` 点；把该点
+`total_latency` 原始数值逐字保存到 `source.observed_total_latency_ms`，卡片 `value`
+由渲染器按前端 tooltip 的相同规则生成（ms/us/ns、固定 3 位）；`sub` 注明
+“1小时桶 / operation / log_id”。禁止让模型
+自行计算、对多个桶二次聚合、跨日志文件合并，或从 `/stats/stages` 的 P90/max 推导。
+响应不是单桶时省略这两张全局卡片，或收窄故障时间窗后重新取证。此规则保证报告值与
+前端关键时延趋势选择 1 小时时的单点 AVG/P9999 完全同源。
+卡片必须保留 `source.endpoint`、完整 `source.request`、
+`source.response_path="result.metrics[0].total_latency"`、`source.returned_points=1` 和
+`source.observed_total_latency_ms`；渲染前校验器会拒绝缺少原始值、同源证据或两个
+请求范围不一致的报告，并覆盖模型手写的卡片值，从而保证与前端显示一致。
+
 ### 知识库匹配纪律
 
 - 1~3 条、按匹配度降序；`match_logic` 必须写明 **L1(错误码)/L2(故障域)/L3(拓扑)**
@@ -240,6 +279,12 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 - 每条必须给 `applicability`：`direct` 可直接采用 / `adjust` 调整后采用 /
   `reference` 仅供参考 / `not_recommended` 不建议采用——**不允许只给笼统匹配分**
 - 必须同时覆盖 curated 知识（failure_mode_knowledge）与 experience-skill 经验
+- **未见故障码先折算再检索**：本次证据里出现案例库从未收录的错误码时，先跑
+  `skills/case-matching/scripts/suggest_similar_codes.py --features <特征文件>`，
+  按它给出的「故障现象/故障原因 + 候选相近已知码（人工映射表 > 同码段 > 同故障域）」
+  选定 1~3 个相近码，用 `--pick "a,b" --apply` 写回特征的 `relaxed_status_codes`
+  再检索（这些码 0.5 降权参与软打分）。**报告里的错误码与故障码含义仍写真实码**，
+  `relaxed_status_codes` 只服务于「找得到相似案例」，不得当作本次故障码写进结论
 - 证据分层：知识库解释、历史案例与本次现场证据分别表述，不把知识库结论当成现场事实；
   `POST /diag_case_library/search` 命中的已确认案例也只能作为**待验证假设**，须有本次现场
   证据支撑才可用于根因，未验证的在结论中显式标注；若降级用了 `POST /diagnosis_case/search`

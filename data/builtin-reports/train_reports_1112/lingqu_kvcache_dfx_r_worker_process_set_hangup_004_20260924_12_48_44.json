@@ -1,0 +1,925 @@
+{
+  "report": {
+    "title": "KVCache SET 写路径 Worker 进程挂死候选诊断报告",
+    "report_id": "diag-135f722a-worker-hang-set-20260924",
+    "generated_at": "2026-11-12T12:28:44+08:00"
+  },
+  "basic_info": {
+    "kb_id": "135f722a-ad3b-4c74-a97e-eb2b9ae1bd10",
+    "kb_name": "lingqu_kvcache_dfx_r_worker_process_set_hangup_004_20260924_12_48_44",
+    "log_file": "lingqu_kvcache_dfx_r_worker_process_set_hangup_004_20260924_12_48_44（log_id=024d6124-0901-42f0-a0b5-f61d140cb1fd）",
+    "operation": "SET（GET 独立查询无样本）",
+    "time_range_start": "2026-09-24 12:46:16",
+    "time_range_end": "2026-09-24 12:46:35",
+    "total_trace_cnt": 5,
+    "fault_trace_cnt": 5,
+    "fault_ratio": "100%（4 条故障码 trace + 1 条独立时延异常 trace）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "T:URMA_WRITE": 1.0
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个疑似主故障：SET 写路径的 Worker 进程挂死/调度停顿候选，经 URMA 写提交失败与 completion 长尾外显；进程级触发点仍需线程栈和 OS 调度证据闭环。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "5 条 SET trace 均受影响：4 条返回 1004，1 条成功但总时延 39.414ms；未取得 GET 样本，不能据此判断 GET 健康。",
+    "confidence": 0.78
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SET 写路径疑似 Worker 进程挂死并阻塞 URMA 数据面",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 0.78,
+      "category": "mixed",
+      "affected_scope": "SET 写路径；4 个 Pod/IP 标识参与，主要失败链路为 192.168.189.78 → 192.168.235.173:31501",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程挂死",
+        "fault_domain": "Worker故障/Worker故障-进程挂死",
+        "fault_component": "KVCache Worker / URMA 数据面",
+        "fault_function": "SET 写入与 URMA completion",
+        "fault_function_loc": "urma_manager.cpp:2592、urma_manager.cpp:1689",
+        "affected_scope_pct": 100.0,
+        "affected_scope_desc": "当前解析出的 5 条 SET trace：4 条返回 1004，1 条为 39.414ms 时延异常。",
+        "confidence": 0.78,
+        "one_line_conclusion": "Worker 进程挂死/调度停顿是首要候选；现场已确认 SET 的 URMA 症状链，但未直接捕获 Worker watchdog、线程栈或调度停顿证据。",
+        "key_findings": [
+          "标签按用户指定映射：train_valid.md 的 r_worker_process_set_hangup → gt_labels.json 的 Worker故障/Worker故障-进程挂死。",
+          "GET /stats/stages sample_cnt=0；SET sample_cnt=5，5 条全部归入 set_client，GET/SET 未混桶。",
+          "4 条 SET trace 在 19 秒内返回 K_URMA_ERROR(1004)，原始日志均含 call urma_post_jetty_send_wr failed, ret: 4096。",
+          "另 1 条 SET trace 总时延 39.414ms；URMA completion 两个 4MiB 分块分别耗时 24.117ms、38.751ms，最终状态 OK。",
+          "未检出 Worker was hanged about、线程栈、CPU throttling 或 dmesg 证据，故进程挂死保持疑似而非直接确认。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "135f722a-ad3b-4c74-a97e-eb2b9ae1bd10",
+              "operation": "SET",
+              "start_time": "2026-09-24 12:46:16",
+              "end_time": "2026-09-24 12:46:35"
+            },
+            "code_filter": [
+              "1004"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "135f722a-ad3b-4c74-a97e-eb2b9ae1bd10",
+                    "operation": "SET",
+                    "start_time": "2026-09-24 12:46:16",
+                    "end_time": "2026-09-24 12:46:35",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_cnt": 100,
+                    "page_num": 1
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 4,
+                  "returned_windows": 4
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 4,
+              "total_windows": 4
+            },
+            "code_distribution": {
+              "total_count": 4,
+              "items": [
+                {
+                  "code": "1004",
+                  "count": 4,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-24 12:46:16",
+                  "end_time": "2026-09-24 12:46:17",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:17",
+                  "end_time": "2026-09-24 12:46:18",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:18",
+                  "end_time": "2026-09-24 12:46:19",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:19",
+                  "end_time": "2026-09-24 12:46:20",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:20",
+                  "end_time": "2026-09-24 12:46:21",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:21",
+                  "end_time": "2026-09-24 12:46:22",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:22",
+                  "end_time": "2026-09-24 12:46:23",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:23",
+                  "end_time": "2026-09-24 12:46:24",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:24",
+                  "end_time": "2026-09-24 12:46:25",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:25",
+                  "end_time": "2026-09-24 12:46:26",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:26",
+                  "end_time": "2026-09-24 12:46:27",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:27",
+                  "end_time": "2026-09-24 12:46:28",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:28",
+                  "end_time": "2026-09-24 12:46:29",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:29",
+                  "end_time": "2026-09-24 12:46:30",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:30",
+                  "end_time": "2026-09-24 12:46:31",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:31",
+                  "end_time": "2026-09-24 12:46:32",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:32",
+                  "end_time": "2026-09-24 12:46:33",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:33",
+                  "end_time": "2026-09-24 12:46:34",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 12:46:34",
+                  "end_time": "2026-09-24 12:46:35",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 路径在 12:46:16–12:46:35 内有 4 次 K_URMA_ERROR(1004) 逐码命中；这不是去重失败请求数或业务失败率。GET 同口径查询无事件。",
+        "metrics": [
+          {
+            "label": "K_URMA_ERROR(1004)",
+            "value": "4",
+            "sub": "19 秒窗口内逐码命中次数",
+            "tone": "bad"
+          },
+          {
+            "label": "故障窗口",
+            "value": "4",
+            "sub": "完整返回的 1 秒故障窗口",
+            "tone": "warn"
+          }
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET 样本",
+            "value": "5",
+            "sub": "未截断",
+            "tone": "neutral"
+          },
+          {
+            "label": "Client P90",
+            "value": "39.414 ms",
+            "sub": "样本内长尾",
+            "tone": "bad"
+          },
+          {
+            "label": "P90/P50",
+            "value": "107.50×",
+            "sub": "set_client 证据耗时长尾比",
+            "tone": "warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p50": 0.366,
+            "p90": 39.344,
+            "p99": null,
+            "baseline": null,
+            "ratio": null,
+            "share": 100.0,
+            "status": "bottleneck",
+            "detail": "5/5 trace 归入 set_client。该桶含等待数据面返回；P90 是证据耗时，不冒充 P99。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "135f722a-ad3b-4c74-a97e-eb2b9ae1bd10",
+                  "log_id": "024d6124-0901-42f0-a0b5-f61d140cb1fd",
+                  "operation": "SET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 5,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 5,
+              "normal_cnt": 4,
+              "anomalous_cnt": 1,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 20.0,
+              "distribution": {
+                "p50_ms": 0.366,
+                "p90_ms": 39.344,
+                "max_ms": 39.344,
+                "client_p50_ms": 0.383,
+                "client_p90_ms": 39.414
+              },
+              "tail_ratio_p90_p50": 107.497268,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 5",
+              "action": "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 侧排队/重试与端到端 deadline，再看 Worker 侧是否已返回。",
+              "top_traces": [
+                {
+                  "trace_id": "88ca6648-0c8f-432d-a4b2-61cac3191260",
+                  "evidence_ms": 39.344,
+                  "client_ms": 39.414
+                },
+                {
+                  "trace_id": "8662cee1-cb5b-4c74-a8e7-704da2a02adc",
+                  "evidence_ms": 0.397,
+                  "client_ms": 0.412
+                },
+                {
+                  "trace_id": "2187bad4-cd29-4408-9a5e-f8101d8b40ca",
+                  "evidence_ms": 0.366,
+                  "client_ms": 0.379
+                },
+                {
+                  "trace_id": "7104fe2d-ebcc-4c00-98ba-ecfc15fa7358",
+                  "evidence_ms": 0.363,
+                  "client_ms": 0.383
+                },
+                {
+                  "trace_id": "1a0b1026-d2ea-4c50-bb72-3dce37425558",
+                  "evidence_ms": 0.352,
+                  "client_ms": 0.371
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 归因样本全部落在客户端 SDK 段（含数据面等待），其中 1 条形成显著长尾；Worker 写处理桶为 0。该口径不能单独证明 SDK 本身故障。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "事实 1",
+            "title": "故障限定在 SET 观测面",
+            "description": "GET 无可归因样本；SET 有 5 条样本，不能把 GET 空结果描述为健康。",
+            "evidence": "POST /stats/stages：GET sample_cnt=0；SET sample_cnt=5，set_client trace_cnt=5。",
+            "confirmed": true
+          },
+          {
+            "step_label": "事实 2",
+            "title": "URMA 写提交失败形成稳定错误链",
+            "description": "4 条 SET trace 返回 1004 并命中 kvcache_access_022，源端调用 urma_post_jetty_send_wr 均返回 4096。",
+            "evidence": "POST /stats/error_codes：1004 trace_cnt=4/event_cnt=4；POST /log_failure_event_result/list_log_events 原文。",
+            "confirmed": true
+          },
+          {
+            "step_label": "事实 3",
+            "title": "另一链路出现 completion 等待长尾",
+            "description": "最慢 trace 总时延 39.414ms，两个 URMA 分块 completion 最长 38.751ms，最终成功。",
+            "evidence": "trace_id=88ca6648-0c8f-432d-a4b2-61cac3191260；URMA_ELAPSED_TOTAL 原始日志。",
+            "confirmed": true
+          },
+          {
+            "step_label": "候选根因",
+            "title": "Worker 进程挂死或 OS 调度停顿",
+            "description": "用户指定标签与已确认历史同类案例均指向 Worker 挂死；该机理可同时解释对端 completion 延迟和 Jetty send 失败外显。",
+            "evidence": "已确认案例 UB-CASE-002591 在 L1(1004/kvcache_access_022) 与 L2(set_client/SET/few_pods) 命中；但历史案例不是本次现场证据。",
+            "confirmed": false
+          },
+          {
+            "step_label": "反证检查",
+            "title": "缺少进程级直接证据，排除过度归因",
+            "description": "原始 Worker 日志仅见正常注册，未检出 Worker was hanged about、watchdog、线程栈、CPU throttling、lease 失效或 dmesg 证据；因此不能把时间相关性写成已证实因果。",
+            "evidence": "现场 Worker 日志与 API trace 上下文检索结果；set_worker trace_cnt=0，四条失败请求的 Worker CREATE 仍返回 0。",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "已确认的直接故障链为 SET 的 URMA 写提交失败（ret=4096，上浮 K_URMA_ERROR 1004）并伴随独立 completion 长尾；Worker 进程挂死/调度停顿是与指定标签和同类案例一致的首要候选，尚待进程级证据闭环。",
+        "supporting_knowledge": "Curated kvcache_access_022 将 1004 解释为 URMA 库、设备、上下文、Jetty、内存段、事件或异步处理底层错误；本地经验 ds-worker-log-analysis 与 ds-rdma-transport-patterns 提示 Worker 调度挂起会影响 URMA poll 线程，但经验仅作解释。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Worker 进程挂死/调度停顿（候选）",
+            "detail": "缺少线程栈与 OS 调度证据，保持疑似。",
+            "type": "suspected"
+          },
+          {
+            "label": "URMA completion / Jetty 处理受阻",
+            "detail": "出现 24.117–38.751ms completion 等待及 post_jetty_send_wr ret=4096。",
+            "type": "observed",
+            "transition": "可能导致"
+          },
+          {
+            "label": "SET 客户端数据面等待或提交失败",
+            "detail": "5 条样本全部归入 set_client。",
+            "type": "observed",
+            "transition": "外显为"
+          },
+          {
+            "label": "业务请求异常",
+            "detail": "4 条返回 K_URMA_ERROR(1004)，1 条形成 39.414ms 长尾。",
+            "type": "observed",
+            "transition": "最终"
+          }
+        ],
+        "impact_scope": [
+          "SET 写路径 5 条已解析 trace",
+          "错误链路 192.168.189.78 → 192.168.235.173:31501",
+          "长尾链路 192.168.235.157 → 192.168.189.91:31501",
+          "GET 无样本，影响面未知"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "88ca6648-0c8f-432d-a4b2-61cac3191260",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top；代表该桶证据耗时最极端请求，不等于总体最严重或最普遍。",
+          "evidence_ms": 39.344,
+          "client_ms": 39.414,
+          "pod": "192.168.235.157, 192.168.189.91",
+          "timestamp": "2026-09-24 12:46:28.880"
+        },
+        {
+          "trace_id": "8662cee1-cb5b-4c74-a8e7-704da2a02adc",
+          "kind": "error",
+          "why": "过滤条件：operation=SET、status_code=1004、时间窗 12:46:16–12:46:35；原文命中 post_jetty_send_wr ret=4096。",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.189.78, 192.168.235.173",
+          "timestamp": "2026-09-24 12:46:16.023"
+        },
+        {
+          "trace_id": "7104fe2d-ebcc-4c00-98ba-ecfc15fa7358",
+          "kind": "error",
+          "why": "过滤条件：operation=SET、status_code=1004、时间窗 12:46:16–12:46:35；同一错误链末次事件。",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.189.78, 192.168.235.173",
+          "timestamp": "2026-09-24 12:46:34.851"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002591",
+          "stars": 4,
+          "match_logic": "L1 命中 1004 与 kvcache_access_022；L2 命中 set_client、SET（案例为 MIXED 部分命中）与 few_pods；L3 拓扑未用于身份匹配；L5 现场关键词同为 post_jetty_send_wr ret=4096/URMA completion。",
+          "symptom": "已人工确认案例：SET 写路径疑似 Worker 进程挂死并阻塞 URMA completion。",
+          "root_cause": "案例首要候选为远端 Worker 进程挂死/调度停顿，但同样声明缺少挂死触发点直接证据。",
+          "solution": "冻结现场，采集 Worker 线程栈、cgroup cpu.stat、调度状态、dmesg/systemd，并核查 Jetty/CQ。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高：score_norm=0.7407，L1+L2 命中。",
+          "log_fit": "高：1004、ret=4096 与 completion 长尾均一致。",
+          "rc_consistency": "中：本次未直接观察到 Worker 挂死日志。",
+          "env_diff": "案例 operation=MIXED，本次仅 SET 有样本；绝对样本规模不同。",
+          "adaptation": "只复用取证和排查步骤，不把历史根因直接当作现场事实。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 2,
+          "id": "kvcache_access_022",
+          "stars": 4,
+          "match_logic": "L1 精确命中 failure_mode_id=kvcache_access_022 与 status_code=1004；L2 属 URMA/硬件故障域，能解释直接症状但不能单独证明 Worker 挂死；L3/L5 由现场 URMA_WRITE 原文佐证。",
+          "symptom": "请求返回 K_URMA_ERROR，URMA 传输或资源操作失败。",
+          "root_cause": "URMA 库、设备、上下文、Jetty、内存段、事件或异步处理发生底层错误。",
+          "solution": "检查 URMA 库、设备、上下文、Jetty、内存段或事件状态，确认健康后重试。",
+          "adoption_class": "direct",
+          "adoption_label": "直接采用为错误码解释",
+          "phenomenon_fit": "精确命中 4 条 1004 trace。",
+          "log_fit": "原始日志明确为 URMA_WRITE post_jetty_send_wr 失败。",
+          "rc_consistency": "仅支持直接故障链，不决定进程挂死根因。",
+          "env_diff": "无版本信息，底层具体 ret=4096 语义仍待确认。",
+          "adaptation": "作为 curated 错误解释和 URMA 检查清单使用。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 3,
+          "id": "experience:a0227481-5a5a-4b93-8fb7-de128596e844",
+          "stars": 3,
+          "match_logic": "L1 未提供特定错误码；L2 命中 Worker 运行阶段；L3 拓扑无独立匹配；L5 经验中的 Worker was hanged about 与本次现场未命中，故仅作排查建议。",
+          "symptom": "本地经验 ds-worker-log-analysis：Worker 挂起可能影响 lease 与 URMA 相关线程。",
+          "root_cause": "经验提示 OS 调度挂起是候选机制，但本次没有直接 watchdog 日志。",
+          "solution": "检查同节点 container/system 日志、线程栈、CPU 调度与 cgroup 限制。",
+          "adoption_class": "reference",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "与指定 Worker 挂死标签相符。",
+          "log_fit": "本次未命中 Worker was hanged about，存在证据差距。",
+          "rc_consistency": "不与 curated URMA 解释冲突，二者层级不同。",
+          "env_diff": "经验为通用排查知识，非本次现场或已确认案例。",
+          "adaptation": "仅采用采集线程栈和系统调度证据的建议。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "冻结 192.168.235.173:31501 相关 Worker 现场，采集全部线程栈、进程状态、cgroup cpu.stat、CPU throttling、内存回收、dmesg 与 systemd 日志，并与 12:46:16–12:46:35 对时。",
+          "核查源/目标端 URMA context、Jetty、CQ/poll/notify、内存段与设备状态；明确 ret=4096 在当前 URMA/provider/驱动版本中的精确定义。",
+          "若业务持续受影响，先将 SET 流量迁移到健康 Worker/链路；确认状态后重建异常 URMA 连接或滚动恢复 Worker，避免直接大范围重启。"
+        ],
+        "long_term": [
+          "增加 Worker hang watchdog 与自动线程栈采样，联动保存 CPU throttling、调度延迟、lease/心跳和内核日志。",
+          "为 URMA completion wait、post_jetty_send_wr 非零返回、Jetty 状态及 SET 端到端时延建立同时间轴告警。",
+          "加入 Worker suspend/resume 故障注入，验证 1004 上浮、连接重建、流量迁移与恢复时长。"
+        ],
+        "verification": [
+          "修复后用相同 8MiB、Write_mode=3 的 SET 负载复测至少一个完整业务周期，确认 1004 不再出现。",
+          "复测 SET 的 set_client P50/P90/max 与 Client 总时延，确认长尾回落；GET 需单独补充样本并独立验证。",
+          "复核 Worker watchdog、线程栈、cgroup 与 URMA 指标，确认根因是进程挂死/调度停顿，或据实改判为设备/Jetty/链路故障。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "冻结故障 Worker 现场并补采线程栈、OS/cgroup 调度及 URMA/Jetty 状态。",
+      "depends_on": "保留 12:46 故障窗口上下文，避免先重启丢失证据。",
+      "expected_effect": "把 Worker 挂死候选与 URMA 设备/链路候选区分开。",
+      "verify": "线程栈/调度停顿与 trace 时间一致，或得到明确反证。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复或迁移异常 SET 数据面，必要时重建 URMA 连接或滚动恢复单个 Worker。",
+      "depends_on": "完成关键现场采集并确认业务变更窗口。",
+      "expected_effect": "停止 1004 错误并消除 completion 长尾。",
+      "verify": "同负载 SET 复测无 1004，set_client 长尾回落。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "RPC网络",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "Σ 各段 rpc network（sdk/master/remote/client 的 network_residual_us）"
+          },
+          {
+            "name": "RPC排队",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "rpc framework = total − network 残差，含框架排队/调度开销"
+          },
+          {
+            "name": "QueryMeta",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "worker_access_latency_us − urma_processing_us（queryAndGet 查元数据/业务）"
+          },
+          {
+            "name": "URMA",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "urma_processing_us（C2W/W2W urma 通信段）"
+          },
+          {
+            "name": "Data Worker服务端处理",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "worker 内部活跃 local_worker_internal_active_us + sdk/master processing"
+          },
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "request_mode=unknown，yuanrong 无法定位 client/worker，证据取总时延"
+          },
+          {
+            "name": "未解释残差",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "total_latency_us − Σ 已解释维度（含 urma 调度/线程等未捕获开销）"
+          },
+          {
+            "name": "URMA超时",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "anomaly_reason/content 文本匹配 timeout/超时；证据取日志 timeout elapsedMs"
+          }
+        ],
+        "conclusion": "GET sample_cnt=0，归因子集为空；空结果不代表 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "SET·客户端SDK段",
+            "pct": 100.0,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "anomaly_reason/content 文本匹配 timeout/超时（近似口径；node48 SET 侧暂 0 命中）"
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "local_worker_internal_us 与 worker_access_latency_us 均空（该 trace 无 Worker 侧行），证据取总时延"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "total_latency_us − (sdk_processing_us + local_worker_internal_us) ≥ +0.5ms，证据取残差"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": null,
+            "anomaly_rate": 20.0,
+            "fail_share": null,
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "证据耗时 P50=0.366ms、P90=39.344ms、max=39.344ms；有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 5"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": null,
+            "anomaly_rate": null,
+            "fail_share": null,
+            "status": "ok",
+            "fault": null,
+            "detail": "有 Worker 侧行且 local_worker_internal_us > sdk_processing_us，证据取 Worker 端写处理耗时"
+          }
+        ],
+        "conclusion": "SET sample_cnt=5 且未截断，全部归入 set_client；仅有 P50/P90/max 证据耗时，不补造 P99。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 4,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "URMA写提交/资源异常",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.189.78",
+        "host": null,
+        "pct": 80.0,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.173",
+        "host": null,
+        "pct": 80.0,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.157",
+        "host": null,
+        "pct": 20.0,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.91",
+        "host": null,
+        "pct": 20.0,
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-09-24 12:46",
+        "level": "high",
+        "pct": 100.0,
+        "spike": true,
+        "lat_ms": 39.414,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-135f722a-20261112",
+    "total_steps": 6,
+    "api_calls": 34,
+    "duration": "本次会话内完成",
+    "steps": [
+      {
+        "title": "标签与经验预检索",
+        "api_calls": [
+          "train_valid.md + gt_labels.json",
+          "experience-skill SKILL/WIKI 检索"
+        ],
+        "result": "标签为 Worker故障/Worker故障-进程挂死；经验仅作先验。"
+      },
+      {
+        "title": "数据可用性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务 successful，解析 5 条 trace，1 条时延异常、4 条故障 trace。"
+      },
+      {
+        "title": "GET/SET 独立阶段分诊",
+        "api_calls": [
+          "POST /stats/stages(GET)",
+          "POST /stats/stages(SET)",
+          "POST /log_parse_result/metrics/latency(GET/SET)"
+        ],
+        "result": "GET 无样本；SET 5 条均归入 set_client。"
+      },
+      {
+        "title": "通断与原始日志下钻",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认 4 条 1004/ret=4096 与 1 条 completion 长尾。"
+      },
+      {
+        "title": "知识与历史案例核对",
+        "api_calls": [
+          "GET /failure_mode/status_code/1004",
+          "GET /failure_mode/kvcache_access_022",
+          "POST /diag_case_library/search"
+        ],
+        "result": "历史案例 UB-CASE-002591 L1+L2 命中并回写 hit；仅作为待验证假设。"
+      },
+      {
+        "title": "反证与报告生成",
+        "api_calls": [
+          "Worker 日志核对",
+          "latency_features.py",
+          "error_features.py",
+          "render_report.py"
+        ],
+        "result": "未取得进程级直接证据，根因保持 suspected；按契约生成报告。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+      "keywords_matched": [
+        "Worker",
+        "进程挂死",
+        "Worker was hanged"
+      ],
+      "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 Worker was hanged SET",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "Worker was hanged about ... ms",
+      "how_used_in_diagnosis": "用于定义需要补采的 Worker 挂死直接证据，而非替代现场事实。",
+      "confidence_on_reference": 0.72,
+      "confidence_reason": "与指定标签和历史案例一致，但本次现场未命中该日志。"
+    },
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "K_URMA_ERROR",
+        "1004",
+        "URMA设备",
+        "链路"
+      ],
+      "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 Worker was hanged SET",
+      "used_in_stage": "stage_5_recommendation",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+      "how_used_in_diagnosis": "用于补充 URMA 设备、Jetty 与链路检查建议。",
+      "confidence_on_reference": 0.88,
+      "confidence_reason": "与 curated kvcache_access_022 和现场 1004/URMA_WRITE 原文一致。"
+    },
+    {
+      "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem Worker 错误模式",
+      "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+      "keywords_matched": [
+        "Worker",
+        "挂起",
+        "系统调度延迟"
+      ],
+      "search_query_used": "K_URMA_ERROR 1004 urma_post_jetty_send_wr ret 4096 Worker 挂死",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "检查是否出现 `Worker was hanged about ... ms`。",
+      "how_used_in_diagnosis": "现场未命中该日志，因此未把经验描述升级为已确认根因。",
+      "confidence_on_reference": 0.55,
+      "confidence_reason": "经验适用，但本次直接证据缺失。"
+    }
+  ]
+}

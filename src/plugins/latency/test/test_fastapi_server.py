@@ -292,6 +292,11 @@ class TestLifespan:
                 # master：收尸独立成 interval job（join 子进程）
                 calls.append("reap")
 
+            @staticmethod
+            async def watchdog_running_tasks():
+                # 看门狗：强杀超时挂死子进程 + 回收僵尸 RUNNING 任务
+                calls.append("watchdog")
+
         monkeypatch.setattr(fastapi_server, "TaskHandler", _FakeTaskHandler)
 
         class _FakeScheduler:
@@ -360,8 +365,9 @@ class TestLifespan:
         assert (tmp_path / "exists").is_dir()
         assert (tmp_path / "created").is_dir()
         # 调度任务注册：handle_tasks 每秒执行、单实例、合并积压；
-        # master：收尸（reap_finished_processes）独立成第二个 interval job
-        assert len(scheduler.jobs) == (9 if index_enabled else 2)
+        # master：收尸（reap_finished_processes）+ 看门狗（watchdog_running_tasks）
+        # 各自独立成 interval job
+        assert len(scheduler.jobs) == (10 if index_enabled else 3)
         fn, args, kwargs = scheduler.jobs[0]
         assert fn is fake_task.handle_tasks
         assert args == ("interval",)
@@ -370,6 +376,10 @@ class TestLifespan:
         assert fn is fake_task.reap_finished_processes
         assert args == ("interval",)
         assert kwargs == {"seconds": 1, "max_instances": 1, "coalesce": True}
+        fn, args, kwargs = scheduler.jobs[2]
+        assert fn is fake_task.watchdog_running_tasks
+        assert args == ("interval",)
+        assert kwargs == {"seconds": 10, "max_instances": 1, "coalesce": True}
         expected_workers = [
             fastapi_server.PhenomenonIndexService.scan_reports,
             fastapi_server.PhenomenonIndexService.scan_legacy,
@@ -379,10 +389,10 @@ class TestLifespan:
             fastapi_server.PhenomenonIndexService.cleanup_documents,
             fastapi_server.PhenomenonIndexService.reconcile,
         ]
-        assert [job[0] for job in scheduler.jobs[2:]] == (
+        assert [job[0] for job in scheduler.jobs[3:]] == (
             expected_workers if index_enabled else []
         )
-        for _, args, kwargs in scheduler.jobs[2:]:
+        for _, args, kwargs in scheduler.jobs[3:]:
             assert args == ("interval",)
             assert kwargs["seconds"] > 0
             assert kwargs["max_instances"] == 1

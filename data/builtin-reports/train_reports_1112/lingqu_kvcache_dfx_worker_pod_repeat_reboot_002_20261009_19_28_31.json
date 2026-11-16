@@ -1,0 +1,357 @@
+{
+  "report": {
+    "title": "Worker 容器反复重启与 GET 链路异常诊断报告",
+    "report_id": "RPT-20261112-WR02",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "63bd714b-b2f5-4e4d-9092-38b3ffce8d98",
+    "kb_name": "lingqu_kvcache_dfx_worker_pod_repeat_reboot_002_20261009_19_28_31",
+    "log_file": "lingqu_kvcache_dfx_worker_pod_repeat_reboot_002_20261009_19_28_31",
+    "operation": "GET（SET 无样本）",
+    "time_range_start": "2026-10-09 19:27:09",
+    "time_range_end": "2026-10-09 19:35:24",
+    "total_trace_cnt": 2,
+    "fault_trace_cnt": 2,
+    "fault_ratio": "100.00（异常标记口径）",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：Worker 容器重建期间旧端点出现 RPC 超时/peer dead，随后客户端重新注册并留下 2 条 GET 异常时延 trace。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "影响 Worker 端点可达性及跨节点 GET；结构化库中仅有 2 条 GET 异常样本，SET 无样本。",
+    "confidence": "中高"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Worker 容器反复重启导致端点切换与短时请求异常",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": "中高 82%",
+      "category": "mixed",
+      "affected_scope": "ci-kv-ds-1 中至少一个 Worker 实例；可见链路 192.168.235.159 → 192.168.219.101",
+      "conclusion": {
+        "first_level_label": "容器故障",
+        "second_level_label": "容器故障-Worker容器重启",
+        "one_line_conclusion": "Worker 服务端点从 192.168.235.157 切换到 192.168.235.160，切换前出现 RPC deadline exceeded/peer dead，切换后客户端重新注册；故障标签按训练描述 worker_pod_repeat_reboot 映射为 Worker 容器重启。",
+        "fault_domain": "容器故障/容器故障-Worker容器重启",
+        "fault_component": "KVCache Worker 容器与 Worker RPC 服务端点",
+        "fault_function": "WorkerOCService.Exist / MasterOCService.PureQueryMeta",
+        "fault_function_loc": "transport_layer.cpp:793/797/802；worker_service_impl.cpp:326/287",
+        "affected_scope_pct": "结构化样本 2/2",
+        "affected_scope_desc": "2 条 GET 异常 trace 均位于 192.168.235.159 → 192.168.219.101；重启窗口还涉及旧 Worker 端点 192.168.235.157。",
+        "confidence": "中高 82%",
+        "key_findings": [
+          "训练描述 worker_pod_repeat_reboot 在 gt_labels.json 中映射为 容器故障/容器故障-Worker容器重启。",
+          "19:27 与 19:30 客户端注册到 Worker 192.168.235.157:31501，19:32 新客户端进程注册到 192.168.235.160:31501，符合 Worker 容器重建后端点变化。",
+          "19:30:10~19:30:13 现场日志连续出现 DS_ERR 1001、brpc E1008/E110 以及 DS_ERR 1011、E112 Host is down，并执行 RPC client rebuild/peer teardown。",
+          "19:33:33 与 19:33:39 的 2 条 GET trace 均被标记异常，总时延 5.866ms/5.343ms；Worker access 窗口仅 0.024ms，客户端侧等待占主导。",
+          "SET 阶段、故障码聚合与 failure trace 查询均无样本；容器重启的底层触发原因（OOM、探针、人工操作或节点驱逐）缺少 Kubernetes 事件，不能进一步确定。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {"label": "GET P99", "value": "5.861 ms", "sub": "2 条已解析样本", "tone": "bad"},
+          {"label": "GET 异常标记", "value": "2 / 2", "sub": "不是业务失败率", "tone": "warn"},
+          {"label": "SET 样本", "value": "0", "sub": "不可据此判断 SET 健康", "tone": "neutral"}
+        ],
+        "stages": [
+          {
+            "name": "GET·Client/Worker交叉窗口未细分",
+            "p50": "5.343 ms",
+            "p90": "5.866 ms",
+            "p99": "—",
+            "baseline": "未提供可比基线",
+            "ratio": "2/2",
+            "share": "100% 分类样本",
+            "status": "bottleneck",
+            "detail": "桶 key=cross_window；/stats/stages 仅提供证据耗时 P50/P90/max，不能补造 P99。两条 trace 的 Worker 窗口均为 0.024ms，客户端总时延分别为 5.866ms 与 5.343ms。"
+          },
+          {
+            "name": "SET·独立写路径",
+            "p50": "—",
+            "p90": "—",
+            "p99": "—",
+            "baseline": "无样本",
+            "ratio": "0/0",
+            "share": "—",
+            "status": "warn",
+            "detail": "/stats/stages(operation=SET) sample_cnt=0；未与 GET 混合归桶。"
+          }
+        ],
+        "conclusion": "GET 两条异常均归入 cross_window，当前解析字段不能把客户端等待进一步拆成 QueryMeta、RPC 网络或排队；原始日志中的重启窗口 RPC 超时与端点变化提供了生命周期侧佐证。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据核验",
+            "title": "解析完成但样本量很小",
+            "description": "日志文件 overall_status=successful，解析任务成功；共解析 2 条 trace，均为 GET 异常，SET 为 0。",
+            "evidence": "GET /log_kb/{kb_id}；POST /log_file/list/{kb_id}；POST /trace/list",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 生命周期证据",
+            "title": "同一 Worker 目录出现端点切换与重新注册",
+            "description": "客户端先后在 19:27、19:30 注册到 192.168.235.157，19:32 改为注册到 192.168.235.160；客户端 PID 1458→1547→1636，均重新完成健康状态切换和 SCMTCP 注册。",
+            "evidence": "ci-kvclient-worker1-1/ds_client_1458.INFO.log:6-10；ds_client_1547.INFO.log:6-10；ds_client_1636.INFO.log:6-10",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 故障窗口",
+            "title": "旧 Worker RPC 端点先超时后被判 peer dead",
+            "description": "19:30:10~19:30:13 出现 RPC deadline exceeded、Connection timed out、Host is down；SDK 重建 RPC client 后仍失败并 teardown dead peer。",
+            "evidence": "ds_client_1547.INFO.log:25-37；ci-worker-master-1/access.log:1",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 读写分流",
+            "title": "异常仅在 GET 侧有结构化样本",
+            "description": "GET 的 2 条异常 trace 全部归入 cross_window；SET 五桶 sample_cnt=0，禁止将 GET 结论外推为 SET 故障。",
+            "evidence": "POST /stats/stages(operation=GET/SET)；POST /log_parse_result/metrics/latency(operation=GET/SET)",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "不支持把 URMA、持续网络故障或 Worker 业务处理慢列为主因",
+            "description": "两条代表 GET 的 URMA_WRITE_PHASE 均 status=OK，Worker QueryAndGet 窗口仅 0.024ms；且 19:35 新客户端能健康注册。数据只支持重启窗口短时不可达，不支持持续链路中断。",
+            "evidence": "ci-worker-master-1/kvcache.INFO.log:2-7；metrics_get.json；ds_client_16419.INFO.log:6-10",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑥ 边界说明",
+            "title": "容器为什么重启仍未取证",
+            "description": "日志未包含 Kubernetes event、restartCount、probe/OOMKilled 或节点驱逐记录，因此不能把 OOM、探针失败、人工重启等任一触发条件写成确定根因。",
+            "evidence": "GET /log_parse_result/options 仅返回 cluster，host 为空；现有日志与 API 无 Kubernetes 生命周期字段",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "故障边界确认为 Worker 容器重建/重启造成服务端点切换，重启窗口内旧端点 RPC 暂时不可达并触发客户端重建连接；容器重启的底层触发原因尚未确认。",
+        "supporting_knowledge": "本地经验 ds-worker-log-analysis 指出 Worker 异常退出/重启需结合最后 ERROR/FATAL、容器日志和系统日志，并区分正常重启与异常退出；已确认历史案例 UB-CASE-002577 仅作为 Worker 退出可导致元数据 RPC 无响应的同域参考。"
+      },
+      "propagation": {
+        "chain": [
+          {"label": "Worker 容器重建", "detail": "Worker1 服务端点由 192.168.235.157:31501 切换至 192.168.235.160:31501", "type": "root", "transition": "旧进程/端点退出"},
+          {"label": "旧端点不可达", "detail": "PureQueryMeta/Exist 出现 1001、1011 与 E1008/E110/E112", "type": "fault", "transition": "RPC deadline exceeded / peer dead"},
+          {"label": "SDK 连接恢复", "detail": "SDK rebuild RPC client、teardown dead peer，并由新进程重新 Register client", "type": "action", "transition": "连接重建"},
+          {"label": "GET 请求短时异常", "detail": "2 条 GET trace 被标记异常，均归入 cross_window；总时延 5.343~5.866ms", "type": "impact"}
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "旧 Worker 端点: 192.168.235.157:31501",
+          "重建后 Worker 端点: 192.168.235.160:31501",
+          "结构化异常链路: 192.168.235.159 → 192.168.219.101",
+          "操作域: GET；SET 无样本"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "f85afa94-854f-45b1-a162-f9d3ca675e2b",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top；代表该桶证据耗时最极端请求，不代表故障严重度或普遍性。",
+          "evidence_ms": 5.866,
+          "client_ms": 5.866,
+          "pod": "192.168.235.159 → 192.168.219.101",
+          "timestamp": "2026-10-09 19:33:33.242"
+        },
+        {
+          "trace_id": "87240366-b837-4e01-870d-43b0477934b7",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top；代表该桶证据耗时 Top 样例，不代表故障严重度或普遍性。",
+          "evidence_ms": 5.343,
+          "client_ms": 5.343,
+          "pod": "192.168.235.159 → 192.168.219.101",
+          "timestamp": "2026-10-09 19:33:39.742"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002577",
+          "stars": "★★★☆☆",
+          "match_logic": "L1 不命中：本次无结构化 failure_mode/status_code；L2 命中：cross_window、few_pods、GET/MIXED 同域；L3/L5 部分相似：现场有 RPC timeout/peer dead，但案例机理为 Worker 多节点进程退出，未用身份信息匹配。",
+          "symptom": "Worker 退出后元数据 RPC 无响应，客户端等待上升。",
+          "root_cause": "历史案例根因为部分 Worker 进程退出；本次仅将其作为重启导致短时不可达的待验证同域假设。",
+          "solution": "参考恢复 Worker 服务、确认 31501/31502 监听和 RPC 可达性；不能直接复用其多节点处置范围。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考",
+          "phenomenon_fit": "L2 匹配，L1 缺失",
+          "log_fit": "均出现 RPC timeout，但现场另有端点切换与重新注册",
+          "rc_consistency": "部分一致",
+          "env_diff": "历史案例为多节点进程退出，本次标签为单 Worker 容器重启/重建",
+          "adaptation": "仅复用 Worker 恢复与端口/RPC 验证步骤",
+          "applicability": "reference"
+        },
+        {
+          "rank": "②",
+          "id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+          "stars": "★★★★☆",
+          "match_logic": "L1：经验列出的 1001 与现场日志一致；L2：Worker 生命周期/重启恢复域命中；L3/L5：Register client、RPC deadline exceeded 与现场原文一致。经验仅作解释与排查建议，不替代现场证据。",
+          "symptom": "Worker 异常退出和重启会伴随注册、健康状态及连接恢复日志。",
+          "root_cause": "经验要求结合容器/系统日志判断异常退出原因，不把单一 RPC 超时直接定为网络故障。",
+          "solution": "核查容器事件、最后 ERROR/FATAL、lease、探针与 OOM 记录，并区分正常滚动重启和异常反复重启。",
+          "adoption_class": "adoption-adjusted",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "Worker 重启恢复流程匹配",
+          "log_fit": "Register client 与 1001 RPC timeout 匹配",
+          "rc_consistency": "一致但不构成独立证明",
+          "env_diff": "经验基于 datasystem 0.8.1.rc20，本次日志版本显示 0.9.2 客户端",
+          "adaptation": "只采用跨版本稳定的生命周期检查项",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "查询故障窗口内 Worker Pod 的 `kubectl describe pod`、Events 和 `.status.containerStatuses[*].restartCount/lastState`，确认每次重启时间、退出码及 OOMKilled/Probe/驱逐信号。",
+          "在重建后的 Worker 实例核对 31501/31502 监听、健康探针、ETCD lease 与客户端 Register client 成功率；对旧端点 192.168.235.157 清理残留服务发现记录。",
+          "回查 19:30:10~19:30:13 的 Worker 容器末尾 ERROR/FATAL、节点 kubelet/container runtime 日志，确定容器重启触发源。"
+        ],
+        "long_term": [
+          "为 Worker 容器 restartCount、OOMKilled、探针失败和端点频繁变更建立关联告警，并保留 Kubernetes Events 与退出前日志。",
+          "完善重启期间服务发现摘除与 SDK 退避重连，避免旧端点仍被 PureQueryMeta/Exist 访问。",
+          "将 Worker 生命周期事件、RPC 1001/1011 和 GET/SET 业务指标按同一 trace/时间窗关联，补齐当前 failure trace 未落库的数据缺口。"
+        ],
+        "verification": [
+          "连续观察至少 30 分钟，确认目标 Worker restartCount 不再增长且端点不再切换。",
+          "复测 GET 与 SET：GET 不再出现 E1008/E110/E112，SET 必须补采到有效样本后单独验证，不能用本报告的空结果替代。",
+          "确认 `/stats/stages` 的 GET 异常样本不再集中于 cross_window，并核对代表 trace 的 Worker/Client 窗口恢复稳定。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "补取 Kubernetes Pod Events、containerStatuses 与 kubelet/runtime 日志，确认容器反复重启的直接触发条件。",
+      "depends_on": "目标 Worker Pod/Deployment 及节点访问权限",
+      "expected_effect": "把故障边界从 Worker 容器重启收敛到 OOM、探针、驱逐、人工操作等具体触发源。",
+      "verify": "重启时间与 19:30 RPC 不可达、19:32 新端点注册时间对齐。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "核对重建后 Worker 监听、服务发现、健康探针与 SDK 重连状态。",
+      "depends_on": "Worker 容器已稳定运行",
+      "expected_effect": "消除旧端点访问和重复连接重建。",
+      "verify": "30 分钟内无 E1008/E110/E112，restartCount 不增长。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "5.861ms",
+        "share_bar": [
+          {"name": "Client/Worker交叉窗口未细分", "pct": "100.0", "cls": "s-bottleneck"}
+        ],
+        "stages": [
+          {"name": "RPC网络", "p99": "—", "anomaly_rate": "0/2", "fail_share": null, "status": "ok", "detail": "归因桶 rpc_network trace_cnt=0"},
+          {"name": "RPC排队", "p99": "—", "anomaly_rate": "0/2", "fail_share": null, "status": "ok", "detail": "归因桶 rpc_queue trace_cnt=0"},
+          {"name": "QueryMeta", "p99": "—", "anomaly_rate": "0/2", "fail_share": null, "status": "ok", "detail": "归因桶 query_meta trace_cnt=0"},
+          {"name": "URMA", "p99": "—", "anomaly_rate": "0/2", "fail_share": null, "status": "ok", "detail": "归因桶 urma/urma_timeout trace_cnt=0；不代表 URMA 全局健康"},
+          {"name": "Data Worker服务端处理", "p99": "—", "anomaly_rate": "0/2", "fail_share": null, "status": "ok", "detail": "归因桶 data_worker trace_cnt=0"},
+          {"name": "Client/Worker交叉窗口未细分", "p99": "—", "anomaly_rate": "2/2 异常标记", "fail_share": null, "status": "bottleneck", "fault": "F01", "detail": "P50=5.343ms、P90=max=5.866ms；样本仅 2 条，不补造 P99"},
+          {"name": "未解释残差", "p99": "—", "anomaly_rate": "0/2", "fail_share": null, "status": "ok", "detail": "归因桶 residual trace_cnt=0"}
+        ],
+        "conclusion": "GET 侧 2/2 分类样本落入 cross_window；两条 Worker access 窗口均仅 0.024ms，但现有字段不足以进一步拆分 RPC 网络/排队/QueryMeta。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {"name": "SET·URMA超时", "p99": "—", "anomaly_rate": "—", "fail_share": null, "status": "warn", "detail": "sample_cnt=0"},
+          {"name": "SET·数据面未观测", "p99": "—", "anomaly_rate": "—", "fail_share": null, "status": "warn", "detail": "sample_cnt=0"},
+          {"name": "SET·未解释残差", "p99": "—", "anomaly_rate": "—", "fail_share": null, "status": "warn", "detail": "sample_cnt=0"},
+          {"name": "SET·客户端SDK段", "p99": "—", "anomaly_rate": "—", "fail_share": null, "status": "warn", "detail": "sample_cnt=0"},
+          {"name": "SET·Worker写处理", "p99": "—", "anomaly_rate": "—", "fail_share": null, "status": "warn", "detail": "sample_cnt=0"}
+        ],
+        "conclusion": "SET 独立查询无归因样本；空结果仅表示当前日志没有可分析的 SET 数据，不能声明 SET 健康。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 2,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {"domain": "容器故障/容器故障-Worker容器重启", "pct": "100.0", "fault": "F01"}
+    ],
+    "top_pods": [
+      {"pod": "192.168.235.159 → 192.168.219.101", "host": "未解析", "pct": "100.0", "fault": "F01"}
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "19:33", "level": "4", "pct": "100", "spike": true, "lat_ms": "5.866", "fault": "F01"}
+    ]
+  },
+  "workflow": {
+    "session_id": "sess-63bd714b-20261112",
+    "total_steps": 7,
+    "api_calls": 27,
+    "duration": "本次会话",
+    "steps": [
+      {"title": "Step 1 经验库预检索", "api_calls": ["experience-skill search-experiences: Worker Pod 反复重启"], "result": "命中 Worker 日志分析、Worker 错误模式等经验；仅作为先验。"},
+      {"title": "Step 2 数据完整性核验", "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "POST /task/list", "GET /log_parse_result/options"], "result": "1 个日志文件，overall_status=successful，2 条解析 trace，集群 ci-kv-ds-1。"},
+      {"title": "Step 3 GET/SET 组件分诊", "api_calls": ["POST /stats/stages operation=GET", "POST /stats/stages operation=SET"], "result": "GET 2 条均归入 cross_window；SET sample_cnt=0；未混合归桶。"},
+      {"title": "Step 4 统计与 Trace 下钻", "api_calls": ["POST /stats/error_codes|pods|links|heatmap", "POST /trace/list", "POST /log_parse_result/list", "POST /log_parse_result/metrics/latency"], "result": "GET P99 5.861ms，2 条异常 trace 位于同一源目链路；故障码聚合为空。"},
+      {"title": "Step 5 本地日志交叉验证", "api_calls": ["读取用户指定训练日志目录"], "result": "确认旧 Worker RPC 超时/peer dead、端点 192.168.235.157→192.168.235.160 及重新注册时序。"},
+      {"title": "Step 6 历史案例与经验复核", "api_calls": ["POST /diag_case_library/search", "POST /diag_case_library/{case_id}/hit", "experience-skill 二次检索"], "result": "UB-CASE-002577 仅 L2 同域，按 reference 采用并完成命中回写。"},
+      {"title": "Step 7 反证与结论", "api_calls": ["GET/SET 空间对照与代表 trace 原始日志"], "result": "排除将 URMA 失败、持续网络中断或 Worker 业务处理慢作为已确认主因；保留容器重启触发源证据缺口。"}
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+        "keywords_matched": ["Worker", "重启", "RPC", "Register client"],
+        "search_query_used": "RPC peer dead Host is down Worker 重启 Register client 1001 1011",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "分析 Worker 日志时应同时查看同节点的 container.log 和系统日志（如 dmesg、systemd）。",
+        "how_used_in_diagnosis": "用于提出补查容器事件、系统日志及区分正常/异常重启的建议。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "现场出现端点切换、重新注册和 RPC 超时，生命周期检查项直接相关。"
+      },
+      {
+        "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Worker 错误模式",
+        "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+        "keywords_matched": ["Worker", "RPC", "重启"],
+        "search_query_used": "RPC peer dead Host is down Worker 重启",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_RPC_DEADLINE_EXCEEDED=1001 | RPC 超时 | 检查网络、负载、线程池",
+        "how_used_in_diagnosis": "用于解释 1001 并保持网络、负载、线程池为待核查项，而非直接定因。",
+        "confidence_on_reference": 0.82,
+        "confidence_reason": "现场原文存在 DS_ERR 1001，但 curated 状态码接口无结构化命中。"
+      }
+    ],
+    "summary": {
+      "total_references": 2,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 2,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库内容仅作为解释和排查建议；故障结论仍以本次 API 与现场日志证据为准。"
+    }
+  }
+}

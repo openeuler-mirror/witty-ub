@@ -1,0 +1,337 @@
+{
+  "report": {
+    "title": "KVCache SET 场景 Worker 进程挂死诊断报告",
+    "report_id": "RPT-20261112-WH01",
+    "generated_at": "2026-11-12 12:00:00"
+  },
+  "basic_info": {
+    "kb_id": "66a44d0d-4fe4-488b-9d31-2345fe23ad15",
+    "kb_name": "lingqu_kvcache_dfx_r_worker_process_set_hangup_001_20261009_20_12_13",
+    "log_file": "lingqu_kvcache_dfx_r_worker_process_set_hangup_001_20261009_20_12_13（log_id=3148c5e1-77eb-4adf-80d9-6866730f3653）",
+    "operation": "GET / SET（分开统计）",
+    "time_range_start": "2026-10-09 20:14:39",
+    "time_range_end": "2026-10-09 20:14:39",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "1/1（异常标记口径，不等同业务失败率）",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到 1 个待确认故障：样本标签指定为 Worker 进程挂死，但当前可检索现场仅有 1 条成功 SET 异常 trace，尚缺直接挂死日志。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "当前解析范围仅覆盖 1 条 8 MiB SET trace；该 trace 被标记异常，但业务返回 status_code=0。GET 无归因样本。",
+    "confidence": 0.55
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SET 场景 Worker 进程挂死（标签已知、现场证据待补强）",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 0.55,
+      "category": "latency",
+      "affected_scope": "单条 SET trace，涉及客户端 192.168.219.97 与 Worker 192.168.189.88；无法由当前截取日志量化完整业务影响面",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程挂死",
+        "one_line_conclusion": "标签映射指向 Worker 进程挂死；现场仅证实 SET trace 异常标记和 SDK/URMA 等待，未出现挂死、超时或错误码原文，故保持待确认。",
+        "fault_domain": "Worker故障/Worker故障-进程挂死",
+        "fault_component": "KVCache Worker（目标 Worker 192.168.189.88，需结合完整 Worker 运行日志复核）",
+        "fault_function": "SET 写路径：URMA_WRITE_PHASE → CREATE → UpdateMeta → PUBLISH",
+        "fault_function_loc": "urma_manager.cpp:2892；master_oc_service_impl.cpp:438；oc_metadata_manager.cpp:2425",
+        "affected_scope_pct": null,
+        "affected_scope_desc": "解析结果仅 1 条 SET trace 且被标记异常；两个 Pod 均关联到同一 trace，不能据此计算业务失败比例。",
+        "confidence": 0.55,
+        "key_findings": [
+          "按用户指定映射，train_valid.md 中该日志路径对应 r_worker_process_set_hangup，gt_labels.json 给出的标签为 Worker故障/Worker故障-进程挂死。",
+          "SET /stats/stages 样本数为 1，唯一 trace 归入 set_client 桶：证据耗时 P50/P90/max 均为 5.55 ms，Client P50/P90 为 5.63 ms，异常标记 1/1。",
+          "trace 45f9bf42-86da-43b0-9837-5ec29f283640 的 8 MiB SET 返回 status_code=0；URMA_WRITE_PHASE totalUs=4557、waitUs=4541，状态 OK。",
+          "Worker 侧同 trace 记录 Processing UpdateMetaReq、Notify update object done、UpdateMeta finished，CREATE/PUBLISH 均为 status_code=0。",
+          "GET 归因样本为 0；GET/SET Top 错误码均为空，时间聚合故障事件为 0。空故障码不等于健康，但当前没有直接的 Worker was hanged、lease 失效、RPC 超时或进程退出证据。"
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "R1",
+            "title": "标签先验",
+            "description": "用户指定的训练路径映射明确给出 Worker 进程挂死标签；该信息用于报告分类，不冒充 API 现场证据。",
+            "evidence": "train_valid.md: 路径 → r_worker_process_set_hangup；gt_labels.json: Worker故障/Worker故障-进程挂死。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "R2",
+            "title": "读写分诊",
+            "description": "GET 无归因样本；SET 仅 1 条异常 trace，归入客户端 SDK 段，而非 SET·Worker写处理或 SET·URMA超时桶。",
+            "evidence": "/stats/stages GET sample_cnt=0；SET sample_cnt=1，set_client trace_cnt=1/fail_cnt=1，set_worker=0，set_urma_timeout=0。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "R3",
+            "title": "代表 trace 下钻",
+            "description": "唯一异常 trace 的 SET、URMA 写、CREATE、UpdateMeta、PUBLISH 均有完成或 OK 记录；当前截面没有阻塞未返回证据。",
+            "evidence": "trace=45f9bf42-86da-43b0-9837-5ec29f283640；SET totalCost=5.617ms status=OK；PUBLISH status_code=0。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "R4",
+            "title": "反证检查",
+            "description": "若该截取窗口直接覆盖 Worker 挂死，通常应观察到 Worker was hanged、请求未完成、RPC/lease 超时或错误码；这些信号在当前资产库均未出现。因此不能仅凭时间接近或文件名确认机理。",
+            "evidence": "Top 错误码为空；时间聚合故障事件为空；8 条原始事件均未出现 ERROR/FATAL/timeout，业务状态为 0。",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "R5",
+            "title": "根因收敛",
+            "description": "最符合用户指定标签的候选是 Worker 进程挂死，但现有日志更像一次成功完成且耗时集中于 SDK/URMA 等待的 SET。最终根因需补齐 Worker watchdog、调度停顿、线程栈及 lease 证据后确认。",
+            "evidence": "标签证据与现场 trace 证据存在强度差异，故障状态保留 suspected，置信度 0.55。",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "未完全确认。训练标签指定 Worker 进程挂死；当前现场只支持“Worker 挂死为首要待验证候选”，不支持确定具体挂死线程、持续时长或资源诱因。",
+        "supporting_knowledge": "本地经验 ds-worker-log-analysis 与 Wiki《yuanrong-datasystem Worker 错误模式》均将 `Worker was hanged about ... ms` 作为直接日志模式，并建议核查 OS 调度延迟、CPU throttling、内存回收、内核/驱动及 ETCD lease；本次未检出该直接模式。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "标签所指故障源（待验证）",
+            "detail": "KVCache Worker 进程发生挂死或长时间调度停顿。",
+            "type": "suspected"
+          },
+          {
+            "label": "SET 写路径等待",
+            "detail": "客户端执行 8 MiB SET，归因桶为 set_client；URMA_WRITE_PHASE 中 waitUs=4541。",
+            "transition": "可能的等待外显，但当前 URMA 状态为 OK"
+          },
+          {
+            "label": "Worker 元数据与发布",
+            "detail": "目标 Worker 完成 UpdateMeta，CREATE/PUBLISH 返回 0。",
+            "transition": "当前代表 trace 未表现为阻塞"
+          },
+          {
+            "label": "业务表现",
+            "detail": "该 trace 被平台标记异常，但 SET 最终成功，当前无法量化更广泛失败面。"
+          }
+        ],
+        "impact_scope": [
+          "操作域：SET；GET 无归因样本。",
+          "空间域：同一 trace 涉及 192.168.219.97 与 192.168.189.88，不能将多 Pod 计数解释为多条独立故障。",
+          "时间域：故障热力图仅在 2026-10-09 20:14:00 窗口记录 1 条故障侧 trace。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "45f9bf42-86da-43b0-9837-5ec29f283640",
+          "kind": "latency",
+          "why": "来自 SET·set_client 归因桶的证据耗时 Top trace；这是桶内证据耗时 Top 口径，不代表故障严重度或普遍性。",
+          "evidence_ms": 5.55,
+          "client_ms": 5.63,
+          "pod": "192.168.219.97 → 192.168.189.88",
+          "timestamp": "2026-10-09 20:14:39.327"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "EXP-a0227481-5a5a-4b93-8fb7-de128596e844",
+          "rank": 1,
+          "stars": 4,
+          "match_logic": "L1：无现场错误码/故障模式 ID，未命中；L2：标签与 Worker 进程挂死域匹配；L3：现场只定位到 SET client→Worker 路径，未取得挂死线程拓扑；L5：经验要求的 `Worker was hanged about` 原文未命中。",
+          "symptom": "Worker 后台线程异常或进程被 OS 调度挂起，可伴随 lease 续约失败。",
+          "root_cause": "经验候选包括 OS 调度延迟、CPU throttling、内存回收、内核锁或驱动问题；本次均未被当前日志直接证明。",
+          "solution": "补采完整 datasystem_worker 日志、系统负载、cgroup throttling、dmesg/systemd 与 ETCD lease 证据。",
+          "adoption_class": "reference",
+          "adoption_label": "作为补证方向采用",
+          "phenomenon_fit": "标签匹配，直接日志模式缺失",
+          "log_fit": "低：未检出 Worker was hanged about",
+          "rc_consistency": "尚待验证",
+          "env_diff": "当前资产库为截取日志，缺完整 Worker watchdog 与系统日志",
+          "adaptation": "只采用取证清单，不采用其候选根因作为现场事实",
+          "applicability": "reference"
+        },
+        {
+          "id": "UB-CASE-002552",
+          "rank": 2,
+          "stars": 2,
+          "match_logic": "L1：历史案例有 K_URMA_ERROR(1004)，本次无错误码，不命中；L2：同为 SET/set_client，命中；L5：历史案例 completion 失败约 523.5 ms，本次 URMA 4.557 ms 且状态 OK，不命中。",
+          "symptom": "历史已确认案例为 SET 大对象写入 URMA completion 失败并因 TCP 回退容量限制返回错误。",
+          "root_cause": "本次无 URMA failure、无 K_URMA_ERROR，因此不能迁移其根因。",
+          "solution": "仅可借鉴核对 URMA completion 和降级路径的检查方法，不建议直接处置网络或调整 limiter。",
+          "adoption_class": "not_recommended",
+          "adoption_label": "未采纳",
+          "phenomenon_fit": "仅操作域和归因桶相似",
+          "log_fit": "低：本次 URMA status=OK",
+          "rc_consistency": "不一致",
+          "env_diff": "历史案例有明确错误码与 523.5 ms 失败等待；本次仅 4.557 ms 成功等待",
+          "adaptation": "不得据此推断 URMA 故障",
+          "applicability": "not_recommended"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "补采并检索目标 Worker 在 2026-10-09 20:10:00～20:17:00 的完整 datasystem_worker.INFO/WARNING/ERROR、容器日志和 watchdog 日志，重点查 `Worker was hanged about`、线程池停顿、健康状态变化与信号记录。",
+          "对 192.168.189.88、192.168.219.101 及相关 Worker 核查进程存活、线程栈和监听端口；若可复现，在挂起窗口抓取 pstack/gstack 或 core 前线程快照。",
+          "同步核查 cgroup CPU throttling、节点 load、内存回收、dmesg/systemd 与 ETCD keepalive/lease TTL；不要仅因本次 URMA waitUs=4541 就判定网络故障。"
+        ],
+        "long_term": [
+          "为 Worker watchdog 挂起时长、线程池排队、CPU throttling、ETCD lease 续约和进程健康状态建立同时间轴告警。",
+          "保留故障注入前后完整日志窗口与 Worker 系统指标，避免训练样本只剩成功 trace 而丢失直接挂死证据。",
+          "在 SET 路径补充 CREATE/PUBLISH 与 Worker handler 的稳定分段观测，以区分 SDK 等待、URMA completion 和 Worker 执行停顿。"
+        ],
+        "verification": [
+          "复现后确认是否出现 `Worker was hanged about ... ms`，并将其时间与 SET 卡顿、lease 续约失败或线程栈停滞逐条对齐。",
+          "解除挂起或资源限制后重复 8 MiB SET，验证 Worker watchdog、SET 成功率与端到端时延恢复；需同时保留对照窗口。",
+          "若仍仅出现 status_code=0 且 Worker 处理持续完成，则应否定“当前 trace 由 Worker 挂死导致”，转查 SDK 排队/调度或样本截取缺口。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "补齐 Worker 挂死直接证据：完整 Worker/watchdog/系统/ETCD 日志与线程栈。",
+      "depends_on": "目标节点日志与系统指标可访问",
+      "expected_effect": "将标签先验提升为可复核现场结论，或明确否定 Worker 挂死候选。",
+      "verify": "挂起时间、SET 卡顿、线程停滞与 lease/调度指标在同一时间轴一致。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "复测 8 MiB SET 并采集完整阶段与状态码数据。",
+      "depends_on": "完成 Worker 状态恢复或故障复现条件准备",
+      "expected_effect": "区分 SDK/URMA 等待与 Worker 执行停顿。",
+      "verify": "复测含成功率、SET 端到端时延、Worker handler 耗时与异常日志。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {"name": "RPC网络", "p99": "—", "anomaly_rate": "—", "fail_share": "0", "status": "ok", "fault": "无样本", "detail": "GET 归因子集为空，不能据此判断健康。"},
+          {"name": "RPC排队", "p99": "—", "anomaly_rate": "—", "fail_share": "0", "status": "ok", "fault": "无样本", "detail": "GET 归因子集为空。"},
+          {"name": "QueryMeta", "p99": "—", "anomaly_rate": "—", "fail_share": "0", "status": "ok", "fault": "无样本", "detail": "GET 归因子集为空。"},
+          {"name": "URMA", "p99": "—", "anomaly_rate": "—", "fail_share": "0", "status": "ok", "fault": "无样本", "detail": "GET 归因子集为空。"},
+          {"name": "Data Worker服务端处理", "p99": "—", "anomaly_rate": "—", "fail_share": "0", "status": "ok", "fault": "无样本", "detail": "GET 归因子集为空。"},
+          {"name": "Client/Worker交叉窗口未细分", "p99": "—", "anomaly_rate": "—", "fail_share": "0", "status": "ok", "fault": "无样本", "detail": "GET 归因子集为空。"},
+          {"name": "未解释残差", "p99": "—", "anomaly_rate": "—", "fail_share": "0", "status": "ok", "fault": "无样本", "detail": "GET 归因子集为空。"},
+          {"name": "URMA超时", "p99": "—", "anomaly_rate": "—", "fail_share": "0", "status": "ok", "fault": "无样本", "detail": "未观测 GET URMA 超时，但空样本不等于健康。"}
+        ],
+        "conclusion": "GET sample_cnt=0；无 GET 归因子集，不能将空结果解释为 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {"name": "SET·客户端SDK段", "pct": 100.0, "cls": "s-warn"}
+        ],
+        "stages": [
+          {"name": "SET·URMA超时", "p99": "—", "anomaly_rate": "—", "fail_share": "0/1", "status": "ok", "fault": "未命中", "detail": "无 URMA_WAIT_TIMEOUT 文本命中。"},
+          {"name": "SET·数据面未观测", "p99": "—", "anomaly_rate": "—", "fail_share": "0/1", "status": "ok", "fault": "未命中", "detail": "代表 trace 有 Worker 侧日志。"},
+          {"name": "SET·未解释残差", "p99": "—", "anomaly_rate": "—", "fail_share": "0/1", "status": "ok", "fault": "未命中", "detail": "当前解析口径下残差桶为 0。"},
+          {"name": "SET·客户端SDK段", "p99": "—", "anomaly_rate": "1/1（异常标记）", "fail_share": "1/1", "status": "warn", "fault": "唯一异常 trace 归入此桶", "detail": "证据 P50/P90/max=5.55 ms；Client P50/P90=5.63 ms。/stats/stages 不提供 P99，未用 P90 代替。"},
+          {"name": "SET·Worker写处理", "p99": "—", "anomaly_rate": "—", "fail_share": "0/1", "status": "ok", "fault": "未命中", "detail": "local_worker_internal_us=80，小于 sdk_processing_us=5550。"}
+        ],
+        "conclusion": "SET 仅 1 条分类样本且全部归入 set_client；100% 是分类样本占比，不是耗时占比或业务失败率。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 1,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {"domain": "Worker故障/Worker故障-进程挂死（标签来源）", "pct": 100.0, "fault": "现场尚缺直接挂死日志"}
+    ],
+    "top_pods": [
+      {"pod": "192.168.189.88", "host": "—", "pct": 50.0, "fault": "同一故障侧 trace 涉及该 Worker Pod"},
+      {"pod": "192.168.219.97", "host": "—", "pct": 50.0, "fault": "同一故障侧 trace 涉及该 Client Pod"}
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "2026-10-09 20:14:00", "level": "high", "pct": 100.0, "spike": "1 条故障侧 SET trace", "lat_ms": 5.63, "fault": "异常标记；业务状态码 0"}
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-66a44d0d-20261112",
+    "total_steps": 6,
+    "api_calls": 22,
+    "duration": "本会话现场取证",
+    "steps": [
+      {"title": "经验库预检索", "api_calls": ["experience-skill search-experiences（SKILL/WIKI）"], "result": "命中 ds-worker-log-analysis、ds-kv-cache-diagnosis 与 Worker 错误模式 Wiki，均作为先验或补证方向。"},
+      {"title": "资产与解析完整性核验", "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "GET /log_parse_result/options"], "result": "资产存在；1 个日志文件，overall_status=successful，解析进度 100%，anomaly_cnt=1。"},
+      {"title": "GET/SET 独立阶段分诊", "api_calls": ["POST /stats/stages operation=GET", "POST /stats/stages operation=SET"], "result": "GET 无样本；SET 1 条异常样本归入 set_client，未跨 operation 混桶。"},
+      {"title": "统计与代表 trace 下钻", "api_calls": ["POST /stats/error_codes|pods|links|heatmap（GET/SET）", "POST /trace/list", "POST /log_parse_result/list", "POST /log_failure_event_result/list_log_events"], "result": "无错误码；SET 故障侧 1 条 trace，业务状态码 0，完成 URMA/UpdateMeta/PUBLISH。"},
+      {"title": "历史案例软匹配", "api_calls": ["POST /diag_case_library/search（由 match_cases.py 调用）"], "result": "仅 L2 操作域/set_client 相似；Top 案例均缺 L1/L5 命中，未采纳根因或处置。"},
+      {"title": "反证与结论", "api_calls": ["现场日志与标签映射交叉核对"], "result": "保留 Worker 挂死为待验证候选；明确当前成功 trace 不能直接证明挂死。"}
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis",
+        "keywords_matched": ["Worker", "hangup", "Worker was hanged about"],
+        "search_query_used": "Worker was hanged about SET UpdateMeta URMA_WRITE_PHASE",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "`Worker was hanged about ... ms` 表示进程被 OS 调度挂起，可能导致 lease 失效。",
+        "how_used_in_diagnosis": "用于制定补采 Worker watchdog、调度与 lease 证据的建议，不作为现场事实。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "经验模式与标签语义一致，但本次日志未命中直接短语。"
+      },
+      {
+        "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Worker 错误模式",
+        "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+        "keywords_matched": ["Worker 进程挂起", "CPU throttling", "ETCD lease"],
+        "search_query_used": "Worker was hanged about SET UpdateMeta URMA_WRITE_PHASE",
+        "used_in_stage": "recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "检查系统负载、CPU throttling、内存回收。检查 dmesg、systemd 日志。检查是否有 cgroup 限制。",
+        "how_used_in_diagnosis": "转化为短期补证和长期监控清单。",
+        "confidence_on_reference": 0.78,
+        "confidence_reason": "适合 Worker 挂死排查，但缺本次系统侧证据。"
+      },
+      {
+        "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+        "experience_type": "SKILL",
+        "name": "ds-kv-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-kv-cache-diagnosis",
+        "keywords_matched": ["DS_KV_CLIENT_SET", "status_code", "Worker"],
+        "search_query_used": "KVCache SET worker process hangup 写请求 卡死",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "KV Cache 访问日志中 status_code=0 表示成功，非 0 需要结合 StatusCode 表分析。",
+        "how_used_in_diagnosis": "用于解释代表 SET trace 状态码 0，并避免把异常标记等同业务失败。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与现场 access log 的 status_code=0 直接一致。"
+      }
+    ],
+    "summary": {
+      "total_references": 3,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 3,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库只用于解释日志模式和制定补证建议；本次根因判断仍以资产库 API 与原始日志为现场证据。"
+    }
+  }
+}

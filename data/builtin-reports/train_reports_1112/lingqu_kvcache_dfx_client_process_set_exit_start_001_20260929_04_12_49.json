@@ -1,0 +1,323 @@
+{
+  "report": {
+    "title": "SDK Client 进程异常退出并重新启动诊断报告",
+    "report_id": "diag-b49e6e8b-sdk-client-exit-start-20261112",
+    "generated_at": "2026-11-12 11:00:00"
+  },
+  "basic_info": {
+    "kb_id": "b49e6e8b-af60-4c12-8f4c-e5e75de898b9",
+    "kb_name": "lingqu_kvcache_dfx_client_process_set_exit_start_001_20260929_04_12_49",
+    "log_file": "lingqu_kvcache_dfx_client_process_set_exit_start_001_20260929_04_12_49",
+    "operation": "SET 场景；解析侧仅观测到 GET 样本",
+    "time_range_start": "2026-09-29 04:10:09",
+    "time_range_end": "2026-09-29 04:21:29",
+    "total_trace_cnt": 9,
+    "fault_trace_cnt": 0,
+    "fault_ratio": "0",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：SDK Client 进程非优雅中断后被重新拉起；退出触发机制尚缺退出码、signal 或 OOM 证据。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "两个 Client 节点出现多 PID 生命周期切换；SET 解析子集为空，未量化写请求影响率。",
+    "confidence": "中高 78%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SDK Client 进程非优雅终止并重新启动",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": "中高 78%",
+      "category": "mixed",
+      "affected_scope": "Client SDK 生命周期；两个 Client 节点",
+      "conclusion": {
+        "first_level_label": "SDK故障",
+        "second_level_label": "SDK故障-进程异常退出",
+        "one_line_conclusion": "同一 Client 节点在分钟级窗口内连续出现不同 PID 的完整初始化与注册链，旧 PID 均无正常 exit notice，定界为 SDK Client 非优雅退出后重新启动；具体由 SIGKILL、OOM、容器重建还是上层强杀触发尚不能确认。",
+        "fault_domain": "SDK故障/SDK故障-进程异常退出",
+        "fault_component": "KVCache Client SDK 进程生命周期",
+        "fault_function": null,
+        "fault_function_loc": null,
+        "affected_scope_pct": null,
+        "affected_scope_desc": "192.168.235.152 上依次出现 PID 13300、13380、13468、13552；192.168.219.88 也出现 PID 切换及空日志文件。",
+        "confidence": "中高 78%",
+        "key_findings": [
+          "192.168.235.152 在约 7 分钟内出现 4 个不同 Client PID，每个非空日志均从 Start to init worker client 开始并生成新的 Client ID。",
+          "所有 9 个 ds_client_<pid>.INFO.log 均未检出正常销毁应有的 sends exit notice；非空启动日志也未见 ERROR/FATAL。",
+          "新进程均成功完成 SCMTCP 连接和 Register client，排除持续初始化失败；但缺少退出码、signal、core、OOMKilled 与容器事件，不能下钻到具体触发原因。",
+          "GET 侧有 9 条成功但慢的 8MiB 读取，状态码均为 0；SET 侧 stages、metrics、trace 均无样本，不能把 GET 长尾解释为 SET 失败。"
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析任务成功，但 SET 观测缺口明确",
+            "description": "日志文件 overall_status=successful、任务进度 100%；资产解析出 9 条时延异常 trace，但 SET 的 stages、metrics、聚合事件与 trace 查询均为 0。",
+            "evidence": "[GET /log_kb/{kb_id}; POST /log_file/list/{kb_id}; POST /stats/stages GET/SET]",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 生命周期时序",
+            "title": "同节点连续产生多个新 PID 与 Client ID",
+            "description": "192.168.235.152 的 PID 13300、13380、13468、13552 分别重新执行初始化、连接和注册；192.168.219.88 也从 PID 5930 切换至 6401，中间存在多个空 Client 日志文件。",
+            "evidence": "[本地原始日志] ds_client_<pid>.INFO.log 与 Worker Register client 日志",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 正常退出反证",
+            "title": "未观察到正常销毁通知",
+            "description": "经验库指出正常销毁时 Client 会记录 sends exit notice；本次 9 个 Client INFO 文件该短语计数均为 0，支持非优雅生命周期中断，但日志截断仍是证据边界。",
+            "evidence": "[experience-skill: ds-client-log-analysis] + [本地原始日志全文检索]",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 排除请求面错误",
+            "title": "未发现错误码或注册失败",
+            "description": "GET/SET Top 错误码均为空；9 条 GET trace 的 failure_codes 为空，代表日志状态码为 0；每个有内容的新 PID 均成功连接并注册，因此当前证据不支持 Worker 注册故障或请求错误触发退出。",
+            "evidence": "[POST /stats/error_codes GET/SET; POST /trace/list; 原始 Client 日志]",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 根因定界",
+            "title": "SDK 进程非优雅终止后被重新拉起",
+            "description": "多 PID/新 Client ID 的重复启动链与缺失 exit notice 共同将故障定界到 SDK Client 所在进程生命周期；由于没有 termination reason、signal、OOM 或 core，具体退出触发机制仅能列为待验证候选。",
+            "evidence": "[现场生命周期日志]；已确认案例 UB-CASE-002550 仅作同类机理参考",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "SDK Client 所在进程发生非优雅生命周期中断并被重新拉起；具体退出触发原因尚无证据确认。",
+        "supporting_knowledge": "experience-skill 的 ds-client-log-analysis 给出正常退出通知口径；已人工确认案例 UB-CASE-002550 与本次多 PID、无 exit notice、SET 无样本特征一致。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "SDK Client 进程生命周期中断",
+            "detail": "旧 PID 无正常 exit notice；具体 signal/OOM/编排触发未知",
+            "type": "origin",
+            "transition": "上层守护或任务重新拉起"
+          },
+          {
+            "label": "新 PID 完整初始化",
+            "detail": "重新建立本地 SCMTCP 通道并向 Worker 注册新的 Client ID",
+            "type": null,
+            "transition": "Client 会话与资源重新建立"
+          },
+          {
+            "label": "SET 业务影响无法量化",
+            "detail": "SET 解析子集为 0；未观测错误码，不能据此宣称写请求失败率",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "Client 节点: 192.168.235.152、192.168.219.88",
+          "主要可复核窗口: 2026-09-29 04:10:09 至 04:21:29",
+          "数据限制: SET 路径无可归因 trace"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "5e67790f-a8b9-416b-b9b5-b166c396dd7a",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top；仅复核重启后慢 GET，不代表退出原因或严重度排序",
+          "evidence_ms": 49.704,
+          "client_ms": 49.704
+        },
+        {
+          "trace_id": "da6645e4-fd13-4fda-8322-c25900dbc211",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top；状态码 0，用于排除请求失败，不作为 SET 证据",
+          "evidence_ms": 49.086,
+          "client_ms": 49.086
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002550",
+          "stars": 4,
+          "match_logic": "L1：无错误码/故障模式 ID，未命中；L2：SDK故障/SDK故障-进程异常退出、单 Client 节点生命周期及 SET/MIXED 操作域相符；L5：多 PID 重初始化与缺失 exit notice 机理一致。",
+          "symptom": "同一 Client 节点连续出现新 PID 完成初始化、注册和 warmup，旧 PID 无 sends exit notice。",
+          "root_cause": "SDK Client 进程发生非优雅生命周期中断并被重新拉起，具体退出触发原因未确认。",
+          "solution": "补采退出码、signal、OOMKilled、systemd/kubelet 事件和 dmesg，并建立 PID/Client ID/restartCount 关联监控。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "现场多 PID 与无 exit notice 特征一致。",
+          "log_fit": "现场短语 Start to init worker client 与 Register client successfully 支撑同类生命周期模式。",
+          "rc_consistency": "定界一致；具体退出触发原因同样未闭合。",
+          "env_diff": "案例 operation=MIXED，本次用户指定 SET 场景但 SET 解析无样本。",
+          "adaptation": "仅复用生命周期定界和补采清单，不复用案例中的任何 IP/PID 身份信息。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 2,
+          "id": "EXP-b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+          "stars": 4,
+          "match_logic": "L1：经验不提供本次错误码；L2：Client SDK 生命周期域一致；L5：正常销毁应有 exit notice 的日志口径与现场缺失情况直接对应。",
+          "symptom": "Client 运行日志记录 SDK 初始化、连接 Worker、注册、心跳、重连与退出通知。",
+          "root_cause": "经验仅给出判断方法，不独立证明本次根因。",
+          "solution": "检查 Client 启动时间、PID、注册和退出通知，并结合 Worker 日志核对。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "经验口径",
+          "phenomenon_fit": "现场完整出现初始化和注册链，且未出现正常退出通知。",
+          "log_fit": "Start to init worker client、Register client successfully 与 sends exit notice 口径匹配。",
+          "rc_consistency": "与现场时序一致，但经验不是现场证据。",
+          "env_diff": "经验基于 yuanrong-datasystem 0.8.1.rc20；现场日志显示 Client 版本 0.9.2。",
+          "adaptation": "仅采用稳定日志语义，版本相关行为需以现场复测为准。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即导出 04:10:09—04:21:29 前后各 5 分钟的进程退出码、termination reason、signal、OOMKilled、systemd/kubelet 事件、stderr 与 dmesg，按 PID 13300/13380/13468/13552/5930/6401 对齐。",
+          "检查任务编排、健康检查和守护进程是否主动 kill 并拉起 Client；若仍在重启，先暂停非必要自动拉起并保留 core/退出现场。",
+          "核对 Worker 侧 Client ID 清理与新注册时间，确认旧 Client 资源已回收，避免 fd/共享内存引用残留。"
+        ],
+        "long_term": [
+          "为 SDK 生命周期增加 PID、Client ID、Pod UID、restartCount、退出码和 signal 的统一审计；分钟级多 PID 自动告警。",
+          "为正常销毁保留可检索的 sends exit notice；异常信号路径启用 core dump、stderr 持久化及 OOM/健康检查事件采集。",
+          "补齐 SET 访问日志与 CREATE/PUBLISH 阶段观测，避免 SET 故障场景只解析出 GET trace。"
+        ],
+        "verification": [
+          "连续观察 30 分钟，Client PID 与 Client ID 保持稳定，不再出现无 exit notice 的新启动日志。",
+          "受控执行一次优雅退出和一次 SIGKILL，确认两类事件可由 exit notice、退出码和 signal 明确区分。",
+          "分别复测 GET/SET：SET 的 /stats/stages 与 metrics 能获得样本，错误码保持为空；GET 不再出现与重启窗口重叠的异常 trace。"
+        ]
+      },
+      "source_code": null,
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "补采并对齐 Client 退出码、signal、OOM/容器事件、dmesg 与 core。",
+      "depends_on": "保留原始节点和容器运行时事件",
+      "expected_effect": "将根因从非优雅退出定界进一步收敛到唯一触发机制。",
+      "verify": "每次 PID 切换均能关联唯一 termination reason。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "建立 SDK PID、Client ID、Pod UID、restartCount 与 Worker 清理事件关联监控。",
+      "depends_on": "日志与容器指标接入",
+      "expected_effect": "及时识别异常重启并避免旧会话资源残留。",
+      "verify": "连续 30 分钟无异常 PID 切换，受控退出可准确分类。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "49.685ms（IP 对聚合 P99）",
+        "share_bar": [
+          {"name": "Client/Worker交叉窗口未细分", "pct": "100", "cls": "s-warn"}
+        ],
+        "stages": [
+          {"name": "RPC网络", "p99": "无样本", "anomaly_rate": "0/9", "fail_share": null, "status": "ok", "detail": "归因桶 trace_cnt=0"},
+          {"name": "RPC排队", "p99": "无样本", "anomaly_rate": "0/9", "fail_share": null, "status": "ok", "detail": "归因桶 trace_cnt=0"},
+          {"name": "QueryMeta", "p99": "无样本", "anomaly_rate": "0/9", "fail_share": null, "status": "ok", "detail": "归因桶 trace_cnt=0"},
+          {"name": "URMA", "p99": "无样本", "anomaly_rate": "0/9", "fail_share": null, "status": "ok", "detail": "粗分接口未归入 URMA 桶；原始日志有成功的 URMA 慢记录"},
+          {"name": "Data Worker服务端处理", "p99": "无样本", "anomaly_rate": "0/9", "fail_share": null, "status": "ok", "detail": "归因桶 trace_cnt=0"},
+          {"name": "Client/Worker交叉窗口未细分", "p99": "不可得（P90/最大 49.704ms）", "anomaly_rate": "9/9", "fail_share": "9/9 异常标记", "status": "warn", "fault": "F01", "detail": "9 条均为客户端等待主导的粗分桶；这是恢复后 GET 观测，不等同于退出根因"},
+          {"name": "未解释残差", "p99": "无样本", "anomaly_rate": "0/9", "fail_share": null, "status": "ok", "detail": "归因桶 trace_cnt=0"},
+          {"name": "URMA超时", "p99": "无样本", "anomaly_rate": "0/9", "fail_share": "0", "status": "ok", "detail": "未观测 timeout 文本"}
+        ],
+        "conclusion": "GET 的 9 条异常标记 trace 全部粗分到 cross_window；阶段接口只提供 P50/P90/max，不能补造阶段 P99。所有代表 trace 状态码为 0，因此只作为恢复后慢请求旁证。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "无样本",
+        "share_bar": [],
+        "stages": [
+          {"name": "SET·URMA超时", "p99": "无样本", "anomaly_rate": "—", "fail_share": "0", "status": "ok", "detail": "trace_cnt=0"},
+          {"name": "SET·数据面未观测", "p99": "无样本", "anomaly_rate": "—", "fail_share": null, "status": "warn", "fault": "F01", "detail": "SET 归因子集为空，不等于 SET 健康"},
+          {"name": "SET·未解释残差", "p99": "无样本", "anomaly_rate": "—", "fail_share": null, "status": "ok", "detail": "trace_cnt=0"},
+          {"name": "SET·客户端SDK段", "p99": "无样本", "anomaly_rate": "—", "fail_share": null, "status": "ok", "detail": "trace_cnt=0"},
+          {"name": "SET·Worker写处理", "p99": "无样本", "anomaly_rate": "—", "fail_share": null, "status": "ok", "detail": "trace_cnt=0"}
+        ],
+        "conclusion": "SET 的 stages、metrics、聚合事件和 trace 均为空；这是观测缺口，禁止据此宣布 SET 正常或计算写失败率。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": "9 anomaly traces",
+    "top_error_codes": [],
+    "top_failure_domains": [],
+    "top_pods": [
+      {"pod": "192.168.235.152", "host": null, "pct": "50.0", "fault": "F01"},
+      {"pod": "192.168.219.86", "host": null, "pct": "27.8"},
+      {"pod": "192.168.189.90", "host": null, "pct": "22.2"}
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "04:19", "level": "2", "pct": "33.3", "spike": false, "fault": "F01"},
+      {"time": "04:20", "level": "4", "pct": "100", "spike": true, "fault": "F01"},
+      {"time": "04:21", "level": "1", "pct": "16.7", "spike": false, "fault": "F01"}
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-b49e6e8b",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本会话完成",
+    "steps": [
+      {"title": "经验库预检索", "api_calls": ["experience-skill search-experiences SKILL/WIKI"], "result": "命中 Client 与 KVCache 诊断经验"},
+      {"title": "资产与解析状态核验", "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "GET /task/{task_id}", "GET /log_parse_result/options"], "result": "任务成功，解析 9 条异常 trace"},
+      {"title": "GET/SET 独立分诊", "api_calls": ["POST /stats/stages GET", "POST /stats/stages SET"], "result": "GET 9 条，SET 无样本"},
+      {"title": "时延与分布核验", "api_calls": ["POST /log_parse_result/metrics/latency", "POST /aggregated_event/list_time_window", "POST /aggregated_event/list", "POST /stats/error_codes|pods|links|heatmap"], "result": "GET 成功慢请求，无错误码"},
+      {"title": "Trace 与原始日志下钻", "api_calls": ["POST /trace/list", "POST /log_failure_event_result/list_trace_events", "POST /log_failure_event_result/list_log_events"], "result": "代表 trace 状态 0，URMA 慢但成功"},
+      {"title": "生命周期证据核对", "api_calls": ["本地原始 Client/Worker 日志只读检索"], "result": "多 PID 重启链且无 exit notice"},
+      {"title": "案例匹配与反证", "api_calls": ["POST /phenomenon/search", "POST /diag_case_library/search", "GET /diag_case_library/{case_id}", "POST /diag_case_library/{case_id}/hit"], "result": "采纳 UB-CASE-002550，需调整复用"}
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+      "experience_type": "SKILL",
+      "name": "ds-client-log-analysis",
+      "source_path": "data/skill_hub/ds-client-log-analysis/skill_def.md",
+      "keywords_matched": ["Client", "Register client", "exit notice", "进程退出"],
+      "search_query_used": "Start to init worker client Register client successfully 多 PID 客户端进程异常退出 重启",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "adopted_as_evidence",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "正常销毁时 Client 会通知 Worker 断开。异常退出时可能没有该日志，Worker 端通过 client_dead_timeout_s 检测 Client 死亡。",
+      "how_used_in_diagnosis": "以 exit notice 作为正常退出反证口径，并由现场多 PID 与全文检索结果验证。",
+      "confidence_on_reference": 0.85,
+      "confidence_reason": "经验日志语义与现场初始化/注册链一致，但具体退出触发机制仍缺直接证据。"
+    },
+    {
+      "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+      "experience_type": "SKILL",
+      "name": "ds-kv-cache-diagnosis",
+      "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+      "keywords_matched": ["KV Cache", "SET", "status_code"],
+      "search_query_used": "KVCache SET client process exit start 写入失败 进程退出重启",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "未采用其写入错误码/资源不足候选，因为本次 SET 无解析样本且错误码统计为空。",
+      "content_quoted": "KV Cache 访问日志中 status_code=0 表示成功，非 0 需要结合 StatusCode 表分析。",
+      "how_used_in_diagnosis": "用于检查请求错误候选，现场无 SET 状态码证据后未采用。",
+      "confidence_on_reference": 0.8,
+      "confidence_reason": "通用状态码口径可靠，但不直接解释本次进程生命周期异常。"
+    }
+  ]
+}

@@ -1,0 +1,547 @@
+{
+  "report": {
+    "title": "KVCache Client GET 同步等待与 SDK 进程挂死诊断报告",
+    "report_id": "diag-f0547091-5316-4c78-9d12-7bf8ffa29fa9",
+    "generated_at": "2026-11-12T10:45:00+08:00"
+  },
+  "basic_info": {
+    "kb_id": "f0547091-5316-4c78-9d12-7bf8ffa29fa9",
+    "kb_name": "lingqu_kvcache_dfx_client_process_get_hangup_001_20260929_07_47_42",
+    "log_file": "lingqu_kvcache_dfx_client_process_get_hangup_001_20260929_07_47_42",
+    "operation": "GET（SET 独立对照）",
+    "time_range_start": "2026-09-29 07:45:09",
+    "time_range_end": "2026-09-29 07:47:14",
+    "total_trace_cnt": 9,
+    "fault_trace_cnt": 9,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：SDK 同步 GET 在 8 MiB 数据传输等待中呈现进程挂死表象；SET 异常按独立口径仅作对照。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "成功解析 9 条异常 trace：GET 6 条、SET 3 条；GET 影响同一 Client 与两个目标 Worker。",
+    "confidence": "中高 86%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SDK GET 同步数据传输等待导致进程挂死表象",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 86,
+      "category": "latency",
+      "affected_scope": "cluster=ci-kv-ds-1；client=192.168.235.152；GET 6/6 条分类样本；2026-09-29 07:46:18~07:47:14",
+      "conclusion": {
+        "first_level_label": "SDK故障",
+        "second_level_label": "SDK故障-进程挂死",
+        "one_line_conclusion": "客户端 192.168.235.152 的 6 条 8 MiB GET 均被标记为异常，调用同步等待集中在 TransportGet data_transfer，最大 129.375 ms，而 Worker 窗口仅 20~53 μs，表现为 SDK 调用线程长时间阻塞。",
+        "fault_domain": "SDK故障/SDK故障-进程挂死",
+        "fault_component": "KVCache Client SDK TransportGet",
+        "fault_function": "同步 GET 数据传输等待",
+        "fault_function_loc": "transport_phase_latency_recorder.cpp:43（现场日志锚点）",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "GET 分类样本 6/6，均来自 client 192.168.235.152，分散到两个目标 Worker",
+        "confidence": "中高 86%",
+        "key_findings": [
+          "标签按 train_valid.md 中该日志路径映射到 gt_labels.json 的 client_process_get_hangup：SDK故障/SDK故障-进程挂死。",
+          "GET /stats/stages：6/6 条归入 cross_window，证据耗时 P50=24.264 ms、P90=129.375 ms、最大=129.375 ms，sample_cnt=6 且未截断。",
+          "原始 Client 日志逐条出现 [SLOW LOG] [TransportGet]、slowPhases=[data_transfer]；连接查找、读锁等待和连接获取仅 0~1 μs。",
+          "代表 trace 的 Worker 查询窗口仅 20~53 μs，而 Client 总时延为 12.146~129.375 ms；Worker 业务处理慢不是主导因素。",
+          "GET 与 SET 的 failure_codes 均为空，访问日志 status_code=0；这是成功请求的同步阻塞/长尾，而不是通断失败。",
+          "Client PID 20407 的最后一条 GET 后出现 PID 20525 的重新初始化，且未见正常退出通知；该事实支持进程中断/恢复，但不足以单独区分挂死后拉起与外部终止。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "GET 最大总时延",
+            "value": "129.375ms",
+            "sub": "8 MiB 对象读取，status_code=0",
+            "tone": "danger"
+          },
+          {
+            "label": "GET 桶内 P90",
+            "value": "129.375ms",
+            "sub": "cross_window 互斥归因桶；样本 6 条",
+            "tone": "danger"
+          },
+          {
+            "label": "Worker 窗口",
+            "value": "0.020~0.053ms",
+            "sub": "6 条 trace 均有 Worker 行且处理窗口很短",
+            "tone": "good"
+          },
+          {
+            "label": "超时错误码",
+            "value": "0",
+            "sub": "GET/SET Top 故障码查询均为空",
+            "tone": "neutral"
+          }
+        ],
+        "stages": [
+          {
+            "name": "GET·Client/Worker 交叉窗口未细分（cross_window）",
+            "p99": "—",
+            "baseline": "未提供可比健康基线",
+            "ratio": "—",
+            "share": "100% 分类样本",
+            "status": "bottleneck",
+            "detail": "接口只提供桶内 P50/P90/max，不能补造 P99。原始日志进一步把等待收敛到 TransportGet data_transfer；Worker 窗口占总时延中位约 0.1%。",
+            "features": {
+              "operation": "GET",
+              "bucket_key": "cross_window",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "f0547091-5316-4c78-9d12-7bf8ffa29fa9",
+                  "log_id": "a2e6ed44-a8ba-4384-9a8f-d0dcaa031012",
+                  "sample_cap": 5000,
+                  "operation": "GET"
+                },
+                "response_path": "result.items[5]"
+              },
+              "sample_cnt": 6,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（yuanrong us 覆盖子集），每条 trace 按最大互斥阶段归入唯一桶；URMA 超时为 anomaly_reason/content 文本匹配的近似口径；request_mode=unknown 的 trace 按现有列粗分定界（worker 窗口≥50% 总时延→data_worker，否则 cross_window），RPC 细分归因用 skill 脚本 brpc_stage_drill.py",
+              "trace_cnt": 6,
+              "normal_cnt": 0,
+              "anomalous_cnt": 6,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 24.264,
+                "p90_ms": 129.375,
+                "max_ms": 129.375,
+                "client_p50_ms": 24.264,
+                "client_p90_ms": 129.375
+              },
+              "tail_ratio_p90_p50": 5.331973,
+              "note": "粗分：request_mode=unknown，客户端等待主导（worker 侧窗口<50% 总时延）；6/6 条 worker 有窗口但干净，worker 窗口占比中位数 0.1%；RPC 细分归因（QueryMeta/RPC网络/RPC排队）用 skill 脚本 brpc_stage_drill.py（latency-analysis 阶段 4.5）",
+              "action": "数据访问父窗口扣除已知子阶段后仍较高；仅有明确 Local processing / remoteObjects=0 证据时才判为本地处理，否则保留未细分。",
+              "top_traces": [
+                {
+                  "trace_id": "5315c592-070e-4118-9e1c-6f441c234b7a",
+                  "evidence_ms": 129.375,
+                  "client_ms": 129.375
+                },
+                {
+                  "trace_id": "c339db4c-c239-460b-9f44-9a1fd7db3495",
+                  "evidence_ms": 102.096,
+                  "client_ms": 102.096
+                },
+                {
+                  "trace_id": "406149fc-6ffb-4aaf-b392-bed6b383eff2",
+                  "evidence_ms": 92.96,
+                  "client_ms": 92.96
+                },
+                {
+                  "trace_id": "33ffd523-17cf-4774-b805-c0db981f1eb0",
+                  "evidence_ms": 24.264,
+                  "client_ms": 24.264
+                },
+                {
+                  "trace_id": "a09d1897-3127-4a04-928a-ab6fe2d341aa",
+                  "evidence_ms": 15.417,
+                  "client_ms": 15.417
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 的额外耗时集中在客户端同步等待的数据传输窗口；<strong>Worker 查询窗口仅 20~53 μs</strong>，排除 Worker 业务处理慢为主因。无健康基线，不能给出放大倍数；最大 129.375 ms 低于 9000 ms 默认请求超时，因此当前证据确认明显长尾与线程阻塞表象，但不把底层 OS 调度、URMA 设备或网络链路单独定为已确认根因。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "单份日志任务完整成功并形成 9 条异常 trace",
+            "description": "日志文件任务状态 successful，解析形成 GET 6 条、SET 3 条异常 trace；空故障码不被解释为健康。",
+            "evidence": "GET /log_kb/f0547091-5316-4c78-9d12-7bf8ffa29fa9；POST /log_file/list/f0547091-5316-4c78-9d12-7bf8ffa29fa9；GET /task/6c4f741c-dded-47a0-ae1f-9027cabe16ed",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 读写隔离",
+            "title": "GET 与 SET 分别归桶",
+            "description": "GET 6 条全部归入 cross_window；SET 3 条全部归入 set_client。两套桶独立展示，不跨 operation 混合百分比。",
+            "evidence": "POST /stats/stages(operation=GET/SET, log_id=a2e6ed44-a8ba-4384-9a8f-d0dcaa031012)",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 现场收敛",
+            "title": "GET 同步等待集中于 TransportGet data_transfer",
+            "description": "6 条 GET 均 status_code=0；Client 运行日志显示 data_transfer=10.646~128.183 ms，而连接查找、读锁和连接获取均接近 0。",
+            "evidence": "ds_client_20407.INFO.log:25；ds_client_20525.INFO.log:25-29；对应 trace 明细",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "排除 Worker 业务处理慢、初始化失败和通断故障",
+            "description": "Worker 查询窗口仅 20~53 μs；Client 注册、SCMTCP 与共享内存 mmap 均成功；trace 无 failure_codes。bRPC 旁路脚本扫描 13 文件但 0 条 perf 行，故不继续猜测框架子阶段。",
+            "evidence": "POST /trace/list；POST /stats/stages；Client 初始化日志；brpc_stage_drill.py",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 根因边界",
+            "title": "确认 SDK 同步传输等待造成挂死表象，底层原因待复现补证",
+            "description": "标签与现场阻塞点共同指向 SDK 进程挂死；但现场没有 OS 死锁栈、URMA 错误码、连接重建或设备计数器，不能进一步把物理链路或调度异常定为已确认根因。",
+            "evidence": "gt_labels.json 标签映射；GET cross_window；TransportGet data_transfer 慢日志；负向关键词检查",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "KVCache Client SDK 的同步 GET 调用在 8 MiB 数据传输阶段长时间等待，使业务线程呈现进程挂死表象；底层 OS 调度、URMA 设备或网络链路原因尚缺线程栈与设备遥测证据。",
+        "supporting_knowledge": "已确认历史案例 UB-CASE-002547 与本次 cross_window、TransportGet data_transfer 和标签一致；本地经验 ds-client-log-analysis 用于 Client/Worker/访问日志交叉核验。两者均不替代本次现场证据。"
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "5315c592-070e-4118-9e1c-6f441c234b7a",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top1；按证据耗时排序，不代表普遍性或故障严重度排序",
+          "evidence_ms": 129.375,
+          "client_ms": 129.375
+        },
+        {
+          "trace_id": "c339db4c-c239-460b-9f44-9a1fd7db3495",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top2；TransportGet data_transfer=100.895ms",
+          "evidence_ms": 102.096,
+          "client_ms": 102.096
+        },
+        {
+          "trace_id": "406149fc-6ffb-4aaf-b392-bed6b383eff2",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top3；TransportGet data_transfer=91.698ms",
+          "evidence_ms": 92.96,
+          "client_ms": 92.96
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002547",
+          "stars": "★★★★☆",
+          "match_logic": "L1：现场无错误码/故障模式 ID，未命中；L2：SDK故障-进程挂死、GET cross_window 与 few_pods 命中；L5：TransportGet data_transfer 及代表 trace 完全一致。",
+          "symptom": "已确认案例记录 6 条 8 MiB GET 同步等待，最大 129.375 ms，Worker 窗口仅 20~53 μs。",
+          "root_cause": "案例认为 SDK 同步 GET 在数据传输阶段长时间等待，造成线程挂死表象；不将底层原因过度归因到 OS、URMA 或网络。",
+          "solution": "复现时连续抓取 Client 线程栈，同步采集 URMA completion/poll 与 NIC/设备指标，并配置业务级超时、取消和隔离线程池。",
+          "phenomenon_fit": "与本次标签、阶段桶、时延数字和 trace 锚点高度一致。",
+          "log_fit": "本次现场独立复核到 TransportGet、data_transfer 与 URMA completion wait 慢日志。",
+          "rc_consistency": "一致；历史案例仅作待验证假设，本次现场证据已独立验证阻塞点。",
+          "env_diff": "案例 operation=MIXED，本次主故障严格按 GET 分析；版本均未取得可比信息。",
+          "adaptation": "不直接复用其底层链路假设；先补线程栈和设备遥测，再决定专项处置。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "②",
+          "id": "experience:ds-client-log-analysis",
+          "stars": "★★★★☆",
+          "match_logic": "L1：无错误码，未命中；L2：Client SDK 与 GET 操作域命中；L5：经验要求按 trace_id 联合 Client、Worker 和访问日志，本次已执行。",
+          "symptom": "Client 运行日志记录 SDK 初始化/连接，访问日志记录接口耗时与响应。",
+          "root_cause": "经验只提供排查框架，不直接给出本次根因。",
+          "solution": "同时获取对应 Worker 日志与访问日志，并按 trace_id 串联。",
+          "phenomenon_fit": "适合本次成功请求但长尾的 SDK 调查。",
+          "log_fit": "现场具备 Client INFO、Client access 与 Worker 日志。",
+          "rc_consistency": "支持调查方法，不证明底层链路原因。",
+          "env_diff": "经验适配 0.8.1.rc20；本次版本未知。",
+          "adaptation": "只采用核验方法，结论以当前 API 和日志为准。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "复现挂死时立即对 Client 进程连续抓取 3 次线程栈（间隔 1 秒），确认业务线程是否持续阻塞在 TransportGet/Get 的同步等待路径，并记录 PID、trace_id 与时间戳。",
+          "对 192.168.235.152→192.168.189.90/192.168.219.86 同步采集 URMA completion/poll、NIC/设备错误、丢包与端口队列指标；同时保留对端 Worker 日志。",
+          "在调用侧设置小于业务 SLA 的显式 GET 超时、取消与熔断，避免单次 8 MiB 传输等待占住业务线程；不要仅依赖 9000 ms 默认请求超时。"
+        ],
+        "long_term": [
+          "为 Client SDK 增加 TransportGet 分阶段监控与 watchdog：data_transfer 超阈时输出连接、队列、completion、线程调度和对象分块信息。",
+          "建立按对象大小分层的 GET 时延基线，分别监控 8 MiB 请求的 P50/P90/P99，并把 data_transfer 长尾与 Worker 处理窗口做对照。",
+          "若业务允许，采用异步调用或隔离线程池承载大对象 GET，防止同步等待放大为进程无响应。"
+        ],
+        "verification": [
+          "重复 8 MiB GET 压测并确认不再出现线程连续多次栈采样停留在同一 TransportGet 等待点。",
+          "GET 的 TransportGet data_transfer P90 恢复至现场健康基线；在建立基线前不得用本报告样本自行假定阈值。",
+          "验证 Worker 处理仍维持微秒级，同时 URMA completion/poll、设备错误和链路丢包无异常；若异常则按对应证据转入传输层专项诊断。",
+          "验证调用超时/取消/熔断能在 SLA 内释放业务线程，不造成请求堆积或进程无响应。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "复现时抓取 Client 连续线程栈，并同步采集 URMA completion/poll、设备与链路指标。",
+      "depends_on": "可复现环境与进程 PID",
+      "expected_effect": "把 SDK 同步等待进一步区分为线程调度、completion 通知或链路传输问题。",
+      "verify": "线程栈、trace_id、设备/链路指标在同一时间窗可相互对齐。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "为大对象 GET 配置业务级超时、取消、熔断与隔离线程池。",
+      "depends_on": "明确业务 SLA",
+      "expected_effect": "阻断同步等待向进程无响应扩散。",
+      "verify": "故障注入下业务线程可在 SLA 内释放，且无持续队列堆积。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "128.235ms（07:47 分钟窗）",
+        "share_bar": [
+          {
+            "name": "cross_window",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker 交叉窗口未细分",
+            "p99": "—（P90 129.375ms）",
+            "anomaly_rate": "100%（异常标记，非失败率）",
+            "fail_share": null,
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "6/6 条归入 cross_window；原始日志进一步显示 TransportGet data_transfer 主导。"
+          }
+        ],
+        "conclusion": "GET 6 条分类样本全部由客户端等待窗口主导；桶接口无 P99，仅报告 P90/max。Worker 窗口干净，焦点在 SDK 数据传输等待。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "118.410ms（07:45 分钟窗）",
+        "share_bar": [
+          {
+            "name": "set_client",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "客户端 SDK 段",
+            "p99": "—（P90 119.389ms）",
+            "anomaly_rate": "100%（异常标记，非失败率）",
+            "fail_share": null,
+            "status": "bottleneck",
+            "detail": "3/3 条归入 set_client；该操作只作独立对照，不与 GET 混桶或据时间相邻推断同因。"
+          }
+        ],
+        "conclusion": "SET 仅作为独立对照：3 条样本均为客户端 SDK 段等待，时间窗与客户端拓扑不同，不能据此断言与 GET 同一根因。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 9,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {
+        "domain": "Client SDK / 数据传输等待",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.152",
+        "host": "未解析",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.90",
+        "host": "未解析",
+        "pct": "50.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.86",
+        "host": "未解析",
+        "pct": "50.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "09-29 07:46",
+        "level": "1",
+        "pct": "18.9",
+        "spike": false,
+        "lat_ms": 24.264,
+        "fault": "F01"
+      },
+      {
+        "time": "09-29 07:47",
+        "level": "4",
+        "pct": "100.0",
+        "spike": true,
+        "lat_ms": 128.235,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-f0547091-5316-4c78-9d12-7bf8ffa29fa9",
+    "total_steps": 8,
+    "api_calls": 31,
+    "duration": "本次会话实时取证",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill: KVCache GET 客户端进程挂死 hangup"
+        ],
+        "result": "命中 KVCache、Client 与访问日志经验；仅作为调查方法与先验假设。"
+      },
+      {
+        "title": "Step 2 标签映射核验",
+        "api_calls": [
+          "train_valid.md",
+          "gt_labels.json",
+          "references/log_label.json"
+        ],
+        "result": "路径描述映射为 client_process_get_hangup，对应 SDK故障/SDK故障-进程挂死，且标签对存在于报告标签参考。"
+      },
+      {
+        "title": "Step 3 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "单份日志任务 successful；共 9 条异常 trace，集群 ci-kv-ds-1。"
+      },
+      {
+        "title": "Step 4 GET/SET 独立分桶",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 6/6 cross_window；SET 3/3 set_client；未跨 operation 混桶。"
+      },
+      {
+        "title": "Step 5 时窗、拓扑与 Trace 下钻",
+        "api_calls": [
+          "POST /aggregated_event/list_time_window",
+          "POST /stats/pods",
+          "POST /stats/links",
+          "POST /stats/heatmap",
+          "POST /trace/list",
+          "GET /trace/{trace_id}"
+        ],
+        "result": "GET 峰值在 07:47，集中于 Client 192.168.235.152 到两个 Worker；代表 trace 均无 failure_codes。"
+      },
+      {
+        "title": "Step 6 原始日志与旁路验证",
+        "api_calls": [
+          "本地 Client/Worker 原始日志",
+          "brpc_stage_drill.py"
+        ],
+        "result": "TransportGet data_transfer 与 trace 对齐；Worker 端 URMA completion wait 可见；bRPC perf 行为 0，未强行细分。"
+      },
+      {
+        "title": "Step 7 历史案例匹配",
+        "api_calls": [
+          "match_cases.py GET",
+          "match_cases.py SET",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "GET 命中已确认案例 UB-CASE-002547，L2/L5 高度一致并已回写；SET 候选未用于主故障。"
+      },
+      {
+        "title": "Step 8 报告生成",
+        "api_calls": [
+          "latency_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "按统一契约生成 JSON、HTML 与侧车，并执行渲染后自检。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+      "experience_type": "SKILL",
+      "name": "ds-kv-cache-diagnosis",
+      "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "KV Cache",
+        "GET",
+        "高耗时"
+      ],
+      "search_query_used": "KVCache GET 客户端进程挂死 hangup",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "分析高耗时请求（cost 大），结合资源日志判断是否为资源瓶颈。",
+      "how_used_in_diagnosis": "用于将成功状态码与慢 GET 分开分析，并下钻高耗时请求。",
+      "confidence_on_reference": 0.8,
+      "confidence_reason": "与本次 status_code=0 但 GET 长尾的现场现象一致。"
+    },
+    {
+      "experience_id": "7dbeec2d-870a-4f3f-8135-6acfa4fa0754",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem KV Cache 接口日志模式",
+      "source_path": "data/wiki_hub/ds-kv-api-patterns.md",
+      "keywords_matched": [
+        "DS_KV_CLIENT_GET",
+        "timeout",
+        "Get"
+      ],
+      "search_query_used": "KVCache GET 客户端进程挂死 hangup",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "KV Cache 提供键值存储接口，包括 Create/Set/Get/Del/Exist/Expire 等。本文档汇总访问日志中的 action、关键参数和典型错误模式。",
+      "how_used_in_diagnosis": "用于识别 DS_KV_CLIENT_GET 与访问日志字段，不作为根因证据。",
+      "confidence_on_reference": 0.78,
+      "confidence_reason": "接口 action 与现场访问日志逐字一致。"
+    },
+    {
+      "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+      "experience_type": "SKILL",
+      "name": "ds-client-log-analysis",
+      "source_path": "data/skill_hub/ds-client-log-analysis/skill_def.md",
+      "keywords_matched": [
+        "Client",
+        "SDK",
+        "trace_id"
+      ],
+      "search_query_used": "TransportGet data_transfer URMA_ELAPSED_TOTAL SDK GET 同步等待 进程挂死",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "分析 Client 日志时，应同时获取对应 Worker 日志和访问日志。",
+      "how_used_in_diagnosis": "用于 Client/Worker/访问日志的 trace 交叉核验。",
+      "confidence_on_reference": 0.85,
+      "confidence_reason": "排查方法与本次现场 trace 对齐，且被原始日志验证。"
+    }
+  ]
+}

@@ -70,11 +70,11 @@ class TestPercentileKthPositions:
         assert percentile_kth_positions(1) == [0, 0, 0, 0]
 
     def test_two_elements(self):
-        # cnt=2: median=floor(1)-1=0, p99=floor(1.98)-1=0, p9999=0, pmax=floor(2)-1=1
+        # cnt=2: avg 代表行=0, p99=0, p9999 代表行=0, pmax=1
         assert percentile_kth_positions(2) == [0, 0, 0, 1]
 
     def test_hundred_elements(self):
-        # cnt=100: median=49, p99=98, p9999=98, pmax=99
+        # cnt=100: avg 代表行=49, p99=98, p9999 代表行=98, pmax=99
         assert percentile_kth_positions(100) == [49, 98, 98, 99]
 
     def test_result_length_matches_modes(self):
@@ -123,15 +123,28 @@ def _make_trace_frame() -> pl.DataFrame:
 
 class TestComputeBucketStatsFromFrame:
     # 说明：test_tuple_shape / test_operation_encoding / test_modes_per_group /
-    # test_empty_frame_returns_empty_lists / test_total_latency_of_median_get /
+    # test_empty_frame_returns_empty_lists / test_total_latency_of_avg_get /
     # test_materializer_path 及 TestYuanrongEnrichment 断言的是 dev 分支的
-    # 48 列 tuple 行 + median/p99/p9999/pmax 模式输出；master 的
+    # 48 列 tuple 行 + avg/p99/p9999/pmax 模式输出；master 的
     # compute_bucket_stats_from_frame 返回 polars DataFrame，行为不同，
     # 相关用例删除（结构无关的键覆盖/过滤用例保留）。
 
     def test_all_granularity_keys_present(self):
         result = compute_bucket_stats_from_frame(_make_trace_frame(), kb_id="kb", log_id="log")
         assert set(result.keys()) == set(GRANULARITY_KEYS)
+
+    def test_avg_and_p9999_match_perf_analyze_linear_interpolation(self):
+        result = compute_bucket_stats_from_frame(_make_trace_frame(), kb_id="kb", log_id="log")
+        first_get_bucket = {
+            row["mode"]: row
+            for row in result[10].filter(pl.col("operation") == "GET").iter_rows(named=True)
+            if row["bucket"].second == 0
+        }
+        assert first_get_bucket["avg"]["total_latency"] == pytest.approx(150.0)
+        # perf_analyze: index=(2-1)*0.9999 => 100*(1-.9999)+200*.9999
+        assert first_get_bucket["p9999l"]["total_latency"] == pytest.approx(199.99)
+        assert first_get_bucket["avg"]["total_latency_us"] == pytest.approx(150_000.0)
+        assert first_get_bucket["p9999l"]["total_latency_us"] == pytest.approx(199_990.0)
 
     def test_null_rows_filtered(self):
         df = _make_trace_frame().with_columns(

@@ -1,0 +1,603 @@
+{
+  "report": {
+    "title": "KVCache SET 写路径网卡丢包标签样本诊断报告",
+    "report_id": "RPT-20261112-WNCL",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "7b45e91a-52c8-4813-8230-13fe62869ce0",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_write_net_card_loss_001_20260924_00_07_58",
+    "log_file": "lingqu_kvcache_dfx_worker_process_write_net_card_loss_001_20260924_00_07_58",
+    "operation": "SET",
+    "time_range_start": "2026-09-24 00:05:50",
+    "time_range_end": "2026-09-24 00:06:00",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个 SET 写路径时延故障；固定训练标签为网卡丢包，现场证据定位到客户端 Publish 等待，但缺少网卡计数器闭环。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "1 条 8 MiB SET trace 异常，涉及 2 个 Pod IP；GET 无归因样本。",
+    "confidence": "中 76%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SET 写路径客户端 Publish 等待抬升（固定标签：网卡丢包）",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 76,
+      "category": "latency",
+      "affected_scope": "trace c924498c-e42d-4c8b-922d-2b0b8acc221e；192.168.235.157 与 192.168.189.79；00:05:50-00:06:00",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-丢包",
+        "one_line_conclusion": "8 MiB SET 请求耗时 209.536ms，其中客户端 SDK 段 209.488ms、Publish RPC 209.091ms，而 Worker 内部仅 0.048ms；按用户指定映射固定标注为网卡丢包，但现场未采集 NIC 丢包计数，根因仍需闭环。",
+        "fault_domain": "硬件故障/网卡故障-丢包",
+        "fault_component": "Client→Worker 写路径 / Publish RPC",
+        "fault_function": "DS_KV_CLIENT_SET / DS_POSIX_PUBLISH",
+        "fault_function_loc": "object_client_impl.cpp:2814 / access_recorder.cpp:1066",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "本资产库唯一 SET trace 被标记异常，涉及客户端 192.168.235.157 与 Worker 192.168.189.79；该比例仅针对 1 条分类样本。",
+        "confidence": "中 76%",
+        "key_findings": [
+          "解析任务 successful；SET 有 1 条异常样本，GET 的 /stats/stages 与 metrics 均为 0 样本，读写口径已隔离。",
+          "SET 总时延 209.536ms；set_client 桶证据耗时 209.488ms，占分类样本 100%，但该占比不是耗时占比。",
+          "原始 access 日志的同 trace latencySummary 显示 client.rpc.publish_total=209091us、client.urma.ub_transfer=147us；Worker 本地处理仅 48us。",
+          "trace 无故障码、Set 最终 status=OK；排除已观测到的链路全断和显式 URMA 提交失败，不排除可恢复丢包引起的等待。",
+          "故障标签严格取自 train_valid.md 对应描述 worker_process_write_net_card_loss，再映射 gt_labels.json：硬件故障/网卡故障-丢包；标签不是 API 现场证据。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {"label": "SET 总时延", "value": "209.536ms", "sub": "P99 采样；original_count=1, sampled_count=1", "tone": "danger"},
+          {"label": "客户端 SDK 段", "value": "209.488ms", "sub": "set_client 桶主阶段证据", "tone": "danger"},
+          {"label": "Worker 内部", "value": "0.048ms", "sub": "local_worker_internal_us", "tone": "ok"},
+          {"label": "Publish RPC", "value": "209.091ms", "sub": "现场 access 日志 latencySummary", "tone": "danger"}
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端 SDK 段（set_client）",
+            "p99": "209.488ms",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100.0% 分类样本",
+            "status": "bottleneck",
+            "detail": "唯一异常 trace 归入 set_client；证据口径包含等待数据面返回，不能单凭桶名断言 SDK 计算慢。原始日志进一步把主要等待定位到 Publish RPC。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {"kb_id": "7b45e91a-52c8-4813-8230-13fe62869ce0", "log_id": "16f5ca64-d172-4a2b-8ca4-dda56ebc87fa", "operation": "SET", "sample_cap": 5000},
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 1,
+              "truncated": false,
+              "sample_note": "样本集为异常 trace 全量加 top 慢正常；SET 与 GET 独立归桶。当前仅 1 条分类样本。",
+              "trace_cnt": 1,
+              "normal_cnt": 0,
+              "anomalous_cnt": 1,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {"p50_ms": 209.488, "p90_ms": 209.488, "max_ms": 209.488, "client_p50_ms": 209.536, "client_p90_ms": 209.536},
+              "tail_ratio_p90_p50": 1.0,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 1",
+              "action": "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 侧排队/重试与端到端 deadline，再看 Worker 侧是否已返回。",
+              "top_traces": [{"trace_id": "c924498c-e42d-4c8b-922d-2b0b8acc221e", "evidence_ms": 209.488, "client_ms": 209.536}]
+            }
+          },
+          {
+            "name": "Worker 写处理",
+            "p99": "0.048ms",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "—",
+            "status": "ok",
+            "detail": "local_worker_internal_us=48us、worker_access_latency_us=39us；不支持 Worker 业务处理主导。"
+          },
+          {
+            "name": "Client URMA 传输摘要",
+            "p99": "0.147ms",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "—",
+            "status": "ok",
+            "detail": "同 trace 原始 access 日志 client.urma.ub_transfer=147us；该单点摘要不等同于网卡丢包计数，也不能排除 RPC 层重试/等待。"
+          }
+        ],
+        "conclusion": "唯一 SET 异常的额外等待集中在客户端侧，原始日志进一步显示 <strong>Publish RPC 209.091ms</strong> 接近端到端 209.536ms，而 Worker 内部仅 0.048ms。无健康对照窗且样本仅 1 条，因此不能计算放大倍数，也不能仅凭时延直接证明丢包。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据可用性",
+            "title": "解析成功但样本极少",
+            "description": "日志文件 overall_status=successful，anomaly_cnt=1；SET 侧仅 1 条分类样本，GET 侧无归因样本。",
+            "evidence": "GET /log_kb/{kb_id}；POST /log_file/list/{kb_id}；POST /stats/stages(GET/SET)",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 阶段定位",
+            "title": "等待集中在客户端 Publish RPC",
+            "description": "端到端 209.536ms，SDK 证据 209.488ms；同 trace 日志显示 publish_total=209091us，Worker 内部仅 48us。",
+            "evidence": "POST /log_parse_result/metrics/latency(SET)；POST /log_parse_result/list；ds_client_access_9944.log:2",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 反证检查",
+            "title": "排除 Worker 处理主导与显式通断故障",
+            "description": "set_worker 桶为 0，Worker 微秒级返回；错误码统计和故障 trace 交叉查询均为空，Set 最终 status=OK。",
+            "evidence": "POST /stats/stages(SET)；POST /stats/error_codes(SET)；POST /log_failure_event_result/list_trace_events",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 标签与现场核对",
+            "title": "固定标签为网卡丢包，但缺直接计数器证据",
+            "description": "按用户约束，train_valid.md 的日志描述 worker_process_write_net_card_loss 固定映射到硬件故障/网卡故障-丢包。该标签与客户端网络等待方向相容，但现场未采集 rx/tx drop、CRC/FEC、重传或端口 A/B 数据，故报告保持疑似。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md:222；/home/witty-ub-logs/gt_labels.json:530-532；现场 API 无 NIC 计数器",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "supporting_knowledge": "本地经验 ds-rdma-transport-diagnosis 指出链路不稳定可导致连接/等待异常；已确认案例 UB-CASE-002581 与 UB-CASE-002533 仅作为待验证假设，不能替代本次 NIC 计数器。"
+      },
+      "propagation": {
+        "chain": [
+          {"label": "网卡丢包（固定训练标签，现场待验证）", "detail": "硬件故障/网卡故障-丢包", "type": "origin", "transition": "可能触发重传或 RPC 响应等待"},
+          {"label": "Client→Worker Publish RPC 等待抬升", "detail": "client.rpc.publish_total=209.091ms", "type": null, "transition": "写请求端到端时延累积"},
+          {"label": "SET 慢请求", "detail": "8 MiB SET total=209.536ms，最终 status=OK", "type": "impact"}
+        ],
+        "impact_scope": [
+          "Cluster: ci-kv-ds-1",
+          "Pod IP: 192.168.235.157、192.168.189.79",
+          "Operation: SET / DS_KV_CLIENT_SET",
+          "Trace: c924498c-e42d-4c8b-922d-2b0b8acc221e",
+          "样本限制: 仅 1 条异常 trace，不能外推全局失败率"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "c924498c-e42d-4c8b-922d-2b0b8acc221e",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top1；证据耗时排序，不代表总体严重度或普遍性",
+          "evidence_ms": 209.488,
+          "client_ms": 209.536,
+          "pod": "192.168.235.157, 192.168.189.79",
+          "timestamp": "2026-09-24 00:05:52"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002581",
+          "stars": 4,
+          "match_logic": "L1不命中：双方均无错误码/故障模式，但没有可作强语义匹配的 L1 信号；L2命中：SET、set_client、few_pods；L5不命中：本次未观测 URMA_ELAPSED_TOTAL/端口计数器。",
+          "symptom": "历史案例为双端口 SET 的客户端等待与 URMA completion 抬升，score_norm=0.70。",
+          "root_cause": "历史案例将物理链路/光模块丢包列为待端口计数器闭环的候选；本次只复用排查思路，不复用结论。",
+          "solution": "采集端口状态、FEC/CRC、重传/丢包计数并逐端口 A/B；本次需先确认实际网卡/端口映射。",
+          "phenomenon_fit": "SET 与 set_client 粗桶一致，均为少量 Pod 范围；本次仅 1 条样本且没有 URMA completion 日志。",
+          "log_fit": "无 L5 原文命中。",
+          "rc_consistency": "方向相容但未证实。",
+          "env_diff": "历史案例 25 条 trace、双端口；本次 1 条 trace，端口数未知。",
+          "adaptation": "先补网卡与端口映射，再执行逐端口计数器和 A/B 验证。",
+          "applicability": "reference"
+        },
+        {
+          "rank": 2,
+          "id": "UB-CASE-002533",
+          "stars": 3,
+          "match_logic": "L1不命中：历史案例有 1004/kvcache_access_022，本次无错误码和 failure_mode；L2命中：SET、set_client、few_pods；L5不命中：本次无 urma_post_jetty_send_wr failed。",
+          "symptom": "历史案例为 SET 大对象写的网卡数据面丢包，标签与本次固定标签相同，score_norm=0.70。",
+          "root_cause": "历史案例是显式 URMA 写提交失败；本次请求最终成功，仅表现为 Publish 等待，不能直接迁移其根因。",
+          "solution": "仅参考其 NIC 丢包/CRC/重传计数器核验步骤，不采用 1004 错误处置结论。",
+          "phenomenon_fit": "均为 SET 大对象写、两端 Pod 与 set_client；成功/失败语义不同。",
+          "log_fit": "本次无历史案例的 URMA_FAIL 原文。",
+          "rc_consistency": "标签一致，现场错误语义不一致。",
+          "env_diff": "历史 4 MiB 且失败；本次 8 MiB 且成功。",
+          "adaptation": "将验证目标从错误码归零改为 Publish RPC 时延和 NIC 计数增量。",
+          "applicability": "reference"
+        },
+        {
+          "rank": 3,
+          "id": "EXP-f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": 3,
+          "match_logic": "L1不命中：无经验中的 1004/1009/1010；L2部分命中：Client→Worker 传输路径；L5不命中：未观测连接重建或 Jetty 失效短语。",
+          "symptom": "本地经验 ds-rdma-transport-diagnosis 提供 URMA/RDMA 链路稳定性、Jetty 和重建的核验方向。",
+          "root_cause": "经验仅作排查假设；当前现场不能确认 URMA 设备或链路故障。",
+          "solution": "同步采集两端 Worker、URMA 驱动和端口日志，并检查是否存在连接失效/重建。",
+          "phenomenon_fit": "网络等待方向相近。",
+          "log_fit": "未命中其关键日志模式。",
+          "rc_consistency": "待验证。",
+          "env_diff": "经验针对通用传输异常，本次只有单个成功慢请求。",
+          "adaptation": "只执行只读采集与对照，不因经验命中直接更改配置。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在 192.168.235.157 与 192.168.189.79 对应主机同步采集故障复现前后的 ip -s link、ethtool -S、端口 CRC/FEC、rx/tx drop 与重传计数；先确认 IP 到物理网卡/UB 端口的映射。",
+          "使用相同 8 MiB、Write_mode=3 的 SET 负载复测，保留每次 trace 的 client.rpc.publish_total、client.urma.ub_transfer、总时延及 Worker 内部时延。",
+          "如为多端口路径，逐端口隔离做 A/B；只有异常随端口或模块迁移且计数器同窗增长，才把丢包根因升级为已确认。"
+        ],
+        "long_term": [
+          "建立网卡/UB 端口丢包、CRC/FEC、重传、链路状态和光模块遥测基线及告警。",
+          "完善 SET 解析路径的 Publish RPC、数据面等待和 URMA completion 分段入库，避免 set_client 粗桶掩盖网络等待。",
+          "为大对象 SET 建立按对象大小分层的健康 P50/P90/P99 基线，并保留 GET/SET 独立看板。"
+        ],
+        "verification": [
+          "同负载至少复测 30 分钟，Publish RPC P99 回落至健康基线且不再出现约 200ms 单点尖峰。",
+          "故障复现时 NIC/端口错误计数与慢 trace 同窗增长；更换或隔离可疑端口后计数停止增长且时延恢复。",
+          "Worker 内部时延持续维持微秒级，且 GET 无样本的口径限制不被误写为 GET 健康。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "同步采集两端 NIC/UB 端口计数器并做故障窗差值。",
+      "depends_on": "确认 192.168.235.157 与 192.168.189.79 的主机和物理端口映射",
+      "expected_effect": "取得丢包、CRC/FEC 或重传是否与 209ms Publish 等待同窗的直接证据。",
+      "verify": "计数器增量与慢 trace 时间严格对齐；无增量则下调网卡丢包候选。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "按相同 8 MiB SET 负载进行逐端口 A/B 复测。",
+      "depends_on": "完成只读计数器采集并具备安全切流窗口",
+      "expected_effect": "把异常绑定或排除到具体端口、模块或链路。",
+      "verify": "异常随端口/模块迁移，替换后 Publish RPC 时延恢复且计数不再增长。"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": ["F01"],
+      "action": "补齐 SET Publish RPC 与 URMA completion 分段观测。",
+      "depends_on": "无",
+      "expected_effect": "后续能区分 RPC 网络等待、框架排队与数据面传输。",
+      "verify": "复测 trace 可同时看到 Publish、网络/框架、URMA completion 和 Worker 分段。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {"name": "RPC网络", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "ok", "detail": "trace_cnt=0；无 GET 归因子集，不代表健康。"},
+          {"name": "RPC排队", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "ok", "detail": "trace_cnt=0。"},
+          {"name": "QueryMeta", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "ok", "detail": "trace_cnt=0。"},
+          {"name": "URMA", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "ok", "detail": "trace_cnt=0。"},
+          {"name": "Data Worker服务端处理", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "ok", "detail": "trace_cnt=0。"},
+          {"name": "Client/Worker交叉窗口未细分", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "ok", "detail": "trace_cnt=0。"},
+          {"name": "未解释残差", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "ok", "detail": "trace_cnt=0。"},
+          {"name": "URMA超时", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "ok", "detail": "trace_cnt=0。"}
+        ],
+        "conclusion": "GET sample_cnt=0，所有桶均无归因样本；空结果不能解释为 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "209.536ms",
+        "share_bar": [{"name": "SET·客户端SDK段", "pct": "100.0", "cls": "s-bottleneck"}],
+        "stages": [
+          {"name": "SET·URMA超时", "p99": "—", "anomaly_rate": "0%", "fail_share": "0%", "status": "ok", "detail": "trace_cnt=0；没有 URMA_WAIT_TIMEOUT 文本命中。"},
+          {"name": "SET·数据面未观测", "p99": "—", "anomaly_rate": "0%", "fail_share": "0%", "status": "ok", "detail": "trace_cnt=0。"},
+          {"name": "SET·未解释残差", "p99": "—", "anomaly_rate": "0%", "fail_share": "0%", "status": "ok", "detail": "trace_cnt=0。"},
+          {"name": "SET·客户端SDK段", "p99": "209.488ms", "anomaly_rate": "100% 分类样本", "fail_share": "100% 分类样本", "status": "bottleneck", "fault": "F01", "detail": "1/1 分类样本；该比例不是业务失败率。"},
+          {"name": "SET·Worker写处理", "p99": "0.048ms", "anomaly_rate": "0%", "fail_share": "0%", "status": "ok", "detail": "Worker 微秒级处理，不是主导瓶颈。"}
+        ],
+        "conclusion": "SET 唯一样本归入 set_client；同 trace 的 Publish RPC 209.091ms，Worker 内部 0.048ms。样本仅 1 条且无基线。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 1,
+    "top_error_codes": [],
+    "top_failure_domains": [{"domain": "硬件故障/网卡故障-丢包（固定标签）", "pct": "100.0", "fault": "F01"}],
+    "top_pods": [
+      {"pod": "192.168.235.157", "host": "未解析", "pct": "50.0", "fault": "F01"},
+      {"pod": "192.168.189.79", "host": "未解析", "pct": "50.0", "fault": "F01"}
+    ],
+    "top_hosts": [],
+    "time_heatmap": [{"time": "00:05:50", "level": "4", "pct": "100", "spike": true, "lat_ms": "209.536", "fault": "F01"}]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-7b45e91a",
+    "total_steps": 8,
+    "api_calls": 34,
+    "duration": "本会话自动取证",
+    "steps": [
+      {"title": "经验库预检索", "api_calls": ["experience-skill search-experiences（SKILL/WIKI）"], "result": "命中 URMA/RDMA 与链路诊断经验，仅作先验和建议。"},
+      {"title": "资产与解析核验", "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "GET /task/{task_id}", "GET /log_parse_result/options"], "result": "知识库匹配；单日志文件解析 successful；cluster=ci-kv-ds-1，host 未解析。"},
+      {"title": "GET/SET 独立分诊", "api_calls": ["POST /stats/stages(GET)", "POST /stats/stages(SET)"], "result": "GET sample_cnt=0；SET sample_cnt=1，唯一异常归入 set_client。"},
+      {"title": "精确统计", "api_calls": ["POST /stats/error_codes|pods|links|heatmap（GET/SET）"], "result": "无错误码；SET 涉及 2 个 Pod IP，单一时间槽。"},
+      {"title": "时延下钻", "api_calls": ["POST /log_parse_result/metrics/latency(GET/SET)", "POST /aggregated_event/list", "POST /aggregated_event/list_time_window", "POST /log_parse_result/list", "GET /trace/{trace_id}"], "result": "SET 总时延 209.536ms，SDK 209.488ms，Worker 0.048ms。"},
+      {"title": "通断交叉核验", "api_calls": ["POST /log_failure_event_result/list_trace_events", "POST /stats/error_codes"], "result": "代表 trace 无故障码/故障模式，不能认定链路中断。"},
+      {"title": "案例匹配与回取", "api_calls": ["POST /phenomenon/search", "POST /diag_case_library/search", "GET /diag_case_library/{case_id}"], "result": "现象卡无召回；已确认案例宽召回 52 条，采用 2 条作为参考并完成命中回写。"},
+      {"title": "契约化报告", "api_calls": ["latency_features.py", "render_report.py --validate-only", "render_report.py"], "result": "阶段特征由保存响应离线提取；报告待本步骤校验和渲染完成。"}
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+        "keywords_matched": ["SET", "URMA", "网络链路"],
+        "search_query_used": "KVCache 写入 SET 网卡丢包 网络中断 URMA timeout；SET 客户端SDK等待 209ms Worker 0.048ms C2W 网络链路",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Jetty 失效通常由远端 Worker 重启或网络抖动触发，需要观察是否自动恢复。",
+        "how_used_in_diagnosis": "用于建议核验链路稳定性、Jetty 与连接重建，不作为现场根因证据。",
+        "confidence_on_reference": 0.65,
+        "confidence_reason": "与客户端等待方向相容，但本次未命中其关键日志模式。"
+      },
+      {
+        "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+        "experience_type": "SKILL",
+        "name": "umdk-link-failure-diagnosis",
+        "source_path": "data/skill_hub/umdk-link-failure-diagnosis/skill_def.md",
+        "keywords_matched": ["网卡丢包", "链路"],
+        "search_query_used": "KVCache 写入 SET 网卡丢包 网络中断 URMA timeout",
+        "used_in_stage": "stage_5_recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "出现 `ACK_TIMEOUT` 时，优先检查网络可达性、链路质量、`ack_timeout` 配置。",
+        "how_used_in_diagnosis": "用于形成端口计数器和链路质量验证方案；本次未观测 ACK_TIMEOUT。",
+        "confidence_on_reference": 0.6,
+        "confidence_reason": "排查方法可迁移，故障模式未现场命中。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": ["SET", "URMA", "网络"],
+        "search_query_used": "KVCache 写入 SET 网卡丢包 网络中断 URMA timeout；SET 客户端SDK等待 209ms Worker 0.048ms C2W 网络链路",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "连接重建期间请求可能延迟或失败，应用层应做好重试。",
+        "how_used_in_diagnosis": "核对连接重建假设；因现场无重建日志而未采用。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "通用机制可信，但本次缺 L5 日志匹配。"
+      },
+      {
+        "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+        "experience_type": "SKILL",
+        "name": "ds-kv-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+        "keywords_matched": ["KVCache", "SET"],
+        "search_query_used": "KVCache 写入 SET 网卡丢包 网络中断 URMA timeout；SET 客户端SDK等待 209ms Worker 0.048ms C2W 网络链路",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "WriteMode 影响写入可靠性，某些 WriteMode 下写入可能未同步到远端或磁盘。",
+        "how_used_in_diagnosis": "已检查 Write_mode=3，但没有数据一致性或失败证据，未用于根因。",
+        "confidence_on_reference": 0.45,
+        "confidence_reason": "与 SET 相关但不解释本次 Publish 等待。"
+      },
+      {
+        "experience_id": "e9c85879-f805-4594-9888-55304c09e952",
+        "experience_type": "SKILL",
+        "name": "umdk-urma-cr-log-analysis",
+        "source_path": "data/skill_hub/umdk-urma-cr-log-analysis/skill_def.md",
+        "keywords_matched": ["URMA"],
+        "search_query_used": "KVCache 写入 SET 网卡丢包 网络中断 URMA timeout",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "CR 创建、销毁、配置和查询失败时，日志通常会输出 `urma_status_t` 状态码或失败描述。",
+        "how_used_in_diagnosis": "现场无 CR 操作失败或状态码，排除该经验分支。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "主题不匹配本次 Publish 等待。"
+      },
+      {
+        "experience_id": "564dd96b-d802-4fab-829b-a6c18563e228",
+        "experience_type": "SKILL",
+        "name": "umdk-performance-degradation-diagnosis",
+        "source_path": "data/skill_hub/umdk-performance-degradation-diagnosis/skill_def.md",
+        "keywords_matched": ["时延", "URMA"],
+        "search_query_used": "KVCache 写入 SET 网卡丢包 网络中断 URMA timeout",
+        "used_in_stage": "stage_5_recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "结合 urma_perftest 结果 UMQ URPC 统计指标和日志中的重传 超时 流控信息 分析 UMDK 性能下降原因",
+        "how_used_in_diagnosis": "用于建议建立相同负载的性能基线和复测。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "方法适用，但本次没有 perftest 现场结果。"
+      },
+      {
+        "experience_id": "16a80c45-8dd6-4c90-bebb-920dc6d06878",
+        "experience_type": "WIKI",
+        "name": "UMDK URMA 性能测试工具 urma_perftest 使用指南",
+        "source_path": "data/wiki_hub/umdk-urma-perftest-guide.md",
+        "keywords_matched": ["URMA", "性能"],
+        "search_query_used": "KVCache 写入 SET 网卡丢包 网络中断 URMA timeout",
+        "used_in_stage": "stage_5_recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "`urma_perftest` 是 URMA 提供的用户态性能测试工具，用于测量带宽、时延、消息速率等指标。",
+        "how_used_in_diagnosis": "用于建议建立逐端口健康时延基线。",
+        "confidence_on_reference": 0.65,
+        "confidence_reason": "工具用途明确，但需现场具备安全测试条件。"
+      },
+      {
+        "experience_id": "1af1c583-204d-4538-ab34-e166258aa3c7",
+        "experience_type": "WIKI",
+        "name": "UMDK URMA 管理工具 urma_admin 使用指南",
+        "source_path": "data/wiki_hub/umdk-urma-admin-tools.md",
+        "keywords_matched": ["URMA", "端口"],
+        "search_query_used": "KVCache 写入 SET 网卡丢包 网络中断 URMA timeout",
+        "used_in_stage": "stage_5_recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "`urma_admin` 是 URMA 提供的用户态管理工具，用于查询设备属性、端口状态、TP 信息、拓扑、UPI 等。",
+        "how_used_in_diagnosis": "用于建议核验端口状态和拓扑映射。",
+        "confidence_on_reference": 0.7,
+        "confidence_reason": "只读查询方法可直接用于补证。"
+      },
+      {
+        "experience_id": "785ed370-69fc-4ddd-8717-adfc6565141a",
+        "experience_type": "WIKI",
+        "name": "UMDK URMA 日志收集指南",
+        "source_path": "data/wiki_hub/umdk-urma-log-collection.md",
+        "keywords_matched": ["URMA", "日志"],
+        "search_query_used": "KVCache 写入 SET 网卡丢包 网络中断 URMA timeout",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "将包含 URMA 标签的日志写入独立文件",
+        "how_used_in_diagnosis": "当前资产已有日志且无需修改采集配置，未采用。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "属于采集配置，不是本次根因解释。"
+      },
+      {
+        "experience_id": "f1356f22-5418-4599-b4e5-62d94709b096",
+        "experience_type": "WIKI",
+        "name": "UMDK URMA 日志格式说明",
+        "source_path": "data/wiki_hub/umdk-urma-log-format.md",
+        "keywords_matched": ["URMA", "日志格式"],
+        "search_query_used": "KVCache 写入 SET 网卡丢包 网络中断 URMA timeout",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "void urma_log_set_thread_tag();",
+        "how_used_in_diagnosis": "本次未解析独立 URMA 格式字段，未采用。",
+        "confidence_on_reference": 0.3,
+        "confidence_reason": "格式参考与当前证据无直接关系。"
+      },
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+        "keywords_matched": ["Worker"],
+        "search_query_used": "SET 客户端SDK等待 209ms Worker 0.048ms C2W 网络链路",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Worker 运行日志是定位服务端问题的核心。",
+        "how_used_in_diagnosis": "Worker 时延仅 48us，未沿 Worker 进程故障分支展开。",
+        "confidence_on_reference": 0.45,
+        "confidence_reason": "方法通用，但反证不支持 Worker 主导。"
+      },
+      {
+        "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+        "experience_type": "SKILL",
+        "name": "ds-client-log-analysis",
+        "source_path": "data/skill_hub/ds-client-log-analysis/skill_def.md",
+        "keywords_matched": ["Client", "SDK"],
+        "search_query_used": "SET 客户端SDK等待 209ms Worker 0.048ms C2W 网络链路",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Client 日志分为运行日志和访问日志。",
+        "how_used_in_diagnosis": "用于复核同 trace 的客户端 access 与运行日志。",
+        "confidence_on_reference": 0.7,
+        "confidence_reason": "本次关键 Publish 分段正来自客户端 access 日志。"
+      },
+      {
+        "experience_id": "a43dcf67-d3bb-4fb5-99ba-e47e6343ea7d",
+        "experience_type": "SKILL",
+        "name": "ds-shared-memory-diagnosis",
+        "source_path": "data/skill_hub/ds-shared-memory-diagnosis/skill_def.md",
+        "keywords_matched": ["Client", "Worker"],
+        "search_query_used": "SET 客户端SDK等待 209ms Worker 0.048ms C2W 网络链路",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "openYuanrong datasystem 默认通过共享内存实现 client-worker 零拷贝数据交换。",
+        "how_used_in_diagnosis": "本次为跨 Pod 写路径且 Publish RPC 等待主导，未采用共享内存根因。",
+        "confidence_on_reference": 0.35,
+        "confidence_reason": "现场没有 fd/mmap/共享内存错误。"
+      },
+      {
+        "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Worker 错误模式",
+        "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+        "keywords_matched": ["Worker"],
+        "search_query_used": "SET 客户端SDK等待 209ms Worker 0.048ms C2W 网络链路",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Worker 错误通常发生在启动、集群注册、lease 保活、服务监听、Client 注册和后台线程运行阶段。",
+        "how_used_in_diagnosis": "无 Worker 错误码且处理微秒级，未采用。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "反证不支持 Worker 错误模式。"
+      },
+      {
+        "experience_id": "862f89c4-27af-4ac8-90b9-266f48ff6b32",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 共享内存日志模式",
+        "source_path": "data/wiki_hub/ds-shared-memory-patterns.md",
+        "keywords_matched": ["Client", "Worker"],
+        "search_query_used": "SET 客户端SDK等待 209ms Worker 0.048ms C2W 网络链路",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Client 尝试连接到 Worker 的 fd 传递端点。",
+        "how_used_in_diagnosis": "现场无 fd 传递异常，未采用。",
+        "confidence_on_reference": 0.35,
+        "confidence_reason": "日志模式未命中。"
+      },
+      {
+        "experience_id": "4cceeb69-c022-4e21-a00a-f440f681132e",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Client 错误模式",
+        "source_path": "data/wiki_hub/ds-client-error-patterns.md",
+        "keywords_matched": ["Client", "SDK"],
+        "search_query_used": "SET 客户端SDK等待 209ms Worker 0.048ms C2W 网络链路",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Client 错误通常发生在初始化、连接 Worker、注册、接口调用和共享内存通信阶段。",
+        "how_used_in_diagnosis": "请求最终 status=OK 且无错误码，未采用错误模式解释。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "本次是成功慢请求而非 Client 错误。"
+      },
+      {
+        "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 访问日志模式",
+        "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+        "keywords_matched": ["DS_KV_CLIENT_SET", "Write_mode"],
+        "search_query_used": "SET 客户端SDK等待 209ms Worker 0.048ms C2W 网络链路",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_evidence",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "`DS_KV_CLIENT` | KV Cache 客户端接口 | `DS_KV_CLIENT_Get`、`DS_KV_CLIENT_Set`",
+        "how_used_in_diagnosis": "用于识别 access 行为 SET 并读取 Write_mode 与 latencySummary；数值仍来自现场日志。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "字段语义与现场 DS_KV_CLIENT_SET 行直接一致。"
+      }
+    ],
+    "summary": {
+      "total_references": 17,
+      "adopted_as_evidence_count": 1,
+      "adopted_as_suggestion_count": 7,
+      "considered_not_adopted_count": 9,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于字段解释、排查建议和候选假设；根因确认程度由本次 API 与现场日志证据决定。"
+    }
+  }
+}

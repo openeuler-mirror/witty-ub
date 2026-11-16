@@ -24,7 +24,7 @@ diag_case_library
 ├── 结构化头（可过滤、可打分）
 │   ├── log_type / source / source_url / kb_id（仅作来源标注，可空）/ kb_name
 │   ├── operation（GET / SET / N/A，服务端过滤字段）/ fault_type / confidence
-│   ├── status_codes[]              ← L1，权重 3.0（×share）
+│   ├── status_codes[]              ← L1，权重 3.0（×F1，v2.4 起由等权召回改为精度×召回）
 │   ├── failure_mode_ids[]          ← L1，权重 3.0
 │   └── 信号列（写入时同步进 diag_case_library_signal；IP/Pod/主机/集群只作来源标注，不参与匹配打分）
 │       ├── hosts / pods / src_ips / dst_ips / cluster_name   ← 仅 provenance，不参与打分

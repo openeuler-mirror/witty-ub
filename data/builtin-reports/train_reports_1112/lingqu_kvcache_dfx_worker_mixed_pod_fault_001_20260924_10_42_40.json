@@ -1,0 +1,521 @@
+{
+  "report": {
+    "title": "KVCache Worker 混合 Pod 故障诊断报告",
+    "report_id": "diag-b5645a4f-824c-20261112-worker-pod-restart",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "b5645a4f-824c-4e68-848e-4e09b15259c1",
+    "kb_name": "lingqu_kvcache_dfx_worker_mixed_pod_fault_001_20260924_10_42_40",
+    "log_file": "lingqu_kvcache_dfx_worker_mixed_pod_fault_001_20260924_10_42_40",
+    "operation": "GET / SET（独立分析）",
+    "time_range_start": "2026-09-24 10:39:08",
+    "time_range_end": "2026-09-24 10:47:29",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "T:URMA_SEND_LANE_TIMEOUT_OBSERVED": 0.314485,
+      "T:URMA_SEND_LANE_FORCE_RELEASE": 0.314485,
+      "T:URMA_WAIT_TIMEOUT": 0.628971,
+      "T:WRITE": 0.628971,
+      "C:Urma wait for completion timed out": 0.104828
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别出 1 个主故障：两个 Worker Pod 的容器实例发生更替并重新注册，恢复后的首条 SET 请求出现 79.457ms 客户端等待异常。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "涉及 ci-worker-master-1 与 ci-worker-worker1-1 两个 Worker Pod；已解析 1 条 SET trace，1 条异常；GET 无可归因样本。",
+    "confidence": "高 90%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "两个 Worker Pod 容器重启并引发恢复期 SET 时延异常",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 90,
+      "category": "latency",
+      "affected_scope": "ci-worker-master-1、ci-worker-worker1-1；SET trace ef6f3883-c26a-4a29-af49-e49887985e64",
+      "conclusion": {
+        "first_level_label": "容器故障",
+        "second_level_label": "容器故障-Worker容器重启",
+        "one_line_conclusion": "10:39 至 10:47 间两个 Worker Pod 的 Worker 实例 IP/PID 同时更替并重新完成 Client 注册；10:47:29 恢复后的 SET 请求耗时 79.457ms，其中 SDK 等待段 79.420ms。",
+        "fault_domain": "容器故障/容器故障-Worker容器重启",
+        "fault_component": "KVCache Worker 容器",
+        "affected_scope_pct": "100（1/1 已解析 trace）",
+        "affected_scope_desc": "两个 Worker Pod 实例更替，恢复期 SET 写路径受影响",
+        "confidence": "高 90%",
+        "key_findings": [
+          "ci-worker-master-1 的 Worker 从 192.168.219.105、PID 21323 变为 192.168.219.109、PID 68。",
+          "ci-worker-worker1-1 的 Worker 从 192.168.235.170、PID 20827 变为 192.168.235.173、PID 68。",
+          "新实例均在 10:47:28 重新完成 Client 注册与共享内存通道建立，符合容器实例重建后的恢复行为。",
+          "唯一 SET trace 总时延 79.457ms，SDK 段 79.420ms、Worker 内部仅 0.037ms；异常主要是客户端等待而非 Worker 业务处理。",
+          "故障码统计为空，未观察到 URMA timeout 或 RPC 错误码；GET 归因子集为空，不能外推 GET 健康度。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET 总时延",
+            "value": "79.457ms",
+            "sub": "单条已解析异常 trace",
+            "tone": "danger"
+          },
+          {
+            "label": "SDK 等待段",
+            "value": "79.420ms",
+            "sub": "占总时延约 99.95%",
+            "tone": "danger"
+          },
+          {
+            "label": "Worker 内部",
+            "value": "0.037ms",
+            "sub": "非主导阶段",
+            "tone": "normal"
+          },
+          {
+            "label": "错误码",
+            "value": "0",
+            "sub": "未形成通断故障事件",
+            "tone": "normal"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端 SDK 段",
+            "p50": "79.420ms",
+            "p90": "79.420ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "99.95%",
+            "status": "bottleneck",
+            "detail": "仅 1 条样本，/stats/stages 将其归入 set_client；没有足够样本计算 P99 或基线。"
+          },
+          {
+            "name": "Worker 写处理",
+            "p50": "0.037ms",
+            "p90": "0.037ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "0.05%",
+            "status": "ok",
+            "detail": "local_worker_internal_us=37，明显低于客户端等待段。"
+          }
+        ],
+        "conclusion": "SET 异常 trace 的额外耗时集中在<strong>客户端 SDK 等待段</strong>；Worker 内部处理仅 0.037ms。样本数为 1，故不补造 P99、基线或放大倍数。结合两个 Worker 实例在同一窗口更替并重新注册，时延表现更符合容器重启后的连接/数据面恢复期等待。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据可用性",
+            "title": "解析任务成功但样本极少",
+            "description": "日志文件解析状态 successful，扫描 16 个文件、归并 1 条 trace；结论仅覆盖该小样本窗口。",
+            "evidence": "[POST /log_file/list/{kb_id}] overall_status=successful, anomaly_cnt=1；任务 timing rows=1",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "② 实例更替",
+            "title": "两个 Worker Pod 的 IP 与 PID 同时变化",
+            "description": "master Worker 由 192.168.219.105/PID 21323 更替为 192.168.219.109/PID 68；worker1 由 192.168.235.170/PID 20827 更替为 192.168.235.173/PID 68。",
+            "evidence": "[现场日志] ci-worker-master-1/kvcache.INFO.log 与 ci-worker-worker1-1/kvcache.INFO.log 的 10:39、10:47 注册记录",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "③ 恢复行为",
+            "title": "新实例重新建立 Client 与共享内存通道",
+            "description": "10:47:28 新 Worker 实例重新收到 Register client，客户端同步执行 Connects to local server、URMA_INIT 与路由初始化。",
+            "evidence": "[现场日志] Register client ... done, healthy: 1；Connects to local server ... successfully",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "排除 Worker 业务处理慢与已观测通断错误",
+            "description": "SET trace 的 Worker 内部仅 37us，故障码统计为 0，URMA timeout 桶为 0；不能把 79ms 归因于 Worker handler 或已观测错误码。",
+            "evidence": "[POST /log_parse_result/list] sdk_processing_us=79420, local_worker_internal_us=37；[POST /stats/error_codes] total=0",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 确认根因",
+            "title": "Worker 容器实例重启/重建",
+            "description": "两个 Worker Pod 在窗口内同时出现实例 IP/PID 更替和重新注册，故障标签映射为容器故障-Worker容器重启；容器为何被重启（OOM、驱逐或人工操作）缺少 Kubernetes 事件证据，保持为待补充触发原因。",
+            "evidence": "[用户指定标签源] train_valid.md 映射 worker_mixed_pod_fault，gt_labels.json 对应 容器故障/容器故障-Worker容器重启；现场日志验证实例更替与重注册",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "两个 Worker Pod 的容器实例在窗口内重启/重建",
+        "supporting_knowledge": "本地经验库 ds-worker-log-analysis：异常退出与重启应联合检查 Worker 启动时间、Client 重注册、container.log 与系统事件；已确认案例 UB-CASE-002522 仅作为 Worker 生命周期故障的对照。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Worker 容器重启",
+            "detail": "两个 Pod 实例 IP/PID 更替",
+            "type": "origin",
+            "transition": "实例重建"
+          },
+          {
+            "label": "连接状态重建",
+            "detail": "重新注册并建立共享内存通道",
+            "type": null,
+            "transition": "恢复期等待"
+          },
+          {
+            "label": "SET 客户端等待",
+            "detail": "SDK 79.420ms，Worker 0.037ms",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "Worker Pod: ci-worker-master-1、ci-worker-worker1-1",
+          "恢复后数据 Worker IP: 192.168.235.173",
+          "异常 trace: ef6f3883-c26a-4a29-af49-e49887985e64"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "ef6f3883-c26a-4a29-af49-e49887985e64",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top1；仅表示该桶证据耗时最高，不代表总体严重度或普遍性。",
+          "evidence_ms": 79.42,
+          "client_ms": 79.457
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002522",
+          "stars": "★★★☆☆",
+          "match_logic": "L1：本次无错误码/故障模式 ID，未命中；L2：SET、set_client、少量 Pod 影响匹配；L3：均为 Worker 生命周期变化后写路径异常，但具体节点不同；L5：本次无 peer-dead/超时日志，未命中。",
+          "symptom": "Worker 生命周期异常后 SET 写路径客户端等待抬升",
+          "root_cause": "历史案例为 Worker 进程退出；本次现场进一步表现为两个 Worker 容器实例更替。",
+          "solution": "借用其先恢复 Worker、核查路由与写入结果的排查方向；不复用其错误码与进程退出结论。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "SET 客户端段异常与 Worker 生命周期变化相符。",
+          "log_fit": "历史案例存在 peer-dead/超时；本次没有，差异显著。",
+          "rc_consistency": "同属 Worker 生命周期故障，容器级触发不同。",
+          "env_diff": "历史案例是单 Worker 进程退出，本次是两个 Pod 容器实例重建。",
+          "adaptation": "需改查 Kubernetes Pod restartCount、Events、退出码与容器运行时日志。",
+          "applicability": "reference"
+        },
+        {
+          "rank": "②",
+          "id": "experience:a0227481-5a5a-4b93-8fb7-de128596e844",
+          "stars": "★★★★☆",
+          "match_logic": "L1：无错误码可匹配；L2：Worker 生命周期与重启恢复域匹配；L3：Client 重新注册及共享内存通道重建日志模式命中；L5：Register client 原文短语命中。",
+          "symptom": "Worker 重启后重新注册 Client，并恢复共享内存与路由。",
+          "root_cause": "经验库用于解释恢复日志模式，不替代本次容器重启现场证据。",
+          "solution": "联合检查同节点 container.log、Kubernetes Events、退出码、OOMKilled/驱逐记录，区分正常滚动与异常重启。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "建议已采用",
+          "phenomenon_fit": "现场存在 Worker IP/PID 更替和重新注册。",
+          "log_fit": "Register client ... done, healthy: 1 与经验库日志模式一致。",
+          "rc_consistency": "支持 Worker 重启恢复解释，但不证明重启触发条件。",
+          "env_diff": "经验库为通用 Worker 生命周期流程，本次为两个 Pod 同窗实例更替。",
+          "adaptation": "将 systemd/dmesg 检查替换或补充为 Kubernetes Events 与容器状态检查。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "查询 ci-worker-master-1 与 ci-worker-worker1-1 的 Pod status、restartCount、lastState.terminated.reason/exitCode 和 10:39—10:47 的 Kubernetes Events。",
+          "核对两个新 Worker 实例的注册、健康、路由及共享内存通道均已恢复，并确认异常对象 T_ci_kvclient_master_1_24 的最终发布状态后再决定是否重试。",
+          "在两个 Pod 所在节点检查 OOM、驱逐、容器运行时重启及节点重启记录，避免只依据应用日志猜测触发原因。"
+        ],
+        "long_term": [
+          "为 Worker Pod restartCount、异常退出码、OOMKilled、Evicted 和短时间多 Pod 同时重启配置告警与事件留存。",
+          "为 Worker 重启恢复阶段增加连接/路由就绪门禁与 SET 请求退避，减少实例刚恢复时的客户端长等待。"
+        ],
+        "verification": [
+          "连续观察 30 分钟，两个 Worker Pod restartCount 不再增加且 Ready 持续为 true。",
+          "分别执行至少 100 次 GET 与 100 次 SET；GET/SET 独立统计，确认 SET P99 回落到业务基线且无新的 set_client 异常桶。",
+          "确认 /stats/error_codes 仍为 0，并抽查 SET trace 的 SDK 段不再显著高于 Worker 内部处理段。"
+        ]
+      },
+      "source_code": null,
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补取两个 Worker Pod 的 Kubernetes Events、restartCount、退出码和 lastState，确认容器重启触发条件。",
+      "depends_on": "Kubernetes 集群只读权限",
+      "expected_effect": "把已确认的容器重启进一步定界为 OOM、驱逐、节点故障或人工操作。",
+      "verify": "两个 Pod 的事件时间与 10:39—10:47 实例更替窗口对齐。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验 Worker 健康、路由和共享内存通道后再进行 SET 复测。",
+      "depends_on": "P0 现场信息已保全",
+      "expected_effect": "避免恢复未完成时继续产生客户端等待。",
+      "verify": "100 次 SET 无异常，P99 回归业务基线。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "RPC 网络",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "rpc_network 桶 0 条；无 GET 归因样本。"
+          },
+          {
+            "name": "RPC 排队",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "rpc_queue 桶 0 条；无 GET 归因样本。"
+          },
+          {
+            "name": "QueryMeta",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "query_meta 桶 0 条；无 GET 归因样本。"
+          },
+          {
+            "name": "URMA 网络",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "urma 桶 0 条；无 GET 归因样本。"
+          },
+          {
+            "name": "Data Worker 服务端处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "data_worker 桶 0 条；无 GET 归因样本。"
+          },
+          {
+            "name": "Client/Worker 交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "cross_window 桶 0 条；无 GET 归因样本。"
+          },
+          {
+            "name": "未解释残差",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "residual 桶 0 条；无 GET 归因样本。"
+          },
+          {
+            "name": "URMA 超时",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "urma_timeout 桶 0 条；无 GET 归因样本。"
+          }
+        ],
+        "conclusion": "GET 归因子集为空（sample_cnt=0，缺少可用 GET us 字段）；空结果不表示 GET 健康，不能与 SET 样本混合归桶。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—（仅1条样本）",
+        "share_bar": [
+          {
+            "name": "客户端 SDK 段",
+            "pct": "99.95",
+            "cls": "s-bottleneck"
+          },
+          {
+            "name": "Worker 写处理",
+            "pct": "0.05",
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "客户端 SDK 段",
+            "p99": "—",
+            "anomaly_rate": "100%（1/1）",
+            "fail_share": null,
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "set_client 桶 p50/p90/max 均为 79.420ms；仅 1 条样本。"
+          },
+          {
+            "name": "Worker 写处理",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "local_worker_internal_us=37。"
+          },
+          {
+            "name": "数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": null,
+            "status": "ok",
+            "detail": "set_no_evidence 桶 0 条。"
+          },
+          {
+            "name": "URMA 超时",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "set_urma_timeout 桶 0 条。"
+          }
+        ],
+        "conclusion": "SET 唯一样本由客户端 SDK 段主导，证据耗时 79.420ms；Worker 内部仅 0.037ms。该视角与 GET 独立，未使用 CREATE/PUBLISH/urma_processing_us 等当前解析路径不产出的分段。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": "1",
+    "top_error_codes": [],
+    "top_failure_domains": [],
+    "top_pods": [],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "10:47",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "lat_ms": "79.457",
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-b5645a4f-824c",
+    "total_steps": 7,
+    "api_calls": 17,
+    "duration": "本会话内完成",
+    "steps": [
+      {
+        "title": "Step 1 标签与描述核验",
+        "api_calls": [
+          "读取 train_valid.md",
+          "读取 gt_labels.json",
+          "读取 references/log_label.json"
+        ],
+        "result": "标签为 Worker 容器重启"
+      },
+      {
+        "title": "Step 2 经验库预检索",
+        "api_calls": [
+          "experience-skill SKILL/WIKI 检索"
+        ],
+        "result": "命中 Worker 生命周期经验"
+      },
+      {
+        "title": "Step 3 数据完整性核验",
+        "api_calls": [
+          "POST /log_kb/list",
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "POST /task/list",
+          "GET /log_parse_result/options"
+        ],
+        "result": "解析成功，1 条 trace"
+      },
+      {
+        "title": "Step 4 GET/SET 独立分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 0 样本；SET set_client 1 条"
+      },
+      {
+        "title": "Step 5 Trace 与统计下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "GET /trace/{id}",
+          "POST /log_parse_result/list",
+          "POST /log_parse_result/metrics/latency",
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/heatmap"
+        ],
+        "result": "SET 79.457ms，无错误码"
+      },
+      {
+        "title": "Step 6 现场日志与案例复核",
+        "api_calls": [
+          "本地日志只读核验",
+          "case-matching library 检索",
+          "GET /diag_case_library/{case_id}"
+        ],
+        "result": "确认双 Worker 实例更替"
+      },
+      {
+        "title": "Step 7 报告生成",
+        "api_calls": [
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "完成契约校验与 HTML 渲染"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+        "keywords_matched": [
+          "Worker",
+          "容器重启",
+          "PID",
+          "重新注册 client"
+        ],
+        "search_query_used": "Worker 容器重启 PID IP 变化 重新注册 client",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "分析 Worker 日志时应同时查看同节点的 container.log 和系统日志（如 dmesg、systemd）。",
+        "how_used_in_diagnosis": "用于形成补查容器事件与退出原因的处置建议，不作为现场证据。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "与本次双 Worker 实例更替和重新注册现场事实一致。"
+      }
+    ]
+  }
+}

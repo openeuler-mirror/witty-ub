@@ -370,6 +370,7 @@ class DiagCaseLibraryPGManager:
             latency_components=row.latency_components or [],
             log_keywords=row.log_keywords or [],
             stage_features_json=row.stage_features_json or None,
+            log_semantic_profile=row.log_semantic_profile or {},
             fault_shape=row.fault_shape,
             time_window_json=row.time_window_json or None,
             confidence=row.confidence or 0.0,

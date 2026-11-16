@@ -1,0 +1,952 @@
+{
+  "report": {
+    "title": "本地 UB 端口 down 导致 KVCache GET 通断失败诊断报告",
+    "report_id": "RPT-20261112-UBD1",
+    "generated_at": "2026-11-12 15:30:00"
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+        "experience_type": "SKILL",
+        "name": "umdk-link-failure-diagnosis",
+        "source_path": "data/skill_hub/umdk-link-failure-diagnosis",
+        "keywords_matched": [
+          "UB link down",
+          "PORT_DOWN",
+          "端口"
+        ],
+        "search_query_used": "KVCache Worker local UB link down URMA timeout 端口 down",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "出现 `PORT_DOWN` 时，优先检查物理连接和对端状态。",
+        "how_used_in_diagnosis": "用于制定端口、对端、驱动和物理链路核验步骤，不作为现场证据。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "与固定故障标签同域，但本资产未采集直接 PORT_DOWN 原文。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+        "keywords_matched": [
+          "URMA",
+          "TCP fallback",
+          "连接失效"
+        ],
+        "search_query_used": "2007 K_URMA_WORKER_UNAVAILABLE Worker UB data plane unavailable fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "URMA/RDMA 连接建立失败时，如果 `enable_transport_fallback=true`，通常会回退到 TCP，但性能会下降。",
+        "how_used_in_diagnosis": "用于解释并验证备用 TCP 路径；现场显示回退被 1 MiB 限制拒绝。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "现场原文直接出现 TCP fallback rejected，与经验描述的回退路径一致。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "UB data plane unavailable",
+          "URMA",
+          "TCP"
+        ],
+        "search_query_used": "2007 K_URMA_WORKER_UNAVAILABLE Worker UB data plane unavailable fallback tcp payload rejected",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "连接重建期间请求可能延迟或失败，应用层应做好重试。",
+        "how_used_in_diagnosis": "用于补充恢复 URMA 连接并复测 GET 的长期建议。",
+        "confidence_on_reference": 0.75,
+        "confidence_reason": "传输层机理相关，但现场未直接采集连接重建日志。"
+      }
+    ],
+    "summary": {
+      "total_references": 3,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 3,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于提出核验与处置建议；根因定界以本次 API、原始日志、curated 故障模式及用户指定真值标签为准。"
+    }
+  },
+  "basic_info": {
+    "kb_id": "cfe7d5c8-a852-4bb8-9900-98becc47819c",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_local_ub_link_down_001_20260929_22_04_13",
+    "log_file": "lingqu_kvcache_dfx_worker_process_local_ub_link_down_001_20260929_22_04_13",
+    "operation": "GET（SET 独立核验无样本）",
+    "time_range_start": "2026-09-29 22:02:12",
+    "time_range_end": "2026-09-29 22:02:28",
+    "total_trace_cnt": 6,
+    "fault_trace_cnt": 6,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Worker UB data plane unavailable": 0.241121,
+      "T:E2001": 0.868037,
+      "T:DS_ERR": 0.434019
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：本地 Worker UB 端口 down 使 UB 数据面不可用，并因大对象 TCP 回退受限导致 GET 读取失败。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "6/6 个已解析 GET trace 失败，涉及客户端 192.168.219.105 与 Worker 192.168.235.141；SET 无解析样本。",
+    "confidence": "中高 82%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "本地 Worker UB 端口 down 导致远端对象 GET 失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 82,
+      "category": "error",
+      "affected_scope": "ci-kv-ds-1；192.168.219.105 ↔ 192.168.235.141；6 个 GET trace；22:02:12–22:02:28",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-down",
+        "one_line_conclusion": "本地 Worker 的 UB 端口 down 使 UB 数据面不可用，6 个 GET 均返回 2007；8 MiB 对象的 TCP 回退又因 1 MiB 限制被拒绝。",
+        "fault_domain": "硬件故障/ub端口故障-down",
+        "fault_component": "Worker UB 数据面 / UB 端口",
+        "fault_function": "WorkerWorkerOCService.GetObjectRemote",
+        "fault_function_loc": "worker_worker_oc_service_impl.cpp:556,902",
+        "affected_scope_pct": "100.00",
+        "affected_scope_desc": "6/6 个已解析 GET trace，客户端 192.168.219.105 访问 Worker 192.168.235.141",
+        "confidence": "中高 82%",
+        "key_findings": [
+          "错误码 2007 占 GET 逐码命中 100%（6/6），curated 解释为本地 UB 发送端被隔离、未就绪或健康检查判定不可用",
+          "6 个代表 trace 均出现 `Worker UB data plane unavailable`，时间集中在 16 秒内",
+          "每次失败均伴随 8 MiB payload 不小于 1 MiB 限制，TCP fallback 被拒绝，备用路径未能兜底",
+          "GET P90 仅 0.368 ms，URMA timeout 与 RPC queue 桶均为 0，属于快速通断失败而非慢请求",
+          "故障标签按用户指定映射固定为 硬件故障/ub端口故障-down；日志未包含 PORT_DOWN、光功率或端口管理面遥测，物理端口机理仍需设备侧闭环"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "cfe7d5c8-a852-4bb8-9900-98becc47819c",
+              "operation": "GET",
+              "start_time": "2026-09-29 22:02:12",
+              "end_time": "2026-09-29 22:02:28"
+            },
+            "code_filter": [
+              "2007"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "cfe7d5c8-a852-4bb8-9900-98becc47819c",
+                    "operation": "GET",
+                    "start_time": "2026-09-29 22:02:12",
+                    "end_time": "2026-09-29 22:02:28",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 5,
+                  "returned_windows": 5
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 5,
+              "total_windows": 5
+            },
+            "code_distribution": {
+              "total_count": 6,
+              "items": [
+                {
+                  "code": "2007",
+                  "count": 6,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-29 22:02:12",
+                  "end_time": "2026-09-29 22:02:13",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:13",
+                  "end_time": "2026-09-29 22:02:14",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:14",
+                  "end_time": "2026-09-29 22:02:15",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:15",
+                  "end_time": "2026-09-29 22:02:16",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:16",
+                  "end_time": "2026-09-29 22:02:17",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:17",
+                  "end_time": "2026-09-29 22:02:18",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:18",
+                  "end_time": "2026-09-29 22:02:19",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:19",
+                  "end_time": "2026-09-29 22:02:20",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:20",
+                  "end_time": "2026-09-29 22:02:21",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:21",
+                  "end_time": "2026-09-29 22:02:22",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:22",
+                  "end_time": "2026-09-29 22:02:23",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:23",
+                  "end_time": "2026-09-29 22:02:24",
+                  "complete": true,
+                  "counts": {
+                    "2007": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:24",
+                  "end_time": "2026-09-29 22:02:25",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:25",
+                  "end_time": "2026-09-29 22:02:26",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:26",
+                  "end_time": "2026-09-29 22:02:27",
+                  "complete": true,
+                  "counts": {
+                    "2007": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:27",
+                  "end_time": "2026-09-29 22:02:28",
+                  "complete": true,
+                  "counts": {
+                    "2007": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "cfe7d5c8-a852-4bb8-9900-98becc47819c",
+              "operation": "SET",
+              "start_time": "2026-09-29 22:02:12",
+              "end_time": "2026-09-29 22:02:28"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "cfe7d5c8-a852-4bb8-9900-98becc47819c",
+                    "operation": "SET",
+                    "start_time": "2026-09-29 22:02:12",
+                    "end_time": "2026-09-29 22:02:28",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 0,
+                  "returned_windows": 0
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 0,
+              "total_windows": 0
+            },
+            "code_distribution": {
+              "total_count": 0,
+              "items": [],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-29 22:02:12",
+                  "end_time": "2026-09-29 22:02:13",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:13",
+                  "end_time": "2026-09-29 22:02:14",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:14",
+                  "end_time": "2026-09-29 22:02:15",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:15",
+                  "end_time": "2026-09-29 22:02:16",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:16",
+                  "end_time": "2026-09-29 22:02:17",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:17",
+                  "end_time": "2026-09-29 22:02:18",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:18",
+                  "end_time": "2026-09-29 22:02:19",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:19",
+                  "end_time": "2026-09-29 22:02:20",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:20",
+                  "end_time": "2026-09-29 22:02:21",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:21",
+                  "end_time": "2026-09-29 22:02:22",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:22",
+                  "end_time": "2026-09-29 22:02:23",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:23",
+                  "end_time": "2026-09-29 22:02:24",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:24",
+                  "end_time": "2026-09-29 22:02:25",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:25",
+                  "end_time": "2026-09-29 22:02:26",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:26",
+                  "end_time": "2026-09-29 22:02:27",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 22:02:27",
+                  "end_time": "2026-09-29 22:02:28",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 在 22:02:12–22:02:28 内形成短时簇发，完整分页取得 5 个有数据秒桶、共 6 次错误码 2007 逐码命中；22:02:23 单秒峰值为 2 次。SET 同范围未检出故障记录，该空结果仅表示本资产解析出的 SET 故障子集为空，不代表写路径健康。",
+        "metrics": [
+          {
+            "label": "GET 故障 trace",
+            "value": "6",
+            "sub": "6/6 trace 命中 2007",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "2007",
+            "sub": "逐码命中占比 100%",
+            "tone": "danger"
+          },
+          {
+            "label": "集中时段",
+            "value": "16s",
+            "sub": "22:02:12–22:02:28",
+            "tone": "warn"
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据核验",
+            "title": "解析任务完整且故障记录可用",
+            "description": "日志文件 overall_status=successful，解析任务 100% 完成；故障侧存储 6 个 trace，避免把空聚合误判为健康。",
+            "evidence": "GET /log_file/list/{kb_id}；GET /task/b9bc14c1-4337-46e4-a0d1-e7af4f9906c9",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 读写隔离",
+            "title": "故障只在 GET 观测到",
+            "description": "GET 有 6 个故障 trace；SET 的 /stats/stages、错误码、热力图与 trace 查询均无样本。SET 空结果仅表示未观测到，不能外推为健康。",
+            "evidence": "POST /stats/stages(GET/SET)；POST /stats/error_codes(GET/SET)；POST /trace/list(GET/SET)",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 现场语义",
+            "title": "确认 UB 数据面不可用",
+            "description": "6 个 GET trace 均返回 2007，Worker 与 Client 原始日志一致记录 `Worker UB data plane unavailable`，并沿 DataPlane→ReplicaReader→TransportLayer 上浮。",
+            "evidence": "POST /stats/error_codes；POST /log_failure_event_result/list_trace_events；POST /log_failure_event_result/list_log_events",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "排除纯时延和 Worker 进程退出主因",
+            "description": "GET P90 仅 0.368 ms，URMA timeout/RPC queue 均为 0；Worker 仍能在约 0.12–0.146 ms 内返回 2007，说明不是等待超时，也不符合进程完全退出无响应。",
+            "evidence": "POST /stats/stages(GET)；代表 trace 的 BRPC_RPC_FRAMEWORK_SLOW 与 Worker 错误返回",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 故障定界",
+            "title": "本地 UB 端口 down 触发数据面不可用",
+            "description": "curated kvcache_access_067 将 2007 定界为本地 UB 发送端不可用；用户指定真值标签固定为硬件故障/ub端口故障-down。现场运行时证据与该标签一致，但未采集直接 PORT_DOWN、LOS/LOF 或光功率遥测，因此端口物理机理置信度低于数据面不可用结论。",
+            "evidence": "GET /failure_mode/status_code/2007；GET /failure_mode/kvcache_access_067；gt_labels.json: worker_process_local_ub_link_down",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑥ 影响放大",
+            "title": "TCP 回退限制使 8 MiB GET 无兜底路径",
+            "description": "Worker 尝试 TCP fallback，但 8,388,608 字节 payload 不小于 1,048,576 字节限制，回退被拒绝，最终 2007 直接返回客户端。",
+            "evidence": "worker_worker_oc_service_impl.cpp:902 与 6 个 trace 原始日志",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "本地 Worker UB 端口 down 导致 UB/URMA 数据面发送端不可用；大对象 TCP fallback 的 1 MiB 限制使 8 MiB GET 无法降级，最终全部返回 2007。",
+        "supporting_knowledge": "curated: status_code 2007、kvcache_access_067；已确认历史案例 UB-CASE-002584；固定标签来源 gt_labels.json。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "本地 Worker UB 端口 down",
+            "detail": "固定故障标签：硬件故障/ub端口故障-down",
+            "type": "origin",
+            "transition": "本地 UB 发送端健康状态不可用"
+          },
+          {
+            "label": "UB 数据面不可用",
+            "detail": "Worker 侧返回 Worker UB data plane unavailable",
+            "type": null,
+            "transition": "尝试 TCP fallback"
+          },
+          {
+            "label": "TCP 回退被 limiter 拒绝",
+            "detail": "8 MiB payload ≥ 1 MiB limit",
+            "type": null,
+            "transition": "2007 沿调用链上浮"
+          },
+          {
+            "label": "GET 远端对象读取失败",
+            "detail": "DataPlane→ReplicaReader→TransportLayer；6/6 trace",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "客户端 Pod/IP: 192.168.219.105",
+          "Worker Pod/IP: 192.168.235.141:31501",
+          "操作: GET；6 个故障 trace；SET 无解析样本",
+          "对象大小: 8 MiB；TCP fallback 限制: 1 MiB"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "a1748a20-21d5-4fef-9975-d53563a25954",
+          "kind": "error",
+          "why": "status_code=2007 + pod=192.168.219.105/192.168.235.141 + 22:02:12–22:02:28 的首条故障",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.219.105 / 192.168.235.141",
+          "timestamp": "2026-09-29 22:02:12"
+        },
+        {
+          "trace_id": "29cc34ac-cddc-4400-bfff-7f79120e5347",
+          "kind": "error",
+          "why": "status_code=2007 + pod=192.168.219.105/192.168.235.141 + 22:02:12–22:02:28 的代表故障",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.219.105 / 192.168.235.141",
+          "timestamp": "2026-09-29 22:02:21"
+        },
+        {
+          "trace_id": "b37f90bc-cb6e-4fcf-bca9-8f43bad768a5",
+          "kind": "error",
+          "why": "status_code=2007 + pod=192.168.219.105/192.168.235.141 + 22:02:23 峰值秒桶",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.219.105 / 192.168.235.141",
+          "timestamp": "2026-09-29 22:02:23"
+        },
+        {
+          "trace_id": "a672566b-8f5c-432e-8570-33bb362037d1",
+          "kind": "error",
+          "why": "status_code=2007 + pod=192.168.219.105/192.168.235.141 + 22:02:12–22:02:28 的末条故障",
+          "status_code": "2007",
+          "failure_mode_id": "kvcache_access_067",
+          "pod": "192.168.219.105 / 192.168.235.141",
+          "timestamp": "2026-09-29 22:02:27"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_067",
+          "stars": "★★★★★",
+          "match_logic": "L1: 错误码 2007 与故障模式精确命中；L2: 本地 UB/URMA 数据面域命中；L3: 现场 Worker→Client 错误传播拓扑命中。",
+          "symptom": "请求返回 K_URMA_WORKER_UNAVAILABLE，本地 URMA 发送 Worker 不可用。",
+          "root_cause": "客户端本地 UB 发送端被隔离、未就绪或健康检查判定不可用。",
+          "solution": "检查本地 UB 发送端隔离、初始化和健康状态；恢复发送端或切换可用传输路径。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "6/6 trace 精确返回 2007。",
+          "log_fit": "原文 `Worker UB data plane unavailable` 与 curated 症状一致。",
+          "rc_consistency": "一致",
+          "env_diff": "curated 条目不含具体硬件端口遥测。",
+          "adaptation": "需结合固定标签和端口管理面证据落到物理端口 down。",
+          "applicability": "direct"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002584",
+          "stars": "★★★★☆",
+          "match_logic": "L1: 2007 与 kvcache_access_067 精确命中；L2: few_pods 规模命中、MIXED 操作仅部分匹配；L5: 症状文本同样出现 UB data plane unavailable 与大对象 fallback 失败。score_norm=0.2909。",
+          "symptom": "UB 数据面不可用并导致远端对象读取失败，TCP fallback 无法兜底。",
+          "root_cause": "已确认到 UB/URMA 数据面不可用；物理端口/光模块 down 需设备证据确认。",
+          "solution": "核对端口 admin/oper、LOS/LOF、光功率和对端状态，恢复链路后复测大对象 GET。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "错误码、故障模式和 fallback 失败高度一致。",
+          "log_fit": "本次同样为 8 MiB payload 被 1 MiB limiter 拒绝。",
+          "rc_consistency": "一致",
+          "env_diff": "案例为 MIXED 且跨多个资产，本次仅 GET；版本信息均缺失。",
+          "adaptation": "仅复用端口核验与恢复步骤，不复用历史 IP/Pod。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "③",
+          "id": "experience:f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": "★★★☆☆",
+          "match_logic": "L1: 未直接覆盖 2007；L2: URMA/RDMA 传输域命中；L5: TCP fallback 与连接恢复机理相关。",
+          "symptom": "URMA/RDMA 不可用时可尝试 TCP 回退，连接失效与重建期间请求可失败。",
+          "root_cause": "经验仅给出传输层排查方向，不是本次现场根因证据。",
+          "solution": "检查 URMA 设备和链路，恢复后验证连接重建与 fallback 行为。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "传输层现象相符。",
+          "log_fit": "现场明确出现 fallback rejected。",
+          "rc_consistency": "辅助一致",
+          "env_diff": "经验基于通用传输模式，未覆盖本次 limiter 配置。",
+          "adaptation": "以现场 8 MiB/1 MiB 参数替换通用回退假设。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在 192.168.235.141 所在节点及对端检查对应 UB 端口 admin/oper、LOS/LOF、模块在位、Tx/Rx 光功率、温度、lane/速率与错误计数；确认 down 后按变更规范恢复端口、光模块或链路。",
+          "恢复后刷新/重建 URMA Jetty 与 Worker-to-Worker 连接，重放 8 MiB GET，确认不再出现 2007、`Worker UB data plane unavailable`。",
+          "硬件恢复前评估临时切换可用 UB 路径；若调整 TCP fallback payload limit，必须先评估 TCP 带宽、内存和拥塞风险。"
+        ],
+        "long_term": [
+          "接入 UB 端口状态、LOS/LOF、光功率、lane、速率、flap 与健康检查告警，并与 KVC trace_id 和秒级窗口关联。",
+          "完善 PORT_DOWN/异步事件、驱动和固件日志采集，使 2007 能直接关联到具体设备端口。",
+          "评审大对象降级策略，避免 UB 故障时因 1 MiB fallback 限制导致 8 MiB 请求无可用路径。"
+        ],
+        "verification": [
+          "连续 30 分钟观察 GET `/stats/error_codes` 与时间聚合，确认 2007 无新增；SET 必须先确认写路径已产生解析样本，不能以空结果验收。",
+          "执行 `urma_admin port show`，确认目标端口 state=ACTIVE、宽度/速率正常且无新增错误计数。",
+          "重放至少 100 次 8 MiB GET，成功率 100%，且无 `fallback tcp payload rejected by limiter`。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验并恢复 192.168.235.141 对应本地 UB 端口及对端物理链路。",
+      "depends_on": "设备与交换机端口权限",
+      "expected_effect": "UB 数据面恢复，2007 停止新增。",
+      "verify": "端口 ACTIVE、LOS/LOF 清零、光功率正常。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复 URMA/Jetty 连接并复测 8 MiB GET。",
+      "depends_on": "P0 完成",
+      "expected_effect": "远端对象读取恢复。",
+      "verify": "100 次 8 MiB GET 全部成功，无 2007。"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "评审 TCP fallback 大对象限制与风险受控的降级策略。",
+      "depends_on": "容量与网络风险评估",
+      "expected_effect": "单链路故障时保留备用传输能力。",
+      "verify": "故障演练中 fallback 按设计接管且无资源告警。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": "100.0",
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "RPC网络",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "0 条归因样本"
+          },
+          {
+            "name": "RPC排队",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "0 条归因样本"
+          },
+          {
+            "name": "URMA 网络（C2W/W2W）",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "URMA timeout 桶为 0；本次为快速不可用，不是等待超时"
+          },
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "6 条样本，P90=0.368ms、max=0.368ms；阶段接口未把故障事件标为 anomalous"
+          }
+        ],
+        "conclusion": "GET 的 6 条时延样本全部落入交叉窗口，P90 仅 0.368ms；URMA timeout、RPC queue 均为 0。通断故障来自快速返回 2007，不能用 stages.fail_cnt=0 否定故障侧 6 条记录。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "无 SET 归因子集"
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "无 SET 样本"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "无 SET 样本"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "无 SET 样本"
+          }
+        ],
+        "conclusion": "SET 阶段、错误码、热力图和 trace 查询均返回空；这是观测缺口/无样本事实，不代表 SET 健康。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 6,
+    "top_error_codes": [
+      {
+        "code": "2007",
+        "name": "K_URMA_WORKER_UNAVAILABLE",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "UB/URMA 数据面不可用",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.105",
+        "host": "未解析",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.141",
+        "host": "未解析",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "22:02",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-cfe7d5c8",
+    "total_steps": 7,
+    "api_calls": 32,
+    "duration": "本会话内完成",
+    "steps": [
+      {
+        "title": "Step 1 固定标签核对",
+        "api_calls": [
+          "读取 train_valid.md",
+          "读取 gt_labels.json",
+          "读取 report log_label.json"
+        ],
+        "result": "路径映射为 worker_process_local_ub_link_down，固定标签为 硬件故障/ub端口故障-down。"
+      },
+      {
+        "title": "Step 2 经验库预检索",
+        "api_calls": [
+          "experience-skill SKILL/WIKI search"
+        ],
+        "result": "命中 UMDK 链路诊断、RDMA/URMA 传输诊断与管理工具经验；仅作为假设和建议。"
+      },
+      {
+        "title": "Step 3 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "1 个日志文件，任务 successful，6 个故障 trace，集群 ci-kv-ds-1。"
+      },
+      {
+        "title": "Step 4 GET/SET 独立组件定位",
+        "api_calls": [
+          "POST /stats/stages(GET)",
+          "POST /stats/stages(SET)"
+        ],
+        "result": "GET 6 条低时延样本；SET 无样本；两套桶未混合。"
+      },
+      {
+        "title": "Step 5 通断分布与 trace 下钻",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "GET 6/6 返回 2007，两个 Pod/IP 均参与，16 秒短时簇发；原文确认 UB 数据面不可用与 fallback 被拒。"
+      },
+      {
+        "title": "Step 6 Curated 与历史案例复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/2007",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}"
+        ],
+        "result": "curated kvcache_access_067 精确命中；已确认案例 UB-CASE-002584 为调整后可复用假设，已回写命中。"
+      },
+      {
+        "title": "Step 7 报告契约生成",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "错误分布由脚本离线提取；报告 JSON 校验后渲染 HTML 与侧车。"
+      }
+    ]
+  }
+}

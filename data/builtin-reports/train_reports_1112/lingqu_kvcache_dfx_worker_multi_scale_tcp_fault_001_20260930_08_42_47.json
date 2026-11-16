@@ -1,0 +1,703 @@
+{
+  "report": {
+    "title": "KVCache 多 Worker GET K_NOT_READY 故障诊断报告",
+    "report_id": "diag-b1135d8b-20261112-worker-multi-scale-tcp",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "b1135d8b-314c-4e34-82ed-95a2d8f263fa",
+    "kb_name": "lingqu_kvcache_dfx_worker_multi_scale_tcp_fault_001_20260930_08_42_47",
+    "log_file": "lingqu_kvcache_dfx_worker_multi_scale_tcp_fault_001_20260930_08_42_47",
+    "operation": "GET（SET 无样本）",
+    "time_range_start": "2026-09-30 08:49:39",
+    "time_range_end": "2026-09-30 08:49:50",
+    "total_trace_cnt": 9,
+    "fault_trace_cnt": 9,
+    "fault_ratio": "100%（仅指本资产库已解析的 9 条 GET trace）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Not ready": 0.229267,
+      "T:E2001": 0.917067,
+      "T:FBE18ABAB28175A0542AF8A7DCC7F06B": 0.254741,
+      "T:F65EB5137BF74B97B8D42979DC24754E": 0.203793
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到 1 个可由现场证据确认的共同表现：两个目标 Worker 在 11 秒内持续返回 K_NOT_READY(8)，导致 9 条 GET 全部快速失败；训练标签给出的“网卡抖动/网卡闪断”被拆为两条疑似物理故障，但当前日志无法独立分离或闭环证明二者。",
+    "fault_count": 2,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 1,
+    "independent_fault_count": 0,
+    "overall_impact": "GET 读路径受影响，9/9 条已解析请求失败；涉及客户端 192.168.219.118 与两个目标 Worker 192.168.189.117、192.168.235.161。SET 无样本，不能外推写路径。",
+    "confidence": 0.78
+  },
+  "fault_relations": [
+    {
+      "from": "F01",
+      "to": "F02",
+      "type": "correlated",
+      "confidence": 0.4,
+      "evidence": "两类标签来自同一训练样本映射且共享同一故障窗口；现场仅观测到 K_NOT_READY/Worker not ready，未取得网卡遥测，故只记相关性，不声明抖动导致闪断或反向因果。"
+    }
+  ],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01",
+        "F02"
+      ],
+      "action": "在 192.168.189.117 与 192.168.235.161 所在节点核对故障窗内 TCP 网卡 carrier、link state、丢包/重传、错误包、队列丢弃及系统网络事件，保留秒级时间线。",
+      "depends_on": "获取节点与交换侧网卡遥测",
+      "expected_effect": "确认或证伪训练标签中的网卡抖动/闪断物理触发，并区分两种故障。",
+      "verify": "将链路事件与 08:49:39~08:49:50 的 9 条 K_NOT_READY trace 逐秒对齐；无同窗链路异常则下调硬件根因置信度。"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01",
+        "F02"
+      ],
+      "action": "检查两个 Worker 的 IsHealthy、reconFlag_、恢复/扩缩容状态和就绪探针；未恢复时先摘流并恢复 Worker 服务态。",
+      "depends_on": "Worker 运维权限",
+      "expected_effect": "消除 ValidateWorkerState 返回 K_NOT_READY，恢复 QueryAndGet。",
+      "verify": "连续执行 GET 并确认不再出现 status_code=8、Worker not ready，且 Worker readiness 持续正常。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01",
+        "F02"
+      ],
+      "action": "复核扩缩容流程是否遵循先摘流、等待路由与健康状态收敛、再下线节点，并为临时 K_NOT_READY 配置有界重试与退避。",
+      "depends_on": "完成直接故障恢复",
+      "expected_effect": "降低扩缩容或短暂链路波动期间的读失败扩散。",
+      "verify": "在受控演练中观察路由收敛时间、K_NOT_READY 数量和重试成功率，不以重试掩盖持续不健康。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "Client/Worker 交叉窗口未细分",
+            "pct": "100",
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker 交叉窗口未细分",
+            "p99": null,
+            "anomaly_rate": "0/9 时延异常",
+            "fail_share": "0/9（该桶 fail_cnt 口径）",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "9 条 trace 均归入 cross_window；证据耗时 p50=0.182ms、p90=max=0.211ms。/stats/stages 不提供 P99，未以 max 冒充 P99。通断侧另有 9 条 K_NOT_READY 故障记录。"
+          }
+        ],
+        "conclusion": "GET 不是高时延或超时故障：9 条请求均快速返回，URMA timeout、RPC 网络和排队桶均为 0；故障属于服务未就绪通断失败。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "SET 归因子集 sample_cnt=0，错误码、Pod、热力图和 trace 查询也均为 0；这是无样本，不代表 SET 健康。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 9,
+    "top_error_codes": [
+      {
+        "code": "8",
+        "name": "K_NOT_READY",
+        "pct": "100",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "Worker 未就绪（现场直接故障点）",
+        "pct": "100",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.118",
+        "host": null,
+        "pct": "100",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "08:49",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "多 Worker 未就绪导致 GET K_NOT_READY（训练标签：网卡抖动）",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 0.78,
+      "category": "error",
+      "affected_scope": "9 条 GET trace、1 个客户端与 2 个目标 Worker",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-抖动",
+        "one_line_conclusion": "现场确认两个目标 Worker 的健康校验返回 K_NOT_READY 并造成 9 条 GET 快速失败；“网卡抖动”来自指定训练标签，缺少 NIC 遥测，物理根因仍为疑似。",
+        "fault_domain": "硬件故障/网卡故障-抖动",
+        "fault_component": "TCP 网络与 KVCache Worker 健康状态",
+        "fault_function": "ValidateWorkerState / QueryAndGet",
+        "fault_function_loc": "worker_oc_service_impl.cpp:2022；client transport_layer.cpp:769",
+        "affected_scope_pct": 100,
+        "affected_scope_desc": "本资产库解析出的 9 条 GET trace 全部命中 status_code=8；分别访问 192.168.189.117（5 条）和 192.168.235.161（4 条）。",
+        "confidence": 0.78,
+        "key_findings": [
+          "GET 通断侧共 9 条故障 trace，状态码 8 占 100%，集中在 08:49:39~08:49:50。",
+          "两个目标 Worker 均记录 validate worker state failed / Worker not ready，说明服务端确实收到请求并主动快速拒绝。",
+          "BRPC e2e 为 0.113~0.211ms，network_residual_us=0，未出现超时；排除“本批请求因高网络时延超时失败”。",
+          "SET 各接口均无样本，不能把 GET 结论外推到写路径。",
+          "训练标签 worker_multi_scale_tcp_fault 映射到网卡抖动和网卡闪断；标签仅用于分类，不替代现场证据。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "GET 故障 trace",
+            "value": "9",
+            "sub": "status_code=8",
+            "tone": "danger"
+          },
+          {
+            "label": "错误码占比",
+            "value": "100%",
+            "sub": "逐码命中次数口径",
+            "tone": "danger"
+          },
+          {
+            "label": "峰值秒",
+            "value": "3",
+            "sub": "08:49:45~46",
+            "tone": "warn"
+          }
+        ],
+        "conclusion": "K_NOT_READY(8) 是唯一错误码，共 9 次逐码命中；11 秒内呈短时簇发，峰值原始秒窗为 08:49:45~08:49:46 的 3 次。该计数不是业务失败率。",
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "b1135d8b-314c-4e34-82ed-95a2d8f263fa",
+              "operation": "GET",
+              "start_time": "2026-09-30 08:49:39",
+              "end_time": "2026-09-30 08:49:50"
+            },
+            "code_filter": [
+              "8"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "b1135d8b-314c-4e34-82ed-95a2d8f263fa",
+                    "operation": "GET",
+                    "start_time": "2026-09-30 08:49:39",
+                    "end_time": "2026-09-30 08:49:50",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 5,
+                  "returned_windows": 5
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 5,
+              "total_windows": 5
+            },
+            "code_distribution": {
+              "total_count": 9,
+              "items": [
+                {
+                  "code": "8",
+                  "count": 9,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-30 08:49:39",
+                  "end_time": "2026-09-30 08:49:40",
+                  "complete": true,
+                  "counts": {
+                    "8": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 08:49:40",
+                  "end_time": "2026-09-30 08:49:41",
+                  "complete": true,
+                  "counts": {
+                    "8": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 08:49:41",
+                  "end_time": "2026-09-30 08:49:42",
+                  "complete": true,
+                  "counts": {
+                    "8": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 08:49:42",
+                  "end_time": "2026-09-30 08:49:43",
+                  "complete": true,
+                  "counts": {
+                    "8": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 08:49:43",
+                  "end_time": "2026-09-30 08:49:44",
+                  "complete": true,
+                  "counts": {
+                    "8": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 08:49:44",
+                  "end_time": "2026-09-30 08:49:45",
+                  "complete": true,
+                  "counts": {
+                    "8": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 08:49:45",
+                  "end_time": "2026-09-30 08:49:46",
+                  "complete": true,
+                  "counts": {
+                    "8": 3
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 08:49:46",
+                  "end_time": "2026-09-30 08:49:47",
+                  "complete": true,
+                  "counts": {
+                    "8": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 08:49:47",
+                  "end_time": "2026-09-30 08:49:48",
+                  "complete": true,
+                  "counts": {
+                    "8": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 08:49:48",
+                  "end_time": "2026-09-30 08:49:49",
+                  "complete": true,
+                  "counts": {
+                    "8": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 08:49:49",
+                  "end_time": "2026-09-30 08:49:50",
+                  "complete": true,
+                  "counts": {
+                    "8": 2
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "现场表现",
+            "title": "GET 唯一错误码为 K_NOT_READY(8)",
+            "description": "全量精确统计显示 9 条 GET 故障 trace、9 个错误码事件均为 8，SET 为 0 条。",
+            "evidence": "/stats/error_codes(GET): status_code=8, trace_cnt=9, event_cnt=9；list_trace_events(GET): total=9。",
+            "confirmed": true
+          },
+          {
+            "step_label": "直接故障点",
+            "title": "两个目标 Worker 健康校验失败",
+            "description": "每条代表 trace 均能在目标 Worker 找到 validate worker state failed，客户端随后记录 QueryAndGet RPC failed 与 TransportGet 失败。",
+            "evidence": "192.168.189.117 命中 5 条、192.168.235.161 命中 4 条；日志原文均含 Worker not ready。",
+            "confirmed": true
+          },
+          {
+            "step_label": "反证检查",
+            "title": "排除本批请求的高时延、排队和 RPC 超时",
+            "description": "请求均在亚毫秒内快速失败，服务端已收到并主动返回；URMA timeout、RPC 网络、RPC 排队归因桶为 0。",
+            "evidence": "/stats/stages(GET): cross_window p90=max=0.211ms，fail_cnt=0；BRPC network_residual_us=0，cntl_timeout_ms=9000。",
+            "excluded": true
+          },
+          {
+            "step_label": "物理根因边界",
+            "title": "网卡抖动/闪断标签尚缺直接遥测",
+            "description": "指定训练标签把样本标为网卡抖动与网卡闪断，但日志未包含 carrier、丢包、重传或 link flap 证据，不能把标签冒充现场证明。",
+            "evidence": "gt_labels.json 映射与现场 API 证据分层记录；/stats/links 因 src/dst 为空无可用链路聚合。",
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "可确认的直接故障点是两个目标 Worker 的 ValidateWorkerState 在同一短窗内返回 K_NOT_READY，导致 QueryAndGet 与上层 TransportGet 失败。网卡抖动是否为触发 Worker 不健康的物理根因仍待 NIC/交换侧遥测验证。",
+        "supporting_knowledge": "Curated status_code=8 与 failure_mode kvcache_runtime_2395 均说明目标组件/Worker 未进入服务态；本地经验 ds-worker-log-analysis 也建议检查依赖组件与恢复状态。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "外部训练标签：TCP 网卡抖动/闪断",
+            "detail": "仅作为待验证物理触发，不是现场已证实事实。",
+            "type": "suspected"
+          },
+          {
+            "label": "两个 Worker 未进入健康服务态",
+            "detail": "ValidateWorkerState 返回 K_NOT_READY / Worker not ready。",
+            "type": "confirmed"
+          },
+          {
+            "label": "QueryAndGet 失败",
+            "detail": "客户端访问元数据 owner 时 RPC 业务返回 code=8；BRPC 快速完成而非超时。",
+            "type": "confirmed"
+          },
+          {
+            "label": "TransportGet 失败",
+            "detail": "object_read_flow 与 transport_layer 记录 Metadata group failed / Get failed。",
+            "type": "confirmed"
+          },
+          {
+            "label": "GET 读请求失败",
+            "detail": "9 条 access 记录均返回 status_code=8。",
+            "type": "confirmed"
+          }
+        ],
+        "impact_scope": [
+          "Cluster: ci-kv-ds-1（来自 trace 记录）",
+          "Client Pod/IP: 192.168.219.118",
+          "目标 Worker: 192.168.189.117（5 条）、192.168.235.161（4 条）",
+          "Operation: GET；SET 无样本"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "638b1d0d-967e-4320-9e77-959dca939d7d",
+          "kind": "error",
+          "why": "过滤条件 status_code=8 + 目标 Worker 192.168.189.117 + 时间窗 2026-09-30 08:49:39~08:49:50；服务端日志显示 Worker not ready。",
+          "evidence_ms": 0.211,
+          "client_ms": 0.211,
+          "status_code": "8",
+          "failure_mode_id": "kvcache_runtime_2395",
+          "pod": "192.168.189.117",
+          "host": null,
+          "timestamp": "2026-09-30 08:49:39.251"
+        },
+        {
+          "trace_id": "54b44589-0983-4e21-87c9-ed9f4eb24758",
+          "kind": "error",
+          "why": "过滤条件 status_code=8 + 目标 Worker 192.168.235.161 + 时间窗 2026-09-30 08:49:39~08:49:50；证明第二个 Worker 同样未就绪。",
+          "evidence_ms": 0.179,
+          "client_ms": 0.179,
+          "status_code": "8",
+          "failure_mode_id": "kvcache_runtime_2395",
+          "pod": "192.168.235.161",
+          "host": null,
+          "timestamp": "2026-09-30 08:49:39.590"
+        },
+        {
+          "trace_id": "4226ffa4-2b98-4d70-80aa-6e60ccd52649",
+          "kind": "error",
+          "why": "过滤条件 status_code=8 + 峰值秒窗 2026-09-30 08:49:45~08:49:46；用于复核错误簇发峰值。",
+          "evidence_ms": 0.204,
+          "client_ms": 0.204,
+          "status_code": "8",
+          "failure_mode_id": "kvcache_access_008",
+          "pod": "192.168.189.117",
+          "host": null,
+          "timestamp": "2026-09-30 08:49:45.838"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "kvcache_runtime_2395",
+          "rank": 1,
+          "stars": 5,
+          "match_logic": "L1 命中 K_NOT_READY(8) 与 Worker not ready；L2 命中 Worker 服务未就绪，但不等价于硬件网卡抖动标签；L3 拓扑命中两个目标 Worker 的 ValidateWorkerState。",
+          "symptom": "工作节点校验时组件未就绪，匹配 Worker not ready。",
+          "root_cause": "IsHealthy() 为 false 或 reconFlag_ 在请求超时内未被获取。",
+          "solution": "检查健康状态、恢复流程及 reconFlag_ 是否长期持有，必要时调整超时。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "直接故障点一致；物理触发未覆盖",
+          "env_diff": "Curated 知识不包含本次网卡抖动/闪断训练标签",
+          "adaptation": "用于确认 Worker 未就绪机制，不用于证明 NIC 根因。",
+          "applicability": "adjust"
+        },
+        {
+          "id": "UB-CASE-002543",
+          "rank": 2,
+          "stars": 3,
+          "match_logic": "L1 命中 status_code=8 与 kvcache_access_008；L2 仅操作域 MIXED 部分命中，历史案例是 Worker 进程退出而本次未观察到退出；L5 未命中 Host is down/进程退出关键词。",
+          "symptom": "多节点 Worker 不可用导致读写路径返回 K_NOT_READY。",
+          "root_cause": "历史案例为多个 Worker 进程退出及路由过滤。",
+          "solution": "检查 Worker 存活、退出记录、就绪探针和路由收敛。",
+          "adoption_class": "reference",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "中",
+          "log_fit": "部分",
+          "rc_consistency": "本次只有 Worker not ready，没有进程退出证据",
+          "env_diff": "历史案例为 MIXED 且已闭环；本次仅 GET、无 Host is down",
+          "adaptation": "只复用 Worker 健康与路由核查步骤，不复用进程退出结论。",
+          "applicability": "reference"
+        },
+        {
+          "id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+          "rank": 3,
+          "stars": 3,
+          "match_logic": "L1 命中 K_NOT_READY=8；L2 为通用 Worker 诊断，不含本次硬件标签；L5 命中资源未就绪排查方向。",
+          "symptom": "K_NOT_READY=8 表示资源未就绪。",
+          "root_cause": "依赖服务、恢复流程或 Worker 健康状态尚未就绪。",
+          "solution": "检查依赖服务、Worker 恢复与健康状态。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "与 curated K_NOT_READY 解释一致",
+          "env_diff": "本地经验面向通用 Worker，不包含本次节点遥测",
+          "adaptation": "作为排查建议，最终结论仍以现场 API 与 curated 知识为准。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "先确认 192.168.189.117、192.168.235.161 的 Worker readiness、IsHealthy 与恢复/扩缩容状态；不健康节点先摘流并恢复服务态。",
+          "按 08:49:39~08:49:50 秒级窗口抓取两节点 TCP 网卡与交换侧 link/carrier、丢包、重传、错误包和队列丢弃，验证抖动/闪断标签。",
+          "对 K_NOT_READY 使用有界指数退避重试；若持续超过路由/恢复收敛上限，立即失败并告警，避免重试风暴。"
+        ],
+        "long_term": [
+          "完善扩缩容安全下线：先摘流、等待路由和健康状态收敛、再停止 Worker，并对收敛超时设置阻断。",
+          "把 Worker readiness、reconFlag_ 等待、TCP carrier flap、丢包/重传和交换端口事件统一纳入秒级可观测时间线。",
+          "建立双 Worker 同窗 K_NOT_READY 告警，关联节点网络与扩缩容变更，避免仅从客户端错误推断物理根因。"
+        ],
+        "verification": [
+          "连续复测 GET，确认 status_code=8 在相同对象规模和并发下归零，且两个 Worker readiness 持续正常。",
+          "复查 /stats/error_codes、/stats/heatmap 与代表 trace，确认无新增 K_NOT_READY 簇发。",
+          "执行受控链路抖动/闪断演练，仅当 NIC/交换遥测与 Worker 未就绪、GET 失败时间线稳定对齐时，才确认硬件根因闭环。",
+          "单独补充 SET 流量复测；当前 SET 无样本，不能用 GET 恢复替代写路径验证。"
+        ]
+      }
+    },
+    {
+      "id": "F02",
+      "title": "TCP 网卡闪断标签（现场未能独立分离）",
+      "role": "secondary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 0.35,
+      "category": "error",
+      "affected_scope": "与 F01 共享故障窗口，独立影响范围未知",
+      "simplified": true,
+      "upstream": "F01",
+      "need_independent_fix": false,
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-闪断",
+        "one_line_conclusion": "“网卡闪断”来自指定训练标签；当前现场只看到两个 Worker 快速返回 K_NOT_READY，未观察到 carrier down/up 或断链日志，因此保留为待验证分类。",
+        "fault_domain": "硬件故障/网卡故障-闪断",
+        "fault_component": "TCP 网卡/链路",
+        "fault_function": null,
+        "fault_function_loc": null,
+        "affected_scope_pct": null,
+        "affected_scope_desc": "无法从当前日志把闪断与抖动对应到独立 trace 或独立节点。",
+        "confidence": 0.35,
+        "key_findings": [
+          "gt_labels.json 对 worker_multi_scale_tcp_fault 同时给出网卡抖动和网卡闪断标签。",
+          "现场 API 未解析出 src/dst 链路，/stats/links 返回 0 条。",
+          "请求快速返回而非连接超时，不能单凭 K_NOT_READY 证明链路闪断。"
+        ]
+      },
+      "solution": {
+        "short_term": [
+          "补采两个 Worker 节点及交换端口的 carrier down/up、link flap、重传与错误包记录，按秒与故障 trace 对齐。"
+        ],
+        "long_term": [
+          "将链路闪断遥测与 Worker readiness 变更统一关联，并保留扩缩容变更审计。"
+        ],
+        "verification": [
+          "若同窗存在明确 carrier down/up 且受影响端点与 Worker 未就绪一致，则提升闪断根因置信度；否则排除该标签作为本次物理根因。"
+        ]
+      }
+    }
+  ],
+  "workflow": {
+    "session_id": "diag-b1135d8b-20261112",
+    "total_steps": 7,
+    "api_calls": 27,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "资产库与解析完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "日志任务 successful，解析 9 条 trace；options 未解析出 host/cluster 枚举。"
+      },
+      {
+        "title": "GET/SET 组件定位",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 9 条均为低时延 cross_window；SET 无样本。"
+      },
+      {
+        "title": "通断分布扫描",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap GET/SET",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events GET/SET"
+        ],
+        "result": "GET 仅 K_NOT_READY(8)，9 条，11 秒短时簇发；SET 为 0。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "9 条 trace 均形成客户端失败与目标 Worker validate state failed 闭环。"
+      },
+      {
+        "title": "Curated 知识核对",
+        "api_calls": [
+          "GET /failure_mode/status_code/8",
+          "GET /failure_mode/{failure_mode_id}"
+        ],
+        "result": "状态码与 kvcache_runtime_2395 均指向 Worker/组件未就绪。"
+      },
+      {
+        "title": "经验与历史案例检索",
+        "api_calls": [
+          "experience-skill search-experiences",
+          "POST /diag_case_library/search",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "历史案例仅作为 Worker 健康/路由核查参考；未复用其进程退出根因。"
+      },
+      {
+        "title": "标签与证据边界审查",
+        "api_calls": [
+          "读取 train_valid.md、gt_labels.json、报告标签参考"
+        ],
+        "result": "按用户指定映射拆分为网卡抖动/闪断两条标签，同时明确二者缺少 NIC 现场证据。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis",
+      "keywords_matched": [
+        "K_NOT_READY",
+        "Worker not ready"
+      ],
+      "search_query_used": "K_NOT_READY 8 Worker not ready validate worker state failed QueryAndGet",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "K_NOT_READY=8 | 资源未就绪 | 检查依赖服务（ETCD/Metastore/RocksDB）",
+      "how_used_in_diagnosis": "用于补充依赖服务与恢复状态检查建议；根因判断以现场 Worker not ready 和 curated 知识为准。",
+      "confidence_on_reference": 0.8,
+      "confidence_reason": "与 status_code=8 和 kvcache_runtime_2395 的 curated 解释一致。"
+    },
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+      "keywords_matched": [
+        "TCP",
+        "连接重建",
+        "网络抖动"
+      ],
+      "search_query_used": "KVCache worker multi scale TCP fault 连接失败 超时",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "Jetty 失效通常由远端 Worker 重启或网络抖动触发，需要观察是否自动恢复。",
+      "how_used_in_diagnosis": "作为网络抖动候选检查，但现场无 URMA/Jetty 失效或重建日志，未用于根因确认。",
+      "confidence_on_reference": 0.35,
+      "confidence_reason": "项目相关，但现场证据未命中其关键日志模式。"
+    },
+    {
+      "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem Worker 错误模式",
+      "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+      "keywords_matched": [
+        "K_NOT_READY",
+        "Worker"
+      ],
+      "search_query_used": "K_NOT_READY Worker not ready QueryAndGet",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "K_NOT_READY=8 | 资源未就绪 | 检查依赖组件是否启动完成",
+      "how_used_in_diagnosis": "用于建议核验 Worker 依赖组件和启动/恢复状态。",
+      "confidence_on_reference": 0.8,
+      "confidence_reason": "与本次 Worker 端 validate state failed 原始日志一致。"
+    }
+  ]
+}

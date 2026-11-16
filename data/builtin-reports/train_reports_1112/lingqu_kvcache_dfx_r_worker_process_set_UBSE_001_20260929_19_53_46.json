@@ -1,0 +1,594 @@
+{
+  "report": {
+    "title": "KVCache SET 元数据发布因 UBSE 进程故障导致 RPC 对端不可达诊断报告",
+    "report_id": "train-diag-c823ca4a-4b43-4d99-a598-53733a6373fa",
+    "generated_at": "2026-11-12"
+  },
+  "basic_info": {
+    "kb_id": "c823ca4a-4b43-4d99-a598-53733a6373fa",
+    "kb_name": "lingqu_kvcache_dfx_r_worker_process_set_UBSE_001_20260929_19_53_46",
+    "log_file": "lingqu_kvcache_dfx_r_worker_process_set_UBSE_001_20260929_19_53_46",
+    "operation": "SET",
+    "time_range_start": "2026-09-29 19:52:00",
+    "time_range_end": "2026-09-29 19:53:00",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC peer dead": 0.164337,
+      "T:E112": 0.986024,
+      "C:Metadata owner unavailable": 0.02739
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到 1 个主故障：UBSE 进程故障后，SET 写路径向元数据所有者发起 CreateMeta 时对端不可达，发布结果上浮为 K_METADATA_OWNER_UNAVAILABLE(39)。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "资产内唯一 SET trace 失败，涉及客户端 192.168.219.101、执行发布的 Worker 192.168.235.190 和不可达的元数据所有者 192.168.219.100:31501；GET 未采到样本。",
+    "confidence": "高 94%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "UBSE 进程故障使元数据所有者 RPC 不可达并导致 SET 发布失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 94,
+      "category": "error",
+      "affected_scope": "SET；客户端 192.168.219.101；发布 Worker 192.168.235.190；元数据所有者 192.168.219.100:31501；2026-09-29 19:52:44",
+      "conclusion": {
+        "first_level_label": "UB管控面故障",
+        "second_level_label": "UB管控面故障-UBSE进程故障",
+        "one_line_conclusion": "指定训练标签确认 UBSE 进程故障；现场 trace 验证其下游表现为 CreateMeta 对 192.168.219.100:31501 返回 E112 Host is down，最终 SET 返回 K_METADATA_OWNER_UNAVAILABLE(39)。",
+        "fault_domain": "UB管控面故障/UB管控面故障-UBSE进程故障",
+        "fault_component": "UBSE 管控面 / Worker 到元数据所有者的 BRPC 链路",
+        "fault_function": "datasystem.master.MasterOCService.CreateMeta",
+        "fault_function_loc": "worker_oc_service_publish_impl.cpp:483/675；access_recorder.cpp:1066",
+        "affected_scope_pct": "100.00",
+        "affected_scope_desc": "本资产仅 1 条 SET trace，且该 trace 命中故障码 39；该比例只描述本资产样本，不外推为生产业务失败率。",
+        "confidence": "高 94%",
+        "key_findings": [
+          "SET 仅有 1 条故障 trace，错误码为 39，时间聚合集中在 19:52:00~19:53:00。",
+          "Worker 192.168.235.190 调用元数据所有者 192.168.219.100:31501 的 CreateMeta，连续收到 RPC peer dead、brpc errno=112 Host is down。",
+          "BRPC 记录 cntl_failed=1、cntl_error_code=112、ServerSend=0、ServerRecv=0，表明请求未进入对端服务端处理。",
+          "故障经 RequestingToMaster failed → Publish failed → DS_KV_CLIENT_SET status 39 逐层上浮。",
+          "train_valid.md 将本日志路径映射为 r_worker_process_set_UBSE，gt_labels.json 对应 UB管控面故障/UB管控面故障-UBSE进程故障；当前资产不含 UBSE 自身进程日志，UBSE 状态细节来自指定标签。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "主导错误码",
+            "value": "39",
+            "sub": "K_METADATA_OWNER_UNAVAILABLE · 1 次逐码命中",
+            "tone": "danger"
+          },
+          {
+            "label": "故障窗口",
+            "value": "19:52",
+            "sub": "1 分钟窗口内 1 次",
+            "tone": "danger"
+          }
+        ],
+        "conclusion": "SET 在 2026-09-29 19:52:00~19:53:00 的完整查询范围内仅命中错误码 39，逐码命中 1 次、占该错误分布 100%。该计数不是业务失败率；/stats/error_codes 的 event_cnt=2 是 Worker 发布与客户端 SET 两条日志级事件，不能重复计算为两次失败请求。",
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "c823ca4a-4b43-4d99-a598-53733a6373fa",
+              "operation": "SET",
+              "start_time": "2026-09-29 19:52:00",
+              "end_time": "2026-09-29 19:53:00"
+            },
+            "code_filter": [
+              "39"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "c823ca4a-4b43-4d99-a598-53733a6373fa",
+                    "operation": "SET",
+                    "start_time": "2026-09-29 19:52:00",
+                    "end_time": "2026-09-29 19:53:00",
+                    "interval": "minute",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 1,
+              "items": [
+                {
+                  "code": "39",
+                  "count": 1,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-09-29 19:52:00",
+                  "end_time": "2026-09-29 19:53:00",
+                  "complete": true,
+                  "counts": {
+                    "39": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据核验",
+            "title": "解析任务完整且仅有 1 条故障 trace",
+            "description": "日志文件 overall_status=successful，任务 status=successful；资产记录 anomaly_cnt=1、trace_failure_event_cnt=1。",
+            "evidence": "GET /log_kb/{kb_id}；POST /log_file/list/{kb_id}；GET /task/ac5fc1de-839f-4b97-bbba-9c4719f668d6",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "② 读写分诊",
+            "title": "故障只在 SET 证据链出现",
+            "description": "GET /stats/stages sample_cnt=0 且 GET 故障统计为空；SET sample_cnt=1、fail_cnt=1，并命中错误码 39。GET 空结果仅表示未采到 GET 归因子集，不表示 GET 健康。",
+            "evidence": "POST /stats/stages(operation=GET/SET)；POST /stats/error_codes(operation=GET/SET)",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "③ 故障语义",
+            "title": "K_METADATA_OWNER_UNAVAILABLE 精确命中",
+            "description": "状态码 39 与 failure_mode=kvcache_access_036 均说明元数据所有者不可用且发布结果未知；可能由网络中断、所有者进程异常或路由过期引起。",
+            "evidence": "GET /failure_mode/status_code/39；GET /failure_mode/kvcache_access_036",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "④ 现场下钻",
+            "title": "CreateMeta 在对端处理前快速失败",
+            "description": "192.168.235.190:31501 向 192.168.219.100:31501 发起 CreateMeta 时返回 RPC peer dead、E112 Host is down；BRPC 的 ServerSend/ServerRecv 均为 0。",
+            "evidence": "POST /log_failure_event_result/list_log_events(trace_id=6788def0-5639-4dc6-b0a2-5c2e125c64de)",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "排除服务端慢处理与排队超时作为主因",
+            "description": "CreateMeta 的 framework_us/e2e_us 仅 5~10us，server_req_queue_us=0、server_exec_us=0，且请求没有 ServerSend/ServerRecv；因此不是元数据所有者内部排队或业务执行慢。SET 总时延 4.625ms 主要是失败传播，不是 deadline 耗尽。",
+            "evidence": "GET /trace/6788def0-5639-4dc6-b0a2-5c2e125c64de；BRPC_RPC_FRAMEWORK_SLOW 结构化日志",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑥ 根因确认",
+            "title": "UBSE 进程故障导致 UB 管控或连接状态不可用",
+            "description": "用户指定的训练标签映射确认一级/二级标签为 UB管控面故障/UBSE进程故障；现场独立验证了其下游影响：Worker 到元数据所有者的 BRPC 通道处于 Host is down 状态并上浮为 39。资产未包含 UBSE 自身日志，因此不对 UBSE 的退出方式、重启次数或内部错误作额外推断。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md 第93行；/home/witty-ub-logs/gt_labels.json 第286~288行；现场 trace 6788def0-5639-4dc6-b0a2-5c2e125c64de",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "UBSE 进程故障使相关 UB 管控或连接状态不可用/未收敛，导致 Worker 192.168.235.190 向元数据所有者 192.168.219.100:31501 发起 CreateMeta 时立即收到 E112 Host is down；发布流程无法确认结果并最终向 SET 返回 K_METADATA_OWNER_UNAVAILABLE(39)。",
+        "supporting_knowledge": "curated: status_code=39 与 kvcache_access_036；训练标签: r_worker_process_set_UBSE → UB管控面故障-UBSE进程故障；历史案例仅复核 39/E112 的下游机制，不替代本次现场证据。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "UBSE 进程故障",
+            "detail": "由用户指定的训练标签映射确认",
+            "type": "origin",
+            "transition": "UB 管控或连接状态不可用/未收敛"
+          },
+          {
+            "label": "元数据所有者 RPC 对端不可达",
+            "detail": "192.168.235.190:31501 → CreateMeta → 192.168.219.100:31501；E112 Host is down",
+            "type": null,
+            "transition": "RequestingToMaster failed"
+          },
+          {
+            "label": "Publish failed",
+            "detail": "元数据所有者不可用，发布结果无法确认",
+            "type": "impact",
+            "transition": "错误码 39 上浮"
+          },
+          {
+            "label": "SET 返回 K_METADATA_OWNER_UNAVAILABLE(39)",
+            "detail": "对象 T_ci_gdm_kvclient_master_1_266；唯一故障 trace",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "操作域：SET（GET 未采到归因样本）",
+          "客户端：192.168.219.101",
+          "发布 Worker：192.168.235.190",
+          "不可达端点：192.168.219.100:31501",
+          "时间：2026-09-29 19:52:44.408~19:52:44.545"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "6788def0-5639-4dc6-b0a2-5c2e125c64de",
+          "kind": "error",
+          "why": "过滤条件：operation=SET + status_code=39 + 19:52:00~19:53:00；本资产唯一故障 trace，并同时是 SET·Worker写处理桶内证据耗时 Top（桶内证据耗时 Top 口径，不代表跨故障严重度排序）",
+          "evidence_ms": 3.901,
+          "client_ms": 4.625,
+          "status_code": "39",
+          "failure_mode_id": "kvcache_access_036",
+          "pod": "192.168.235.190",
+          "host": null,
+          "timestamp": "2026-09-29 19:52:44.408"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_036",
+          "stars": "★★★★★",
+          "match_logic": "L1：错误码39与故障模式精确命中；L2：SET发布/CreateMeta阶段命中；L3/L5：现场原文Metadata owner unavailable、RequestingToMaster failed命中。",
+          "symptom": "请求返回 K_METADATA_OWNER_UNAVAILABLE，元数据所有者不可用且发布结果未知。",
+          "root_cause": "网络中断、元数据所有者进程异常或路由过期导致元数据发布 RPC 无法确认执行结果。",
+          "solution": "检查元数据所有者进程、网络连通性和路由；刷新路由后先确认对象发布结果，避免结果未知时自动重放写请求。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "错误码、操作和发布阶段与现场完全一致。",
+          "log_fit": "现场出现 Metadata owner unavailable、CreateMeta 和 RequestingToMaster failed。",
+          "rc_consistency": "解释下游直接机制；UBSE 根因分类由指定标签确认。",
+          "env_diff": "curated 知识未限定具体 UBSE 场景。",
+          "adaptation": "增加 UBSE 进程及 UB 管控状态核验。",
+          "applicability": "direct"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002590",
+          "stars": "★★★★☆",
+          "match_logic": "L1：39、kvcache_access_036、kvcache_runtime_1377 命中；L2：SET与few_pods命中；L5：案例与现场均为CreateMeta对端不可达，但具体根因标签不同。",
+          "symptom": "元数据所有者端点不可用，CreateMeta 失败并返回 39。",
+          "root_cause": "已确认历史案例归因于元数据所有者 Worker 退出；本次指定根因标签为 UBSE 进程故障。",
+          "solution": "复用端点、31501 监听、路由和发布结果核验步骤，不复用其 Worker 退出根因。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考",
+          "phenomenon_fit": "同为 SET、39、CreateMeta 对端不可达和 E112 类快速失败。",
+          "log_fit": "L1/L2 机制吻合；IP 身份不参与匹配。",
+          "rc_consistency": "下游机制一致，根因分类不一致。",
+          "env_diff": "历史案例是 Worker 退出，本次由标签指定 UBSE 进程故障。",
+          "adaptation": "仅采纳端点与路由恢复核验，优先恢复 UBSE。",
+          "applicability": "reference"
+        },
+        {
+          "rank": "③",
+          "id": "experience:ds-worker-log-analysis",
+          "stars": "★★★☆☆",
+          "match_logic": "L1：经验未直接给出39；L2：Worker服务与RPC可达性排查方向匹配；L3/L5：建议核验远端Worker在线与监听，但不能证明本次UBSE根因。",
+          "symptom": "Worker 服务端点不可达或 RPC 连接失败。",
+          "root_cause": "可能涉及 Worker 生命周期、服务监听、网络或路由状态。",
+          "solution": "核验对端 Worker/容器状态、31501 监听和网络可达性，并结合当前现场增加 UBSE 管控状态检查。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "现场确有 Worker 到元数据所有者的 RPC 对端失联。",
+          "log_fit": "RPC peer dead、Host is down 与服务可达性排查方向一致。",
+          "rc_consistency": "仅支持排查方向，不改变 UBSE 标签结论。",
+          "env_diff": "通用 Worker 日志经验不含本训练样本的 UBSE 标签。",
+          "adaptation": "将 UBSE 健康、服务注册和控制面收敛置于 Worker 排查之前。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "恢复并核验 UBSE 进程：确认进程/容器 Ready、无反复重启，健康检查、服务注册及 UB 管控状态正常并已收敛。",
+          "核验元数据所有者 192.168.219.100:31501 的 Worker 服务与 BRPC 监听；刷新 192.168.235.190 侧指向该端点的路由和 RPC channel。",
+          "由于错误码 39 表示发布结果未知，恢复后先查询对象 T_ci_gdm_kvclient_master_1_266 的实际发布状态，再决定是否重试，避免重复写。"
+        ],
+        "long_term": [
+          "建立 UBSE 进程存活、重启次数、服务注册、控制面收敛与 K_METADATA_OWNER_UNAVAILABLE(39) 的同窗关联告警。",
+          "在 UBSE 恢复流程中增加元数据所有者 31501 可达性和 CreateMeta 探测，通过后再放流。",
+          "补齐 UBSE、目标 Worker、容器运行时和 UB 管控面同窗日志，使后续诊断能直接验证 UBSE 进程状态与连接收敛过程。"
+        ],
+        "verification": [
+          "连续执行 SET 探测，确认 39、RPC peer dead、E112 Host is down 和 RequestingToMaster failed 均不再出现。",
+          "确认 CreateMeta 有 ServerRecv/ServerSend 或正常响应，元数据发布成功且路由指向当前有效实例。",
+          "确认 UBSE 在观察窗口内持续 Ready、无重启，服务注册和 UB 管控状态稳定。"
+        ]
+      },
+      "source_code": {},
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复 UBSE 并完成健康、服务注册与 UB 管控状态收敛核验。",
+      "depends_on": "UBSE 运维权限及进程/容器状态",
+      "expected_effect": "消除导致元数据所有者 RPC 对端不可达的上游管控条件。",
+      "verify": "UBSE 持续 Ready 且无重启；SET 不再返回 39。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验并刷新 192.168.219.100:31501 的 Worker 服务、BRPC channel 与元数据所有者路由。",
+      "depends_on": "UBSE 状态恢复并完成控制面收敛",
+      "expected_effect": "恢复 CreateMeta 并使发布结果可确认。",
+      "verify": "CreateMeta 正常响应，E112/39 归零。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "在重试前查询对象实际发布状态。",
+      "depends_on": "元数据所有者服务已恢复",
+      "expected_effect": "避免因发布结果未知而重复写入。",
+      "verify": "对象状态与预期一致后再执行必要重试。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET /stats/stages 返回 sample_cnt=0，8 个读路径归因桶均为 0；这是数据缺失事实，不能据此认定 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "SET·Worker写处理",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "100.0%",
+            "fail_share": "100.0%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "唯一 trace 归入 set_worker；Worker 端证据耗时 P50/P90/max 均为 3.901ms，Client 对照 P50/P90 为 4.625ms，fail_cnt=1。样本仅 1 条，接口不提供 P99。"
+          },
+          {
+            "name": "URMA超时（反证）",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "set_urma_timeout 桶计数为 0；本次是 BRPC 对端不可达并快速上浮 39，不是 URMA_WAIT_TIMEOUT。"
+          }
+        ],
+        "conclusion": "SET 唯一样本的 Worker 发布阶段占归因样本 100%，但 3.901ms 只是错误传播窗口；原始日志表明直接故障点是 CreateMeta 对端不可达，而非 Worker 内部慢处理。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 1,
+    "top_error_codes": [
+      {
+        "code": "39",
+        "name": "K_METADATA_OWNER_UNAVAILABLE",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "UB管控面/元数据发布RPC",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.101",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.190",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "19:52",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diag-c823ca4a-4b43-4d99-a598-53733a6373fa",
+    "total_steps": 7,
+    "api_calls": 30,
+    "duration": "本次会话",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences：KVCache Worker UBSE SET 故障 进程"
+        ],
+        "result": "SKILL 与 WIKI 各命中 5 条，仅作为先验排查方向。"
+      },
+      {
+        "title": "Step 2 数据、路径与标签核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options",
+          "读取 train_valid.md 与 gt_labels.json"
+        ],
+        "result": "解析任务 successful，1 条异常 trace、1 条故障 trace；日志路径映射标签为 UB管控面故障/UBSE进程故障。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 无样本；SET 唯一 trace 归入 set_worker，证据耗时 3.901ms、Client 4.625ms、fail_cnt=1。"
+      },
+      {
+        "title": "Step 4 通断分布定位",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap operation=GET/SET",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events operation=GET/SET"
+        ],
+        "result": "仅 SET 命中错误码 39×1，集中于 19:52，涉及两个观测 Pod。"
+      },
+      {
+        "title": "Step 5 Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "GET /trace/{trace_id}",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认 CreateMeta 到 192.168.219.100:31501 返回 E112 Host is down，错误沿 Publish 上浮为 39。"
+      },
+      {
+        "title": "Step 6 知识与案例复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/39",
+          "GET /failure_mode/{failure_mode_id}",
+          "case-matching match_cases.py",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "curated 知识与现场直接机制一致；已确认历史案例 L1/L2 匹配但根因标签不同，仅复用核验步骤。"
+      },
+      {
+        "title": "Step 7 报告生成",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "按契约生成、校验并渲染报告。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+      "keywords_matched": [
+        "KVCache",
+        "Worker",
+        "连接"
+      ],
+      "search_query_used": "KVCache Worker UBSE SET 故障 进程",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "本次未命中 URMA 错误码或 URMA_WAIT_TIMEOUT，直接故障是 CreateMeta 的 BRPC 对端不可达。",
+      "content_quoted": "传输层连接状态与 Worker 生命周期强相关；连接失败时检查远端 Worker、Jetty、设备和链路。",
+      "how_used_in_diagnosis": "用于预检索和反证 URMA 建链/等待超时假设，未用于根因结论。",
+      "confidence_on_reference": 0.4,
+      "confidence_reason": "连接排查框架有参考价值，但现场故障码与阶段不属于 URMA。"
+    },
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis",
+      "keywords_matched": [
+        "Worker",
+        "RPC",
+        "Host is down"
+      ],
+      "search_query_used": "K_METADATA_OWNER_UNAVAILABLE 39 RPC peer dead Host is down CreateMeta UBSE",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "Worker 日志分析覆盖服务监听、集群注册、异常退出与重启恢复；对端不可用时应核验 Worker 是否存活和服务端口是否可达。",
+      "how_used_in_diagnosis": "用于形成目标 Worker、31501 监听和服务恢复核验建议；不用于把根因改判为 Worker 退出。",
+      "confidence_on_reference": 0.75,
+      "confidence_reason": "与现场 E112 和 CreateMeta 对端不可达一致，但本资产缺目标 Worker 的退出日志。"
+    },
+    {
+      "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+      "experience_type": "SKILL",
+      "name": "ds-hash-ring-metadata-diagnosis",
+      "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis",
+      "keywords_matched": [
+        "metadata",
+        "owner",
+        "route"
+      ],
+      "search_query_used": "K_METADATA_OWNER_UNAVAILABLE 39 RPC peer dead Host is down CreateMeta UBSE",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "现场没有 hash ring 更新、迁移或节点状态机异常日志，不能将路由过期确认为根因。",
+      "content_quoted": "一致性哈希与元数据迁移诊断应检查 ring 更新、节点状态机与迁移任务。",
+      "how_used_in_diagnosis": "用于检查路由/迁移候选，因缺少现场信号而未采用。",
+      "confidence_on_reference": 0.3,
+      "confidence_reason": "curated 将路由过期列为候选，但现场未验证。"
+    },
+    {
+      "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem 访问日志模式",
+      "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+      "keywords_matched": [
+        "status_code",
+        "SET",
+        "access"
+      ],
+      "search_query_used": "K_METADATA_OWNER_UNAVAILABLE 39 RPC peer dead Host is down CreateMeta UBSE",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "访问日志记录接口动作、status_code、时延和关键参数，可用 trace_id 串联客户端与 Worker 行。",
+      "how_used_in_diagnosis": "用于区分 Worker 侧 DS_POSIX_PUBLISH 与客户端 DS_KV_CLIENT_SET 的两条日志级事件，避免将 event_cnt=2 误判为两次请求。",
+      "confidence_on_reference": 0.85,
+      "confidence_reason": "与本次同一 trace_id 下两条 status_code=39 的 access 记录一致。"
+    }
+  ]
+}

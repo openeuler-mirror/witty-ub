@@ -109,6 +109,15 @@ async def lifespan(app: fastapi.FastAPI):
         max_instances=1,
         coalesce=True,
     )
+    # 看门狗：强杀运行超时的挂死子进程 + 回收无进程的僵尸 RUNNING 任务。
+    # 挂死子进程「活着但永不返回」，收尸看不到，必须靠周期性墙钟兜底。
+    scheduler.add_job(
+        TaskHandler.watchdog_running_tasks,
+        "interval",
+        seconds=10,
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.start()
 
     if phenomenon_settings.index_enabled():

@@ -1,0 +1,336 @@
+{
+  "report": {
+    "title": "KVCache SDK Client 进程退出诊断报告",
+    "report_id": "report_61c42836_client_process_set_exit_20261014",
+    "generated_at": "2026-11-12 10:43:00"
+  },
+  "basic_info": {
+    "kb_id": "61c42836-80fd-4fab-addc-e9aa6f6a48ac",
+    "kb_name": "lingqu_kvcache_dfx_client_process_set_exit_001_20261014_16_45_27",
+    "log_file": "lingqu_kvcache_dfx_client_process_set_exit_001_20261014_16_45_27",
+    "operation": "MIXED（SET/GET）",
+    "time_range_start": "2026-10-14 16:45:19",
+    "time_range_end": "2026-10-14 16:49:12",
+    "total_trace_cnt": 17408,
+    "fault_trace_cnt": 250,
+    "fault_ratio": "1.44",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到 1 个 SDK Client 生命周期故障：SET 进程完成写入后退出；退出触发原因因缺少进程退出码、signal 与容器事件仍待确认。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "192.168.219.104 上 PID 262 的 SDK Client 生命周期结束；已记录的 5120 条 SET 均成功，未观测到 SET 错误码或失败 trace。退出后另一客户端出现 250 条 GET 时延异常标记，但无错误码，且不能仅凭时间相邻认定因果。",
+    "confidence": "中高"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SDK Client 进程在 SET 工作负载后退出",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P3",
+      "confidence": "82%",
+      "category": "mixed",
+      "affected_scope": "单个 SDK Client 进程（192.168.219.104，PID 262）",
+      "conclusion": {
+        "first_level_label": "SDK故障",
+        "second_level_label": "SDK故障-进程异常退出",
+        "one_line_conclusion": "2026-10-14 16:48:43，192.168.219.104 上 PID 262 在完成 5120 条成功 SET 后进入退出清理；进程退出事实明确，但日志呈现 exit notice 与 socket shutdown，具体异常触发机制未被保留。",
+        "fault_domain": "SDK故障/SDK故障-进程异常退出",
+        "fault_component": "KVCache SDK Client",
+        "fault_function": "Client::Shutdown / client_worker_common_api exit notice",
+        "fault_function_loc": "client_worker_common_api.cpp:941",
+        "affected_scope_pct": null,
+        "affected_scope_desc": "单进程、单节点；未发现 SET 请求失败扩散",
+        "confidence": "中高 82%",
+        "key_findings": [
+          "PID 262 的访问日志在 16:47:39.284 至 16:48:43.273 连续记录 5120 条 DS_KV_CLIENT_SET，status_code 全为 0。",
+          "最后一条 SET 后约 60ms 出现三条 Client ... sends exit notice to worker，随后三次 shutdown socket fd，16:48:43.847 记录 Worker exiting。",
+          "现场未检出 SIGKILL、SIGSEGV、OOM、core、abort 或非零 SET 状态码，因此只能确认进程生命周期结束，不能从现有日志确认外部 kill、崩溃或 OOM。",
+          "GET 侧 250 条异常标记集中在 16:48:48 至 16:49:02，均无 failure_codes；其客户端位于 192.168.235.145，与退出进程节点不同，按相关现象而非因果证据处理。",
+          "故障标签按用户指定训练标签来源映射为 SDK故障/SDK故障-进程异常退出；标签不提高对具体退出触发机制的确认度。"
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析任务成功且范围明确",
+            "description": "日志文件 overall_status=successful，扫描 16 个文件、108665 行，归并 17408 条 trace，资产 anomaly_cnt=250；结论不是基于空或未完成数据。",
+            "evidence": "[POST /log_file/list/{kb_id}] overall_status、parse_timing",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② SET 请求面",
+            "title": "退出前写入请求全部成功",
+            "description": "PID 262 的 ds_client_access_262.log 包含 5120 条连续 SET，status_code 全为 0；/stats/error_codes(SET) 与故障时间聚合均为空，未形成通断故障证据。",
+            "evidence": "[本地访问日志 + POST /stats/error_codes + POST /log_failure_event_result/list_time_aggregated_failure_events]",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 生命周期事件",
+            "title": "Client 进入退出与资源清理",
+            "description": "最后一条 SET 后，PID 262 依次打印 sends exit notice、shutdown socket fd、Worker exiting 与 URMA 线程退出，确认 SDK 所在进程生命周期结束。",
+            "evidence": "[ds_client_262.INFO.log] client_worker_common_api.cpp:941、:824，urma_manager.cpp:2221",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "不支持非优雅崩溃或链路故障定因",
+            "description": "当前日志存在正常销毁特征 exit notice，并且没有 signal、OOM、core、ERROR/FATAL 或 SET 错误码。历史 SDK 非优雅退出案例以“无 exit notice + 新 PID 重启”为特征，与本次不一致。",
+            "evidence": "[现场日志检索 + 已确认案例 UB-CASE-002550 对照]",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 根因收敛",
+            "title": "SDK Client 进程被终止，触发源不可见",
+            "description": "可确认根因层级为 SDK Client 进程生命周期终止；但日志不足以区分应用主动退出、编排停止、外部信号或异常崩溃。报告保留训练标签，同时将具体触发机制列为证据缺口。",
+            "evidence": "[现场生命周期时序]",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "SDK Client 进程在 SET 工作负载完成后终止；具体退出触发源未被现有日志记录",
+        "supporting_knowledge": "本地经验 ds-client-log-analysis 指出正常销毁会发送 exit notice；已确认案例 UB-CASE-002550 的非优雅退出特征为无 exit notice 与新 PID 拉起，本次只用于反证对照。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "SET 工作负载完成",
+            "detail": "PID 262 在 64 秒内完成 5120 条 8MiB SET，状态码均为 0",
+            "type": "context",
+            "transition": "进入 SDK 销毁流程"
+          },
+          {
+            "label": "Client 发送退出通知",
+            "detail": "三条 Client sends exit notice to worker",
+            "type": "origin",
+            "transition": "关闭本地通信通道"
+          },
+          {
+            "label": "Socket 与 Worker 线程退出",
+            "detail": "shutdown socket fd 后出现 Worker exiting、URMA 异步线程退出",
+            "type": "effect",
+            "transition": "进程资源清理"
+          },
+          {
+            "label": "后续 GET 异常标记",
+            "detail": "另一客户端在 5 秒后出现 250 条低毫秒级时延异常标记；节点不同且无错误码，仅记录时间相关性",
+            "type": "correlated"
+          }
+        ],
+        "impact_scope": [
+          "直接范围：192.168.219.104 上 PID 262 的 SDK Client 生命周期。",
+          "请求面：退出前 5120 条 SET 全部 status_code=0，未观测失败扩散。",
+          "相关但未证实因果：192.168.235.145 的 GET trace 在 16:48:48—16:49:02 出现 250 条异常标记。"
+        ]
+      },
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002550",
+          "stars": 2,
+          "match_logic": "L1：两者均分类为 SDK故障/SDK故障-进程异常退出；L2：均为单 Pod 的 Client 生命周期事件，历史案例 operation=MIXED、当前核心操作为 SET，仅部分命中；L3/L5：历史案例无 exit notice 且有多 PID 重启，当前存在 exit notice 且无重启证据，关键机理不命中。",
+          "symptom": "历史案例表现为旧 PID 无正常退出通知、随后新 PID 重新初始化。",
+          "root_cause": "历史案例确认 SDK Client 非优雅终止并被重新拉起，但具体 signal/OOM 原因未知。",
+          "solution": "补采退出码、signal、OOMKilled、kubelet/systemd 事件与 core dump。",
+          "adoption_class": "not_recommended",
+          "adoption_label": "不建议直接复用根因",
+          "phenomenon_fit": "标签和影响规模相近",
+          "log_fit": "关键退出日志相反：历史无 exit notice，本次有 exit notice",
+          "rc_consistency": "仅支持补采方向，不支持把本次定为非优雅崩溃",
+          "env_diff": "历史为多 PID 重启，本次未见退出后的同节点新 PID",
+          "adaptation": "只复用退出原因补采清单；根因结论必须以本次现场证据为准",
+          "applicability": "not_recommended"
+        },
+        {
+          "rank": 2,
+          "id": "EXP-b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+          "stars": 4,
+          "match_logic": "L1：经验未定义错误码；L2：命中 SDK Client 生命周期与 SET 访问日志分析域；L3/L5：现场逐字命中 Client ... sends exit notice to worker，适合解释正常销毁观测，但不能证明退出触发原因。",
+          "symptom": "Client 正常销毁时会通知 Worker 断开；异常退出时可能没有该日志。",
+          "root_cause": "该经验只提供日志语义，不构成本次根因证据。",
+          "solution": "结合访问日志、对应 Worker 日志与进程退出信息核验。",
+          "adoption_class": "reference",
+          "adoption_label": "作为日志语义参考",
+          "phenomenon_fit": "现场存在完全一致的 exit notice 文本",
+          "log_fit": "高",
+          "rc_consistency": "支持“已进入销毁流程”，不支持“确定异常崩溃”",
+          "env_diff": "无版本与退出码信息",
+          "adaptation": "结合本次 SET 成功记录和系统层退出信息使用",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即补采 16:48:43 前后 5 分钟的进程退出码、signal、stderr、core、dmesg、systemd/kubelet 事件与容器 termination reason，区分应用主动退出、编排终止、OOM 与崩溃。",
+          "核对 PID 262 对应任务/容器的启动命令、健康检查、超时和停止策略，确认是否在完成 5120 条 SET 后被测试框架或守护进程主动结束。",
+          "若进程不应退出，先拉起 SDK Client 并确认新 Client ID 注册、共享内存通道和 SET/GET 复测均正常。"
+        ],
+        "long_term": [
+          "为 SDK Client 建立 PID、Client ID、退出码、signal、restartCount 与 Pod UID 关联监控，分钟级进程切换告警。",
+          "在异常信号路径保留 core 与 stderr；在正常停止路径保留结构化 shutdown reason，避免仅凭 exit notice 判断触发源。",
+          "修正 SET 解析覆盖：原始访问日志有 15360 条 SET，而 /stats/stages(SET) 仅分类 1 条，需补齐写路径 trace 归并与阶段观测。"
+        ],
+        "verification": [
+          "连续观察 30 分钟，确认目标 SDK PID 稳定且无非预期退出或 restartCount 增长。",
+          "分别执行 SET 与 GET 复测：SET status_code 非 0 计数保持 0，/stats/stages(SET) 获得与原始请求量一致的可解释样本。",
+          "受控执行一次优雅停止与一次 SIGKILL，验证前者有 exit notice/结构化 reason，后者有 signal/termination reason/core 证据，二者可被准确区分。"
+        ]
+      },
+      "evidence_traces": []
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "补采并固化 PID 262 的退出码、signal、容器 termination reason 与系统事件。",
+      "depends_on": "日志平台或容器/进程管理平台仍保留 2026-10-14 16:48:43 附近事件",
+      "expected_effect": "把“进程终止”进一步定界为主动停止、外部信号、OOM 或崩溃。",
+      "verify": "退出时间、PID 与唯一 termination reason 对齐。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "建立 SDK 生命周期结构化日志与重启监控。",
+      "depends_on": "完成客户端与编排系统监控接入",
+      "expected_effect": "后续同类事件无需依赖文件名或训练标签即可现场确认。",
+      "verify": "优雅退出与 SIGKILL 演练能生成不同且完整的证据链。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": 3.373,
+        "share_bar": [
+          {"name": "Client/Worker交叉窗口未细分", "pct": 100.0, "cls": "s-warn"}
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "25.03%（250/999，异常标记口径）",
+            "fail_share": "100%",
+            "status": "warn",
+            "fault": "250 条异常标记",
+            "detail": "GET 归因样本 999 条全部进入 cross_window 桶；证据 P90=3.009ms、max=3.423ms。该桶请求占比不是耗时占比，异常标记不是业务失败。"
+          }
+        ],
+        "conclusion": "GET 的 250 条异常标记全部落入 cross_window；Top trace 无错误码，Worker 窗口占比中位数约 14.4%，客户端等待占主导，但缺少新版 bRPC perf 行，不能继续细分为网络或排队。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": 1.688,
+        "share_bar": [
+          {"name": "SET·未解释残差", "pct": 100.0, "cls": "s-ok"}
+        ],
+        "stages": [
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "anomaly_rate": "0%（0/1，异常标记口径）",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "未观测异常",
+            "detail": "SET 阶段接口仅分类 1 条代表 trace，P90=1.099ms、Client 总时延=1.688ms；与原始访问日志 15360 条 SET 存在覆盖差异，不能代表全部 SET 分布。"
+          }
+        ],
+        "conclusion": "SET 侧未发现异常 trace 或错误码；但阶段统计覆盖仅 1 条，结论需与原始访问日志的全量成功状态共同解读。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 250,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {"domain": "SDK故障/SDK故障-进程异常退出", "pct": 100.0, "fault": "训练标签映射；具体触发机制待补证"}
+    ],
+    "top_pods": [
+      {"pod": "192.168.235.145", "host": "—", "pct": 47.8, "fault": "GET 异常关联计数 239"},
+      {"pod": "192.168.219.127", "host": "—", "pct": 28.2, "fault": "GET 异常关联计数 141"},
+      {"pod": "192.168.235.129", "host": "—", "pct": 21.8, "fault": "GET 异常关联计数 109"},
+      {"pod": "192.168.219.104", "host": "—", "pct": 2.2, "fault": "GET 异常关联计数 11；同时为 PID 262 退出节点"}
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "2026-10-14 16:48", "level": "high", "pct": 92.8, "spike": true, "lat_ms": 3.423, "fault": "232 条 GET 异常标记"},
+      {"time": "2026-10-14 16:49", "level": "low", "pct": 7.2, "spike": false, "lat_ms": 3.353, "fault": "18 条 GET 异常标记"}
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-61c42836-20261112",
+    "total_steps": 6,
+    "api_calls": 28,
+    "duration": "诊断会话内完成",
+    "steps": [
+      {
+        "title": "资产与解析完整性核验",
+        "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "POST /task/list", "GET /log_parse_result/options"],
+        "result": "资产匹配、日志文件 1 个、overall_status=successful，解析 17408 条 trace。"
+      },
+      {
+        "title": "GET/SET 独立阶段分诊",
+        "api_calls": ["POST /stats/stages operation=GET", "POST /stats/stages operation=SET"],
+        "result": "GET 999 条样本全部进入 cross_window，其中 250 条异常标记；SET 仅 1 条 set_residual，0 异常。"
+      },
+      {
+        "title": "统计分布与时间定位",
+        "api_calls": ["POST /stats/error_codes", "POST /stats/pods", "POST /stats/links", "POST /stats/heatmap"],
+        "result": "错误码为空；GET 异常集中在 16:48—16:49，SET 无故障热力窗口。"
+      },
+      {
+        "title": "时延下钻与反证",
+        "api_calls": ["POST /log_parse_result/metrics/latency", "POST /aggregated_event/list", "POST /aggregated_event/list_time_window", "POST /log_parse_result/list", "POST /trace/list"],
+        "result": "GET Top trace 均无 failure_codes；SET 无异常 trace；bRPC 旁路脚本未发现新版 perf 行。"
+      },
+      {
+        "title": "进程生命周期原始日志核验",
+        "api_calls": ["本地只读日志检索与统计"],
+        "result": "PID 262 完成 5120 条成功 SET 后打印 exit notice、socket shutdown 与 Worker exiting；无 signal/OOM/core 证据。"
+      },
+      {
+        "title": "经验与案例匹配",
+        "api_calls": ["experience-skill 本地检索", "POST /diag_case_library/search", "GET /diag_case_library/{case_id}"],
+        "result": "历史 SDK 非优雅退出案例仅标签与范围相近，关键日志机理相反，因此不直接复用根因；本地经验用于解释 exit notice 语义。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+        "experience_type": "SKILL",
+        "name": "ds-client-log-analysis",
+        "source_path": "data/skill_hub/ds-client-log-analysis/skill_def.md",
+        "keywords_matched": ["Client", "sends exit notice", "进程退出"],
+        "search_query_used": "Client sends exit notice Worker exiting shutdown socket fd SDK 进程退出",
+        "used_in_stage": "stage_5_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": null,
+        "content_quoted": "正常销毁时 Client 会通知 Worker 断开。异常退出时可能没有该日志，Worker 端通过 client_dead_timeout_s 检测 Client 死亡。",
+        "how_used_in_diagnosis": "用于解释 exit notice 是销毁路径证据，并反证非优雅崩溃定因。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "现场逐字命中 exit notice，但经验不能证明外部触发源。"
+      }
+    ],
+    "summary": {
+      "total_references": 1,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 1,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于日志语义和补采建议，现场事实仍以 API 与原始日志为准。"
+    }
+  }
+}

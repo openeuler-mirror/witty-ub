@@ -749,9 +749,13 @@ def test_delete_log_kb_aborts_when_task_stops_fail(monkeypatch):
         "list_tasks_by_kb_id",
         AsyncMock(return_value=[SimpleNamespace(id="t-1"), SimpleNamespace(id="t-2")]),
     )
-    # master：第一个任务 stop 返回 False、第二个抛异常 → 整体中止删除并抛错，
-    # 不允许有 worker 在数据库行被删除后存活
-    monkeypatch.setattr(BaseWorker, "stop", AsyncMock(side_effect=[False, Exception("kill failed")]))
+    # 删除屏障无法确认进程树终止时，整体中止删除。
+    monkeypatch.setattr(
+        TaskHandler,
+        "begin_deletion",
+        AsyncMock(side_effect=RuntimeError("删除前无法确认任务进程树已终止")),
+    )
+    monkeypatch.setattr(TaskHandler, "end_deletion", lambda *args, **kwargs: None)
     update_log_kb = AsyncMock(return_value=1)
     monkeypatch.setattr(LogKnowledgePGManager, "update_log_kb", update_log_kb)
     monkeypatch.setattr(
@@ -760,7 +764,7 @@ def test_delete_log_kb_aborts_when_task_stops_fail(monkeypatch):
     delete_config = AsyncMock()
     monkeypatch.setattr(log_knowledge_module.DiagnosisConfigPGManager, "delete", delete_config)
 
-    with pytest.raises(RuntimeError, match="未能确认终止"):
+    with pytest.raises(RuntimeError, match="进程树已终止"):
         run(LogKnowledgeService.delete_log_kb_by_kb_id("kb-1"))
     update_log_kb.assert_not_awaited()
     delete_config.assert_not_awaited()
@@ -789,13 +793,23 @@ def test_delete_log_kb_cleans_directories(monkeypatch, tmp_path):
         LogFilePGManager, "list_log_file_ids", AsyncMock(return_value=["lf-0001-x", "lf-0002-y"])
     )
     monkeypatch.setattr(
+        LogFilePGManager,
+        "get_log_file_by_log_file_id",
+        AsyncMock(
+            side_effect=[
+                SimpleNamespace(id="lf-0001-x", file_path="/local/one"),
+                SimpleNamespace(id="lf-0002-y", file_path="/local/two"),
+            ]
+        ),
+    )
+    monkeypatch.setattr(
         log_knowledge_module.DiagnosisConfigPGManager, "delete", AsyncMock()
     )
     cleanup_calls = []
     monkeypatch.setattr(
         log_knowledge_module,
-        "cleanup_preprocess_dir",
-        lambda log_file_id: cleanup_calls.append(log_file_id) or "/tmp/pre",
+        "cleanup_log_artifacts",
+        lambda log_file, **kwargs: cleanup_calls.append(log_file.id),
     )
     monkeypatch.setattr(log_knowledge_module, "witty_dir", str(tmp_path))
     (tmp_path / "log_lf-0001-").mkdir()
@@ -803,24 +817,6 @@ def test_delete_log_kb_cleans_directories(monkeypatch, tmp_path):
     msg = run(LogKnowledgeService.delete_log_kb_by_kb_id("kb-1"))
     assert msg.kb_id == "kb-1"
     assert cleanup_calls == ["lf-0001-x", "lf-0002-y"]
-    assert not (tmp_path / "log_lf-0001-").exists()
-    # 第二个日志文件的诊断目录不存在 -> 静默跳过
-    monkeypatch.setattr(LogFilePGManager, "list_log_file_ids", AsyncMock(return_value=["lf-0002-y"]))
-    run(LogKnowledgeService.delete_log_kb_by_kb_id("kb-1"))
-
-    # rmtree 失败 -> 记日志但不影响删除结果
-    monkeypatch.setattr(LogFilePGManager, "list_log_file_ids", AsyncMock(return_value=["lf-0001-x"]))
-    (tmp_path / "log_lf-0001-").mkdir()
-
-    def raise_rmtree(path):
-        raise OSError("permission denied")
-
-    monkeypatch.setattr(log_knowledge_module.shutil, "rmtree", raise_rmtree)
-    monkeypatch.setattr(
-        log_knowledge_module, "cleanup_preprocess_dir", lambda log_file_id: None
-    )
-    msg = run(LogKnowledgeService.delete_log_kb_by_kb_id("kb-1"))
-    assert msg.kb_id == "kb-1"
 
 
 def test_delete_log_kb_rowcount_zero(monkeypatch):
@@ -2000,33 +1996,34 @@ def test_delete_log_file_not_found(monkeypatch):
 
 
 def test_delete_log_file_stops_running_task_or_fails(monkeypatch):
-    get_file = AsyncMock(return_value=SimpleNamespace(existed_status=True))
+    log_file = SimpleNamespace(id="lf-1", existed_status=True, file_path="/local")
+    get_file = AsyncMock(return_value=log_file)
     monkeypatch.setattr(LogFilePGManager, "get_log_file_by_log_file_id", get_file)
     hard_delete = AsyncMock(return_value=True)
     monkeypatch.setattr(
         LogFilePGManager, "hard_delete_log_file_with_related_data", hard_delete
     )
-    stop = AsyncMock(return_value=True)
-    monkeypatch.setattr(BaseWorker, "stop", stop)
-
-    # RUNNING 任务停止失败 -> RuntimeError，且不删库
+    # 删除屏障停止失败 -> RuntimeError，且不删库
     running = make_current_task("t-1", "lf-1", TaskStatusEnum.RUNNING.value)
-    monkeypatch.setattr(log_file_module, "PGManager", make_fake_pg_manager(tasks=[running]))
-    stop.return_value = False
+    monkeypatch.setattr(
+        TaskPGManager, "list_tasks_by_op_id", AsyncMock(return_value=[running])
+    )
+    begin = AsyncMock(side_effect=RuntimeError("进程树未能确认终止"))
+    monkeypatch.setattr(TaskHandler, "begin_deletion", begin)
+    monkeypatch.setattr(TaskHandler, "end_deletion", lambda *args, **kwargs: None)
+    monkeypatch.setattr(log_file_module, "cleanup_log_artifacts", lambda *args, **kwargs: None)
     with pytest.raises(RuntimeError, match="进程树未能确认终止"):
         run(LogFileService.delete_log_file_by_log_file_id("lf-1"))
     hard_delete.assert_not_awaited()
 
-    # PENDING 任务停止成功 -> 正常删除
-    stop.reset_mock()
-    stop.return_value = True
+    # PENDING 任务建立屏障后正常删除
+    begin.side_effect = None
     pending = make_current_task("t-1", "lf-1", TaskStatusEnum.PENDING.value)
-    monkeypatch.setattr(log_file_module, "PGManager", make_fake_pg_manager(tasks=[pending]))
-    monkeypatch.setattr(log_file_module, "cleanup_preprocess_dir", lambda lf: None)
+    TaskPGManager.list_tasks_by_op_id.return_value = [pending]
     monkeypatch.setattr(log_file_module, "witty_dir", "/nonexistent-witty")
     msg = run(LogFileService.delete_log_file_by_log_file_id("lf-1"))
     assert msg.log_file_ids == ["lf-1"]
-    stop.assert_awaited_once_with("t-1")
+    begin.assert_awaited_with([pending], log_ids={"lf-1"})
 
     # 硬删除返回 0 -> NotFound
     hard_delete.return_value = 0
@@ -2035,38 +2032,27 @@ def test_delete_log_file_stops_running_task_or_fails(monkeypatch):
 
 
 def test_delete_log_file_cleans_directories(monkeypatch, tmp_path):
-    get_file = AsyncMock(return_value=SimpleNamespace(existed_status=True))
+    log_file = SimpleNamespace(id="lf-000001-x", existed_status=True, file_path="/local")
+    get_file = AsyncMock(return_value=log_file)
     monkeypatch.setattr(LogFilePGManager, "get_log_file_by_log_file_id", get_file)
     monkeypatch.setattr(
         LogFilePGManager,
         "hard_delete_log_file_with_related_data",
         AsyncMock(return_value=True),
     )
-    # SUCCESSFUL 任务无需停止
     done = make_current_task("t-1", "lf-000001-x", TaskStatusEnum.SUCCESSFUL.value)
-    stop = AsyncMock(return_value=True)
-    monkeypatch.setattr(BaseWorker, "stop", stop)
-    monkeypatch.setattr(log_file_module, "PGManager", make_fake_pg_manager(tasks=[done]))
-    monkeypatch.setattr(log_file_module, "cleanup_preprocess_dir", lambda lf: "/tmp/pre")
+    monkeypatch.setattr(
+        TaskPGManager, "list_tasks_by_op_id", AsyncMock(return_value=[done])
+    )
+    monkeypatch.setattr(TaskHandler, "begin_deletion", AsyncMock())
+    monkeypatch.setattr(TaskHandler, "end_deletion", lambda *args, **kwargs: None)
     monkeypatch.setattr(log_file_module, "witty_dir", str(tmp_path))
-    diag_dir = tmp_path / "log_lf-00000"
-    diag_dir.mkdir()
+    cleanup = AsyncMock()
+    monkeypatch.setattr(asyncio, "to_thread", cleanup)
 
     msg = run(LogFileService.delete_log_file_by_log_file_id("lf-000001-x"))
     assert msg.log_file_ids == ["lf-000001-x"]
-    stop.assert_not_awaited()
-    assert not diag_dir.exists()
-
-    # 清理诊断目录失败：仅记录日志
-    diag_dir.mkdir()
-
-    def raise_rmtree(path):
-        raise OSError("busy")
-
-    monkeypatch.setattr(log_file_module.shutil, "rmtree", raise_rmtree)
-    monkeypatch.setattr(log_file_module, "cleanup_preprocess_dir", lambda lf: None)
-    msg = run(LogFileService.delete_log_file_by_log_file_id("lf-000001-x"))
-    assert msg.log_file_ids == ["lf-000001-x"]
+    cleanup.assert_awaited_once()
 
 
 def test_update_log_file(monkeypatch):

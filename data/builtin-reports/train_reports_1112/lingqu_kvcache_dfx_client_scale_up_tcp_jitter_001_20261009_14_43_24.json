@@ -1,0 +1,721 @@
+{
+  "report": {
+    "title": "lingqu_kvcache_dfx_client_scale_up_tcp_jitter_001_20261009_14_43_24 诊断报告",
+    "report_id": "diag-be808419-20261112-client-scale-up-tcp-jitter",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "be808419-29b2-406a-99fa-3098ca994a4e",
+    "kb_name": "lingqu_kvcache_dfx_client_scale_up_tcp_jitter_001_20261009_14_43_24",
+    "log_file": "lingqu_kvcache_dfx_client_scale_up_tcp_jitter_001_20261009_14_43_24 (log_id=d98086cb-d9b5-48cd-b307-8eb991d41141)",
+    "operation": "SET（GET 无可归因样本）",
+    "time_range_start": "2026-10-09 14:41:20.248",
+    "time_range_end": "2026-10-09 14:42:24.527",
+    "total_trace_cnt": 11,
+    "fault_trace_cnt": 11,
+    "fault_ratio": "100%（本资产已解析 trace 口径）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC deadline exceeded": 0.164399,
+      "T:E1008": 0.986394
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：扩容场景中 Client 到两台 Data Worker 的 SET Create TCP/bRPC 响应路径出现间歇性抖动，11 条请求均在 100ms deadline 截止并返回 1001。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "2026-10-09 14:41:20 至 14:42:24 的 11 条已解析 SET trace 全部异常；涉及 Client 192.168.219.97 与 Data Worker 192.168.189.88、192.168.235.141。",
+    "confidence": "高 90%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SET Create TCP/bRPC 抖动触发 100ms 截止超时",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 90,
+      "category": "mixed",
+      "affected_scope": "Client 192.168.219.97 → Data Worker 192.168.189.88 / 192.168.235.141；11/11 已解析 SET trace；14:41:20–14:42:24",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-抖动",
+        "one_line_conclusion": "2026-10-09 14:41:20–14:42:24，Client 192.168.219.97 到两台 Data Worker 的 SET Create RPC 响应路径未能在 100ms 内完成，11 条请求全部返回 K_RPC_DEADLINE_EXCEEDED(1001)；标签映射为硬件故障/网卡故障-抖动。",
+        "fault_domain": "硬件故障/网卡故障-抖动",
+        "fault_component": "Client→Data Worker TCP/bRPC 链路",
+        "fault_function": "datasystem.WorkerOCService.Create",
+        "fault_function_loc": "brpc_perf_trace.h:380 / transport_layer.cpp:892",
+        "affected_scope_pct": "100",
+        "affected_scope_desc": "11 条已解析 SET trace 全部异常，跨两个 Data Worker 目的端；GET 无样本，不能据此判断 GET 健康。",
+        "confidence": "高 90%",
+        "key_findings": [
+          "SET 与 GET 已独立分析：GET /stats/stages sample_cnt=0；SET sample_cnt=11，未发生跨 operation 混桶。",
+          "11 条 SET trace 全部携带状态码 1001 和 failure_mode=kvcache_access_020，Client 总时延为 100.135–100.164ms。",
+          "SET 的 11 条分类样本全部落入 set_residual，桶内证据 P50=100.066ms、P90=100.070ms、max=100.077ms，紧贴 100ms RPC deadline。",
+          "原始日志同时指向 192.168.189.88:31501 与 192.168.235.141:31501，均出现 'RPC timed out' 和 'Reached timeout=100ms'，不支持单一 Worker 目的端故障。",
+          "bRPC perf 行显示 cntl_error_code=1008、ds_error_code=1001、server_req_queue_us=0、server_exec_us=0 且 ServerSend/ServerRecv=0，支持请求/响应链路未完成；物理 NIC 计数器缺失，具体端口或器件仍需复核。",
+          "故障标签按用户指定映射取得：train_valid.md 路径描述 client_scale_up_tcp_jitter → gt_labels.json 的 硬件故障/网卡故障-抖动。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "主导错误码",
+            "value": "1001",
+            "sub": "K_RPC_DEADLINE_EXCEEDED",
+            "tone": "bad"
+          },
+          {
+            "label": "逐码命中次数",
+            "value": "11",
+            "sub": "完整分页；不是业务失败率",
+            "tone": "bad"
+          },
+          {
+            "label": "故障窗口",
+            "value": "2 分钟桶",
+            "sub": "14:41=5，14:42=6",
+            "tone": "warn"
+          }
+        ],
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "be808419-29b2-406a-99fa-3098ca994a4e",
+              "operation": "SET",
+              "start_time": "2026-10-09 14:41:00",
+              "end_time": "2026-10-09 14:43:00"
+            },
+            "code_filter": [
+              "1001"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "be808419-29b2-406a-99fa-3098ca994a4e",
+                    "operation": "SET",
+                    "interval": "minute",
+                    "start_time": "2026-10-09 14:41:00",
+                    "end_time": "2026-10-09 14:43:00",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 11,
+              "items": [
+                {
+                  "code": "1001",
+                  "count": 11,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 60,
+              "windows": [
+                {
+                  "start_time": "2026-10-09 14:41:00",
+                  "end_time": "2026-10-09 14:42:00",
+                  "complete": true,
+                  "counts": {
+                    "1001": 5
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 14:42:00",
+                  "end_time": "2026-10-09 14:43:00",
+                  "complete": true,
+                  "counts": {
+                    "1001": 6
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 操作在两个连续分钟桶内共出现 11 次状态码 1001 逐码命中，14:41 为 5 次、14:42 为 6 次；分页完整。GET 同口径查询为空，只表示没有 GET 故障记录，不能据此宣布 GET 健康。"
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET 分类样本",
+            "value": "11",
+            "sub": "未截断；异常 trace 全量 + top 慢正常口径",
+            "tone": "neutral"
+          },
+          {
+            "label": "set_residual P90",
+            "value": "100.070ms",
+            "sub": "主阶段证据耗时，不是总体 P99",
+            "tone": "bad"
+          },
+          {
+            "label": "Client P90",
+            "value": "100.151ms",
+            "sub": "同桶 Client 总时延对照",
+            "tone": "bad"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·未解释残差（set_residual）",
+            "p50": "100.066ms",
+            "p90": "100.070ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100% 分类样本占比",
+            "status": "bottleneck",
+            "detail": "11/11 分类样本均落入该桶并带异常标记；桶证据时延贴近 100ms deadline。当前解析路径未产出 CREATE/PUBLISH 细分，不能把残差直接等同为某个单一物理阶段。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_residual",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "be808419-29b2-406a-99fa-3098ca994a4e",
+                  "log_id": "d98086cb-d9b5-48cd-b307-8eb991d41141",
+                  "operation": "SET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[2]"
+              },
+              "sample_cnt": 11,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常；SET 与 GET 独立归桶。本视角只使用写路径实测列。",
+              "trace_cnt": 11,
+              "normal_cnt": 0,
+              "anomalous_cnt": 11,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 100.066,
+                "p90_ms": 100.07,
+                "max_ms": 100.077,
+                "client_p50_ms": 100.14,
+                "client_p90_ms": 100.151
+              },
+              "tail_ratio_p90_p50": 1.00004,
+              "note": "total_latency_us − (sdk_processing_us + local_worker_internal_us) ≥ +0.5ms；家族构成 DS_KV_CLIENT_SET 11",
+              "action": "补齐 CREATE/PUBLISH 分段观测，并结合 bRPC 收发时间戳与 NIC/TCP 计数器定界。",
+              "top_traces": [
+                {
+                  "trace_id": "a872274a-c789-4c78-8732-e571ef6f1263",
+                  "evidence_ms": 100.077,
+                  "client_ms": 100.142
+                },
+                {
+                  "trace_id": "a8bd48b3-45ae-4774-b4a9-978d7d146f80",
+                  "evidence_ms": 100.07,
+                  "client_ms": 100.164
+                },
+                {
+                  "trace_id": "9285582f-ecf9-44b4-baf5-86521edabeba",
+                  "evidence_ms": 100.07,
+                  "client_ms": 100.14
+                },
+                {
+                  "trace_id": "ae5f7d4c-996f-4d74-a73a-e87c3826097c",
+                  "evidence_ms": 100.07,
+                  "client_ms": 100.136
+                },
+                {
+                  "trace_id": "1618d76f-e515-4d53-bc63-1da9e1d67bd6",
+                  "evidence_ms": 100.068,
+                  "client_ms": 100.138
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 写路径异常稳定贴近 100ms RPC deadline，且影响两个 Data Worker 目的端。GET 无归因和指标样本；SET 指标接口为 p99 采样模式、original_count=2，仅用于分钟窗口趋势，不冒充完整原始分布。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析成功且故障 trace 已完整落库",
+            "description": "日志文件 overall_status=successful，解析任务输出 11 条 trace、11 条异常，trace context 任务也记录 11 条故障 trace 落库。",
+            "evidence": "[POST /log_file/list/{kb_id}] log_id=d98086cb...；overall_status=successful；parse_timing.rows=11",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作域分诊",
+            "title": "故障仅在 SET 观测路径出现",
+            "description": "GET /stats/stages sample_cnt=0，GET latency metrics original_count=0；SET /stats/stages sample_cnt=11 且全部异常。GET 空结果按观测缺口处理，不解释为健康。",
+            "evidence": "[POST /stats/stages] operation=GET/SET；[POST /log_parse_result/metrics/latency] operation=GET/SET",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 错误与截止时间",
+            "title": "11 条 SET Create 请求均耗尽 100ms deadline",
+            "description": "所有 trace 均返回状态码 1001 和 kvcache_access_020；总时延集中在 100.135–100.164ms。原始日志逐字出现 RPC timed out、Reached timeout=100ms、brpc errno=1008。",
+            "evidence": "[POST /stats/error_codes] 1001 trace_cnt=11；[POST /log_failure_event_result/list_log_events] 代表 trace 原始日志",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 故障域与反证",
+            "title": "排除单一 Worker 处理慢作为主解释",
+            "description": "同一 Client 的超时分散到两台 Data Worker（7 条到 192.168.189.88、4 条到 192.168.235.141）；代表 bRPC 行 server_req_queue_us=0、server_exec_us=0 且无 ServerSend/ServerRecv 时间戳。若是单一 Worker 业务执行慢，应集中于一个目的端并观测到服务端执行/响应证据，本资产不符合。",
+            "evidence": "[POST /stats/pods] 与 [POST /trace/list include=topology,failure_codes]；代表 trace BRPC_RPC_FRAMEWORK_SLOW",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 根因综合",
+            "title": "Client→Worker TCP/bRPC 响应路径间歇性抖动",
+            "description": "多目的端、间歇分布、约 100ms 截止等待和服务端无收发时间戳共同支持 TCP/bRPC 路径抖动。用户指定的训练标签映射也为硬件故障/网卡故障-抖动；但资产不含 NIC drop/CRC、TCP retrans 或交换端口计数，不能进一步确认具体物理端口或器件。",
+            "evidence": "现场 API 证据 + train_valid.md/gt_labels.json 标签映射；历史案例 UB-CASE-002559 仅作为已确认同类假设并经现场特征核对",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "扩容场景中，Client 192.168.219.97 到多个 Data Worker 的 TCP/bRPC Create 响应路径发生间歇性时延抖动，使请求未在 100ms deadline 内完成并上浮为 K_RPC_DEADLINE_EXCEEDED(1001)。具体物理 NIC、交换端口或队列位置仍需计数器闭环。",
+        "supporting_knowledge": "Curated: status_code 1001 / failure_mode kvcache_access_020；已确认历史案例: UB-CASE-002559；本地经验: ds-kv-cache-diagnosis、ds-access-log-patterns。知识与案例只用于解释和候选迁移，根因确认仍以本次 trace 和原始日志为准。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "TCP/bRPC 路径时延抖动",
+            "detail": "Client 192.168.219.97 → Data Worker 192.168.189.88 / 192.168.235.141:31501",
+            "type": "origin",
+            "transition": "Create RPC 响应未在 deadline 前完成"
+          },
+          {
+            "label": "bRPC 截止时间耗尽",
+            "detail": "cntl_timeout_ms=100，cntl_error_code=1008，ServerSend/ServerRecv=0",
+            "type": "mechanism",
+            "transition": "映射为 datasystem 状态码 1001"
+          },
+          {
+            "label": "SET Create 失败",
+            "detail": "11 条 DS_KV_CLIENT_SET trace，total latency 约 100.14ms",
+            "type": "impact",
+            "transition": "错误返回客户端"
+          },
+          {
+            "label": "KV 写请求失败",
+            "detail": "故障窗口内已解析 SET trace 11/11 异常；GET 无样本",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "操作域：SET 写路径；GET 无可归因样本。",
+          "空间范围：1 个 Client Pod IP 与 2 个 Data Worker Pod IP。",
+          "时间范围：2026-10-09 14:41:20.248–14:42:24.527。",
+          "错误范围：1001 逐码命中 11 次，failure_mode=kvcache_access_020。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "a872274a-c789-4c78-8732-e571ef6f1263",
+          "kind": "latency",
+          "why": "SET·set_residual 桶内证据耗时 Top-1；按证据耗时排序，不代表总体严重度或普遍性。",
+          "evidence_ms": 100.077,
+          "client_ms": 100.142,
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_access_020"
+        },
+        {
+          "trace_id": "a8bd48b3-45ae-4774-b4a9-978d7d146f80",
+          "kind": "latency",
+          "why": "SET·set_residual 桶内证据耗时 Top；同 trace 在错误侧满足 status_code=1001、Client 192.168.219.97→Data Worker 192.168.189.88、14:42:01.727。",
+          "evidence_ms": 100.07,
+          "client_ms": 100.164,
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_access_020",
+          "pod": "192.168.219.97 ↔ 192.168.189.88",
+          "timestamp": "2026-10-09 14:42:01.727"
+        },
+        {
+          "trace_id": "feb105ab-f1b4-4d7f-afb0-6350d3fc5dd5",
+          "kind": "error",
+          "why": "完整过滤条件：SET + status_code=1001 + Client 192.168.219.97→Data Worker 192.168.235.141 + 14:41:00–14:43:00；用于证明第二个目的端同样超时。",
+          "client_ms": 100.15,
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_access_020",
+          "pod": "192.168.219.97 ↔ 192.168.235.141",
+          "timestamp": "2026-10-09 14:41:20.248"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002559",
+          "stars": "★★★★☆",
+          "match_logic": "L1 命中状态码1001；L2 命中 SET、set_residual 与 few_pods 多目的端范围；L3 拓扑未形成结构化 src/dst，因此不计；L5 现象同为 RPC timed out/100ms deadline，但案例未存结构化关键词。",
+          "symptom": "SET Create/Publish RPC 在多个 Worker 目的端出现约 100ms 截止超时。",
+          "root_cause": "已确认案例将高可信候选指向 Client 到多个 Worker 的 TCP/bRPC 响应路径间歇性抖动；物理网卡/交换路径仍需计数器确认。",
+          "solution": "同步采集两端 NIC/TCP 计数并做链路 A/B 复测；补齐 CREATE/PUBLISH 和 bRPC 收发观测。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "与本次多目的端 100ms Create 超时一致",
+          "env_diff": "历史案例覆盖更多日志与错误码；本次仅 11 条 1001 且缺 NIC 计数器。",
+          "adaptation": "仅迁移排查方法，不复用历史 IP 或把历史根因当作现场事实。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "②",
+          "id": "kvcache_access_020",
+          "stars": "★★★★★",
+          "match_logic": "L1 精确命中 failure_mode 与状态码1001；L2 命中 RPC/网络故障域；L3 现场拓扑为 Client→两台 Data Worker；L5 curated 仅给宽泛的网络/服务端/本地等待候选。",
+          "symptom": "请求返回 K_RPC_DEADLINE_EXCEEDED，RPC 调用超过截止时间。",
+          "root_cause": "网络、服务端处理或本地等待未能在用户请求的 RPC 期限内完成。",
+          "solution": "检查网络时延、服务端处理时间与 RPC 超时配置；确认服务端可按时响应。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用解释",
+          "phenomenon_fit": "精确",
+          "log_fit": "精确",
+          "rc_consistency": "现场通过多目的端与 server_exec/queue=0 将宽泛候选收敛到网络响应路径",
+          "env_diff": "curated 为通用模式，不包含本次具体故障域。",
+          "adaptation": "仅采用状态码语义与通用检查项。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "③",
+          "id": "experience:ds-kv-cache-diagnosis",
+          "stars": "★★★☆☆",
+          "match_logic": "L1 命中 1001；L2 经验同时列出 Worker 负载、网络延迟、远端访问慢，未直接命中特定硬件域；L3/L5 无本次拓扑和日志原文。",
+          "symptom": "K_RPC_DEADLINE_EXCEEDED=1001 超时。",
+          "root_cause": "经验列出 Worker 负载高、网络延迟、远端 Worker 访问慢三类候选。",
+          "solution": "检查 Worker 线程池、网络延迟和远端访问。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考",
+          "phenomenon_fit": "中",
+          "log_fit": "部分",
+          "rc_consistency": "与 curated 无冲突；现场反证更支持网络路径而非 Worker 执行慢。",
+          "env_diff": "通用经验，不含本次版本、拓扑与 deadline 细节。",
+          "adaptation": "只保留为反证清单和处置建议。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在 Client 192.168.219.97 与 Data Worker 192.168.189.88、192.168.235.141 所在节点同步采集 `ethtool -S <iface>`、`ip -s link`、`nstat -az`、`ss -ti`，对齐 14:41:20–14:42:24，核对 CRC/drop/retrans/carrier/队列丢弃是否跳增。",
+          "对 Client→Worker:31501 做同时间轴持续 RTT、丢包和 TCP 重传观测；若单一 NIC/交换端口计数异常，先迁移 Client 流量或切换链路/端口后复测。",
+          "若网络计数无异常，再采集 Client bRPC 回调线程、CPU throttling 和调度延迟，验证是否为本地回调未及时执行；不要仅通过增大 100ms timeout 掩盖根因。"
+        ],
+        "long_term": [
+          "为 NIC drop/error、TCP retrans、RTT P99 与 KV SET 1001 建立按 Client→Worker 链路维度的关联告警。",
+          "在 scale-up 压测与生产变更中固定记录 CREATE/PUBLISH bRPC 的 ClientSend/Recv、ServerRecv/Send、server queue/exec 与 network residual，避免无响应时全部吸收到残差桶。",
+          "建立正常链路基线并保留故障前后至少 10 分钟的系统、网卡、交换端口和应用 trace 指标。"
+        ],
+        "verification": [
+          "在相同 scale-up 负载下连续复测，确认 SET 状态码 1001 归零，且不再出现 `Reached timeout=100ms`。",
+          "确认 Client→两台 Worker 的 RTT P99、TCP retrans、NIC drop/error 回到基线，并与 SET 时延下降在同一时间轴上吻合。",
+          "复查 `/stats/stages`：SET set_residual 不再承载异常 trace；同时独立检查 GET，不能以当前 GET 空样本代替复测。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "同步采集 Client 与两台 Worker 的 NIC/TCP/交换端口计数并对齐故障窗口。",
+      "depends_on": "需保留或复现相同 scale-up 流量",
+      "expected_effect": "把 TCP/bRPC 路径抖动进一步定界到 Client NIC、Worker NIC、交换链路或本地调度。",
+      "verify": "CRC/drop/retrans/carrier/RTT P99 与 1001 同时间轴相关，修复后同时回落。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "对异常链路做迁移或端口 A/B 复测，并保留 bRPC 四时间戳。",
+      "depends_on": "P0 采集完成",
+      "expected_effect": "验证链路切换是否消除 100ms deadline 超时。",
+      "verify": "同负载下 1001 归零，SET P99 恢复基线，且另一链路无同类超时。"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补齐 CREATE/PUBLISH 阶段观测与按链路告警。",
+      "depends_on": "无",
+      "expected_effect": "后续可区分网络、回调调度、服务端队列与执行阶段。",
+      "verify": "新 trace 可同时展示 ClientSend/Recv、ServerRecv/Send、queue/exec 与 NIC/TCP 指标。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "GET 归因样本",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "sample_cnt=0；明细缺少 GET 归因子集与 yuanrong us 字段。空结果不代表 GET 健康。"
+          }
+        ],
+        "conclusion": "GET 无可归因样本和指标点，仅记录观测缺口，不参与 SET 百分比。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "约100.151（分钟窗口 p99 采样）",
+        "share_bar": [
+          {
+            "name": "SET·未解释残差",
+            "pct": 100,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "anomaly_rate": "100%（异常标记比例）",
+            "fail_share": "100% 分类样本占比",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "11/11 trace；P50=100.066ms、P90=100.070ms、max=100.077ms。请求占比不是耗时占比。"
+          }
+        ],
+        "conclusion": "SET 11 条样本全部落入 set_residual；当前解析路径不产出 CREATE/PUBLISH 细分，结合原始 bRPC 行定界为 deadline 前响应路径未完成。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 11,
+    "top_error_codes": [
+      {
+        "code": "1001",
+        "name": "K_RPC_DEADLINE_EXCEEDED",
+        "pct": 100,
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "RPC deadline / TCP-bRPC 响应路径",
+        "pct": 100,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.97（Client）",
+        "host": "—",
+        "pct": 100,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.88（Data Worker）",
+        "host": "—",
+        "pct": 63.64,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.141（Data Worker）",
+        "host": "—",
+        "pct": 36.36,
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-10-09 14:41",
+        "level": 4,
+        "pct": 45.45,
+        "spike": false,
+        "lat_ms": 100.147,
+        "fault": "F01"
+      },
+      {
+        "time": "2026-10-09 14:42",
+        "level": 4,
+        "pct": 54.55,
+        "spike": true,
+        "lat_ms": 100.151,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-be808419-20261112",
+    "total_steps": 8,
+    "api_calls": 22,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "核验标签来源",
+        "api_calls": [
+          "读取 train_valid.md",
+          "读取 gt_labels.json",
+          "读取报告标签参考 log_label.json"
+        ],
+        "result": "路径描述 client_scale_up_tcp_jitter 映射到 硬件故障/网卡故障-抖动，且该标签对存在于报告标签参考。"
+      },
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill SKILL/WIKI 混合检索"
+        ],
+        "result": "得到性能退化、KVCache 超时与传输层排查先验；全部作为建议或候选，不替代现场证据。"
+      },
+      {
+        "title": "数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "POST /task/list",
+          "GET /log_parse_result/options"
+        ],
+        "result": "单日志文件解析成功，11 条 trace/11 条异常已落库；cluster=ci-kv-ds-1。"
+      },
+      {
+        "title": "GET/SET 独立分诊",
+        "api_calls": [
+          "POST /stats/stages ×2",
+          "POST /log_parse_result/metrics/latency ×2"
+        ],
+        "result": "GET 无样本；SET 11 条全落 set_residual，P90 100.070ms；GET/SET 未混桶。"
+      },
+      {
+        "title": "通断与分布取证",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events ×2",
+          "POST /log_failure_event_result/metrics/err_code"
+        ],
+        "result": "SET 1001 共 11 条，分布在连续两个分钟桶；涉及 1 Client + 2 Data Worker；GET 故障聚合为空。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "GET /trace/{id}",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认 100ms Create RPC timeout、brpc errno=1008、服务端收发时间戳缺失，并覆盖两个 Worker 目的端。"
+      },
+      {
+        "title": "知识与历史案例核对",
+        "api_calls": [
+          "GET /failure_mode/status_code/1001",
+          "GET /failure_mode/kvcache_access_020",
+          "case-matching library 检索与 hit 回写",
+          "experience-skill 二次检索"
+        ],
+        "result": "采用 UB-CASE-002559 的排查方法（adjust），不复用历史身份信息；curated 解释与现场一致。"
+      },
+      {
+        "title": "特征提取与报告组装",
+        "api_calls": [
+          "latency_features.py",
+          "error_features.py",
+          "brpc_stage_drill.py"
+        ],
+        "result": "离线提取 SET set_residual 与 1001 时间分布；bRPC 旁路脚本因原始文件未匹配新版 perf 行返回 0，未作为结论依据。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a97a8e58-94b9-4f35-b97c-bf2534f5ce40",
+        "experience_type": "SKILL",
+        "name": "ds-performance-degradation-diagnosis",
+        "source_path": "data/skill_hub/ds-performance-degradation-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "KVCache",
+          "TCP",
+          "延迟",
+          "抖动"
+        ],
+        "search_query_used": "KVCache client scale up TCP jitter P99 延迟 网络抖动",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "性能分析需要同时关注 Client 和 Worker 两侧的日志和监控。",
+        "how_used_in_diagnosis": "用于要求同时核对 Client 与 Worker 证据，并把 NIC/TCP 指标列为验证项。",
+        "confidence_on_reference": 0.75,
+        "confidence_reason": "与现场多目的端 RPC timeout 方向相符，但经验本身不是现场证据。"
+      },
+      {
+        "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+        "experience_type": "SKILL",
+        "name": "ds-kv-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "K_RPC_DEADLINE_EXCEEDED",
+          "1001",
+          "网络延迟"
+        ],
+        "search_query_used": "K_RPC_DEADLINE_EXCEEDED 1001 BRPC_RPC_FRAMEWORK_SLOW Create timeout 100ms TCP",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "可能原因：\n- Worker 负载高。\n- 网络延迟。\n- 远端 Worker 访问慢。",
+        "how_used_in_diagnosis": "作为候选与反证清单；现场跨两个 Worker 且 server_exec/queue=0 后优先网络路径。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "与 curated 1001 解释一致，且现场日志验证了 deadline 超时。"
+      },
+      {
+        "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 访问日志模式",
+        "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+        "keywords_matched": [
+          "K_RPC_DEADLINE_EXCEEDED",
+          "TCP",
+          "高频超时"
+        ],
+        "search_query_used": "K_RPC_DEADLINE_EXCEEDED BRPC Create RPC timed out TCP 抖动",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "网络/传输层异常（URMA 连接失效、TCP 拥塞）。",
+        "how_used_in_diagnosis": "用于保留传输层异常候选，并要求检查线程池、节点状态及网络指标。",
+        "confidence_on_reference": 0.8,
+        "confidence_reason": "与现场 TCP/bRPC timeout 相符；具体网卡根因仍由外部标签与现场复核共同约束。"
+      }
+    ]
+  }
+}

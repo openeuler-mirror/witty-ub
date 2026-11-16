@@ -27,18 +27,60 @@ allowed-tools: >
 
 **匹配口径（v2，分布特征软匹配）**：不按 IP/Pod/主机/集群**名字**做精确匹配（不同现场
 必然不同，不可迁移），改用分布/语义特征软打分——故障模式（最强 4.0）、主导错误码
-（3.0 ×share）、超时时延段/归因桶（2.0 ×share）、操作域一致性（1.0）、机理关键词
-（1.0）、时间形态（1.0）、影响范围规模（0.5）。相对权重吸收自 Web 前端"相似案例分析"
+（3.0 ×F1）、超时时延段/归因桶（2.0 ×share）、操作域一致性（1.0）、机理关键词
+（1.0）、时间形态（1.0）、影响范围规模（0.5）、源目链路对（0.0，LOO 实证净负已归零）、码/故障模式→故障域先验
+（0.2 × 得票占比；通道权重 错误码 0.25 : 故障模式 0.1）。相对权重吸收自 Web 前端"相似案例分析"
 模块（`similarity.py` 的 failure_mode 6.0 / status_code 4.0 / 段·操作 3.0 / 超时段·形态
 2.0 / scope 1.0 比例），化用时保留 `share` 加权与宽召回口径。
 权重表与 share 提取见 `references/FEATURE_SPEC.md`。召回为"宽召回"（operation +
 fault_type + kb_id），相似度由 `scripts/match_cases.py` 客户端软打分决定。
+
+**打分改造（v2.4，训练集 1110 LOO 实证）**：原等权打分下 82.2% 的查询 top1 与其它候选
+`score_norm` 完全并列（55.7% 跨一级标签），最终由 `text_sim` 抛硬币，是"硬件↔Worker
+互混"的主因。三条正交改造：① `status_code` 由等权召回改为 **F1（精度×召回）**计分，
+使"码集完全命中"的精确案例压过"码多且杂"的宽泛案例；② 新增 **码/故障模式→故障域先验**
+（`_domain_prior`）：按候选池内 码/故障模式→一级标签 分布对查询真实特征投票，命中预测域的
+候选加 `0.2 × 得票占比`（通道权重 错误码 0.25 : 故障模式 0.1，LOO 网格实测最优；相近码
+share=0.5 只发挥一半影响）；③ `topology_shape` 权重曾 0.5→1.5，后经 LOO 消融证伪为净负特征，已归零（0.0）。
+实测（不含C/不含集群 185 条）top1 68.6%→**70.8%**、label_vote K14 67.6%→**68.6%**；
+关键字去重（81 类）K14 63.0%→**67.9%**。
+
+**日志语义码次级通道（v2.5）**：在软打分之外新增一条**加性次级通道**——查询侧与候选案例侧
+各取一份「日志语义错误码轮廓」（来自 `log_failure_event` 的 E/W 原文：`code: [Not ready]`、
+`code: [Urma wait for completion timed out]` 等语义码 + `URMA_WAIT_TIMEOUT`/`E2001` 等常量
+token，各自归一化为单位向量），cosine 相似度按 `0.5` 加到 `score_norm`。轮廓**随文档/案例一起
+持久化**：报告侧写入 `basic_info.log_semantic_profile`（`render_report.py` 生成文档时经
+`POST /log_failure_event_result/log_semantic_profile` 自动附加），报告确认建案时自动落到案例
+`diag_case_library.log_semantic_profile`（文档未带该字段时后端按来源资产兜底现算）。检索时：
+候选侧直接读 `/search` 返回的案例自带轮廓；查询侧优先用特征 JSON 的内联 `log_semantic_profile`，
+否则按 `kb_id` 调同一接口现算（新资产无需人工步骤即可自动启用该通道）。
+`references/log_semantic_profiles.json` 静态资产降级为旧数据兜底；`--no-log-semantic` 可关闭做消融。
+实测（188 条不含C / 237 案例池）top1 66.5%→**70.7%**、K4 69.7%→**70.7%**，
+收益集中在"硬件↔Worker"边界；SDK/OS/容器 等无 E/W 日志的小类不受影响（无提升亦无误伤）。
 
 **候选排除口径（v2.2+）**：宽召回后，`match_cases.py` 会剔除一级标签为
 `Coordinator故障` / `UB管控面故障` 的候选，不参与软打分与投票（LOO 全量评估实证：
 这两类候选与 Worker/硬件报告在软打分维度高度重叠、吸走 top1，而对应查询报告本身
 判别特征不足，保留只引入干扰；剔除后不含管控 top1 63.4%→68.3%）。候选列表与
 JSON 输出的 `excluded_control_plane` 字段会如实反映剔除条数。
+
+**用户使用问题硬召回口径（v2.3+）**：当查询特征 `status_codes` 命中
+`USER_USAGE_FAULT_CODES`（`1/3/9/12/17/28/2000/2001/2004/2006/3000/3001/3002/3004/3006/3007/3009`，
+**不含** `0/2/8/36`，其中 `0` 是「无错误/成功」码、不具备判别力），说明本次故障属用户使用问题，`match_cases.py` 会在召回查询上追加
+`first_level_label=用户相关故障` + `second_level_label=使用问题`，**只召回该类案例**，
+不再跨类别竞争；命中码与锁定标签会写入输出的 `user_usage_codes` / `fault_label_override`。
+库内该类案例为 0 条时返回空候选，**不回退**到其他类别。
+
+**未见故障码回退口径（v2.3+）**：新日志可能出现案例库从未收录的故障码（例如
+`1005 K_RDMA_ERROR`、`3003 K_SC_END_OF_PAGE`）。直接拿未见码去检索必然选不准，
+须先用 `scripts/suggest_similar_codes.py` 找相近的**已知码**：
+`python3 scripts/suggest_similar_codes.py --features <特征文件>`（脚本会自动挑出其中
+案例库未收录的码，并给出该码的故障现象/故障原因 + 按「人工映射表 > 同码段家族 >
+同知识库故障域」排出的候选已知码，含库内案例数与标签）。
+Agent 读候选后自行选定（判断不准就选同码段里案例最多、故障现象最接近的），再写回特征：
+`--pick "1004,1009" --apply --features <特征文件>`，即写入 `relaxed_status_codes`。
+这些码在 `match_cases.py` 里以 **share=0.5 降权**并入软打分（真实码仍为 1.0），
+但不参与用户使用问题硬判定、也不写进报告的故障码清单。
 
 本 Skill **只做检索侧**：不诊断、不写报告、不沉淀案例。案例写入由
 `diagnostic-report-generation` 负责，字段口径见 `references/CASE_FEATURE_CONTRACT.md`。
@@ -128,6 +170,10 @@ confidence/hit_count 排序。
 - BRPC：先 `GET /brpc-diagnosis/batch/{batch_id}/summary` 一页纸定位组件/Pod/时间窗/故障模式。
 - 知识侧补充（不算现场证据）：`GET /failure_mode/{id}`、`GET /failure_mode/status_code/{code}`。
 - 已取得的 `kb_id`、`log_id`、时间范围必须继续传递，不要因为字段"可选"就丢掉限定条件。
+- 特征 JSON 建议内联 `log_semantic_profile`（可直接复用报告 `basic_info` 的同名字段）并带
+  `kb_id`（或 `log_id`/`kb_name`）：这是"日志语义码次级通道"的查询侧轮廓来源。内联缺失时
+  `match_cases.py` 会按 `kb_id` 向后端现算；三者都没有时该通道自动关闭（仅少一点排序增益，
+  不影响其它特征）。
 
 ### 步骤 2 结构化检索
 

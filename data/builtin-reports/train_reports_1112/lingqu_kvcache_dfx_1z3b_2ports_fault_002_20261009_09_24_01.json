@@ -1,0 +1,1107 @@
+{
+  "report": {
+    "title": "lingqu_kvcache_dfx_1z3b_2ports_fault_002_20261009_09_24_01 诊断报告",
+    "report_id": "diag-4a4389c8-fda4-4f51-aedf-18908018d234-20261112",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "4a4389c8-fda4-4f51-aedf-18908018d234",
+    "kb_name": "lingqu_kvcache_dfx_1z3b_2ports_fault_002_20261009_09_24_01",
+    "log_file": "lingqu_kvcache_dfx_1z3b_2ports_fault_002_20261009_09_24_01 (log_id=e7b464c6-3da2-426a-a494-5c358dc4e44e)",
+    "operation": "SET（GET 对照无样本）",
+    "time_range_start": "2026-10-09 09:25:46",
+    "time_range_end": "2026-10-09 09:26:15",
+    "total_trace_cnt": 14,
+    "fault_trace_cnt": 14,
+    "fault_ratio": "100%（解析 trace 口径）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Invalid parameter": 1.0
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个 SET Publish 故障：14 条请求因既有对象属性不可修改而返回 K_INVALID(2)；外部训练标签为 ub端口故障-down，但本资产库没有端口 down 现场证据。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "故障窗口内 14/14 条已解析 SET trace 均携带状态码 2，涉及 5 个 Pod IP；GET 未解析到 trace。",
+    "confidence": 0.95
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "SET Publish 因 WriteMode/一致性/缓存类型不可修改而失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 0.95,
+      "category": "error",
+      "affected_scope": "ci-kv-ds-1 集群内 5 个 Pod IP，14 条 SET trace",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-down",
+        "one_line_conclusion": "SET 的 Create 成功后，Publish 因尝试修改既有对象的 WriteMode、consistency type 或 cache type 被拒绝并返回 K_INVALID(2)。",
+        "fault_domain": "硬件故障/ub端口故障-down",
+        "fault_component": "KVCache WorkerOCService.Publish",
+        "fault_function": "worker_oc_service_publish_impl.cpp:675",
+        "fault_function_loc": "Publish 参数一致性校验",
+        "affected_scope_pct": 100.0,
+        "affected_scope_desc": "14/14 条解析 trace 命中故障码 2；Pod 统计涉及 192.168.189.67、192.168.219.92、192.168.235.151、192.168.235.141、192.168.219.90。",
+        "confidence": 0.95,
+        "key_findings": [
+          "SET 错误码统计唯一为 2：trace_cnt=14，日志级 event_cnt=28；GET 为 0。",
+          "14 条 trace 均命中 kvcache_access_002 与 kvcache_runtime_2303。",
+          "代表 trace 中 DS_POSIX_CREATE 返回 0，随后 DS_POSIX_PUBLISH 返回 2。",
+          "原文一致显示：Invalid parameter. The write mode, consistency type or cache type cannot be modified.",
+          "SET 总时延 0.390—0.532ms，全部 is_anomalous=false；BRPC network_residual_us=0，未见超时放大。",
+          "两级标签按用户指定的 gt_labels.json 映射写入；该标签是外部标注，不构成本资产库的端口 down 现场证据。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "4a4389c8-fda4-4f51-aedf-18908018d234",
+              "operation": "GET",
+              "start_time": "2026-10-09 09:25:46",
+              "end_time": "2026-10-09 09:26:15"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "4a4389c8-fda4-4f51-aedf-18908018d234",
+                    "start_time": "2026-10-09 09:25:46",
+                    "end_time": "2026-10-09 09:26:15",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100,
+                    "operation": "GET"
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 0,
+                  "returned_windows": 0
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 0,
+              "total_windows": 0
+            },
+            "code_distribution": {
+              "total_count": 0,
+              "items": [],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-10-09 09:25:46",
+                  "end_time": "2026-10-09 09:25:47",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:47",
+                  "end_time": "2026-10-09 09:25:48",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:48",
+                  "end_time": "2026-10-09 09:25:49",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:49",
+                  "end_time": "2026-10-09 09:25:50",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:50",
+                  "end_time": "2026-10-09 09:25:51",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:51",
+                  "end_time": "2026-10-09 09:25:52",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:52",
+                  "end_time": "2026-10-09 09:25:53",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:53",
+                  "end_time": "2026-10-09 09:25:54",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:54",
+                  "end_time": "2026-10-09 09:25:55",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:55",
+                  "end_time": "2026-10-09 09:25:56",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:56",
+                  "end_time": "2026-10-09 09:25:57",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:57",
+                  "end_time": "2026-10-09 09:25:58",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:58",
+                  "end_time": "2026-10-09 09:25:59",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:59",
+                  "end_time": "2026-10-09 09:26:00",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:00",
+                  "end_time": "2026-10-09 09:26:01",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:01",
+                  "end_time": "2026-10-09 09:26:02",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:02",
+                  "end_time": "2026-10-09 09:26:03",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:03",
+                  "end_time": "2026-10-09 09:26:04",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:04",
+                  "end_time": "2026-10-09 09:26:05",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:05",
+                  "end_time": "2026-10-09 09:26:06",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:06",
+                  "end_time": "2026-10-09 09:26:07",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:07",
+                  "end_time": "2026-10-09 09:26:08",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:08",
+                  "end_time": "2026-10-09 09:26:09",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:09",
+                  "end_time": "2026-10-09 09:26:10",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:10",
+                  "end_time": "2026-10-09 09:26:11",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:11",
+                  "end_time": "2026-10-09 09:26:12",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:12",
+                  "end_time": "2026-10-09 09:26:13",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:13",
+                  "end_time": "2026-10-09 09:26:14",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:14",
+                  "end_time": "2026-10-09 09:26:15",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "4a4389c8-fda4-4f51-aedf-18908018d234",
+              "operation": "SET",
+              "start_time": "2026-10-09 09:25:46",
+              "end_time": "2026-10-09 09:26:15"
+            },
+            "code_filter": [
+              "2"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "4a4389c8-fda4-4f51-aedf-18908018d234",
+                    "start_time": "2026-10-09 09:25:46",
+                    "end_time": "2026-10-09 09:26:15",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100,
+                    "operation": "SET"
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 12,
+                  "returned_windows": 12
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 12,
+              "total_windows": 12
+            },
+            "code_distribution": {
+              "total_count": 14,
+              "items": [
+                {
+                  "code": "2",
+                  "count": 14,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-10-09 09:25:46",
+                  "end_time": "2026-10-09 09:25:47",
+                  "complete": true,
+                  "counts": {
+                    "2": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:47",
+                  "end_time": "2026-10-09 09:25:48",
+                  "complete": true,
+                  "counts": {
+                    "2": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:48",
+                  "end_time": "2026-10-09 09:25:49",
+                  "complete": true,
+                  "counts": {
+                    "2": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:49",
+                  "end_time": "2026-10-09 09:25:50",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:50",
+                  "end_time": "2026-10-09 09:25:51",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:51",
+                  "end_time": "2026-10-09 09:25:52",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:52",
+                  "end_time": "2026-10-09 09:25:53",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:53",
+                  "end_time": "2026-10-09 09:25:54",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:54",
+                  "end_time": "2026-10-09 09:25:55",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:55",
+                  "end_time": "2026-10-09 09:25:56",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:56",
+                  "end_time": "2026-10-09 09:25:57",
+                  "complete": true,
+                  "counts": {
+                    "2": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:57",
+                  "end_time": "2026-10-09 09:25:58",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:58",
+                  "end_time": "2026-10-09 09:25:59",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:25:59",
+                  "end_time": "2026-10-09 09:26:00",
+                  "complete": true,
+                  "counts": {
+                    "2": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:00",
+                  "end_time": "2026-10-09 09:26:01",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:01",
+                  "end_time": "2026-10-09 09:26:02",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:02",
+                  "end_time": "2026-10-09 09:26:03",
+                  "complete": true,
+                  "counts": {
+                    "2": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:03",
+                  "end_time": "2026-10-09 09:26:04",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:04",
+                  "end_time": "2026-10-09 09:26:05",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:05",
+                  "end_time": "2026-10-09 09:26:06",
+                  "complete": true,
+                  "counts": {
+                    "2": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:06",
+                  "end_time": "2026-10-09 09:26:07",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:07",
+                  "end_time": "2026-10-09 09:26:08",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:08",
+                  "end_time": "2026-10-09 09:26:09",
+                  "complete": true,
+                  "counts": {
+                    "2": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:09",
+                  "end_time": "2026-10-09 09:26:10",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:10",
+                  "end_time": "2026-10-09 09:26:11",
+                  "complete": true,
+                  "counts": {
+                    "2": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:11",
+                  "end_time": "2026-10-09 09:26:12",
+                  "complete": true,
+                  "counts": {
+                    "2": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:12",
+                  "end_time": "2026-10-09 09:26:13",
+                  "complete": true,
+                  "counts": {
+                    "2": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:13",
+                  "end_time": "2026-10-09 09:26:14",
+                  "complete": true,
+                  "counts": {
+                    "2": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-09 09:26:14",
+                  "end_time": "2026-10-09 09:26:15",
+                  "complete": true,
+                  "counts": {
+                    "2": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "故障仅出现在 SET：2026-10-09 09:25:46—09:26:15 内状态码 2 逐码命中 14 次，GET 同范围为 0。秒级峰值为 2 次/秒（09:25:56 与 09:26:12）；计数单位是逐码命中次数，不是业务失败率。",
+        "metrics": [
+          {
+            "label": "SET 故障 trace",
+            "value": "14",
+            "sub": "14/14 条解析 trace",
+            "tone": "bad"
+          },
+          {
+            "label": "主导错误码",
+            "value": "K_INVALID(2)",
+            "sub": "逐码命中占比 100%",
+            "tone": "bad"
+          },
+          {
+            "label": "GET 故障",
+            "value": "0",
+            "sub": "同一 29 秒查询范围",
+            "tone": "good"
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 操作定界",
+            "title": "故障仅存在于 SET 写路径",
+            "description": "GET 的 stages、错误码、trace 与时间聚合均为空；SET 有 14 条 trace 且全部携带故障码。",
+            "evidence": "/stats/error_codes: SET code=2 trace_cnt=14、GET total=0；/trace/list: SET total=14、GET total=0。",
+            "confirmed": true,
+            "excluded": false
+          },
+          {
+            "step_label": "② 错误语义",
+            "title": "状态码 2 收敛到 K_INVALID",
+            "description": "现场 14/14 条故障 trace 的状态码均为 2，并命中业务参数非法与 Publish 失败故障模式。",
+            "evidence": "status_code=2；failure_mode_ids=kvcache_access_002,kvcache_runtime_2303；curated 状态码解释为输入参数或请求格式校验失败。",
+            "confirmed": true,
+            "excluded": false
+          },
+          {
+            "step_label": "③ 失败位置",
+            "title": "Create 成功、Publish 参数一致性校验失败",
+            "description": "同一 trace 的 Worker 侧先记录 DS_POSIX_CREATE=0，后记录 DS_POSIX_PUBLISH=2，故障收敛在 Publish，而非对象创建或网络未达。",
+            "evidence": "trace_id=1d970b29-a8e2-40de-b835-9f0828809fb6：DS_POSIX_CREATE status=0；worker_oc_service_publish_impl.cpp:675 报 Publish failed；DS_POSIX_PUBLISH status=2。",
+            "confirmed": true,
+            "excluded": false
+          },
+          {
+            "step_label": "④ 原文闭环",
+            "title": "既有对象属性不可修改",
+            "description": "所有代表日志均明确指出 Write mode、consistency type 或 cache type 不能修改，与 curated K_INVALID 解释一致。",
+            "evidence": "Invalid parameter. The write mode, consistency type or cache type cannot be modified.",
+            "confirmed": true,
+            "excluded": false
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "本资产库不能确认两个 ub 端口 down",
+            "description": "若端口 down 是本次直接根因，应至少出现端口状态、PORT_DOWN/URMA 超时、链路目标收敛或网络残差异常之一；当前均未取得。失败反而跨 3 个 Data Worker 端点且错误文本明确为属性冲突。",
+            "evidence": "GET/SET 的 URMA 超时桶均为 0；/stats/links 为空；BRPC network_residual_us=0；原始日志无 PORT_DOWN；Publish 目标包括 192.168.189.67、192.168.235.141、192.168.219.90。",
+            "confirmed": false,
+            "excluded": true
+          }
+        ],
+        "confirmed_root_cause": "客户端对已存在对象执行 SET/Publish 时，请求的 Write_mode=3、consistency_type 或 cacheType 与对象既有属性不一致，触发 K_INVALID(2)，导致 WorkerOCService.Publish 拒绝发布。",
+        "supporting_knowledge": "curated kvcache_access_002 将 code=2 解释为非法参数；kvcache_runtime_2303 指向 Worker 对象缓存发布失败。已确认案例 UB-CASE-002592 与本次 L1/L2/L5 证据高度一致。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "客户端 SET",
+            "detail": "DS_KV_CLIENT_SET 携带 Write_mode=3，向选定 Data Worker 发起 Create/Publish。",
+            "type": "source",
+            "transition": "RPC"
+          },
+          {
+            "label": "Worker Create 成功",
+            "detail": "同 trace 的 DS_POSIX_CREATE 返回 status_code=0。",
+            "type": "normal",
+            "transition": "Publish"
+          },
+          {
+            "label": "Publish 属性一致性校验失败",
+            "detail": "既有对象的 WriteMode、consistency type 或 cache type 不允许被修改。",
+            "type": "fault",
+            "transition": "K_INVALID(2)"
+          },
+          {
+            "label": "错误上浮到客户端",
+            "detail": "DS_POSIX_PUBLISH 与 DS_KV_CLIENT_SET 返回 2；BRPC 记录 cntl_error_code=2001、ds_error_code=2、cntl_failed=1。",
+            "type": "impact",
+            "transition": "请求失败"
+          }
+        ],
+        "impact_scope": [
+          "Cluster: ci-kv-ds-1",
+          "Operation: SET/Publish",
+          "14 条故障 trace，窗口 2026-10-09 09:25:46—09:26:15",
+          "5 个 Pod IP；无 host 与 src/dst 结构化字段"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "1d970b29-a8e2-40de-b835-9f0828809fb6",
+          "kind": "error",
+          "why": "过滤条件 status_code=2 + operation=SET + 时间窗 2026-10-09 09:25:46—09:26:15；同 trace 显示 Create=0 后 Publish=2。",
+          "status_code": "2",
+          "failure_mode_id": "kvcache_access_002,kvcache_runtime_2303",
+          "pod": "192.168.219.92 / 192.168.189.67",
+          "timestamp": "2026-10-09 09:25:46.898"
+        },
+        {
+          "trace_id": "6b599828-d9fd-4e42-a25d-993112f5b704",
+          "kind": "error",
+          "why": "过滤条件 status_code=2 + operation=SET + 同一故障窗；目标为另一 Data Worker，仍出现相同不可修改属性原文。",
+          "status_code": "2",
+          "failure_mode_id": "kvcache_access_002,kvcache_runtime_2303",
+          "pod": "192.168.219.92 / 192.168.235.141",
+          "timestamp": "2026-10-09 09:25:48.509"
+        },
+        {
+          "trace_id": "23116676-1b4a-4129-a1db-f3898c12ec0c",
+          "kind": "error",
+          "why": "过滤条件 status_code=2 + operation=SET + 同一故障窗；故障窗末尾样本，第三个 Data Worker 端点仍返回相同参数一致性错误。",
+          "status_code": "2",
+          "failure_mode_id": "kvcache_access_002,kvcache_runtime_2303",
+          "pod": "192.168.235.151 / 192.168.219.90",
+          "timestamp": "2026-10-09 09:26:14.427"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002592",
+          "rank": 1,
+          "stars": 5,
+          "match_logic": "L1 命中 code=2 及 kvcache_access_002/kvcache_runtime_2303；L2 命中 SET Publish、多 Pod；L3/机理命中属性不可修改原文。案例已闭环，现场证据逐项复核一致。",
+          "symptom": "SET Publish 返回 K_INVALID(2)，Create 成功后 Publish 失败。",
+          "root_cause": "请求属性与既有对象的 WriteMode/一致性/缓存类型不一致。",
+          "solution": "统一创建与后续 SET 的对象属性，或按业务流程删除后以目标属性重建。",
+          "adoption_class": "direct",
+          "adoption_label": "直接采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致",
+          "env_diff": "历史案例跨资产库，具体 Pod 不参与匹配。",
+          "adaptation": "用本次失败 key 与当前对象元数据复核后执行。",
+          "applicability": "direct"
+        },
+        {
+          "id": "UB-CASE-002538",
+          "rank": 2,
+          "stars": 2,
+          "match_logic": "L1 仅命中 code=2/kvcache_access_002；L2 仅命中 SET，未命中其 set_no_evidence 桶；L3/机理不命中：本次跨三个目标端点且有明确参数冲突原文，无 PORT_DOWN。",
+          "symptom": "历史案例为固定两个端点的 SET 快速失败。",
+          "root_cause": "历史案例认定两个 ub 端口 down；本次仅作为用户标签对应的待验证假设。",
+          "solution": "补采 urma_admin 端口状态、LOS、光功率与对端告警后再判断是否需要端口复位或更换链路。",
+          "adoption_class": "reference",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "中",
+          "log_fit": "低",
+          "rc_consistency": "不一致",
+          "env_diff": "本次 SET 归入 set_client，且数据面 Worker 日志可见；历史案例为 set_no_evidence。",
+          "adaptation": "不得直接执行硬件更换，先补齐现场端口证据。",
+          "applicability": "reference"
+        },
+        {
+          "id": "kvcache_access_002 + ds-kv-cache-diagnosis",
+          "rank": 3,
+          "stars": 4,
+          "match_logic": "Curated L1 精确解释 K_INVALID(2)，experience-skill L2 建议按 DS_KV_CLIENT_SET、非零状态码、WriteMode 与 consistency_type 排查；L3 由本次原文闭环。",
+          "symptom": "非零状态码 2 出现在 DS_KV_CLIENT_SET/DS_POSIX_PUBLISH。",
+          "root_cause": "非法或不兼容的请求选项触发参数校验失败。",
+          "solution": "按接口约束核对 Write_mode、consistency_type、cacheType 与既有对象属性。",
+          "adoption_class": "adjust",
+          "adoption_label": "结合现场采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致",
+          "env_diff": "经验库为通用流程，curated 为静态语义，均需现场 trace 验证。",
+          "adaptation": "已用 Create=0、Publish=2 及错误原文完成现场验证。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "核对 14 个失败 key 的既有 WriteMode、consistency_type 与 cacheType，使 SET/Publish 请求与既有属性一致；确需修改时按业务流程删除并以目标属性重建。",
+          "在客户端发送前增加对象属性一致性预检，避免将 K_INVALID(2) 包装成笼统的 RPC failed。",
+          "因用户指定标签为 ub端口故障-down，先补采故障时点及复现时的 urma_admin port show、LOS/端口告警、光功率与对端状态；未取得 down 证据前不直接更换硬件。"
+        ],
+        "long_term": [
+          "统一对象创建与后续 SET 的属性配置来源，并为 key 生命周期增加幂等保护。",
+          "建立 K_INVALID(2) 的 WriteMode/consistency/cacheType 细分监控，和 URMA 超时、PORT_DOWN、网络错误分开告警。",
+          "完善故障采集，纳入 UB 端口状态、链路告警与光模块遥测，避免仅依赖训练标签反推硬件根因。"
+        ],
+        "verification": [
+          "使用相同 key 与 1 MiB 数据重放 SET，确认 DS_KV_CLIENT_SET、DS_POSIX_PUBLISH 均返回 0，状态码 2 在连续 30 分钟内无新增。",
+          "复核 /stats/error_codes 与 /log_failure_event_result/list_time_aggregated_failure_events：SET code=2 归零且 GET/SET 无新故障窗口。",
+          "若继续主张端口 down，必须提供端口 state=DOWN/LOS/PORT_DOWN 或同时间硬件告警，并在端口恢复后验证写请求恢复；否则保留为未证实标签。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "统一失败 key 的既有属性与 SET/Publish 请求属性。",
+      "depends_on": "读取或确认对象当前 WriteMode、consistency_type、cacheType。",
+      "expected_effect": "消除 K_INVALID(2) 与 Publish failed。",
+      "verify": "同参数场景重放并观察 30 分钟错误码归零。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补采 UB 双端口状态和硬件遥测，核对外部标签。",
+      "depends_on": "可访问 Data Worker 主机与交换侧监控。",
+      "expected_effect": "确认或否定 ub端口故障-down，不以标签替代证据。",
+      "verify": "端口状态、LOS/告警、光功率和故障时序形成闭环。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "GET 归因子集",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "sample_cnt=0；空结果仅表示本资产库无 GET 归因样本，不代表系统健康。"
+          }
+        ],
+        "conclusion": "GET 无归因样本，未与 SET 混桶。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "未提供（Client P90=0.523ms）",
+        "share_bar": [
+          {
+            "name": "SET·客户端SDK段",
+            "pct": "100.0",
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "trace_cnt=0；未观测 URMA_WAIT_TIMEOUT。"
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "trace_cnt=0；Worker 侧日志可见。"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "trace_cnt=0。"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "max 0.382ms（非P99）",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "14/14 条归入该桶；证据耗时 P50=0.353ms、P90=0.381ms，Client P90=0.523ms。"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "0%",
+            "fail_share": "0%",
+            "status": "ok",
+            "detail": "trace_cnt=0。"
+          }
+        ],
+        "conclusion": "SET 14 条样本全部归入客户端 SDK 段，但时延均为亚毫秒且无异常标记；本故障是快速返回的参数校验错误，不是时延瓶颈或 URMA 超时。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 14,
+    "top_error_codes": [
+      {
+        "code": "2",
+        "name": "K_INVALID / 参数校验失败",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "SET Publish 参数一致性校验",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.189.67",
+        "host": "未解析",
+        "pct": "39.286",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.92",
+        "host": "未解析",
+        "pct": "25.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.151",
+        "host": "未解析",
+        "pct": "25.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.141",
+        "host": "未解析",
+        "pct": "7.143",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.90",
+        "host": "未解析",
+        "pct": "3.571",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "09:25",
+        "level": "3",
+        "pct": "42.857",
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "09:26",
+        "level": "4",
+        "pct": "57.143",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-4a4389c8-20261112",
+    "total_steps": 6,
+    "api_calls": 29,
+    "duration": "本次会话",
+    "steps": [
+      {
+        "title": "经验与标签定位",
+        "api_calls": [
+          "experience-skill search-experiences",
+          "读取 train_valid.md 与 gt_labels.json"
+        ],
+        "result": "路径映射到日志描述 1z3b_2ports_fault；用户指定标签为 硬件故障/ub端口故障-down。"
+      },
+      {
+        "title": "资产库与解析完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "日志文件 1 个，overall_status=successful，解析 14 条 trace、故障 trace 14 条。"
+      },
+      {
+        "title": "GET/SET 独立分诊",
+        "api_calls": [
+          "POST /stats/stages ×2",
+          "POST /stats/error_codes ×2",
+          "POST /stats/pods ×2",
+          "POST /stats/links ×2",
+          "POST /stats/heatmap ×2"
+        ],
+        "result": "GET 无样本；SET 14 条，错误码 2 占 100%，阶段样本全部为 set_client 且无时延异常。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list ×2",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "14 条 SET trace 统一命中 kvcache_access_002/kvcache_runtime_2303；Create=0 后 Publish=2，原文明确属性不可修改。"
+      },
+      {
+        "title": "Curated 与历史案例复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/2",
+          "GET /failure_mode/kvcache_access_002",
+          "GET /failure_mode/kvcache_runtime_2303",
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id} ×2"
+        ],
+        "result": "参数一致性案例可直接迁移；双端口 down 案例仅作待验证参考，当前缺端口证据。"
+      },
+      {
+        "title": "报告特征提取与契约准备",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "GET/SET 错误分布保持独立，报告仅生成 JSON。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+      "experience_type": "SKILL",
+      "name": "ds-kv-cache-diagnosis",
+      "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "K_INVALID",
+        "WriteMode",
+        "consistency_type",
+        "DS_KV_CLIENT_SET"
+      ],
+      "search_query_used": "K_INVALID code 2 Publish failed Write mode consistency cache type cannot be modified",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "KV Cache 访问日志中 status_code=0 表示成功，非 0 需要结合 StatusCode 表分析。",
+      "how_used_in_diagnosis": "用于确认应按 SET action、非零状态码和 WriteMode/一致性参数继续下钻；根因仍由现场 trace 证明。",
+      "confidence_on_reference": 0.9,
+      "confidence_reason": "与 curated K_INVALID 解释和本次错误原文一致。"
+    },
+    {
+      "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem 访问日志模式",
+      "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+      "keywords_matched": [
+        "status_code",
+        "K_INVALID",
+        "Write_mode",
+        "consistency_type"
+      ],
+      "search_query_used": "K_INVALID code 2 Publish failed Write mode consistency cache type cannot be modified",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "1–36：通用错误（如 K_DUPLICATED=1、K_INVALID=2、K_NOT_FOUND=3、K_OUT_OF_MEMORY=6、K_TIMEOUT=24/25）。",
+      "how_used_in_diagnosis": "辅助核对 code=2 的通用错误码类别与访问日志字段；未替代后端 curated 解释。",
+      "confidence_on_reference": 0.9,
+      "confidence_reason": "与 GET /failure_mode/status_code/2 返回一致。"
+    }
+  ]
+}

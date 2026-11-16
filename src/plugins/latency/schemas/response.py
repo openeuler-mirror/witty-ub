@@ -288,6 +288,14 @@ class ListLogFailureEventResultResponse(ResponseBase):
         ..., description="查询故障日志列表响应结果"
     )
 
+class LogSemanticProfileMsg(BaseModel):
+    profile: dict[str, float] = Field(
+        default_factory=dict, description="日志语义错误码轮廓（单位向量）"
+    )
+
+class LogSemanticProfileResponse(ResponseBase):
+    result: LogSemanticProfileMsg = Field(..., description="日志语义码轮廓响应结果")
+
 class ListTraceFailureEventResultMsg(BaseModel):
     total: int = Field(..., description="符合条件的trace解析结果总数")
     trace_failure_event_results: list[TraceFailureEventModel] = Field(

@@ -1,0 +1,1059 @@
+{
+  "report": {
+    "title": "扩容窗口 Worker 进程退出导致 GET RPC 超时诊断报告",
+    "report_id": "diag-c7b56509-worker-exit-scale-out-20260930",
+    "generated_at": "2026-11-12 00:00:00+08:00"
+  },
+  "basic_info": {
+    "kb_id": "c7b56509-8093-41c6-b337-76fe88026046",
+    "kb_name": "lingqu_kvcache_dfx_worker_exit_scale_out_001_20260930_07_34_39",
+    "log_file": "lingqu_kvcache_dfx_worker_exit_scale_out_001_20260930_07_34_39",
+    "operation": "GET（SET独立核验无样本）",
+    "time_range_start": "2026-09-30 07:33:39.964",
+    "time_range_end": "2026-09-30 07:33:43.937",
+    "total_trace_cnt": 4,
+    "fault_trace_cnt": 4,
+    "fault_ratio": "100.0（仅解析样本口径）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC deadline exceeded": 0.296562,
+      "T:CLIENT_GET_DELAY_RELEASE_ADD": 0.157003,
+      "T:E1008": 0.94202
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别1个主故障：扩容窗口目标Worker进程实例退出/重启，导致GET读路径对31501端点的RPC在10ms截止时间耗尽。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "解析范围内4条GET trace全部返回1001；SET独立查询无故障样本",
+    "confidence": "高 90%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "扩容窗口目标 Worker 进程退出引发 GET RPC 截止时间耗尽",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 90,
+      "category": "error",
+      "affected_scope": "客户端192.168.219.118；目标Worker 192.168.189.117:31501；4条GET异常trace",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程退出",
+        "one_line_conclusion": "目标Worker 192.168.189.117的进程实例在扩容窗口退出/重启，旧端点未及时响应，使4条GET请求在10ms RPC截止时间耗尽并返回1001。",
+        "fault_domain": "Worker故障/Worker故障-进程退出",
+        "fault_component": "KVCache Worker / WorkerWorker RPC",
+        "fault_function": "GetObjectRemote / QueryAndGet",
+        "fault_function_loc": "data_plane_executor.cpp:77 / object_read_flow.cpp:64",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "解析到的4条GET故障trace全部受影响；非全业务失败率",
+        "confidence": "高 90%",
+        "key_findings": [
+          "GET错误码1001逐码命中4次，占本故障码分布100%；SET同窗独立查询为0",
+          "4条请求均指向192.168.189.117:31501，QueryAndGet与GetObjectRemote都在10ms截止时间耗尽",
+          "目标Worker日志显示故障前PID 552，恢复后PID 934，证明进程实例发生替换；未记录优雅退出",
+          "GET阶段归因100%落在Client/Worker交叉窗口未细分，URMA超时桶为0，排除URMA等待超时主导",
+          "进程为何退出仍缺少termination reason、exit code、OOM或coredump证据，需后续闭环"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "c7b56509-8093-41c6-b337-76fe88026046",
+              "operation": "GET",
+              "start_time": "2026-09-30 07:33:39",
+              "end_time": "2026-09-30 07:33:45"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "c7b56509-8093-41c6-b337-76fe88026046",
+                    "operation": "GET",
+                    "start_time": "2026-09-30 07:33:39",
+                    "end_time": "2026-09-30 07:33:45",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 3,
+                  "returned_windows": 3
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 3,
+              "total_windows": 3
+            },
+            "code_distribution": {
+              "total_count": 4,
+              "items": [
+                {
+                  "code": "1001",
+                  "count": 4,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-30 07:33:39",
+                  "end_time": "2026-09-30 07:33:40",
+                  "complete": true,
+                  "counts": {
+                    "1001": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 07:33:40",
+                  "end_time": "2026-09-30 07:33:41",
+                  "complete": true,
+                  "counts": {
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 07:33:41",
+                  "end_time": "2026-09-30 07:33:42",
+                  "complete": true,
+                  "counts": {
+                    "1001": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 07:33:42",
+                  "end_time": "2026-09-30 07:33:43",
+                  "complete": true,
+                  "counts": {
+                    "1001": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 07:33:43",
+                  "end_time": "2026-09-30 07:33:44",
+                  "complete": true,
+                  "counts": {
+                    "1001": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 07:33:44",
+                  "end_time": "2026-09-30 07:33:45",
+                  "complete": true,
+                  "counts": {
+                    "1001": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "c7b56509-8093-41c6-b337-76fe88026046",
+              "operation": "SET",
+              "start_time": "2026-09-30 07:33:39",
+              "end_time": "2026-09-30 07:33:45"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "c7b56509-8093-41c6-b337-76fe88026046",
+                    "operation": "SET",
+                    "start_time": "2026-09-30 07:33:39",
+                    "end_time": "2026-09-30 07:33:45",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 0,
+                  "returned_windows": 0
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 0,
+              "total_windows": 0
+            },
+            "code_distribution": {
+              "total_count": 0,
+              "items": [],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-30 07:33:39",
+                  "end_time": "2026-09-30 07:33:40",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 07:33:40",
+                  "end_time": "2026-09-30 07:33:41",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 07:33:41",
+                  "end_time": "2026-09-30 07:33:42",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 07:33:42",
+                  "end_time": "2026-09-30 07:33:43",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 07:33:43",
+                  "end_time": "2026-09-30 07:33:44",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 07:33:44",
+                  "end_time": "2026-09-30 07:33:45",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET在2026-09-30 07:33:39—07:33:44间出现4次1001逐码命中，峰值为07:33:43秒内2次；SET同窗无命中。计数是逐码命中次数，不是业务失败率。",
+        "metrics": [
+          {
+            "label": "GET故障trace",
+            "value": "4",
+            "sub": "4秒内短时簇发",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "1001",
+            "sub": "逐码命中4次，占100%",
+            "tone": "danger"
+          },
+          {
+            "label": "SET故障trace",
+            "value": "0",
+            "sub": "同窗独立查询",
+            "tone": "normal"
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 现象观察",
+            "title": "GET错误在4秒内短时簇发",
+            "description": "07:33:39—07:33:43出现4条GET故障trace，全部为1001；逐秒分布为1、1、2次。",
+            "evidence": "POST /log_failure_event_result/list_time_aggregated_failure_events（GET，second）",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 链路定位",
+            "title": "远端31501端点未在10ms内响应",
+            "description": "原始日志中QueryAndGet与GetObjectRemote均指向192.168.189.117:31501；BRPC E1008到达10ms超时，server收发字段为0。",
+            "evidence": "POST /log_failure_event_result/list_log_events；trace 24b33832、465cc31c等",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 生命周期核验",
+            "title": "目标Worker进程实例发生替换",
+            "description": "192.168.189.117在07:33:02仍由PID 552服务；07:35:48恢复注册时PID变为934。两段之间无优雅退出记录，符合进程退出后重启。",
+            "evidence": "本地日志 ci-worker-worker2-1/kvcache.INFO.log 第1—8行（API未暴露无trace生命周期行）",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "排除URMA等待超时及全操作域故障",
+            "description": "GET·URMA超时桶为0；SET阶段和SET故障trace均为0。故障不是URMA completion等待主导，也没有证据表明写路径同时受影响。",
+            "evidence": "POST /stats/stages（GET/SET）与POST /trace/list（GET/SET）",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 根因收敛",
+            "title": "Worker退出使旧RPC端点在路由收敛前失活",
+            "description": "进程实例替换与同端点连续RPC截止时间耗尽共同指向Worker退出/重启；历史已确认案例UB-CASE-002598提供同类机制，但退出触发原因仍须编排事件闭环。",
+            "evidence": "现场PID与trace证据；diag_case_library/ef393977-787b-4c16-b6f0-8ba8abd856cc",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "扩容窗口目标Worker进程退出/重启，旧31501端点在路由收敛前失活",
+        "supporting_knowledge": "status_code 1001；kvcache_access_020；已确认案例UB-CASE-002598；本地经验ds-worker-log-analysis与ds-rdma-transport-diagnosis"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "目标Worker进程退出/重启",
+            "detail": "192.168.189.117 PID 552→934",
+            "type": "origin",
+            "transition": "31501服务窗口失活"
+          },
+          {
+            "label": "旧路由继续访问失活端点",
+            "detail": "QueryAndGet / GetObjectRemote → 192.168.189.117:31501",
+            "transition": "BRPC等待至截止时间"
+          },
+          {
+            "label": "BRPC E1008超时",
+            "detail": "Reached timeout=10ms；server收发无观测",
+            "transition": "上浮为DS错误码1001"
+          },
+          {
+            "label": "副本读取停止重试",
+            "detail": "Stop retrying replica read / Metadata group failed",
+            "transition": "TransportLayer返回失败"
+          },
+          {
+            "label": "GET请求失败",
+            "detail": "4条trace返回K_RPC_DEADLINE_EXCEEDED",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群：ci-kv-ds-1",
+          "客户端Pod/IP：192.168.219.118",
+          "目标Worker：192.168.189.117:31501",
+          "元数据Worker观测：192.168.235.161（3条trace）",
+          "操作域：GET；SET同窗未观测到故障"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "24b33832-bd83-4dcf-b56b-b57a83556bd1",
+          "kind": "error",
+          "why": "1001 + pod 192.168.219.118 + 07:33:39—07:33:40；GetObjectRemote到31501超时",
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_access_020",
+          "pod": "192.168.219.118",
+          "timestamp": "2026-09-30 07:33:39"
+        },
+        {
+          "trace_id": "465cc31c-1407-4935-b782-52f9e4615ee6",
+          "kind": "error",
+          "why": "1001 + pod 192.168.219.118 + 07:33:41—07:33:42；QueryAndGet到31501超时",
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_runtime_400",
+          "pod": "192.168.219.118",
+          "timestamp": "2026-09-30 07:33:41"
+        },
+        {
+          "trace_id": "b054e181-1fa4-420c-a38f-e889ed77dc2a",
+          "kind": "error",
+          "why": "1001 + pod 192.168.219.118 + 07:33:43—07:33:44；数据读取停止重试",
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_runtime_403",
+          "pod": "192.168.219.118",
+          "timestamp": "2026-09-30 07:33:43"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002598",
+          "stars": "★★★★★",
+          "match_logic": "L1命中1001、kvcache_access_020、kvcache_runtime_391；L2命中few_pods且MIXED案例覆盖GET；L5未命中（案例未登记关键词）。",
+          "symptom": "扩容期间Worker端点失活，GET出现RPC超时并访问旧端点。",
+          "root_cause": "扩容期间远端Worker退出/被下线，旧路由和RPC/URMA会话在收敛前继续被访问。",
+          "solution": "冻结继续扩容，恢复Worker，清理旧路由并重建连接；补齐readiness与drain闸门。",
+          "applicability": "direct",
+          "phenomenon_fit": "本次同为扩容语境、31501端点失活和GET 1001；现场PID替换完成核对。",
+          "log_fit": "本次为Reached timeout=10ms；案例覆盖peer dead/Host is down，失败表现不同但生命周期机制一致。",
+          "rc_consistency": "一致；本次退出触发原因仍待termination reason闭环。",
+          "env_diff": "版本与编排配置未取得，复用处置前需核对。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用"
+        },
+        {
+          "rank": "②",
+          "id": "kvcache_access_020",
+          "stars": "★★★★★",
+          "match_logic": "L1精确命中状态码1001与故障模式；L2仅匹配RPC传播域，不直接证明Worker退出；L5症状短语RPC deadline exceeded命中。",
+          "symptom": "请求返回K_RPC_DEADLINE_EXCEEDED，RPC调用超过截止时间。",
+          "root_cause": "网络、服务端处理或本地等待未能在用户请求的RPC期限内完成。",
+          "solution": "检查网络时延、服务端处理时间与RPC超时配置，并确认服务端可按时响应。",
+          "applicability": "reference",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "解释错误码"
+        },
+        {
+          "rank": "③",
+          "id": "experience:ds-rdma-transport-diagnosis",
+          "stars": "★★★★☆",
+          "match_logic": "L1仅通用1001解释；L2命中Worker生命周期与传输连接重建机制；L5未观测到URMA重连关键词。",
+          "symptom": "远端Worker重启后传输连接需要重建。",
+          "root_cause": "传输连接状态与Worker生命周期强相关。",
+          "solution": "恢复Worker后核验WorkerWorker RPC、URMA Jetty和路由快照均已重建。",
+          "applicability": "reference",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "建议已采用"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "冻结继续扩容，核验192.168.189.117对应Worker的Pod/容器状态、restartCount、exit code与termination reason；若仍不健康，恢复或替换实例。",
+          "确认31501健康检查通过后，刷新transport snapshot与对象路由，重建WorkerWorker RPC及URMA Jetty，清理指向旧实例的连接。",
+          "GET优先切换健康副本并重放失败对象；在连接与路由收敛前不要仅通过增大10ms超时掩盖端点失活。"
+        ],
+        "long_term": [
+          "扩容流程增加readiness、连接drain、路由摘除与旧Worker终止之间的顺序闸门。",
+          "持久化采集Worker退出前ERROR/FATAL、coredump、OOMKilled、Kubernetes事件与进程exit code。",
+          "建立按目标Worker聚合的1001、peer dead、路由快照旧端点与连接重建时长告警。"
+        ],
+        "verification": [
+          "连续执行GET复测，确认1001归零且QueryAndGet/GetObjectRemote不再命中旧实例。",
+          "确认SET独立复测仍无故障，不把GET恢复结果外推到写路径。",
+          "核对transport snapshot不含旧实例标识，WorkerWorker连接交换和Jetty重建成功。",
+          "观察至少一个完整扩容周期，确认先摘流量/路由、后终止Worker，且无同类10ms截止超时。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复或替换目标Worker并冻结继续扩容",
+      "depends_on": "取得当前Pod/进程状态",
+      "expected_effect": "31501服务恢复",
+      "verify": "健康检查通过且GET 1001归零"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "清理旧路由并重建RPC/URMA连接",
+      "depends_on": "Worker实例恢复",
+      "expected_effect": "请求不再访问旧实例",
+      "verify": "transport snapshot与连接实例ID一致"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补取termination reason、exit code、OOM/coredump和编排事件",
+      "depends_on": "日志与Kubernetes事件仍在保留期",
+      "expected_effect": "闭环Worker退出触发原因",
+      "verify": "退出时间与07:33:39故障窗对齐"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "为扩容流程增加readiness、drain与路由收敛闸门",
+      "depends_on": "变更流程评审",
+      "expected_effect": "避免旧端点在Worker终止后继续承载流量",
+      "verify": "下一扩容周期无同类故障"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "RPC网络",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "fault": null,
+            "detail": "Σ 各段 rpc network（sdk/master/remote/client 的 network_residual_us）"
+          },
+          {
+            "name": "RPC排队",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "fault": null,
+            "detail": "rpc framework = total − network 残差，含框架排队/调度开销"
+          },
+          {
+            "name": "QueryMeta",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "fault": null,
+            "detail": "worker_access_latency_us − urma_processing_us（queryAndGet 查元数据/业务）"
+          },
+          {
+            "name": "URMA",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "fault": null,
+            "detail": "urma_processing_us（C2W/W2W urma 通信段）"
+          },
+          {
+            "name": "Data Worker服务端处理",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "fault": null,
+            "detail": "worker 内部活跃 local_worker_internal_active_us + sdk/master processing"
+          },
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "100.0%",
+            "fail_share": "100.0%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "P50=10.32ms；P90=10.411ms；max=10.411ms；粗分：request_mode=unknown，客户端等待主导（worker 侧窗口<50% 总时延）；3/4 条 worker 有窗口但干净，worker 窗口占比中位数 0.4%；1/4 条未触达数据面（worker 窗口列空）；RPC 细分归因（QueryMeta/RPC网络/RPC排队）用 skill 脚本 brpc_stage_drill.py（latency-analysis 阶段 4.5）"
+          },
+          {
+            "name": "未解释残差",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "fault": null,
+            "detail": "total_latency_us − Σ 已解释维度（含 urma 调度/线程等未捕获开销）"
+          },
+          {
+            "name": "URMA超时",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "fault": null,
+            "detail": "anomaly_reason/content 文本匹配 timeout/超时；证据取日志 timeout elapsedMs"
+          }
+        ],
+        "conclusion": "GET 共4条参与分类样本，100%落入“Client/Worker交叉窗口未细分”桶且均带故障标记；桶内证据耗时P90=10.411ms，接近客户端10ms截止预算。URMA超时桶为0，因此不能把故障归为URMA等待超时，需结合原始RPC日志与Worker生命周期证据定界。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "fault": null,
+            "detail": "anomaly_reason/content 文本匹配 timeout/超时（近似口径；node48 SET 侧暂 0 命中）"
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "fault": null,
+            "detail": "local_worker_internal_us 与 worker_access_latency_us 均空（该 trace 无 Worker 侧行），证据取总时延"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "fault": null,
+            "detail": "total_latency_us − (sdk_processing_us + local_worker_internal_us) ≥ +0.5ms，证据取残差"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "fault": null,
+            "detail": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "0.0%",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "fault": null,
+            "detail": "有 Worker 侧行且 local_worker_internal_us > sdk_processing_us，证据取 Worker 端写处理耗时"
+          }
+        ],
+        "conclusion": "SET 独立查询无归因样本、无故障trace。空结果仅说明本资产解析范围未观察到SET故障，不与GET桶混合，也不据此推断系统全局健康。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 4,
+    "top_error_codes": [
+      {
+        "code": "1001",
+        "name": "K_RPC_DEADLINE_EXCEEDED",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "Worker进程退出（根因）",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "domain": "RPC截止时间耗尽（传播表现）",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.118",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.161",
+        "host": "—",
+        "pct": "75.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "07:33:39",
+        "level": "2",
+        "pct": "50",
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "07:33:41",
+        "level": "2",
+        "pct": "50",
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "07:33:43",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-c7b56509-20261112",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本会话实时诊断",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索与标签映射",
+        "api_calls": [
+          "experience-skill search-experiences",
+          "读取train_valid.md与gt_labels.json"
+        ],
+        "result": "标签映射为Worker故障/Worker故障-进程退出；经验仅作先验"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "解析任务successful，故障trace 4条，数据可用"
+      },
+      {
+        "title": "Step 3 GET/SET独立组件分诊",
+        "api_calls": [
+          "POST /stats/stages GET",
+          "POST /stats/stages SET",
+          "POST /stats/error_codes|pods|links|heatmap"
+        ],
+        "result": "GET 4条全落cross_window；SET无样本；URMA超时桶均为0"
+      },
+      {
+        "title": "Step 4 Trace与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list GET/SET",
+          "POST /log_failure_event_result/list_trace_events GET/SET",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "4条GET均为1001并指向192.168.189.117:31501"
+      },
+      {
+        "title": "Step 5 Curated知识与生命周期核验",
+        "api_calls": [
+          "GET /failure_mode/status_code/1001",
+          "GET /failure_mode/{id}",
+          "读取本地Worker生命周期日志"
+        ],
+        "result": "PID 552→934，确认进程实例替换；退出触发原因仍缺编排证据"
+      },
+      {
+        "title": "Step 6 历史案例匹配与反证",
+        "api_calls": [
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "命中已确认案例UB-CASE-002598；现场证据核对一致后采用"
+      },
+      {
+        "title": "Step 7 报告数据准备",
+        "api_calls": [
+          "POST /log_failure_event_result/list_time_aggregated_failure_events GET/SET",
+          "error_features.py"
+        ],
+        "result": "生成GET/SET独立错误分布并准备契约JSON"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "KVCache worker exit scale out 扩容 故障 诊断",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_evidence",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "异常退出时，检查最后 ERROR/FATAL 日志、lease 失效、信号处理。",
+      "how_used_in_diagnosis": "指导核对Worker退出前后PID与日志空窗；现场PID切换予以验证。",
+      "confidence_on_reference": 0.88,
+      "confidence_reason": "与现场Worker PID 552→934及无优雅退出日志相符。"
+    },
+    {
+      "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+      "experience_type": "SKILL",
+      "name": "ds-hash-ring-metadata-diagnosis",
+      "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "KVCache worker exit scale out 扩容 故障 诊断",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "扩缩容会触发 hash ring 更新和元数据迁移。",
+      "how_used_in_diagnosis": "现场未采集到ring版本或迁移失败证据，未用于根因。",
+      "confidence_on_reference": 0.45,
+      "confidence_reason": "仅场景相关，缺少本次现场日志支撑。"
+    },
+    {
+      "experience_id": "e449fd44-ab0c-4e21-a00a-f440f681132e",
+      "experience_type": "SKILL",
+      "name": "ds-cluster-management-diagnosis",
+      "source_path": "data/skill_hub/ds-cluster-management-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "KVCache worker exit scale out 扩容 故障 诊断",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "扩缩容会触发 hash ring 更新和元数据迁移。",
+      "how_used_in_diagnosis": "现场无lease或ETCD故障证据，未采纳为根因。",
+      "confidence_on_reference": 0.45,
+      "confidence_reason": "本次1001直接指向Worker 31501请求超时。"
+    },
+    {
+      "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+      "experience_type": "SKILL",
+      "name": "umdk-link-failure-diagnosis",
+      "source_path": "data/skill_hub/umdk-link-failure-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "KVCache worker exit scale out 扩容 故障 诊断",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "出现 ACK_TIMEOUT 时，优先检查网络可达性、链路质量、ack_timeout 配置。",
+      "how_used_in_diagnosis": "现场无ACK_TIMEOUT、PORT_DOWN或URMA超时桶命中，未采纳。",
+      "confidence_on_reference": 0.2,
+      "confidence_reason": "缺少链路故障特征。"
+    },
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "K_RPC_DEADLINE_EXCEEDED Worker 进程退出 扩容 RPC deadline exceeded 31501",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "传输层连接状态与 Worker 生命周期强相关，远端 Worker 重启会触发连接重建。",
+      "how_used_in_diagnosis": "用于建议Worker恢复后重建RPC/URMA连接并核验旧路由收敛。",
+      "confidence_on_reference": 0.86,
+      "confidence_reason": "与PID切换及远端31501超时相符，且不冲突于curated知识。"
+    },
+    {
+      "experience_id": "0f8b80d7-bbc5-4fa1-9899-4405545bfe50",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem 请求第三方日志模式",
+      "source_path": "data/wiki_hub/ds-request-out-log-patterns.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "KVCache worker exit scale out 扩容 故障 诊断",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "Worker 成功从 ETCD 获取 lease，开始注册节点。",
+      "how_used_in_diagnosis": "现场无request_out或ETCD失败证据，未采用。",
+      "confidence_on_reference": 0.2,
+      "confidence_reason": "与本次直接RPC超时证据关联弱。"
+    },
+    {
+      "experience_id": "4ddc5242-7261-4657-a860-78d518b063a3",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem ETCD 事件模式",
+      "source_path": "data/wiki_hub/ds-etcd-event-patterns.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "KVCache worker exit scale out 扩容 故障 诊断",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "节点从 timeout 转换为 dead，会触发自动移除或缩容任务。",
+      "how_used_in_diagnosis": "现场缺少节点timeout/dead事件，未用于结论。",
+      "confidence_on_reference": 0.35,
+      "confidence_reason": "没有ETCD事件现场证据。"
+    },
+    {
+      "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem Worker 错误模式",
+      "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "K_RPC_DEADLINE_EXCEEDED Worker 进程退出 扩容 RPC deadline exceeded 31501",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "K_RPC_DEADLINE_EXCEEDED=1001 | RPC 超时 | 检查网络、负载、线程池",
+      "how_used_in_diagnosis": "用于补充排查项；状态码解释仍以curated接口为准。",
+      "confidence_on_reference": 0.75,
+      "confidence_reason": "与curated 1001解释一致。"
+    },
+    {
+      "experience_id": "4cceeb69-c022-4e21-a00a-f440f681132e",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem Client 错误模式",
+      "source_path": "data/wiki_hub/ds-client-error-patterns.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "K_RPC_DEADLINE_EXCEEDED Worker 进程退出 扩容 RPC deadline exceeded 31501",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "可能原因：\n- Worker 负载高。\n- 网络延迟。\n- 远端对象获取慢。",
+      "how_used_in_diagnosis": "这些是1001通用候选，现场PID切换证据更强，未作为主因。",
+      "confidence_on_reference": 0.4,
+      "confidence_reason": "通用解释不足以覆盖Worker生命周期证据。"
+    },
+    {
+      "experience_id": "862f89c4-27af-4ac8-90b9-266f48ff6b32",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem 共享内存日志模式",
+      "source_path": "data/wiki_hub/ds-shared-memory-patterns.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "KVCache worker exit scale out 扩容 故障 诊断",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "Try connect worker for shm fd transfer, endpoint: ...",
+      "how_used_in_diagnosis": "现场故障为跨节点RPC，未见fd传递失败，未采用。",
+      "confidence_on_reference": 0.25,
+      "confidence_reason": "共享内存通道不是本次失败链路。"
+    },
+    {
+      "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+      "experience_type": "SKILL",
+      "name": "ds-client-log-analysis",
+      "source_path": "data/skill_hub/ds-client-log-analysis/skill_def.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "K_RPC_DEADLINE_EXCEEDED Worker 进程退出 扩容 RPC deadline exceeded 31501",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "K_RPC_DEADLINE_EXCEEDED=1001 | RPC 超时 | 检查 Worker 负载、网络延迟",
+      "how_used_in_diagnosis": "用于保留网络与负载反证检查，不覆盖Worker退出结论。",
+      "confidence_on_reference": 0.7,
+      "confidence_reason": "与curated解释一致，但现场进程实例切换证据更具体。"
+    },
+    {
+      "experience_id": "a43dcf67-d3bb-4fb5-99ba-e47e6343ea7d",
+      "experience_type": "SKILL",
+      "name": "ds-shared-memory-diagnosis",
+      "source_path": "data/skill_hub/ds-shared-memory-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "K_RPC_DEADLINE_EXCEEDED Worker 进程退出 扩容 RPC deadline exceeded 31501",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "共享内存不可用，回退 RPC 超时",
+      "how_used_in_diagnosis": "现场未见共享内存失败或回退证据，未采用。",
+      "confidence_on_reference": 0.2,
+      "confidence_reason": "原始日志明确是GetObjectRemote/QueryAndGet远端RPC。"
+    },
+    {
+      "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+      "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "K_RPC_DEADLINE_EXCEEDED Worker 进程退出 扩容 RPC deadline exceeded 31501",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "K_RPC_DEADLINE_EXCEEDED=1001 | RPC 超时 | 检查网络、负载、线程池",
+      "how_used_in_diagnosis": "现场URMA超时桶为0，未将URMA设备故障作为根因。",
+      "confidence_on_reference": 0.35,
+      "confidence_reason": "仅RPC通用解释命中，URMA故障特征不命中。"
+    },
+    {
+      "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem 访问日志模式",
+      "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+      "keywords_matched": [
+        "Worker",
+        "扩容",
+        "RPC超时"
+      ],
+      "search_query_used": "K_RPC_DEADLINE_EXCEEDED Worker 进程退出 扩容 RPC deadline exceeded 31501",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_evidence",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": null,
+      "content_quoted": "1000–1010：RPC/传输错误（如 K_RPC_DEADLINE_EXCEEDED=1001、K_URMA_NEED_CONNECT=1006）。",
+      "how_used_in_diagnosis": "辅助核对访问日志1001属于RPC/传输错误；现场API与curated接口完成验证。",
+      "confidence_on_reference": 0.82,
+      "confidence_reason": "与四条access记录及curated状态码解释一致。"
+    }
+  ]
+}

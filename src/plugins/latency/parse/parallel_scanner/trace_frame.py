@@ -645,9 +645,9 @@ _LIGHT_TRACE_COLUMNS: tuple[str, ...] = (
 # 与 bucket/statistics.py PERCENTILE_MODES 同源的本地副本：仅在分层 import
 # 不可用时兜底（见 _percentile_modes），正常路径读 statistics 的真值。
 _PERCENTILE_MODES_FALLBACK: tuple[tuple[str, float], ...] = (
-    ("median", 0.5),
+    ("avg", 0.5),
     ("p99", 0.99),
-    ("p9999", 0.9999),
+    ("p9999l", 0.9999),
     ("pmax", 1.0),
 )
 

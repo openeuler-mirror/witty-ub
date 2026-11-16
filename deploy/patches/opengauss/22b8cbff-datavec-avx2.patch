@@ -1,0 +1,39 @@
+diff --git a/src/common/backend/utils/adt/CMakeLists.txt b/src/common/backend/utils/adt/CMakeLists.txt
+--- a/src/common/backend/utils/adt/CMakeLists.txt
++++ b/src/common/backend/utils/adt/CMakeLists.txt
+@@ -40,7 +40,9 @@ if ((APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm") OR CMAKE_SYSTEM_PROCESSOR M
+ if ((APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm") OR CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64*")
+     set(datavec_OPTFLAGS "")
++elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
++    set(datavec_OPTFLAGS -mavx2 -mfma -mtune=generic)
+ else ()
+     set(datavec_OPTFLAGS "-march=native")
+ endif ()
+ 
+ set(datavec_OPTFLAGS ${datavec_OPTFLAGS} -ftree-vectorize -fassociative-math -fno-signed-zeros -fno-trapping-math)
+diff --git a/src/common/backend/utils/adt/Makefile b/src/common/backend/utils/adt/Makefile
+--- a/src/common/backend/utils/adt/Makefile
++++ b/src/common/backend/utils/adt/Makefile
+@@ -44,7 +44,10 @@ OBJS = acl.o arrayfuncs.o array_selfuncs.o array_typanalyze.o \
+ 	median_aggs.o expr_distinct.o nlssort.o memory_func.o first_last_agg.o encrypt_decrypt.o expandeddatum.o \
+ 	subtype.o bitvec.o f2s.o d2s.o halfutils.o halfvec.o sparsevec.o vector.o corr_sk.o bfile.o
+ 
+ VECTOR_OPT = -march=native
++ifneq ($(filter x86_64 amd64 AMD64,$(shell uname -m)),)
++VECTOR_OPT = -mavx2 -mfma -mtune=generic
++endif
+ 
+ ifeq ($(shell uname -s), Darwin)
+        ifeq ($(shell uname -m), arm)
+diff --git a/build/script/utils/cmake_compile.sh b/build/script/utils/cmake_compile.sh
+--- a/build/script/utils/cmake_compile.sh
++++ b/build/script/utils/cmake_compile.sh
+@@ -115,7 +115,7 @@ function make_gaussdb_kernel()
+     if [ $? -ne 0 ]; then
+         die "cmake failed."
+     fi
+-    cpus_num=$(grep -w processor /proc/cpuinfo|wc -l)
++    cpus_num=${OPENGAUSS_BUILD_JOBS:-$(grep -w processor /proc/cpuinfo|wc -l)}
+     make -sj ${cpus_num}
+     if [ $? -ne 0 ]; then
+         die "make failed."

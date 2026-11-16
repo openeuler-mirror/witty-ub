@@ -6,7 +6,8 @@ from latency.schemas.request import (
     ListTimeAggregatedFailureEventRequest,
     ListPodAggregatedFailureEventRequest,
     ListSrcDstAggregatedFailureEventRequest,
-    GetErrCodeMetricsRequest
+    GetErrCodeMetricsRequest,
+    LogSemanticProfileRequest,
 )
 from latency.schemas.response import (
     ListLogFailureEventResultResponse,
@@ -14,9 +15,11 @@ from latency.schemas.response import (
     ListTimeAggregatedFailureEventResponse,
     ListPodAggregatedFailureEventResponse,
     ListSrcDstAggregatedFailureEventResponse,
-    GetErrCodeMetricsResponse
+    GetErrCodeMetricsResponse,
+    LogSemanticProfileResponse,
 )
 from latency.services.log_failure_event_result import LogFailureEventResultService
+from latency.services.log_semantic_profile import resolve_profile
 from latency.services.resource_id import ResourceIdService
 from latency.schemas.flow_summary import (
     ListFlowSummaryRequest,
@@ -43,6 +46,25 @@ async def list_log_failure_event_results(
     await ResourceIdService.validate_request(req)
     msg = await LogFailureEventResultService.list_log_failure_event_result(req)
     return ListLogFailureEventResultResponse(result=msg)
+
+@router.post(
+    "/log_semantic_profile",
+    response_model=LogSemanticProfileResponse,
+    operation_id="get_log_semantic_profile",
+    description=(
+        "Compute the log-semantic-code profile (unit vector of semantic error codes "
+        "and log constant tokens from E/W raw logs) for one knowledge base. Used to "
+        "persist the profile with reports/cases and to feed the case-matching "
+        "secondary ranking channel. Returns an empty profile when no logs are found."
+    ),
+)
+async def get_log_semantic_profile(
+    req: Annotated[LogSemanticProfileRequest, Body()],
+) -> LogSemanticProfileResponse:
+    profile = await resolve_profile(
+        kb_name=req.kb_name, log_id=req.log_id, kb_id=req.kb_id
+    )
+    return LogSemanticProfileResponse(result={"profile": profile})
 
 @router.post(
     "/list_trace_events",

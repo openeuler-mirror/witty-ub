@@ -1,0 +1,185 @@
+{
+  "report": {
+    "title": "KVCache ScaleIn 期间 TCP 链路闪断诊断报告",
+    "report_id": "RPT-20261112-4BE0",
+    "generated_at": "2026-11-12 15:56:44"
+  },
+  "basic_info": {
+    "kb_id": "4be05600-a514-4e56-a483-427623fdc95b",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_scale_in_tcp_link_flapping_001_20261021_15_21_28",
+    "log_file": "lingqu_kvcache_dfx_worker_process_scale_in_tcp_link_flapping_001_20261021_15_21_28 (log_id=34c62c22-c411-42c3-9076-dfa251d8b51d)",
+    "operation": "GET / SET（独立分析）",
+    "time_range_start": "2026-10-21 15:21:32",
+    "time_range_end": "2026-10-21 15:22:25",
+    "total_trace_cnt": 41,
+    "fault_trace_cnt": 41,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：ScaleIn 窗口内 SET 路由可用 Worker 集合被过滤为空；故障标签按指定训练映射固定为硬件故障/网卡故障-闪断。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "41 条 SET trace 在约 51 秒内全部返回状态码 37，集中于客户端 Pod 192.168.235.186；GET 未检出故障 trace。",
+    "confidence": "中高 74%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "ScaleIn 窗口 SET 路由耗尽（固定标签：网卡闪断）",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P1",
+      "confidence": 74,
+      "category": "error",
+      "affected_scope": "datasystem_gdm；客户端 Pod 192.168.235.186；2026-10-21 15:21:32—15:22:24；41 条 SET trace",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-闪断",
+        "one_line_conclusion": "ScaleIn 窗口内 41 条 SET 请求因全部 Worker 被路由过滤而返回 K_NO_AVAILABLE_WORKER(37)；按用户指定训练标签映射固定标注为网卡故障-闪断，但本资产缺少 NIC/交换机遥测，物理闪断仍需闭环。",
+        "fault_domain": "硬件故障/网卡故障-闪断",
+        "fault_component": "以太网 TCP 链路与 KVCache 客户端 Worker 路由",
+        "fault_function": "客户端路由健康过滤 / access_recorder.cpp:1066",
+        "fault_function_loc": "access_recorder.cpp:1066",
+        "affected_scope_pct": "100.00",
+        "affected_scope_desc": "当前解析到的 41 条 trace 全部为 SET 故障，集中于 192.168.235.186；无 GET 故障记录",
+        "confidence": "中高 74%",
+        "key_findings": [
+          "SET 侧仅有状态码 37，共 41 次逐码命中，占本故障错误码构成 100%；GET 侧为空结果，不能据此外推系统整体健康。",
+          "故障从 15:21:32.828 持续至 15:22:24.178；分钟桶为 27 次和 14 次，呈短时簇发。",
+          "代表日志均明确记录 All workers filtered or excluded，curated 故障模式为 kvcache_access_054（无可用工作节点）。",
+          "SET 阶段归因 41/41 落入 set_no_evidence，P90 仅 0.080 ms；未见 Worker 侧处理行，也未见 URMA timeout，支持失败发生在数据面执行之前。",
+          "故障标签固定来自 train_valid.md 对应描述 worker_process_scale_in_tcp_link_flapping 与 gt_labels.json 映射；该标签不替代现场 NIC 证据。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {"label": "SET 错误码命中", "value": "41", "sub": "逐码命中次数，非业务失败率", "tone": "danger"},
+          {"label": "主导错误码", "value": "37", "sub": "K_NO_AVAILABLE_WORKER · 100%", "tone": "danger"},
+          {"label": "影响操作", "value": "SET", "sub": "GET 同窗无故障桶", "tone": "warn"}
+        ],
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {"kb_id": "4be05600-a514-4e56-a483-427623fdc95b", "operation": "GET", "start_time": "2026-10-21 15:21:00", "end_time": "2026-10-21 15:23:00"},
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {"endpoint": "/log_failure_event_result/list_time_aggregated_failure_events", "pages": [{"request": {"kb_id": "4be05600-a514-4e56-a483-427623fdc95b", "operation": "GET", "start_time": "2026-10-21 15:21:00", "end_time": "2026-10-21 15:23:00", "interval": "minute", "sort_by": "timestamp", "sort_desc": false, "page_num": 1, "page_cnt": 100}, "response_path": "result.events", "total_windows": 0, "returned_windows": 0}]},
+            "coverage": {"complete": true, "returned_windows": 0, "total_windows": 0},
+            "code_distribution": {"total_count": 0, "items": [], "other_count": 0},
+            "timeline": {"interval_seconds": 60, "windows": [{"start_time": "2026-10-21 15:21:00", "end_time": "2026-10-21 15:22:00", "complete": true, "counts": {}, "other_count": 0}, {"start_time": "2026-10-21 15:22:00", "end_time": "2026-10-21 15:23:00", "complete": true, "counts": {}, "other_count": 0}]}
+          },
+          {
+            "operation": "SET",
+            "scope": {"kb_id": "4be05600-a514-4e56-a483-427623fdc95b", "operation": "SET", "start_time": "2026-10-21 15:21:00", "end_time": "2026-10-21 15:23:00"},
+            "code_filter": ["37"],
+            "unit": "trace_code_occurrence",
+            "source": {"endpoint": "/log_failure_event_result/list_time_aggregated_failure_events", "pages": [{"request": {"kb_id": "4be05600-a514-4e56-a483-427623fdc95b", "operation": "SET", "start_time": "2026-10-21 15:21:00", "end_time": "2026-10-21 15:23:00", "interval": "minute", "sort_by": "timestamp", "sort_desc": false, "page_num": 1, "page_cnt": 100}, "response_path": "result.events", "total_windows": 2, "returned_windows": 2}]},
+            "coverage": {"complete": true, "returned_windows": 2, "total_windows": 2},
+            "code_distribution": {"total_count": 41, "items": [{"code": "37", "count": 41, "share_pct": 100.0}], "other_count": 0},
+            "timeline": {"interval_seconds": 60, "windows": [{"start_time": "2026-10-21 15:21:00", "end_time": "2026-10-21 15:22:00", "complete": true, "counts": {"37": 27}, "other_count": 0}, {"start_time": "2026-10-21 15:22:00", "end_time": "2026-10-21 15:23:00", "complete": true, "counts": {"37": 14}, "other_count": 0}]}
+          }
+        ],
+        "conclusion": "GET 与 SET 已独立统计：GET 在同窗无已识别故障模式记录；SET 共 41 次状态码 37 逐码命中，全部集中在两个相邻分钟桶。空 GET 结果仅说明本解析口径未检出，不代表系统整体健康。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {"step_label": "数据核验", "title": "解析任务完成且故障 trace 已落库", "description": "日志文件任务报告 Task completed successfully，定界产出并落库 41 条故障 trace。", "evidence": "GET /task/86953187-a683-4ba1-8ae0-e3977abaaaa1；log_file.trace_failure_event_cnt=41", "confirmed": true},
+          {"step_label": "操作定界", "title": "故障仅命中 SET 写路径", "description": "GET 的阶段归因与故障统计均为空；SET 有 41 条 trace，错误码全部为 37。", "evidence": "/stats/stages(GET/SET)、/stats/error_codes(GET/SET)、/trace/list", "confirmed": true},
+          {"step_label": "直接机制", "title": "客户端路由可用 Worker 集合为空", "description": "41 条代表记录都映射到 kvcache_access_054，原文为 All workers filtered or excluded；curated 状态码 37 解释为没有可用于路由的 Worker。", "evidence": "状态码 37；failure_mode=kvcache_access_054；3 条原始日志交叉验证", "confirmed": true},
+          {"step_label": "阶段排除", "title": "排除 URMA completion timeout 与 Worker 慢处理为主因", "description": "SET set_urma_timeout=0，41 条均落 set_no_evidence，客户端总时延 P90 仅 0.080 ms，说明请求未进入可观测 Worker 数据面。", "evidence": "/stats/stages operation=SET；sample_cnt=41，truncated=false", "excluded": true},
+          {"step_label": "根因候选", "title": "ScaleIn 期间 TCP 链路瞬态闪断", "description": "固定训练标签及已确认同类案例均指向 ScaleIn 期间 TCP 瞬态可达性丢失，并可解释 Worker 健康过滤；但本资产没有 E110、carrier、驱动或交换机端口事件，故物理层根因保留为待闭环候选。", "evidence": "固定标签：硬件故障/网卡故障-闪断；历史案例 UB-CASE-002633；本次仅有路由耗尽现场证据", "confirmed": false},
+          {"step_label": "反证检查", "title": "尚不能排除正常 ScaleIn 停监听或 Worker 进程退出", "description": "若只是进程按缩容流程退出，也会触发健康过滤并返回 37；当前缺少 Worker 生命周期、BRPC connect errno 与 NIC 遥测时间线，无法仅凭同时发生断言物理闪断。", "evidence": "本次 src_ip/dst_ip、host 为空；/stats/links total=0；本地资产无 NIC/交换机日志", "confirmed": true}
+        ],
+        "confirmed_root_cause": "已确认的直接故障机制是 ScaleIn 窗口客户端路由将全部 Worker 过滤，导致 SET 快速返回 K_NO_AVAILABLE_WORKER(37)。物理 TCP 网卡闪断是固定训练标签与同类已确认案例支持的首要候选，但缺少本次 NIC/交换机/BRPC E110 证据，尚不能与正常 ScaleIn 停监听或 Worker 进程退出完全区分。",
+        "supporting_knowledge": "Curated kvcache_access_054：客户端路由未找到同节点 Worker，或全部 Worker 均被健康状态和排除条件过滤。已确认案例 UB-CASE-002633 提供同类 ScaleIn+TCP 闪断处置路径，但历史证据不作为本次现场事实。"
+      },
+      "propagation": {
+        "chain": [
+          {"label": "ScaleIn / TCP 可达性候选异常", "detail": "缩容窗口内 Worker 可达性或生命周期发生瞬态变化；物理闪断待 NIC 遥测确认。", "type": "candidate", "transition": "健康检查与路由状态变化"},
+          {"label": "Worker 健康过滤", "detail": "客户端路由快照中所有 Worker 被过滤或排除。", "type": "confirmed", "transition": "可用 Worker 集合变为空"},
+          {"label": "SET 路由失败", "detail": "请求未进入 Worker 数据面，直接返回 K_NO_AVAILABLE_WORKER(37)。", "type": "confirmed", "transition": "41 条写请求失败"}
+        ],
+        "impact_scope": ["datasystem_gdm 集群", "客户端 Pod 192.168.235.186", "SET 写操作 41 条 trace", "15:21:32.828—15:22:24.178 短时簇发"]
+      },
+      "evidence_traces": [
+        {"trace_id": "8cf70a1b-9f4c-40a3-8882-a87675338d35", "kind": "error", "why": "status_code=37 + pod=192.168.235.186 + 15:21:00—15:23:00；首条异常原文为 All workers filtered or excluded", "status_code": "37", "failure_mode_id": "kvcache_access_054", "pod": "192.168.235.186", "timestamp": "2026-10-21 15:21:32"},
+        {"trace_id": "4224b9e2-3d37-4764-ba8b-3b5477dcb815", "kind": "error", "why": "status_code=37 + pod=192.168.235.186 + 15:21:00—15:23:00；故障簇中段代表 trace", "status_code": "37", "failure_mode_id": "kvcache_access_054", "pod": "192.168.235.186", "timestamp": "2026-10-21 15:21:55"},
+        {"trace_id": "1af15f1f-ee9b-48b6-a8f8-f543f6c9d1ad", "kind": "error", "why": "status_code=37 + pod=192.168.235.186 + 15:21:00—15:23:00；末条异常原文为 All workers filtered or excluded", "status_code": "37", "failure_mode_id": "kvcache_access_054", "pod": "192.168.235.186", "timestamp": "2026-10-21 15:22:24"}
+      ],
+      "knowledge_matches": [
+        {"id": "kvcache_access_054", "rank": 1, "stars": 5, "match_logic": "L1 命中：状态码 37 与 failure_mode_id 完全一致；L2 命中：SET 在路由阶段无可用 Worker；L3 命中：原文 All workers filtered or excluded。", "symptom": "请求返回 K_NO_AVAILABLE_WORKER，没有可用于路由的 Worker。", "root_cause": "客户端路由未找到同节点 Worker，或全部 Worker 均被健康状态和排除条件过滤。", "solution": "检查 Worker 健康状态、路由配置和排除条件；恢复可用 Worker并刷新路由后重试。", "applicability": "direct", "phenomenon_fit": "与 41 条现场记录完全一致", "log_fit": "状态码、故障模式和原文三项一致", "rc_consistency": "直接故障机制一致", "env_diff": "curated 知识不证明物理 NIC 根因", "adaptation": "需补 NIC 与 ScaleIn 生命周期证据"},
+        {"id": "UB-CASE-002633", "rank": 2, "stars": 4, "match_logic": "L1 命中：37/kvcache_access_054；L2 部分命中：SET 与 MIXED 操作域、ScaleIn 短时可用性丢失；L3 未命中：本次没有历史案例中的 E110/目标 TCP 端点证据。", "symptom": "已确认历史案例：ScaleIn 期间 TCP 短时不可达，并伴随 Worker 路由过滤。", "root_cause": "历史案例候选为以太网 TCP 瞬态可达性丢失；物理层仍需系统与交换机遥测闭环。", "solution": "冻结继续缩容，核对 NIC carrier/驱动/交换机端口和 Worker 31501 存活；恢复后刷新路由与 transport snapshot。", "applicability": "adjust", "phenomenon_fit": "同为 ScaleIn、状态码 37 和路由耗尽", "log_fit": "本次仅命中路由过滤，不含 E110", "rc_consistency": "方向一致但现场证据深度不足", "env_diff": "历史案例跨多资产且 MIXED；本次仅单资产 SET", "adaptation": "先补本次 NIC/交换机与进程时间线，再采用物理层结论"},
+        {"id": "EXP-103dbc3b-153f-4b06-9e76-049e5719afde", "rank": 3, "stars": 3, "match_logic": "L1 不命中：经验未给状态码 37；L2 语义命中：节点上下线、ScaleDown 与路由/迁移；L3 未命中：本次未采集 ring 版本或 scale-down 任务日志。", "symptom": "节点上下线会触发 hash ring 更新和元数据迁移，缩容异常可能影响路由。", "root_cause": "仅作为检查 ScaleIn 顺序、节点状态和路由收敛的经验方向，不作为本次现场根因。", "solution": "核对 ring 版本、del_node、ScaleDown 任务与 Worker 状态机时间线。", "applicability": "reference", "phenomenon_fit": "与 ScaleIn 场景相关", "log_fit": "无本次 ring 日志支撑", "rc_consistency": "补充排查方向", "env_diff": "经验适用于一般 Hash Ring/迁移问题", "adaptation": "仅检查与故障时间窗相邻记录"}
+      ],
+      "solution": {
+        "short_term": [
+          "暂停受影响节点的后续 ScaleIn，确认至少一个健康 Worker 留在路由池，避免可用集合再次为空。",
+          "检查故障窗前后 5 秒内目标 Worker 进程、31501 监听、健康状态和路由快照；恢复 Worker 后刷新客户端路由并按幂等策略重试失败 SET。",
+          "同步采集主机 NIC carrier、ethtool -S 错包/丢包/重置计数、内核 NETDEV/WATCHDOG 与交换机端口 up/down，区分物理闪断和正常停监听。"
+        ],
+        "long_term": [
+          "为 ScaleIn 建立 quiesce→停止新路由→等待 inflight→撤销快照→关闭监听→退出进程的有序握手。",
+          "将 Worker 实例 epoch、路由快照刷新和 TCP 建连 errno 纳入统一可观测链，关联 NIC/交换机事件。",
+          "增加 1—3 秒 TCP 闪断与 ScaleIn 并发故障注入门禁，分别覆盖 GET/SET 和路由耗尽降级。"
+        ],
+        "verification": [
+          "连续执行不少于 20 轮 ScaleIn：SET 状态码 37=0，GET 故障码=0，且不再出现 All workers filtered or excluded。",
+          "故障注入时验证异常 Worker 先从路由池隔离、至少一个 Worker 保持可用，恢复后快照自动收敛。",
+          "若判定网卡闪断，须在同一秒级时间线上看到 carrier/驱动/交换机端口事件与业务故障一致；若无此证据，则下调物理网卡根因置信度。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {"priority": "P0", "fault_ids": ["F01"], "action": "暂停继续 ScaleIn，恢复并保留至少一个健康 Worker，刷新客户端路由。", "depends_on": "Worker 生命周期与路由管理权限", "expected_effect": "立即消除状态码 37 路由耗尽", "verify": "SET 复测不再出现 37/All workers filtered or excluded"},
+    {"priority": "P1", "fault_ids": ["F01"], "action": "对齐 NIC、内核、交换机、Worker 进程和 BRPC 建连时间线。", "depends_on": "主机与交换机遥测", "expected_effect": "闭环网卡闪断与正常 ScaleIn 停监听的根因区分", "verify": "秒级时间线能够确认或证伪 carrier/端口 flap"},
+    {"priority": "P2", "fault_ids": ["F01"], "action": "改造 ScaleIn 有序摘流与路由快照撤销流程，并加入 TCP 短断回归。", "depends_on": "控制面与客户端路由改造", "expected_effect": "缩容和瞬态链路故障下不再耗尽全部 Worker", "verify": "20 轮 ScaleIn 与 1—3 秒短断注入无状态码 37"}
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {"operation": "GET", "total_p99_ms": null, "share_bar": [], "stages": [], "conclusion": "GET 已独立调用 /stats/stages；sample_cnt=0，归因子集为空，不能将空结果解释为系统健康。"},
+      {"operation": "SET", "total_p99_ms": null, "share_bar": [{"name": "SET·数据面未观测", "pct": 100.0, "cls": "s-warn"}], "stages": [{"name": "SET·数据面未观测", "p99": "—", "anomaly_rate": "—", "fail_share": "41/41 分类样本", "status": "warn", "fault": "F01", "detail": "set_no_evidence：trace_cnt=41、fail_cnt=0、P50=0.078ms、P90=0.080ms、max=0.094ms；缺 Worker 侧行，不能判为 Worker 慢。"}], "conclusion": "SET 41 条样本全部落入 set_no_evidence，客户端时延极低，故障发生于路由过滤阶段而非可观测数据面。"}
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 41,
+    "top_error_codes": [{"code": "37", "name": "K_NO_AVAILABLE_WORKER", "pct": 100.0, "fault": "F01"}],
+    "top_failure_domains": [{"domain": "kvcache_access_054 无可用工作节点", "pct": 100.0, "fault": "F01"}],
+    "top_pods": [{"pod": "192.168.235.186", "host": "未解析", "pct": 100.0, "fault": "F01"}],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "2026-10-21 15:21", "level": 3, "pct": 65.853659, "spike": true, "lat_ms": null, "fault": "F01"},
+      {"time": "2026-10-21 15:22", "level": 2, "pct": 34.146341, "spike": false, "lat_ms": null, "fault": "F01"}
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-4be05600-20261112",
+    "total_steps": 7,
+    "api_calls": 25,
+    "duration": "本会话实时取证",
+    "steps": [
+      {"title": "经验库预检索", "api_calls": ["experience-skill SKILL/WIKI search"], "result": "命中传输、ScaleDown、KVCache 诊断经验；仅作先验假设。"},
+      {"title": "数据完整性核验", "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "GET /task/{task_id}", "GET /log_parse_result/options"], "result": "任务成功，41 条故障 trace 已落库；cluster=datasystem_gdm，host 未解析。"},
+      {"title": "GET/SET 独立组件分诊", "api_calls": ["POST /stats/stages operation=GET", "POST /stats/stages operation=SET"], "result": "GET 无归因样本；SET 41/41 落 set_no_evidence，未混桶。"},
+      {"title": "精确统计", "api_calls": ["POST /stats/error_codes", "POST /stats/pods", "POST /stats/links", "POST /stats/heatmap"], "result": "SET 状态码 37 共 41 trace，单 Pod 集中，两个分钟桶；链路端点未解析。"},
+      {"title": "Trace 与原始日志下钻", "api_calls": ["POST /trace/list", "POST /log_failure_event_result/list_trace_events", "POST /log_failure_event_result/list_log_events"], "result": "41 条 trace 均为 kvcache_access_054；代表日志明确为 All workers filtered or excluded。"},
+      {"title": "Curated 与历史案例解释", "api_calls": ["GET /failure_mode/status_code/37", "GET /failure_mode/kvcache_access_054", "POST /diag_case_library/search", "GET /diag_case_library/{case_id}"], "result": "直接机制与 curated 一致；历史案例 UB-CASE-002633 仅作为待验证同类假设并已回写命中。"},
+      {"title": "报告契约生成", "api_calls": ["error_features.py", "render_report.py --validate-only", "render_report.py"], "result": "错误分布由脚本提取，最终 JSON 与 HTML 按统一契约校验和渲染。"}
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {"experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230", "experience_type": "SKILL", "name": "ds-rdma-transport-diagnosis", "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md", "keywords_matched": ["TCP", "连接重建", "Worker"], "search_query_used": "KVCache Worker scale in TCP link flapping 网卡闪断 连接失败", "used_in_stage": "stage_0_pre_search", "adoption_status": "considered_not_adopted", "conflict_with_curated_knowledge": false, "conflict_detail": "", "content_quoted": "Jetty 失效通常由远端 Worker 重启或网络抖动触发，需要观察是否自动恢复。", "how_used_in_diagnosis": "本次无 URMA/Jetty 失效现场记录，未作为根因依据。", "confidence_on_reference": 0.35, "confidence_reason": "传输方向相关，但协议与现场错误码不一致。"},
+      {"experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde", "experience_type": "SKILL", "name": "ds-hash-ring-metadata-diagnosis", "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis/skill_def.md", "keywords_matched": ["scale down", "节点上下线", "路由"], "search_query_used": "status_code 37 K_NO_AVAILABLE_WORKER kvcache_access_054 scale down", "used_in_stage": "stage_6_post_search,recommendation", "adoption_status": "adopted_as_suggestion", "conflict_with_curated_knowledge": false, "conflict_detail": "", "content_quoted": "节点上下线会触发 hash ring 更新和元数据迁移。", "how_used_in_diagnosis": "用于建议核对 ScaleIn、ring 版本与 Worker 状态时间线，不充当现场证据。", "confidence_on_reference": 0.68, "confidence_reason": "ScaleIn 语义相关，但当前资产缺 ring 日志。"},
+      {"experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79", "experience_type": "SKILL", "name": "umdk-link-failure-diagnosis", "source_path": "data/skill_hub/umdk-link-failure-diagnosis/skill_def.md", "keywords_matched": ["链路故障", "PORT_DOWN", "网卡"], "search_query_used": "status_code 37 K_NO_AVAILABLE_WORKER kvcache_access_054 scale down", "used_in_stage": "stage_6_post_search,recommendation", "adoption_status": "adopted_as_suggestion", "conflict_with_curated_knowledge": false, "conflict_detail": "", "content_quoted": "部分链路问题需要结合硬件、固件、物理连接信息。", "how_used_in_diagnosis": "转化为补采 NIC/驱动/交换机遥测的闭环建议，未把 URMA 模式套入 TCP 现场。", "confidence_on_reference": 0.55, "confidence_reason": "链路取证方法可迁移，但本次是 TCP 且无 UMDK 事件。"}
+    ],
+    "summary": {"total_references": 3, "adopted_as_evidence_count": 0, "adopted_as_suggestion_count": 2, "considered_not_adopted_count": 1, "conflicted_with_curated_count": 0, "reference_coverage_note": "经验库内容仅用于提出排查方向和补证建议；现场结论以本资产 API、原始日志与 curated 故障模式为准。"}
+  }
+}

@@ -29,6 +29,7 @@ _ENV_RAG_RERANK_MODEL_PROVIDER="${RAG_RERANK_MODEL_PROVIDER:-}"
 _ENV_RAG_RERANK_ENDPOINT="${RAG_RERANK_ENDPOINT:-}"
 _ENV_OPENGAUSS_RAG_IMAGE="${OPENGAUSS_RAG_IMAGE:-}"
 _ENV_OPENGAUSS_RAG_IMAGE_NO_LSE="${OPENGAUSS_RAG_IMAGE_NO_LSE:-}"
+_ENV_OPENGAUSS_RAG_IMAGE_X86_AVX2="${OPENGAUSS_RAG_IMAGE_X86_AVX2:-}"
 _ENV_WITTY_RAG_CORE_IMAGE="${WITTY_RAG_CORE_IMAGE:-}"
 _ENV_WITTY_RAG_MCP_IMAGE="${WITTY_RAG_MCP_IMAGE:-}"
 _ENV_WITTY_NETWORK="${WITTY_NETWORK:-}"
@@ -55,10 +56,12 @@ fi
 [ -n "$_ENV_RAG_RERANK_ENDPOINT" ] && RAG_RERANK_ENDPOINT="$_ENV_RAG_RERANK_ENDPOINT"
 [ -n "$_ENV_OPENGAUSS_RAG_IMAGE" ] && OPENGAUSS_RAG_IMAGE="$_ENV_OPENGAUSS_RAG_IMAGE"
 [ -n "$_ENV_OPENGAUSS_RAG_IMAGE_NO_LSE" ] && OPENGAUSS_RAG_IMAGE_NO_LSE="$_ENV_OPENGAUSS_RAG_IMAGE_NO_LSE"
+[ -n "$_ENV_OPENGAUSS_RAG_IMAGE_X86_AVX2" ] && OPENGAUSS_RAG_IMAGE_X86_AVX2="$_ENV_OPENGAUSS_RAG_IMAGE_X86_AVX2"
 [ -n "$_ENV_WITTY_RAG_CORE_IMAGE" ] && WITTY_RAG_CORE_IMAGE="$_ENV_WITTY_RAG_CORE_IMAGE"
 [ -n "$_ENV_WITTY_RAG_MCP_IMAGE" ] && WITTY_RAG_MCP_IMAGE="$_ENV_WITTY_RAG_MCP_IMAGE"
 [ -n "$_ENV_WITTY_NETWORK" ] && WITTY_NETWORK="$_ENV_WITTY_NETWORK"
 unset _ENV_RAG_CONFIG_FILE _ENV_RAG_RUNTIME_DIR _ENV_RAG_RERANK_MODEL_API_KEY_SECRET_FILE _ENV_RAG_DB_SECRET_FILE _ENV_RAG_ACCESS_KEY_SECRET_FILE _ENV_RAG_MODEL_API_KEY_SECRET_FILE _ENV_OPENGAUSS_RAG_IMAGE _ENV_OPENGAUSS_RAG_IMAGE_NO_LSE \
+    _ENV_OPENGAUSS_RAG_IMAGE_X86_AVX2 \
     _ENV_RAG_EMBEDDING_MODEL_NAME _ENV_RAG_EMBEDDING_MODEL_PROVIDER _ENV_RAG_EMBEDDING_ENDPOINT \
     _ENV_RAG_EMBEDDING_API_KEY _ENV_RAG_EMBEDDING_DIMENSION _ENV_RAG_RERANK_ENABLED \
     _ENV_RAG_RERANK_MODEL_NAME _ENV_RAG_RERANK_MODEL_PROVIDER _ENV_RAG_RERANK_ENDPOINT \
@@ -67,6 +70,10 @@ unset _ENV_RAG_CONFIG_FILE _ENV_RAG_RUNTIME_DIR _ENV_RAG_RERANK_MODEL_API_KEY_SE
 WITTY_NETWORK="${WITTY_NETWORK:-${PG_NETWORK:-witty-ub-network}}"
 OPENGAUSS_RAG_CONTAINER="${OPENGAUSS_RAG_CONTAINER:-opengauss-rag}"
 OPENGAUSS_RAG_IMAGE_NO_LSE="${OPENGAUSS_RAG_IMAGE_NO_LSE:-hub-harbor.oepkgs.net/neocopilot/opengauss:7.0.0-lite-noLSE}"
+OPENGAUSS_RAG_IMAGE_X86_AVX2="${OPENGAUSS_RAG_IMAGE_X86_AVX2:-}"
+
+# shellcheck source=deploy/docker/lib/opengauss_cpu.sh
+source "${SCRIPT_DIR}/lib/opengauss_cpu.sh"
 
 cpu_has_lse() {
     grep -qw atomics "${1:-/proc/cpuinfo}" 2>/dev/null
@@ -87,7 +94,13 @@ if [ -z "${OPENGAUSS_RAG_IMAGE:-}" ]; then
             fi
             ;;
         x86_64|amd64)
-            OPENGAUSS_RAG_IMAGE="hub-harbor.oepkgs.net/neocopilot/opengauss@sha256:4fd44608ca3571d3ceb5bc2bc5cbcde131dde2ed2b8068ff3f58effc8c60d885"
+            if ! opengauss_select_x86_image; then
+                log_error "x86 openGauss requires AVX2 and FMA, and OPENGAUSS_RAG_IMAGE_X86_AVX2 must be configured."
+                log_error "OPENGAUSS_RAG_IMAGE remains an explicit override."
+                exit 1
+            fi
+            OPENGAUSS_RAG_IMAGE="$OPENGAUSS_RAG_SELECTED_IMAGE"
+            log_info "x86 CPU tier ${OPENGAUSS_RAG_CPU_TIER}: using openGauss image ${OPENGAUSS_RAG_IMAGE}"
             ;;
         *)
             log_error "Unsupported host architecture: $(uname -m); set OPENGAUSS_RAG_IMAGE explicitly in deploy.conf"
@@ -177,11 +190,19 @@ if [ -z "${WITTY_RAG_CORE_IMAGE:-}" ]; then
 fi
 WITTY_RAG_MCP_IMAGE="${WITTY_RAG_MCP_IMAGE:-hub-harbor.oepkgs.net/neocopilot/witty-rag-core:mcp}"
 WITTY_RAG_CORE_HOST_PORT="${WITTY_RAG_CORE_HOST_PORT:-9990}"
-RAG_WORKERS="${RAG_WORKERS:-4}"
+# Task slots live in process memory. Multiple Uvicorn workers can claim a task
+# in one process and deinit it in another, leaking the original process slot.
+# Keep one API scheduler process; document parsing still uses [task].cpu_limit
+# child processes (4 by default).
+RAG_WORKERS="${RAG_WORKERS:-1}"
 RAG_CONFIG_FILE="${RAG_CONFIG_FILE:-${SCRIPT_DIR}/../rag-core.toml}"
 RAG_RUNTIME_DIR="${RAG_RUNTIME_DIR:-/opt/witty-rag}"
 RAG_RUNTIME_CONFIG="${RAG_RUNTIME_DIR}/config/config.toml"
 RAG_LOG_DIR="${RAG_RUNTIME_DIR}/logs"
+# RAG Core stores uploaded source documents here until parsing finishes. Keep
+# it outside the service container so a routine container rebuild cannot leave
+# database tasks pointing at vanished file_upload/<doc_id> files.
+RAG_FILE_DIR="${RAG_RUNTIME_DIR}/files"
 
 if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
     log_error "Docker 不可用，请先安装并启动 Docker。"
@@ -261,23 +282,64 @@ connect_network() {
     fi
 }
 
-ensure_image "$OPENGAUSS_RAG_IMAGE"
-if docker container inspect "$OPENGAUSS_RAG_CONTAINER" >/dev/null 2>&1; then
-    log_warn "复用已有容器 ${OPENGAUSS_RAG_CONTAINER}，不会删除其数据"
-    connect_network "$OPENGAUSS_RAG_CONTAINER"
-    [ "$(docker inspect -f '{{.State.Running}}' "$OPENGAUSS_RAG_CONTAINER")" = "true" ] || \
-        docker start "$OPENGAUSS_RAG_CONTAINER" >/dev/null
-else
-    RAG_DB_PASSWORD="$(tr -d '\r\n' <"$RAG_DB_SECRET_FILE")"
+start_opengauss_container() {
+    local db_password
+    db_password="$(tr -d '\r\n' <"$RAG_DB_SECRET_FILE")"
     docker run -d \
         --name "$OPENGAUSS_RAG_CONTAINER" \
         --restart unless-stopped \
         --network "$WITTY_NETWORK" \
         -p "${OPENGAUSS_RAG_HOST_PORT}:5432" \
         -v "${OPENGAUSS_RAG_VOLUME}:/var/lib/opengauss" \
-        -e GS_PASSWORD="$RAG_DB_PASSWORD" \
+        -e GS_PASSWORD="$db_password" \
         "$OPENGAUSS_RAG_IMAGE" >/dev/null
-    unset RAG_DB_PASSWORD
+    unset db_password
+}
+
+rollback_opengauss_container() {
+    local rollback_container="$1"
+    docker rm -f "$OPENGAUSS_RAG_CONTAINER" >/dev/null 2>&1 || true
+    docker rename "$rollback_container" "$OPENGAUSS_RAG_CONTAINER"
+    docker start "$OPENGAUSS_RAG_CONTAINER" >/dev/null
+}
+
+ensure_image "$OPENGAUSS_RAG_IMAGE"
+OPENGAUSS_RAG_ROLLBACK_CONTAINER=""
+RAG_DB_SESSION_RESET_REQUIRED=false
+if docker container inspect "$OPENGAUSS_RAG_CONTAINER" >/dev/null 2>&1; then
+    CURRENT_OPENGAUSS_IMAGE_ID="$(docker inspect -f '{{.Image}}' "$OPENGAUSS_RAG_CONTAINER")"
+    TARGET_OPENGAUSS_IMAGE_ID="$(docker image inspect -f '{{.Id}}' "$OPENGAUSS_RAG_IMAGE")"
+    if [ "$CURRENT_OPENGAUSS_IMAGE_ID" = "$TARGET_OPENGAUSS_IMAGE_ID" ]; then
+        log_warn "复用已有容器 ${OPENGAUSS_RAG_CONTAINER}，不会删除其数据"
+        connect_network "$OPENGAUSS_RAG_CONTAINER"
+        if [ "$(docker inspect -f '{{.State.Running}}' "$OPENGAUSS_RAG_CONTAINER")" != "true" ]; then
+            docker start "$OPENGAUSS_RAG_CONTAINER" >/dev/null
+            RAG_DB_SESSION_RESET_REQUIRED=true
+        fi
+    else
+        CURRENT_OPENGAUSS_VOLUME="$(docker inspect "$OPENGAUSS_RAG_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/var/lib/opengauss"}}{{.Name}}{{end}}{{end}}')"
+        if [ "$CURRENT_OPENGAUSS_VOLUME" != "$OPENGAUSS_RAG_VOLUME" ]; then
+            log_error "现有 ${OPENGAUSS_RAG_CONTAINER} 未使用预期数据卷 ${OPENGAUSS_RAG_VOLUME}，拒绝自动切换镜像"
+            exit 1
+        fi
+        OPENGAUSS_RAG_ROLLBACK_CONTAINER="${OPENGAUSS_RAG_CONTAINER}-pre-cpu-switch"
+        if docker container inspect "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" >/dev/null 2>&1; then
+            log_error "回滚容器名已存在: ${OPENGAUSS_RAG_ROLLBACK_CONTAINER}，请先人工确认后处理"
+            exit 1
+        fi
+        log_warn "openGauss 镜像已变化，将保留数据卷并切换容器；健康检查失败时自动回滚"
+        RAG_DB_SESSION_RESET_REQUIRED=true
+        docker stop "$OPENGAUSS_RAG_CONTAINER" >/dev/null
+        docker rename "$OPENGAUSS_RAG_CONTAINER" "$OPENGAUSS_RAG_ROLLBACK_CONTAINER"
+        if ! start_opengauss_container; then
+            rollback_opengauss_container "$OPENGAUSS_RAG_ROLLBACK_CONTAINER"
+            log_error "新 openGauss 容器启动失败，已恢复旧容器"
+            exit 1
+        fi
+    fi
+else
+    RAG_DB_SESSION_RESET_REQUIRED=true
+    start_opengauss_container
     log_ok "已启动 ${OPENGAUSS_RAG_CONTAINER}"
 fi
 
@@ -292,16 +354,159 @@ for _ in $(seq 1 60); do
     sleep 3
 done
 if [ "$db_ready" != true ]; then
+    if [ -n "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" ]; then
+        rollback_opengauss_container "$OPENGAUSS_RAG_ROLLBACK_CONTAINER"
+        log_error "新 openGauss 未能就绪，已恢复旧容器（数据卷未删除）"
+    fi
     log_error "openGauss 未在规定时间内就绪，请检查: docker logs ${OPENGAUSS_RAG_CONTAINER}"
     exit 1
+fi
+
+# `select 1` only proves that the server accepts connections.  Witty RAG also
+# requires the Chinese parser for document tsvector writes and hybrid keyword
+# search.  Exercise the persisted text-search configuration before accepting a
+# replacement image, so a missing chparser add-on triggers the existing image
+# rollback instead of surfacing later as RAG HTTP 500 responses.
+CHPARSER_CHECK_OUTPUT=""
+if ! CHPARSER_CHECK_OUTPUT="$(docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
+    "gsql -d ${RAG_DB_NAME} -p 5432 -tAc \"SELECT to_tsvector(c.oid::regconfig, '中文分词健康检查') FROM pg_ts_config c WHERE c.cfgname = 'chinese' LIMIT 1\"" \
+    2>/dev/null)" || [ -z "$(printf '%s' "$CHPARSER_CHECK_OUTPUT" | tr -d '[:space:]')" ]; then
+    if [ -n "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" ]; then
+        rollback_opengauss_container "$OPENGAUSS_RAG_ROLLBACK_CONTAINER"
+        log_error "新 openGauss 中文分词自检失败，已恢复旧容器（数据卷未删除）"
+    else
+        log_error "openGauss 中文分词自检失败，请确认镜像包含 chparser.so 及扩展定义"
+    fi
+    exit 1
+fi
+unset CHPARSER_CHECK_OUTPUT
+log_ok "openGauss 中文分词自检通过"
+
+if [ -n "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" ]; then
+    docker rm "$OPENGAUSS_RAG_ROLLBACK_CONTAINER" >/dev/null
+    log_ok "openGauss 新镜像健康检查通过，旧容器已移除（数据卷保留）"
 fi
 docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
     "gs_guc reload -D /var/lib/opengauss/data -c \"behavior_compat_options='accept_empty_str'\"" >/dev/null
 log_ok "openGauss 已就绪并启用 accept_empty_str"
 
+# GS_PASSWORD only initializes a new openGauss data directory.  Recreating the
+# container while reusing OPENGAUSS_RAG_VOLUME therefore does not update the
+# password stored in the database.  Always verify the secret over the Docker
+# network (localhost is configured as trust and cannot validate a password),
+# then reconcile a stale volume in place before RAG Core starts.
+rag_db_password_is_current() {
+    local db_password="$1"
+    docker exec --user omm \
+        -e RAG_SYNC_PASSWORD="$db_password" \
+        -e RAG_SYNC_HOST="$OPENGAUSS_RAG_CONTAINER" \
+        -e RAG_SYNC_USER="$RAG_DB_USER" \
+        -e RAG_SYNC_DB="$RAG_DB_NAME" \
+        "$OPENGAUSS_RAG_CONTAINER" bash -lc \
+        'gsql -h "$RAG_SYNC_HOST" -p 5432 -U "$RAG_SYNC_USER" -W "$RAG_SYNC_PASSWORD" -d "$RAG_SYNC_DB" -tAc "select 1"' \
+        >/dev/null 2>&1
+}
+
+run_rag_db_admin_sql() {
+    local sql="$1"
+    printf '%s\n' "$sql" | \
+        docker exec -i --user omm \
+            -e RAG_SYNC_DB="$RAG_DB_NAME" \
+            "$OPENGAUSS_RAG_CONTAINER" bash -lc \
+            'gsql -d "$RAG_SYNC_DB" -p 5432 -v ON_ERROR_STOP=1' \
+            >/dev/null
+}
+
+validate_rag_db_user() {
+    # The role name becomes an SQL identifier below.  Reject unexpected input
+    # instead of interpolating arbitrary configuration into a privileged query.
+    if [[ ! "$RAG_DB_USER" =~ ^[A-Za-z_][A-Za-z0-9_\$]*$ ]]; then
+        log_error "Invalid RAG_DB_USER for password synchronization: ${RAG_DB_USER}"
+        return 1
+    fi
+}
+
+sync_rag_db_password() {
+    local db_password="$1"
+    printf 'ALTER USER %s WITH PASSWORD :\x27rag_password\x27;\n' "$RAG_DB_USER" | \
+        docker exec -i --user omm \
+            -e RAG_SYNC_PASSWORD="$db_password" \
+            -e RAG_SYNC_DB="$RAG_DB_NAME" \
+            "$OPENGAUSS_RAG_CONTAINER" bash -lc \
+            'gsql -d "$RAG_SYNC_DB" -p 5432 -v ON_ERROR_STOP=1 -v rag_password="$RAG_SYNC_PASSWORD"' \
+            >/dev/null
+}
+
+sync_rag_db_password_allow_reuse() {
+    local db_password="$1"
+    local reuse_time sync_rc=0 restore_rc=0
+    reuse_time="$(docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
+        "gsql -d ${RAG_DB_NAME} -p 5432 -tAc 'show password_reuse_time'" 2>/dev/null | tr -d '[:space:]')"
+    if [[ ! "$reuse_time" =~ ^[0-9]+$ ]]; then
+        log_error "无法读取 openGauss password_reuse_time（实际值: ${reuse_time:-empty}）"
+        return 1
+    fi
+
+    # A secret recreated during partial cleanup may still be in openGauss's
+    # password history.  Temporarily allow that one managed password to be
+    # restored, then immediately put the cluster-wide policy back.
+    if [ "$reuse_time" != "0" ]; then
+        docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
+            "gs_guc reload -D /var/lib/opengauss/data -c \"password_reuse_time=0\"" \
+            >/dev/null || return 1
+    fi
+    sync_rag_db_password "$db_password" || sync_rc=$?
+    if [ "$reuse_time" != "0" ]; then
+        docker exec "$OPENGAUSS_RAG_CONTAINER" su - omm -c \
+            "gs_guc reload -D /var/lib/opengauss/data -c \"password_reuse_time=${reuse_time}\"" \
+            >/dev/null || restore_rc=$?
+    fi
+    if [ "$restore_rc" -ne 0 ]; then
+        log_error "openGauss password_reuse_time 恢复失败，请检查数据库配置"
+        return 1
+    fi
+    return "$sync_rc"
+}
+
+RAG_DB_PASSWORD_CURRENT="$(tr -d '\r\n' <"$RAG_DB_SECRET_FILE")"
+if ! validate_rag_db_user; then
+    unset RAG_DB_PASSWORD_CURRENT
+    exit 1
+fi
+if rag_db_password_is_current "$RAG_DB_PASSWORD_CURRENT"; then
+    log_ok "openGauss 口令与密钥文件一致"
+else
+    # Repeated failures from an old RAG Core can lock the account.  Unlock and
+    # retry first: attempting to set an already-current password is rejected by
+    # openGauss's password-reuse policy.
+    # The existing RAG Core may still hold the old password in its in-memory
+    # connection pools.  Force a stateless service-container rebuild after any
+    # authentication repair so it cannot immediately lock the account again.
+    RAG_DB_SESSION_RESET_REQUIRED=true
+    log_warn "openGauss 当前口令认证失败，正在解锁账号并检查密钥一致性"
+    if ! run_rag_db_admin_sql "ALTER USER ${RAG_DB_USER} ACCOUNT UNLOCK;"; then
+        unset RAG_DB_PASSWORD_CURRENT
+        log_error "openGauss 账号自动解锁失败"
+        exit 1
+    fi
+    if rag_db_password_is_current "$RAG_DB_PASSWORD_CURRENT"; then
+        log_ok "openGauss 账号已解锁，口令与密钥文件一致"
+    else
+        log_warn "检测到持久化 openGauss 口令与密钥文件不一致，正在保留数据并自动对齐"
+        if ! sync_rag_db_password_allow_reuse "$RAG_DB_PASSWORD_CURRENT" || \
+            ! rag_db_password_is_current "$RAG_DB_PASSWORD_CURRENT"; then
+            unset RAG_DB_PASSWORD_CURRENT
+            log_error "openGauss 口令自动对齐失败"
+            exit 1
+        fi
+        log_ok "openGauss 口令已对齐（数据卷未删除）"
+    fi
+fi
+unset RAG_DB_PASSWORD_CURRENT
+
 # Keep model and service settings supplied by the user, but force both RAG
 # database sections to use the dedicated openGauss container.
-mkdir -p "$(dirname "$RAG_RUNTIME_CONFIG")" "$RAG_LOG_DIR"
+mkdir -p "$(dirname "$RAG_RUNTIME_CONFIG")" "$RAG_LOG_DIR" "$RAG_FILE_DIR"
 RAG_CONFIG_OLD_SHA="$(sha256sum "$RAG_RUNTIME_CONFIG" 2>/dev/null | awk '{print $1}' || true)"
 export RAG_RENDER_SOURCE="$RAG_CONFIG_FILE"
 export RAG_RENDER_TARGET="$RAG_RUNTIME_CONFIG"
@@ -460,7 +665,48 @@ else
     fi
 fi
 
+RAG_CORE_PATCH_FILE_RESOLVED="${RAG_CORE_PATCH_FILE:-${SCRIPT_DIR}/../patches/rag-core/process_handler.py}"
+RAG_CORE_SITE_PATCH_FILE_RESOLVED="${RAG_CORE_SITE_PATCH_FILE:-${SCRIPT_DIR}/../patches/rag-core/sitecustomize.py}"
+if [ -f "$RAG_CORE_PATCH_FILE_RESOLVED" ]; then
+    # Docker records a canonical bind-mount source.  Canonicalize our side too,
+    # otherwise a path containing "../" makes every healthy container look
+    # stale and forces an unnecessary rebuild on each deployment.
+    RAG_CORE_PATCH_FILE_RESOLVED="$(readlink -f "$RAG_CORE_PATCH_FILE_RESOLVED")"
+fi
+if [ -f "$RAG_CORE_SITE_PATCH_FILE_RESOLVED" ]; then
+    RAG_CORE_SITE_PATCH_FILE_RESOLVED="$(readlink -f "$RAG_CORE_SITE_PATCH_FILE_RESOLVED")"
+fi
+
+rag_core_patch_is_current() {
+    [ -f "$RAG_CORE_PATCH_FILE_RESOLVED" ] || return 0
+    [ -f "$RAG_CORE_SITE_PATCH_FILE_RESOLVED" ] || return 0
+    [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" \
+        --format '{{range .Mounts}}{{if eq .Destination "/rag-service/rag_core/task/process_handler.py"}}{{.Source}}{{end}}{{end}}' \
+        2>/dev/null)" = "$RAG_CORE_PATCH_FILE_RESOLVED" ] &&
+        [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" \
+            --format '{{range .Mounts}}{{if eq .Destination "/rag-service/sitecustomize.py"}}{{.Source}}{{end}}{{end}}' \
+            2>/dev/null)" = "$RAG_CORE_SITE_PATCH_FILE_RESOLVED" ]
+}
+
 start_rag_core_container() {
+    # 本地补丁：修复「解析子进程退出后任务槽位不回收」导致的解析永久被拒问题。
+    # 镜像内置版本缺少该修复，故以只读挂载方式覆盖对应文件。
+    local -a rag_patch_mount=()
+    local -a rag_site_patch_mount=()
+    local rag_patch_file="$RAG_CORE_PATCH_FILE_RESOLVED"
+    local rag_site_patch_file="$RAG_CORE_SITE_PATCH_FILE_RESOLVED"
+    if [ -f "$rag_patch_file" ]; then
+        rag_patch_mount=(-v "${rag_patch_file}:/rag-service/rag_core/task/process_handler.py:ro")
+        log_info "应用 RAG Core 槽位回收补丁: ${rag_patch_file}"
+    else
+        log_warn "未找到 RAG Core 补丁 ${rag_patch_file}，容器将使用镜像内置版本"
+    fi
+    if [ -f "$rag_site_patch_file" ]; then
+        rag_site_patch_mount=(-v "${rag_site_patch_file}:/rag-service/sitecustomize.py:ro")
+        log_info "应用 RAG Core 启动补丁: ${rag_site_patch_file}"
+    else
+        log_warn "未找到 RAG Core 启动补丁 ${rag_site_patch_file}，容器将使用镜像内置版本"
+    fi
     docker run -d \
         --name "$WITTY_RAG_CORE_CONTAINER" \
         --restart unless-stopped \
@@ -470,7 +716,10 @@ start_rag_core_container() {
         -e RAG_WORKERS="$RAG_WORKERS" \
         -v "${RAG_RUNTIME_CONFIG}:/rag-service/rag_core/config.toml:ro" \
         -v "${RAG_LOG_DIR}:/rag-service/logs" \
+        -v "${RAG_FILE_DIR}:/rag-service/rag_core/file" \
         -v "${RAG_ACCESS_KEY_SECRET_DIR}:/run/secrets/witty-rag:ro" \
+        "${rag_patch_mount[@]+"${rag_patch_mount[@]}"}" \
+        "${rag_site_patch_mount[@]+"${rag_site_patch_mount[@]}"}" \
         "$WITTY_RAG_MCP_IMAGE" >/dev/null
     log_ok "已启动 ${WITTY_RAG_CORE_CONTAINER}"
 }
@@ -478,11 +727,14 @@ start_rag_core_container() {
 if docker container inspect "$WITTY_RAG_CORE_CONTAINER" >/dev/null 2>&1; then
     if [ "$(docker inspect -f '{{.State.Running}}' "$WITTY_RAG_CORE_CONTAINER")" = "true" ] &&
         [ "$RAG_CONFIG_CHANGED" != true ] &&
+        [ "$RAG_DB_SESSION_RESET_REQUIRED" != true ] &&
+        rag_core_patch_is_current &&
+        [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/rag-service/rag_core/file"}}yes{{end}}{{end}}' 2>/dev/null)" = "yes" ] &&
         [ "$(docker inspect "$WITTY_RAG_CORE_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/run/secrets/witty-rag"}}yes{{end}}{{end}}' 2>/dev/null)" = "yes" ] &&
         docker exec "$WITTY_RAG_CORE_CONTAINER" \
             curl -fsS --max-time 3 http://127.0.0.1:9988/health_check >/dev/null 2>&1 &&
         docker exec "$WITTY_RAG_CORE_CONTAINER" sh -lc \
-            'status=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:12312/sse || true); [ "$status" = 200 ]'; then
+            'status=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:12312/sse 2>/dev/null || true); [ "$status" = 200 ]'; then
         log_warn "复用正在运行的容器 ${WITTY_RAG_CORE_CONTAINER}，不会中断现有 RAG 服务"
         connect_network "$WITTY_RAG_CORE_CONTAINER"
     else

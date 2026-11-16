@@ -40,6 +40,8 @@ def _validate_asset_time_str(value: str) -> str:
 
 AssetTimeStr = Annotated[str, AfterValidator(_validate_asset_time_str)]
 
+ASSET_NAME_MAX_LENGTH = 200
+
 
 class RunBrpcDiagnosisRequest(StrictRequestModel):
     start_time: str = Field(
@@ -61,7 +63,12 @@ class RunBrpcDiagnosisRequest(StrictRequestModel):
 
 class CreateLogKnowledgeRequest(StrictRequestModel):
     image_bytes: Optional[bytes] = Field(default=None, description="知识相关的图片数据")
-    name: str = Field(..., min_length=1, description="知识名称")
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=ASSET_NAME_MAX_LENGTH,
+        description="知识名称",
+    )
     description: str = Field(..., min_length=1, description="知识描述")
 
     @field_validator("name")
@@ -75,12 +82,20 @@ class CreateLogKnowledgeRequest(StrictRequestModel):
 
 class UpdateLogKnowledgeRequest(StrictRequestModel):
     image_bytes: Optional[bytes] = Field(default=None, description="知识相关的图片数据")
-    name: Optional[str] = Field(default=None, description="知识名称")
+    name: Optional[str] = Field(
+        default=None,
+        max_length=ASSET_NAME_MAX_LENGTH,
+        description="知识名称",
+    )
     description: Optional[str] = Field(default=None, description="知识描述")
 
 
 class ListLogKnowledgeRequest(StrictRequestModel):
-    name: Optional[str] = Field(default=None, description="知识名称，支持模糊查询")
+    name: Optional[str] = Field(
+        default=None,
+        max_length=ASSET_NAME_MAX_LENGTH,
+        description="知识名称，支持模糊查询",
+    )
     description: Optional[str] = Field(
         default=None, description="知识描述，支持模糊查询"
     )
@@ -236,6 +251,19 @@ class ListLogFailureEventResultRequest(StrictRequestModel):
     log_id: Optional[str] = Field(default=None, description="日志文件路径ID，用于过滤指定日志文件路径的结果")
     trace_ids: list[str] = Field(
         default_factory=list, description="trace_id列表"
+    )
+
+
+class LogSemanticProfileRequest(StrictRequestModel):
+    kb_name: Optional[str] = Field(
+        default=None,
+        description="资产名（= log_file.name，报告 basic_info.kb_name）；优先按此解析日志",
+    )
+    log_id: Optional[str] = Field(
+        default=None, description="日志文件ID；给定则直接使用该文件"
+    )
+    kb_id: Optional[str] = Field(
+        default=None, description="知识库ID；仅作为 log_file.kb_id 兜底"
     )
 
 class ListTraceFailureEventResultRequest(StrictRequestModel):

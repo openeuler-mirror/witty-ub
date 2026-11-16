@@ -1,0 +1,425 @@
+{
+  "report": {
+    "title": "KVCache metadata affinity refine GET 路径 TCP 时延诊断报告",
+    "report_id": "diag-c85b9e80-20261112-tcp-delay",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "c85b9e80-39b7-46b5-8d3b-9d237bcd12e0",
+    "kb_name": "lingqu_kvcache_dfx_metadata_affinity_refine_tcp_delay_001_20261009_02_20_11",
+    "log_file": "lingqu_kvcache_dfx_metadata_affinity_refine_tcp_delay_001_20261009_02_20_11",
+    "operation": "GET（SET 无样本，独立列示）",
+    "time_range_start": "2026-10-09 02:19:32.674",
+    "time_range_end": "2026-10-09 02:19:54.702",
+    "total_trace_cnt": 7,
+    "fault_trace_cnt": 7,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到 1 个 GET 时延故障：客户端 192.168.219.82 到两个 Metadata Worker 的 TCP 公共路径出现稳定约 10ms 等待，Worker 处理保持微秒级。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "22 秒内 7/7 条已解析 GET trace 被标记为时延异常，涉及 1 个客户端端点和 2 个 Metadata Worker 端点；未观测到 SET trace 或错误码事件。",
+    "confidence": "高 92%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "客户端至 Metadata Worker 的 TCP 路径固定时延",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 92,
+      "category": "latency",
+      "affected_scope": "cluster ci-kv-ds-1；Client 192.168.219.82；Metadata Worker 192.168.189.67、192.168.235.141；2026-10-09 02:19:32.674~02:19:54.702",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-时延高",
+        "one_line_conclusion": "GET 请求的 10.121~10.167ms 端到端时延几乎全部落在客户端等待窗口；两个 Metadata Worker 仅处理 20~35us，现场日志明确使用 TCP，故障定界到客户端侧网卡/TCP 公共传输路径，具体物理点位仍需网络遥测确认。",
+        "fault_domain": "硬件故障/网卡故障-时延高",
+        "fault_component": "Client 到 Metadata Worker 的以太网/TCP 公共路径",
+        "fault_function": "DS_KV_CLIENT_GET / direct_query_and_get",
+        "fault_function_loc": "ds_client_access_6407.log / access_recorder.cpp:1066",
+        "affected_scope_pct": "100.00",
+        "affected_scope_desc": "已解析的 7 条 GET trace 全部异常；共同客户端为 192.168.219.82，目标分布于两个 Metadata Worker",
+        "confidence": "高 92%",
+        "key_findings": [
+          "GET·cross_window 桶覆盖 7/7 个分类样本，证据耗时 P50 10.148ms、P90 10.167ms、最大 10.167ms；该占比是分类样本占比，不是耗时占比。",
+          "7 条 trace 的 Client 总时延为 10.121~10.167ms，sdk_processing_us 为 10.101~10.145ms；Worker access 仅 20~35us，中位约占端到端时延 0.2%。",
+          "同一客户端 192.168.219.82 访问 192.168.189.67 与 192.168.235.141 两个 Metadata Worker 均复现，排除单一远端 Worker 业务处理慢。",
+          "Worker 访问日志对代表 trace 标明 transportType:TCP；7 条 trace 均无故障码，URMA 超时桶为 0，属于纯时延而非通断故障。",
+          "故障标签按用户指定的 train_valid.md 路径映射到 gt_labels.json 的 metadata_affinity_refine_tcp_delay 标签：硬件故障/网卡故障-时延高。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "GET Client 总时延",
+            "value": "10.121~10.167ms",
+            "sub": "7 条异常 trace；阶段统计 P50 10.148ms、P90 10.167ms",
+            "tone": "danger"
+          },
+          {
+            "label": "Worker 处理窗口",
+            "value": "20~35us",
+            "sub": "中位 23us，约为 Client 总时延的 0.2%",
+            "tone": "success"
+          },
+          {
+            "label": "故障码",
+            "value": "0",
+            "sub": "7 条代表 GET trace 均无 failure_codes",
+            "tone": "neutral"
+          },
+          {
+            "label": "SET 样本",
+            "value": "0",
+            "sub": "SET 阶段统计和异常 trace 查询均为空",
+            "tone": "neutral"
+          }
+        ],
+        "stages": [
+          {
+            "name": "GET·Client/Worker 交叉窗口（cross_window）",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100.0% 分类样本",
+            "status": "bottleneck",
+            "detail": "7/7 条异常 trace 归入该互斥桶；Worker 窗口干净且仅占总时延中位约 0.2%。/stats/stages 不提供 P99，故不以 P90 或最大值冒充 P99；当前日志也无健康基线。",
+            "features": {
+              "operation": "GET",
+              "bucket_key": "cross_window",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "c85b9e80-39b7-46b5-8d3b-9d237bcd12e0",
+                  "log_id": "b47a6691-fb28-430b-8324-26102996998a",
+                  "operation": "GET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[5]"
+              },
+              "sample_cnt": 7,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（yuanrong us 覆盖子集），每条 trace 按最大互斥阶段归入唯一桶；本次无正常 trace 入样。",
+              "trace_cnt": 7,
+              "normal_cnt": 0,
+              "anomalous_cnt": 7,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 10.148,
+                "p90_ms": 10.167,
+                "max_ms": 10.167,
+                "client_p50_ms": 10.148,
+                "client_p90_ms": 10.167
+              },
+              "tail_ratio_p90_p50": 1.001872,
+              "note": "粗分：request_mode=unknown，客户端等待主导；7/7 条 Worker 有窗口但干净，Worker 窗口占比中位数 0.2%。",
+              "action": "补采 Client/Worker 间 TCP RTT、重传、网卡队列与交换路径指标，进一步区分网卡、qdisc、主机 TCP 栈或交换路径。",
+              "top_traces": [
+                {"trace_id": "9ebe5fe6-381d-404a-b235-f0f87a66c5c7", "evidence_ms": 10.167, "client_ms": 10.167},
+                {"trace_id": "22735996-769a-4914-a8ad-d7553000a264", "evidence_ms": 10.152, "client_ms": 10.152},
+                {"trace_id": "eb1ddc78-2a48-4117-873e-f5e2e544c7a9", "evidence_ms": 10.15, "client_ms": 10.15},
+                {"trace_id": "c798a74f-01f6-444f-a322-5aa173d1de34", "evidence_ms": 10.148, "client_ms": 10.148},
+                {"trace_id": "5451e5a6-a23b-45fc-a425-816715cd09c6", "evidence_ms": 10.14, "client_ms": 10.14}
+              ]
+            }
+          },
+          {
+            "name": "Metadata Worker QueryAndGet 处理",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "20~35us",
+            "status": "ok",
+            "detail": "同 trace 的 DS_POSIX_QUERY_AND_GET 仅 20~35us；未发现 Worker 处理成为主瓶颈。"
+          }
+        ],
+        "conclusion": "额外等待集中在 <strong>GET 客户端到 Metadata Worker 的未细分交叉窗口</strong>：7/7 条样本 P50 10.148ms、P90 10.167ms，Worker 仅处理 20~35us。现场没有可比健康基线，因此不补造放大倍数；bRPC perf 行为 0 条，无法再拆分框架网络/排队，但同 trace 访问日志的 <code>transportType:TCP</code> 与双目标复现支持把故障域定界到客户端侧 TCP 公共路径。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据可用性",
+            "title": "解析任务成功且 7 条异常 trace 已落库",
+            "description": "日志文件关联任务状态为 successful，任务报告显示 parse task completed，并在解析后存储 7 个时延异常 trace_id。",
+            "evidence": "GET /task/14fd0bc9-8507-469c-90c3-ce682959e60f；POST /log_file/list/{kb_id}",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "② 操作域隔离",
+            "title": "异常仅出现在 GET，SET 无可分析样本",
+            "description": "GET /stats/stages 返回 sample_cnt=7；SET 返回 sample_cnt=0。GET 异常 trace 为 7 条，SET 异常 trace 为 0 条，未跨 operation 混桶。",
+            "evidence": "POST /stats/stages operation=GET/SET；POST /trace/list operation=GET/SET",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "③ 阶段定界",
+            "title": "客户端等待主导，Worker 业务处理正常",
+            "description": "7/7 条 GET trace 全部归入 cross_window，证据耗时 P50 10.148ms、P90 10.167ms；各 trace 的 Worker access 仅 20~35us，而 sdk_processing 为 10.101~10.145ms。",
+            "evidence": "POST /stats/stages GET；POST /log_parse_result/list；latency_features.py 输出",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "排除单一 Worker 慢、URMA 超时和通断故障",
+            "description": "同一客户端到两个 Metadata Worker 均复现，两个 Worker 的 QueryAndGet 都是微秒级；URMA 超时桶为 0，错误码统计和时延 trace 的通断交叉查询均为 0。",
+            "evidence": "POST /stats/pods；原始 Worker access.log；POST /stats/error_codes；POST /log_failure_event_result/list_trace_events",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 传输证据",
+            "title": "现场请求走 TCP 且公共客户端端点一致",
+            "description": "代表 trace 的 Worker 访问日志明确记录 transportType:TCP；所有异常 trace 的 client_pod 均为 192.168.219.82，目标 Metadata Worker 分布在 192.168.189.67 和 192.168.235.141。",
+            "evidence": "ds_client_access_6407.log；ci-worker-worker1-1/access.log；ci-worker-worker2-1/access.log；POST /log_parse_result/list",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑥ 根因收敛",
+            "title": "客户端侧网卡/TCP 公共路径时延高",
+            "description": "客户端等待约 10ms、双远端 Worker 均复现且 Worker 处理微秒级，根因收敛到 192.168.219.82 客户端侧网卡、主机 TCP 栈或共同上联交换路径。现有日志不足以继续区分具体 NIC 端口、qdisc 或交换节点。",
+            "evidence": "本次现场 trace 交叉验证；gt_labels.json 标签映射；已确认案例 UB-CASE-002623 仅作同类机理参考",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "客户端 192.168.219.82 至两个 Metadata Worker 的以太网/TCP 公共传输路径引入稳定约 10ms 等待；Worker 业务处理正常。故障域按指定标签确认为硬件故障/网卡故障-时延高，但具体物理点位需 NIC、TCP 与交换路径遥测进一步确认。",
+        "supporting_knowledge": "现场证据为主：GET cross_window 7/7、Worker 20~35us、transportType:TCP、双目标复现、无错误码。历史已确认案例 UB-CASE-002623 在 L2 归因桶/操作域/影响规模上匹配且机理高度相似；experience-skill 的 ds-performance-degradation-diagnosis 与 ds-rdma-transport-diagnosis 仅用于补充 TCP 传输路径及网络指标排查方向，不替代现场证据。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "客户端侧 TCP 公共路径时延升高",
+            "detail": "共同 Client 端点 192.168.219.82；具体 NIC/qdisc/交换点位待遥测",
+            "type": "origin",
+            "transition": "TCP 往返等待进入 QueryAndGet 调用窗口"
+          },
+          {
+            "label": "direct_query_and_get 固定等待约 10.1ms",
+            "detail": "客户端访问日志 10.107~10.149ms；Worker QueryAndGet 仅 20~35us",
+            "type": null,
+            "transition": "端到端 GET 时延被客户端等待主导"
+          },
+          {
+            "label": "GET 时延异常",
+            "detail": "7 条 trace 总时延 10.121~10.167ms，无错误码或请求失败",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "Client: 192.168.219.82",
+          "Metadata Worker: 192.168.189.67、192.168.235.141",
+          "操作: GET；SET 无样本",
+          "时间窗: 2026-10-09 02:19:32.674~02:19:54.702"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "9ebe5fe6-381d-404a-b235-f0f87a66c5c7",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top1；为证据耗时 Top 口径，不代表总体严重度排序",
+          "evidence_ms": 10.167,
+          "client_ms": 10.167
+        },
+        {
+          "trace_id": "22735996-769a-4914-a8ad-d7553000a264",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top2；同 trace Worker QueryAndGet 27us 且 transportType:TCP",
+          "evidence_ms": 10.152,
+          "client_ms": 10.152
+        },
+        {
+          "trace_id": "eb1ddc78-2a48-4117-873e-f5e2e544c7a9",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top3；用于复核另一个 Metadata Worker 目标",
+          "evidence_ms": 10.15,
+          "client_ms": 10.15
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002623",
+          "rank": 1,
+          "stars": 5,
+          "match_logic": "L1：本次及案例均无主导错误码/故障模式，L1 不可判定；L2：cross_window、GET/MIXED 操作域与 few_pods 影响规模命中；L3：案例与本次均呈共同客户端到两个远端 Worker 的拓扑；L5：客户端等待主导、Worker 微秒级、TCP 传输机理高度一致。",
+          "symptom": "已确认案例中 GET 经 TCP 访问两个远端 Worker，客户端阶段稳定增加约 10ms，Worker 仅 15~55us。",
+          "root_cause": "案例根因为客户端侧以太网/TCP 公共路径时延高；与本次现场的双目标、微秒级 Worker 处理和约 10ms Client 等待一致。",
+          "solution": "复用其 NIC/TCP/交换路径联合取证方法，但不能直接复用案例中的具体 IP 或物理点位。",
+          "phenomenon_fit": "高度契合；本次为单段 QueryAndGet 约 10ms，案例含 QueryAndGet 与 GetData 两段约 10ms，绝对总时延不同。",
+          "log_fit": "本次缺少案例中的 TransportGet perf 行，但有 transportType:TCP 和同 trace Client/Worker 时延对照。",
+          "rc_consistency": "根因方向一致；本次具体 NIC/qdisc/交换点位仍未确认。",
+          "env_diff": "案例 operation=MIXED，本次只有 GET；案例 trace 和 IP 不参与身份匹配。",
+          "adaptation": "只复用遥测与复测步骤，现场重新采集 192.168.219.82 到两个 Worker 的指标。",
+          "applicability": "reference"
+        },
+        {
+          "id": "EXP-SKILL-ds-performance-degradation-diagnosis",
+          "rank": 2,
+          "stars": 3,
+          "match_logic": "L1：经验条目不含本次错误码，未命中；L2：性能下降与网络传输路径同域；L3：未提供本次具体拓扑；L5：建议用 Client/Worker 双侧日志和网络指标区分传输等待，与本次取证方法一致。",
+          "symptom": "性能下降可由网络延迟、传输层或调度问题造成，应结合 Client/Worker 双侧访问耗时与系统网络指标。",
+          "root_cause": "经验库只提供候选方向，不构成本次根因证据。",
+          "solution": "采集网络延迟、丢包、TCP 重传与 Client/Worker 双侧时延基线。",
+          "phenomenon_fit": "方法匹配。",
+          "log_fit": "本次确有 Client 高等待和 Worker 微秒级对照。",
+          "rc_consistency": "方向一致，但经验条目未直接确认网卡故障。",
+          "env_diff": "通用经验，未限定本次集群与版本。",
+          "adaptation": "采用网络指标核验步骤，不采用其中未观测到的 CPU、内存、URMA 回退候选。",
+          "applicability": "reference"
+        },
+        {
+          "id": "EXP-SKILL-ds-rdma-transport-diagnosis",
+          "rank": 3,
+          "stars": 2,
+          "match_logic": "L1：未观测 K_URMA_* 错误或 URMA 超时，不命中；L2：仅传输层大类相近；L3：未提供本次拓扑；L5：本次日志为 transportType:TCP，未观测 URMA 连接重建、Jetty 失效或回退证据。",
+          "symptom": "经验条目覆盖 URMA/RDMA 失败后 TCP 回退导致性能下降。",
+          "root_cause": "本次没有证据证明发生 URMA/RDMA 回退，因此不把该机制写入现场根因。",
+          "solution": "仅保留检查传输配置和双端日志的建议；URMA 重连专项检查优先级低。",
+          "phenomenon_fit": "仅 TCP 传输层文字相近。",
+          "log_fit": "未命中 URMA_NEED_CONNECT、Jetty 失效或 TryReconnectRemoteWorker。",
+          "rc_consistency": "不一致，未采纳其 URMA 回退根因。",
+          "env_diff": "经验针对 RDMA/URMA 与 TCP 回退，本次只确认 TCP 路径时延。",
+          "adaptation": "不执行 URMA 根因修复；若后续发现回退日志再启用该分支。",
+          "applicability": "not_recommended"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在客户端节点 192.168.219.82 同时对 192.168.189.67、192.168.235.141 执行持续 ping/TCP RTT 探测，并同步采集 ss -ti、nstat、ip -s link、ethtool -S 与 tc -s qdisc。",
+          "核查客户端网卡 qdisc/tc netem、队列积压、速率/双工、驱动 error/drop 及上联交换机端口计数；若发现异常 delay 规则，确认影响范围后移除。",
+          "在维护窗口将 Client 流量迁移到健康节点或备用网卡，观察 GET 时延是否即时恢复，以区分客户端公共路径与两个远端 Worker。"
+        ],
+        "long_term": [
+          "为 Client 到各 Metadata Worker 的 TCP RTT、重传、丢包、网卡队列和交换机端口错误建立分路径基线与告警。",
+          "保留并完善 bRPC/TransportGet 分阶段性能日志，使 QueryMeta、RPC 网络、RPC 排队与数据传输可独立量化。",
+          "建立 qdisc/netem、网卡驱动与交换路径配置变更审计，避免人为时延或队列参数异常长期存在。"
+        ],
+        "verification": [
+          "复测不少于 30 分钟，GET P99 恢复到现场健康基线，且不再出现约 10ms 固定台阶。",
+          "同一窗口内两个 Metadata Worker 的 QueryAndGet 均保持微秒级，Client direct_query_and_get 与 Worker 处理差值恢复至健康基线。",
+          "网卡 error/drop、TCP RetransSegs、qdisc backlog 与交换机端口错误无同步增长；SET 独立复测并确认没有引入写路径回归。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "同步采集客户端 192.168.219.82 到两个 Metadata Worker 的 NIC、TCP、qdisc 和交换端口指标，并核查是否存在人为 delay 配置。",
+      "depends_on": "需要节点与交换机只读观测权限",
+      "expected_effect": "把当前已确认的 TCP 公共路径时延进一步定位到 NIC、主机 TCP/qdisc 或交换路径。",
+      "verify": "指标时间窗与 02:19:32~02:19:54 的约 10ms 台阶一致；修复后 GET P99 恢复健康基线。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "维护窗口迁移 Client 流量到健康节点/备用网卡并做双目标 GET 对照复测。",
+      "depends_on": "P0 取证完成，避免破坏现场",
+      "expected_effect": "快速验证共同客户端路径假设并降低业务时延。",
+      "verify": "迁移后两个目标的 GET 固定约 10ms 等待同时消失，Worker 时延保持微秒级。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "10.152ms（metrics p99 采样点；原始计数 1）",
+        "share_bar": [
+          {"name": "Client/Worker 交叉窗口", "pct": "100.0", "cls": "s-bottleneck"}
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker 交叉窗口",
+            "p99": "—",
+            "anomaly_rate": "100.0%（异常标记比例）",
+            "fail_share": null,
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "7/7 条分类样本；证据 P50 10.148ms、P90 10.167ms、max 10.167ms。/stats/stages 不提供 P99。"
+          },
+          {
+            "name": "Metadata Worker 处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "fault": "F01",
+            "detail": "同 trace Worker access 20~35us；不是主导瓶颈。"
+          },
+          {
+            "name": "URMA 超时",
+            "p99": "—",
+            "anomaly_rate": "0",
+            "fail_share": "0",
+            "status": "ok",
+            "fault": null,
+            "detail": "urma_timeout 桶 trace_cnt=0；原始代表日志显示 transportType:TCP。"
+          }
+        ],
+        "conclusion": "GET 的 7 条样本全部归入 cross_window，客户端等待约 10.1ms，而 Worker 处理为 20~35us；分类占比不是耗时占比。指标 API 使用 p99/max_points=1000 时仅返回 1 个分钟采样点，故报告同时保留 /stats/stages 的 7 条异常样本口径。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {"name": "SET·URMA超时", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "ok", "fault": null, "detail": "sample_cnt=0，不能据此判断健康。"},
+          {"name": "SET·数据面未观测", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "ok", "fault": null, "detail": "sample_cnt=0。"},
+          {"name": "SET·未解释残差", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "ok", "fault": null, "detail": "sample_cnt=0。"},
+          {"name": "SET·客户端 SDK 段", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "ok", "fault": null, "detail": "sample_cnt=0。"},
+          {"name": "SET·Worker 写处理", "p99": "—", "anomaly_rate": "—", "fail_share": "—", "status": "ok", "fault": null, "detail": "sample_cnt=0。"}
+        ],
+        "conclusion": "本资产库没有 SET 归因样本、指标点或异常 trace。空结果只表示数据集中无可分析 SET 请求，不代表写路径健康；未与 GET 混桶，也未编造 CREATE/PUBLISH/URMA 分段。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 7,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {"domain": "硬件故障/网卡故障-时延高", "pct": "100.0", "fault": "F01"}
+    ],
+    "top_pods": [
+      {"pod": "192.168.219.82 (Client)", "host": "—", "pct": "100.0", "fault": "F01"},
+      {"pod": "192.168.189.67 (Metadata Worker)", "host": "—", "pct": "57.1", "fault": "F01"},
+      {"pod": "192.168.235.141 (Metadata Worker)", "host": "—", "pct": "42.9", "fault": "F01"}
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "2026-10-09 02:19", "level": "4", "pct": "100", "spike": true, "lat_ms": "10.167", "fault": "F01"}
+    ]
+  },
+  "workflow": {
+    "session_id": "c85b9e80-20261112-diagnosis",
+    "total_steps": 8,
+    "api_calls": 24,
+    "duration": "本会话完成",
+    "steps": [
+      {"title": "经验库预检索", "api_calls": ["experience-skill search-experiences (SKILL/WIKI)"], "result": "命中 ds-performance-degradation-diagnosis、ds-rdma-transport-diagnosis 等，均作为先验排查方向而非现场证据。"},
+      {"title": "资产与解析状态核验", "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "GET /task/{task_id}", "GET /log_parse_result/options"], "result": "资产 ID/名称匹配，任务 successful，7 条时延异常 trace 已落库。"},
+      {"title": "GET/SET 独立阶段分诊", "api_calls": ["POST /stats/stages operation=GET", "POST /stats/stages operation=SET"], "result": "GET sample_cnt=7 且 100% 归入 cross_window；SET sample_cnt=0。"},
+      {"title": "时延指标与 trace 下钻", "api_calls": ["POST /log_parse_result/metrics/latency GET/SET", "POST /trace/list GET/SET", "POST /log_parse_result/list"], "result": "GET 7 条异常为 10.121~10.167ms；Worker 20~35us；SET 无数据。"},
+      {"title": "统计分布与通断交叉验证", "api_calls": ["POST /stats/error_codes", "POST /stats/pods", "POST /stats/links", "POST /stats/heatmap", "POST /log_failure_event_result/list_trace_events"], "result": "共同 Client 为 192.168.219.82，两个 Worker 均受影响；无错误码、无通断事件。"},
+      {"title": "原始日志与 bRPC 细分", "api_calls": ["brpc_stage_drill.py", "现场 access.log 交叉核验"], "result": "bRPC perf 行为 0，无法细分框架网络/排队；Worker 访问日志确认 transportType:TCP。"},
+      {"title": "历史案例匹配", "api_calls": ["POST /phenomenon/search", "POST /diag_case_library/search", "GET /diag_case_library/f197176f-da19-4480-a116-686838936e34", "POST /diag_case_library/f197176f-da19-4480-a116-686838936e34/hit"], "result": "现象卡无结果；已确认案例 UB-CASE-002623 在 L2 和机理上高度相似，作为 reference 采用并已回写命中。"},
+      {"title": "标签映射与报告生成", "api_calls": ["train_valid.md → gt_labels.json", "latency_features.py", "render_report.py --validate-only", "render_report.py"], "result": "标签按用户指定映射为硬件故障/网卡故障-时延高；报告 JSON 使用真实 /stats/stages 特征。"}
+    ]
+  }
+}

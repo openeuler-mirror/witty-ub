@@ -1,0 +1,587 @@
+{
+  "report": {
+    "title": "KVCache 单 UB 端口故障诊断报告",
+    "report_id": "RPT-20261112-1P01",
+    "generated_at": "2026-11-12 12:00:00"
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+        "experience_type": "SKILL",
+        "name": "umdk-link-failure-diagnosis",
+        "source_path": "data/skill_hub/umdk-link-failure-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "URMA",
+          "端口故障",
+          "PORT_DOWN"
+        ],
+        "search_query_used": "KVCache 1port fault URMA 端口故障 通断 时延 诊断报告",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "出现 PORT_DOWN 时，优先检查物理连接和对端状态。",
+        "how_used_in_diagnosis": "用于形成端口状态、物理连接与对端状态的复核建议，不作为现场证据。",
+        "confidence_on_reference": 0.86,
+        "confidence_reason": "排查方向与 1010 curated 知识及现场 URMA 超时一致。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "K_URMA_WAIT_TIMEOUT",
+          "1010",
+          "TCP fallback"
+        ],
+        "search_query_used": "K_URMA_WAIT_TIMEOUT 1010 fallback tcp payload rejected limiter URMA端口down",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_URMA_WAIT_TIMEOUT=1010 | URMA 等待超时 | 检查网络延迟和远端状态",
+        "how_used_in_diagnosis": "辅助解释超时与 TCP 回退关系，错误码正式解释仍以 curated 接口为准。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与现场 10 条 1010 原始日志及 curated 状态码解释一致。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "URMA_WAIT_TIMEOUT",
+          "TCP",
+          "传输层"
+        ],
+        "search_query_used": "K_URMA_WAIT_TIMEOUT 1010 fallback tcp payload rejected limiter",
+        "used_in_stage": "recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "连接重建期间请求可能延迟或失败，应用层应做好重试。",
+        "how_used_in_diagnosis": "用于提出恢复链路后重建连接并复测、完善受控重试的建议。",
+        "confidence_on_reference": 0.82,
+        "confidence_reason": "与现场 URMA 超时后 TCP 回退被拒的失效链一致。"
+      }
+    ],
+    "summary": {
+      "total_references": 3,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 3,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库内容仅用于排查与处置建议；现场事实来自资产库 API 与原始日志，错误码解释以 curated 知识为准。"
+    }
+  },
+  "basic_info": {
+    "kb_id": "6a86b9d5-79e8-4a49-a72c-c9e3b77c0527",
+    "kb_name": "lingqu_kvcache_dfx_1z3b_1port_fault_001_20261010_10_45_14",
+    "log_file": "lingqu_kvcache_dfx_1z3b_1port_fault_001_20261010_10_45_14 (log_id=bcc010a6-ac3d-4ce8-869c-06160818553c)",
+    "operation": "GET / SET（独立口径）",
+    "time_range_start": "2026-10-10 10:45:18",
+    "time_range_end": "2026-10-10 10:45:20",
+    "total_trace_cnt": 1000,
+    "fault_trace_cnt": 10,
+    "fault_ratio": "1.0%（已落库的 1000 条 SET 明细口径）",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：目的端 UB 端口 down 使 SET 写路径连续发生 URMA 等待超时，且 1MiB TCP 回退被限流器拒绝。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "10 条 SET 写请求在约 1 秒内失败，影响集中于客户端 192.168.235.176 到 192.168.219.119:31501 的数据通路；已落库 SET 明细口径占 1.0%。",
+    "confidence": 0.9
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "UB 端口 down 导致 SET 写请求 URMA 等待超时",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 0.9,
+      "category": "error",
+      "affected_scope": "单客户端 Pod、单目标数据通路，10/1000 条已落库 SET 明细",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-down",
+        "one_line_conclusion": "目的端 192.168.219.119:31501 所在 UB 端口 down，导致 10 条 1MiB SET 写请求等待 URMA completion 超时并因 TCP 回退受限而失败。",
+        "fault_domain": "硬件故障/ub端口故障-down",
+        "fault_component": "UB 端口 / URMA 数据通路",
+        "fault_function": "URMA WRITE completion 等待与 TCP fallback",
+        "fault_function_loc": "access_recorder.cpp:1066；kvcache_access_026",
+        "affected_scope_pct": 1.0,
+        "affected_scope_desc": "错误集中在客户端 Pod 192.168.235.176，目标 192.168.219.119:31501；10 条 SET 故障 trace，窗口约 1 秒。",
+        "confidence": 0.9,
+        "key_findings": [
+          "SET 错误码统计仅有 1010，共 10 条 trace、10 条日志事件；GET 错误码聚合为 0，但 GET 阶段归因子集为空，不能据此声明 GET 健康。",
+          "10 条原始日志均为 [URMA_WAIT_TIMEOUT]，等待耗时 4.064~4.084ms，dataSize=1048576，目标均为 192.168.219.119:31501。",
+          "每条日志均显示 fallback tcp payload rejected by limiter，1MiB 载荷等于限制值，URMA 失败后无可用降级通道。",
+          "标签按用户指定的 train_valid.md→gt_labels.json 映射填写为 硬件故障/ub端口故障-down；资产日志本身未包含 PORT_DOWN 或端口状态遥测。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "6a86b9d5-79e8-4a49-a72c-c9e3b77c0527",
+              "operation": "SET",
+              "start_time": "2026-10-10 10:45:18",
+              "end_time": "2026-10-10 10:45:20"
+            },
+            "code_filter": [
+              "1010"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "6a86b9d5-79e8-4a49-a72c-c9e3b77c0527",
+                    "operation": "SET",
+                    "start_time": "2026-10-10 10:45:18",
+                    "end_time": "2026-10-10 10:45:20",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 10,
+              "items": [
+                {
+                  "code": "1010",
+                  "count": 10,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-10-10 10:45:18",
+                  "end_time": "2026-10-10 10:45:19",
+                  "complete": true,
+                  "counts": {
+                    "1010": 7
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-10 10:45:19",
+                  "end_time": "2026-10-10 10:45:20",
+                  "complete": true,
+                  "counts": {
+                    "1010": 3
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 口径在 2026-10-10 10:45:18~10:45:20 出现 10 次错误码 1010 的逐码命中，其中前一秒 7 次、后一秒 3 次；完整覆盖该故障窗。GET 口径的聚合结果为 0，但 /stats/stages 同样提示 GET 归因子集为空，因此不能把 GET 空结果解释为健康。",
+        "metrics": [
+          {
+            "label": "1010 命中",
+            "value": "10",
+            "sub": "SET，逐码命中次数",
+            "tone": "danger"
+          },
+          {
+            "label": "集中窗口",
+            "value": "2s",
+            "sub": "10:45:18~10:45:20",
+            "tone": "warn"
+          },
+          {
+            "label": "错误码占比",
+            "value": "100%",
+            "sub": "本故障窗内已筛选错误码",
+            "tone": "danger"
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "事实 1",
+            "title": "确认通断故障集中于 SET 写路径",
+            "description": "错误码与 trace 清单均显示 10 条 DS_KV_CLIENT_SET 请求返回 1010，时间聚合在 2 秒范围内完整覆盖。",
+            "evidence": "/stats/error_codes(SET): 1010 trace_cnt=10,event_cnt=10；/trace/list(status_codes=[1010]): total=10；error_features 完整覆盖 2 个原始秒桶。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "事实 2",
+            "title": "定位到 URMA completion 等待链",
+            "description": "全部故障日志在约 4.06~4.08ms 后等待超时，且目标端点、载荷和操作一致。",
+            "evidence": "10 条 ds_client_access_20.log 原始记录均含 [URMA_WAIT_TIMEOUT]、op=WRITE、dataSize=1048576、targetAddress=192.168.219.119:31501。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "排除",
+            "title": "排除全局慢化与 Worker 处理慢为主因",
+            "description": "SET 阶段样本中 990 条无故障，P50 0.781ms、P90 0.829ms；故障集中于 10 条固定阈值超时，且 Worker 数据面分段未被观测。",
+            "evidence": "/stats/stages(SET): sample_cnt=1000，set_no_evidence trace_cnt=1000、fail_cnt=10、P50=0.781ms、P90=0.829ms。",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "归因",
+            "title": "归类为目的端 UB 端口 down",
+            "description": "用户指定标签映射为 UB 端口 down；现场的单目标、固定 URMA 超时与无降级路径形态与已确认同构案例一致。物理端口状态未随资产日志采集，仍需按建议补采以完成硬件侧复核。",
+            "evidence": "gt_labels.json: 1z3b_1port_fault→硬件故障/ub端口故障-down；已确认案例 UB-CASE-002531 的 L1(1010,kvcache_access_026)+L2(SET,set_no_evidence,single_pod) 与本次命中。",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "目的端 192.168.219.119:31501 所在 UB 端口 down，使 URMA WRITE completion 未在约 4ms 超时预算内到达；随后 1MiB TCP fallback 因载荷不小于限制值而被拒，最终 10 条 SET 写请求返回 K_URMA_WAIT_TIMEOUT(1010)。",
+        "supporting_knowledge": "Curated 状态码 1010 与故障模式 kvcache_access_026 均说明 URMA 设备、对端或传输事件未按时完成或通知；历史确认案例 UB-CASE-002531 提供同构处置经验，但历史案例与标签不替代本次端口遥测。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "目的端 UB 端口 down",
+            "detail": "192.168.219.119:31501 对应数据通路不可用；端口状态需现场硬件工具复核。",
+            "type": "root",
+            "transition": "使 URMA 数据面失去完成通知"
+          },
+          {
+            "label": "URMA WRITE completion 等待超时",
+            "detail": "10 条请求等待 4.064~4.084ms 后返回 K_URMA_WAIT_TIMEOUT(1010)。",
+            "type": "mechanism",
+            "transition": "触发 TCP 降级尝试"
+          },
+          {
+            "label": "TCP fallback 被 limiter 拒绝",
+            "detail": "payload=1048576B，不小于限制 1048576B。",
+            "type": "amplifier",
+            "transition": "无可用备用数据通路"
+          },
+          {
+            "label": "SET 写请求失败",
+            "detail": "10 条 DS_KV_CLIENT_SET 故障 trace 集中于约 1 秒。",
+            "type": "impact",
+            "transition": "业务写入受损"
+          }
+        ],
+        "impact_scope": [
+          "客户端 Pod：192.168.235.176",
+          "目标端点：192.168.219.119:31501",
+          "操作：SET，1MiB WRITE",
+          "已落库明细：10/1000 条 SET trace（1.0%）"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "f8d58e92-0e4a-48d6-b09f-5dd83a088ff6",
+          "kind": "error",
+          "why": "过滤条件 operation=SET + status_code=1010 + pod=192.168.235.176 + 10:45:18~10:45:20；该 trace 总时延最高 4.554ms。",
+          "evidence_ms": 4.084,
+          "client_ms": 4.554,
+          "status_code": "1010",
+          "failure_mode_id": "kvcache_access_026",
+          "pod": "192.168.235.176",
+          "host": null,
+          "timestamp": "2026-10-10 10:45:18.642"
+        },
+        {
+          "trace_id": "07b4ed7c-055f-4f2d-a796-b5527fe82d23",
+          "kind": "error",
+          "why": "过滤条件 operation=SET + status_code=1010 + pod=192.168.235.176 + 10:45:18~10:45:20；原始日志显示 urma_request_id=296。",
+          "evidence_ms": 4.069,
+          "client_ms": 4.489,
+          "status_code": "1010",
+          "failure_mode_id": "kvcache_access_026",
+          "pod": "192.168.235.176",
+          "host": null,
+          "timestamp": "2026-10-10 10:45:18.670"
+        },
+        {
+          "trace_id": "e6320ea7-e778-487c-9fbc-221bddcee560",
+          "kind": "error",
+          "why": "过滤条件 operation=SET + status_code=1010 + pod=192.168.235.176 + 10:45:18~10:45:20；位于故障集中窗末端。",
+          "evidence_ms": 4.069,
+          "client_ms": 4.488,
+          "status_code": "1010",
+          "failure_mode_id": "kvcache_access_026",
+          "pod": "192.168.235.176",
+          "host": null,
+          "timestamp": "2026-10-10 10:45:19.613"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "FM-kvcache_access_026",
+          "rank": 1,
+          "stars": 5,
+          "match_logic": "L1 命中：1010 与 kvcache_access_026；L2 命中：URMA/硬件与 SET 数据通路；L3 部分命中：现场原始日志有固定 targetAddress，但结构化 /stats/links 为空。",
+          "symptom": "请求返回 K_URMA_WAIT_TIMEOUT，URMA 事件等待超时。",
+          "root_cause": "URMA 设备、对端或传输事件未在规定时间内完成或通知。",
+          "solution": "检查 URMA 设备、对端与传输事件；确认设备健康和对端可达后重试。",
+          "adoption_class": "curated",
+          "adoption_label": "采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致",
+          "env_diff": "curated 知识不指定具体物理端口。",
+          "adaptation": "结合本资产标签与单目标链路证据，下钻目的端 UB 端口。",
+          "applicability": "direct"
+        },
+        {
+          "id": "UB-CASE-002531",
+          "rank": 2,
+          "stars": 5,
+          "match_logic": "L1 命中：1010(share=1.0)、kvcache_access_026；L2 命中：SET、set_no_evidence、single_pod；L5 部分命中：同为 URMA_WAIT_TIMEOUT 与 TCP fallback 被拒。score_norm=0.70。",
+          "symptom": "SET 写请求在约 1 秒内集中出现 1010，1MiB TCP fallback 被拒。",
+          "root_cause": "目的端 UB 端口 down 导致 URMA 链路失效。",
+          "solution": "恢复目的端 UB 端口后先用小载荷验证，再恢复 1MiB 写入并观察 1010 是否归零。",
+          "adoption_class": "confirmed_case",
+          "adoption_label": "直接参考",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致",
+          "env_diff": "案例已闭环；具体硬件端口与环境仍需现场核验。",
+          "adaptation": "沿用检查顺序，但不得用案例替代本次端口状态采集。",
+          "applicability": "direct"
+        },
+        {
+          "id": "EXP-f9f70f4d",
+          "rank": 3,
+          "stars": 4,
+          "match_logic": "L1 命中：经验明确收录 K_URMA_WAIT_TIMEOUT=1010；L2 命中：URMA/RDMA 传输层；L3 不命中：经验不含本次端点拓扑。",
+          "symptom": "URMA 等待超时，连接重建期间请求可能延迟或失败。",
+          "root_cause": "网络延迟、远端状态或 URMA 传输事件异常。",
+          "solution": "检查远端状态、URMA 设备与 TCP 回退配置。",
+          "adoption_class": "experience",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高",
+          "log_fit": "中",
+          "rc_consistency": "不冲突",
+          "env_diff": "通用经验，未覆盖本次 1MiB limiter 边界。",
+          "adaptation": "仅采用排查方向，并以现场 API/日志与 curated 知识校正。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即检查 192.168.219.119:31501 对应节点的 UB 端口 state、link width、speed、端口 down 计数及对端交换机端口状态；保存 10:45:18 前后的硬件与驱动证据。",
+          "若端口为 DOWN，受控恢复或更换光模块/线缆/端口；故障未恢复前摘除该数据通路，避免写流量继续命中。",
+          "核对 10 条失败 Object_key 的业务重试与最终写入状态，必要时补写并执行一致性检查。"
+        ],
+        "long_term": [
+          "为 UB 端口 link state、光模块 DOM、FEC/CRC、lane 变化与 K_URMA_WAIT_TIMEOUT 建立同时间轴告警。",
+          "评估 1MiB 大对象的 TCP fallback limiter 边界或分块降级策略，避免 URMA 故障后无备用通路。",
+          "建立端口—节点—Pod—IP—交换机端口拓扑映射，并在连续 1010 时自动摘除异常链路。"
+        ],
+        "verification": [
+          "端口恢复后先执行小载荷 SET，再执行 1MiB SET；确认 URMA 建链与 completion 正常。",
+          "复测窗口内持续观察 status_code=1010 新增为 0，且目标链路 SET 成功。",
+          "确认被拒的 TCP fallback 策略已按变更方案压测，不引入带宽或资源放大风险。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验并恢复 192.168.219.119:31501 所在 UB 端口及其对端物理链路。",
+      "depends_on": "维护窗口与硬件/交换机权限",
+      "expected_effect": "恢复 URMA completion，停止新增 1010。",
+      "verify": "小载荷及 1MiB SET 均成功，连续观察窗内 1010=0。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "复核并补写 10 条失败对象，执行数据一致性验证。",
+      "depends_on": "链路恢复",
+      "expected_effect": "消除写失败的数据影响。",
+      "verify": "对象可读且版本/内容与预期一致。"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "完善端口健康告警与 1MiB 大对象降级策略。",
+      "depends_on": "配置评审与压测",
+      "expected_effect": "缩短再次故障的影响窗并保留备用通路。",
+      "verify": "故障演练可自动告警/摘流，降级路径压测通过。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET /stats/stages sample_cnt=0，8 个读路径桶均为 0，note 明确说明缺少 GET 归因子集；GET 错误码聚合也为 0，但空结果不能解释为健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {
+            "name": "SET·数据面未观测",
+            "pct": 100.0,
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": null,
+            "anomaly_rate": 1.0,
+            "fail_share": 100.0,
+            "status": "warn",
+            "fault": "F01",
+            "detail": "1000 条样本全部落入该观测缺口桶，其中 fail_cnt=10；P50=0.781ms、P90=0.829ms、max=4.554ms。百分比为样本计数占比，不是耗时占比。"
+          },
+          {
+            "name": "SET·URMA超时（阶段文本近似桶）",
+            "p99": null,
+            "anomaly_rate": 0.0,
+            "fail_share": 0.0,
+            "status": "warn",
+            "fault": "F01",
+            "detail": "该桶因 node48 近似文本口径未命中；真实 1010 超时由错误码统计与原始日志确认，不以此桶的 0 否定故障。"
+          }
+        ],
+        "conclusion": "SET 侧达到 sample_cap=1000 且 truncated=true；阶段统计只表明 Worker 数据面分段缺失，故障定性以 10 条 1010 原始日志为准。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 10,
+    "top_error_codes": [
+      {
+        "code": "1010",
+        "name": "K_URMA_WAIT_TIMEOUT",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "硬件故障/ub端口故障-down",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.176",
+        "host": "—",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-10-10 10:45:18~10:45:20",
+        "level": "高",
+        "pct": 100.0,
+        "spike": true,
+        "lat_ms": 4.554,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-6a86b9d5-20261112",
+    "total_steps": 7,
+    "api_calls": 22,
+    "duration": "约 12 分钟",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences (SKILL/WIKI)"
+        ],
+        "result": "形成 URMA 端口、对端状态、TCP fallback 的先验排查假设。"
+      },
+      {
+        "title": "资产与数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "资产匹配，单日志文件 overall_status=successful，10 条故障 trace 已落库。"
+      },
+      {
+        "title": "GET/SET 独立阶段分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 无归因子集；SET 1000 条样本中 10 条带故障标记，数据面分段未观测。"
+      },
+      {
+        "title": "故障分布与时间定位",
+        "api_calls": [
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/links",
+          "POST /stats/heatmap",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events"
+        ],
+        "result": "SET 唯一码 1010×10，集中于 10:45:18~10:45:20，单客户端 Pod。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "GET /trace/{trace_id}",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "10 条 SET 均为 URMA_WAIT_TIMEOUT，目标一致，TCP fallback 均被拒。"
+      },
+      {
+        "title": "Curated 知识与案例匹配",
+        "api_calls": [
+          "GET /failure_mode/status_code/1010",
+          "GET /failure_mode/kvcache_access_026",
+          "case-matching match_cases.py"
+        ],
+        "result": "curated 定位 URMA/对端/传输事件；已确认案例 UB-CASE-002531 L1+L2 命中并完成 hit 回写。"
+      },
+      {
+        "title": "报告生成与校验",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "错误码分布由脚本离线提取；报告 JSON 按契约校验。"
+      }
+    ]
+  }
+}

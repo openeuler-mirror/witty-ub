@@ -1,0 +1,606 @@
+{
+  "report": {
+    "title": "KVCache Worker 进程退出导致 GET 元数据查询失败诊断报告",
+    "report_id": "diag-5f7f613a-worker-exit-get-20261011",
+    "generated_at": "2026-11-12 14:54:57"
+  },
+  "basic_info": {
+    "kb_id": "5f7f613a-da5f-4763-b0e0-bed2542aac98",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_get_exit_mul_001_20261011_04_43_57",
+    "log_file": "lingqu_kvcache_dfx_worker_process_get_exit_mul_001_20261011_04_43_57",
+    "operation": "GET（SET 无样本）",
+    "time_range_start": "2026-10-11 04:47:47",
+    "time_range_end": "2026-10-11 04:47:49",
+    "total_trace_cnt": 2,
+    "fault_trace_cnt": 2,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC deadline exceeded": 1.0
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：元数据所有者 Worker 进程退出后，GET 元数据查询在 10ms 截止时间内无法完成。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "2/2 条已解析 GET trace 异常，涉及客户端 192.168.219.109、入口 Worker 192.168.189.100 与失联元数据所有者 192.168.219.107:31501；SET 无样本。",
+    "confidence": "高 90%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "元数据所有者 Worker 192.168.219.107 进程退出，GET QueryMeta 超时",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 90,
+      "category": "mixed",
+      "affected_scope": "2026-10-11 04:47:47–04:47:49；2 条 GET trace；2 个已解析参与 Pod，远端 192.168.219.107:31501 失联",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程退出",
+        "one_line_conclusion": "元数据所有者 Worker 192.168.219.107:31501 在此前成功服务后退出/停止服务，导致入口 Worker 的 PureQueryMeta 连续超时，GET 返回 1001，部分请求进一步映射为 39。",
+        "fault_domain": "Worker故障/Worker故障-进程退出",
+        "fault_component": "KVCache Worker 元数据所有者",
+        "fault_function": "PureQueryMeta / QueryAndGet",
+        "fault_function_loc": "worker_query_and_get_impl.cpp:235；object_read_flow.cpp:64",
+        "affected_scope_pct": "100.00",
+        "affected_scope_desc": "当前解析范围内 2/2 条 GET trace 异常；不外推为全业务失败率",
+        "confidence": "高 90%",
+        "key_findings": [
+          "GET 与 SET 已独立分析：GET 有 2 条异常 trace，SET sample_cnt=0，不混合归桶。",
+          "GET·query_meta 桶承载 2/2 条 trace，fail_cnt=2，证据耗时 P50=10.105ms、P90=max=10.121ms。",
+          "两条 trace 均命中 1001；其中一条同时命中 39，错误集中于 04:47:47–04:47:49。",
+          "入口 Worker 192.168.189.100 的 PureQueryMeta 均指向 192.168.219.107:31501，并出现 E110/E1008 超时。",
+          "目标 Worker 在 04:47:34.922 仍完成客户端注册与 fd 发送，约 13 秒后请求持续超时，且目标 Worker 日志不再推进；退出的具体触发原因（OOM、信号、容器终止）未被本日志集记录。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "5f7f613a-da5f-4763-b0e0-bed2542aac98",
+              "operation": "GET",
+              "start_time": "2026-10-11 04:47:47",
+              "end_time": "2026-10-11 04:47:49"
+            },
+            "code_filter": [
+              "1001",
+              "39"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "5f7f613a-da5f-4763-b0e0-bed2542aac98",
+                    "operation": "GET",
+                    "start_time": "2026-10-11 04:47:47",
+                    "end_time": "2026-10-11 04:47:49",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 3,
+              "items": [
+                {
+                  "code": "1001",
+                  "count": 2,
+                  "share_pct": 66.666667
+                },
+                {
+                  "code": "39",
+                  "count": 1,
+                  "share_pct": 33.333333
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-10-11 04:47:47",
+                  "end_time": "2026-10-11 04:47:48",
+                  "complete": true,
+                  "counts": {
+                    "1001": 1,
+                    "39": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-10-11 04:47:48",
+                  "end_time": "2026-10-11 04:47:49",
+                  "complete": true,
+                  "counts": {
+                    "1001": 1,
+                    "39": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 错误在两个连续秒级窗口内集中出现：1001 命中 2 次（66.67%），39 命中 1 次（33.33%）。计数为逐码命中次数；同一 trace 可携带多个错误码，不代表 3 个独立失败请求。SET 查询为空，仅说明本资产未解析到 SET 样本。",
+        "metrics": [
+          {
+            "label": "异常 GET trace",
+            "value": "2",
+            "sub": "解析样本 2/2 均异常",
+            "tone": "danger"
+          },
+          {
+            "label": "错误码命中",
+            "value": "3",
+            "sub": "逐码命中次数，非去重失败请求数",
+            "tone": "warn"
+          },
+          {
+            "label": "故障窗口",
+            "value": "2s",
+            "sub": "04:47:47–04:47:49",
+            "tone": "warn"
+          }
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "QueryMeta P90",
+            "value": "10.121ms",
+            "sub": "主阶段证据耗时，不是 P99",
+            "tone": "danger"
+          },
+          {
+            "label": "Client P90",
+            "value": "10.160ms",
+            "sub": "同桶客户端总时延对照",
+            "tone": "warn"
+          },
+          {
+            "label": "桶内异常标记",
+            "value": "2/2",
+            "sub": "异常标记比例，不称为业务失败率",
+            "tone": "danger"
+          }
+        ],
+        "stages": [
+          {
+            "name": "GET·QueryMeta 互斥归因桶",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100.0% 分类样本",
+            "status": "bottleneck",
+            "detail": "两条 GET trace 的证据耗时几乎全部集中在 metadata/PureQueryMeta 调用；无独立健康基线，不能计算放大倍数。",
+            "features": {
+              "operation": "GET",
+              "bucket_key": "query_meta",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "5f7f613a-da5f-4763-b0e0-bed2542aac98",
+                  "log_id": "b792c95b-5c8e-4582-804b-a720a08e670a",
+                  "operation": "GET",
+                  "start_time": "2026-10-11 04:47:47",
+                  "end_time": "2026-10-11 04:47:49",
+                  "sample_cap": 5000
+                },
+                "response_path": "result.items[2]"
+              },
+              "sample_cnt": 2,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（yuanrong us 覆盖子集），每条 trace 按最大互斥阶段归入唯一桶；URMA 超时为 anomaly_reason/content 文本匹配的近似口径；request_mode=unknown 的 trace 按现有列粗分定界（worker 窗口≥50% 总时延→data_worker，否则 cross_window），RPC 细分归因用 skill 脚本 brpc_stage_drill.py",
+              "trace_cnt": 2,
+              "normal_cnt": 0,
+              "anomalous_cnt": 2,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 10.105,
+                "p90_ms": 10.121,
+                "max_ms": 10.121,
+                "client_p50_ms": 10.155,
+                "client_p90_ms": 10.16
+              },
+              "tail_ratio_p90_p50": 1.001583,
+              "note": "worker_access_latency_us − urma_processing_us（queryAndGet 查元数据/业务）",
+              "action": "排查 Meta Worker 响应、元数据锁竞争、路由刷新与 metadata RPC。",
+              "top_traces": [
+                {
+                  "trace_id": "569eb163-6372-4b3e-b3eb-fe2995958beb",
+                  "evidence_ms": 10.121,
+                  "client_ms": 10.155
+                },
+                {
+                  "trace_id": "9a53e8dc-ad20-4780-97d7-48cab5c7fc1c",
+                  "evidence_ms": 10.105,
+                  "client_ms": 10.16
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "额外等待集中在 <strong>GET·query_meta</strong>：P90 10.121ms，已触及请求配置的 10ms RPC deadline。服务端执行与网络残差字段均为 0 的日志口径不能证明网络健康；原始日志明确显示远端元数据所有者连接超时。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析任务成功且故障 trace 已落库",
+            "description": "日志文件 overall_status=successful，解析得到 2 条 trace，故障上下文落库 2 条；因此当前结论基于完整的已解析样本，而非空结果推断。",
+            "evidence": "GET /task/67e04ec6-f6f1-4817-9dec-d4fc76380d24；POST /log_file/list/{kb_id}",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作与阶段定位",
+            "title": "GET 故障全部落入 QueryMeta，SET 无样本",
+            "description": "GET /stats/stages 的 query_meta 桶 trace_cnt=2、fail_cnt=2；其余 GET 桶均为 0。SET sample_cnt=0，未参与 GET 归因。",
+            "evidence": "POST /stats/stages，operation=GET/SET 各一次，时间窗 04:47:47–04:47:49",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 错误链确认",
+            "title": "1001 与 39 同源于元数据所有者 RPC 超时",
+            "description": "两条 GET 均返回 1001；其中一条在入口 Worker 映射为 39。原始日志显示 PureQueryMeta 从 192.168.189.100:31501 指向 192.168.219.107:31501 时 E110/E1008 超时。",
+            "evidence": "POST /log_failure_event_result/list_log_events；GET /failure_mode/status_code/1001 与 /39",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "排除本地执行耗时主导，保留退出诱因缺口",
+            "description": "QueryAndGet 的 preproc/localRead 仅 0.000–0.007ms，metadata 为 10.098–10.113ms，排除本地读取或预处理慢。目标 Worker 04:47:34 仍成功注册客户端，随后日志停止且 31501 超时，支持进程退出；但缺少容器事件、退出码与 coredump，不能判定为何退出，也无法仅凭 E110 完全区分退出与节点级黑洞。",
+            "evidence": "ci-worker-master-1/kvcache.INFO.log:19-25；两条 [SLOW LOG] QueryAndGet",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 根因定界",
+            "title": "元数据所有者 Worker 进程退出/停止服务",
+            "description": "结合目标 Worker 从健康服务到突然无日志、远端 31501 连续超时、GET 错误码与 QueryMeta 阶段收敛，以及用户指定训练标签，定界为 Worker 进程退出。退出触发原因仍需部署侧证据闭环。",
+            "evidence": "现场 API 证据 + 本地同源日志 + 标签 Worker故障/Worker故障-进程退出",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "元数据所有者 Worker 192.168.219.107:31501 进程退出或停止对外服务，使 PureQueryMeta 无法在 10ms RPC deadline 内完成；退出的直接触发原因未记录。",
+        "supporting_knowledge": "curated: kvcache_access_020（RPC请求超时）、kvcache_access_036（元数据所有者不可用）；本地经验 ds-worker-log-analysis；已确认案例 UB-CASE-002534。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "元数据所有者 Worker 退出/停止服务",
+            "detail": "192.168.219.107:31501；04:47:34 后不再产生日志",
+            "type": "origin",
+            "transition": "31501 RPC 无法建立/完成"
+          },
+          {
+            "label": "入口 Worker PureQueryMeta 超时",
+            "detail": "192.168.189.100 → 192.168.219.107:31501，E110/E1008，约 10.1ms",
+            "type": "propagation",
+            "transition": "错误沿 QueryAndGet 元数据路径上浮"
+          },
+          {
+            "label": "客户端 GET 失败",
+            "detail": "2 条 trace 返回 1001；其中 1 条伴随 39",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群：ci-kv-ds-1",
+          "操作：GET；SET 无样本",
+          "已解析参与端：客户端 192.168.219.109、入口 Worker 192.168.189.100",
+          "失联元数据所有者：192.168.219.107:31501",
+          "时间窗：2026-10-11 04:47:47–04:47:49"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "569eb163-6372-4b3e-b3eb-fe2995958beb",
+          "kind": "latency",
+          "why": "GET·query_meta 桶内证据耗时 Top1（仅代表桶内证据耗时极端请求）；同时命中 status_code=1001/39",
+          "evidence_ms": 10.121,
+          "client_ms": 10.155,
+          "status_code": "1001,39",
+          "failure_mode_id": "kvcache_access_020,kvcache_access_036",
+          "pod": "192.168.189.100 / 192.168.219.109",
+          "timestamp": "2026-10-11 04:47:48"
+        },
+        {
+          "trace_id": "9a53e8dc-ad20-4780-97d7-48cab5c7fc1c",
+          "kind": "latency",
+          "why": "GET·query_meta 桶内证据耗时 Top2（仅代表桶内证据耗时极端请求）；过滤条件 status_code=1001、时间窗 04:47:47–04:47:49",
+          "evidence_ms": 10.105,
+          "client_ms": 10.16,
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_access_020",
+          "pod": "192.168.189.100 / 192.168.219.109",
+          "timestamp": "2026-10-11 04:47:47"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002534",
+          "stars": "★★★★☆",
+          "match_logic": "L1 命中 1001、39、kvcache_access_020/036；L2 命中 GET/MIXED、query_meta、few_pods；L3/L5 部分命中元数据 owner 失联，但历史为 E112，本次为 E110/E1008。",
+          "symptom": "Worker 进程退出后 GET 元数据查询超时并返回 1001/39。",
+          "root_cause": "已确认历史案例归因为元数据所有者 Worker 进程退出。",
+          "solution": "恢复 Worker，采集退出原因，刷新 transport snapshot，并验证 GET/query_meta 错误归零。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "错误码、阶段桶、影响规模与时延均高度一致。",
+          "log_fit": "共同出现 PureQueryMeta/元数据 owner 失联；底层 errno 不同。",
+          "rc_consistency": "与现场从健康服务到突然超时且目标日志停止的证据一致。",
+          "env_diff": "版本与退出信号未知，不能证明与历史环境完全同构。",
+          "adaptation": "复用恢复和验证方案；退出诱因必须以本次容器/OS 事件重新确认。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": "②",
+          "id": "kvcache_access_020 + kvcache_access_036",
+          "stars": "★★★★★",
+          "match_logic": "L1 精确命中 1001/39；L2 精确命中 RPC/元数据 owner 故障域；L3 拓扑由入口 Worker 指向元数据所有者。",
+          "symptom": "RPC 超过截止时间；元数据所有者不可用。",
+          "root_cause": "网络、服务端处理、本地等待、owner 进程异常或路由过期均可导致。",
+          "solution": "检查 owner 进程、网络与路由；恢复后复测并谨慎处理结果未知的写请求。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "与两条 trace 的状态码和日志完全一致。",
+          "log_fit": "现场日志包含 RPC deadline exceeded 与 Metadata owner RPC failure。",
+          "rc_consistency": "curated 给出候选范围，现场时序进一步收敛到 Worker 进程退出。",
+          "env_diff": "curated 为通用解释，不包含本次具体节点。",
+          "adaptation": "按本次失联 owner 与时间窗执行。",
+          "applicability": "direct"
+        },
+        {
+          "rank": "③",
+          "id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+          "stars": "★★★☆☆",
+          "match_logic": "L1 命中 K_RPC_DEADLINE_EXCEEDED=1001；L2 命中 Worker 生命周期故障域；L3/L5 建议核查退出前 ERROR/FATAL、lease、信号及容器/系统日志。",
+          "symptom": "Worker 异常退出可能导致服务不可达；kill -9 场景可能没有退出日志。",
+          "root_cause": "经验仅给出排查框架，不单独证明本次根因。",
+          "solution": "检查最后 ERROR/FATAL、容器事件、dmesg、systemd、OOM 与信号。",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为建议",
+          "phenomenon_fit": "与目标 Worker 日志突然停止相符。",
+          "log_fit": "本次未观测到优雅退出日志，符合经验中强制终止可能无日志的边界。",
+          "rc_consistency": "与 curated 不冲突；仅用于补充退出原因取证建议。",
+          "env_diff": "经验版本为 yuanrong-datasystem 0.8.1.rc20，本次日志显示客户端 0.9.2，需调整。",
+          "adaptation": "只采用通用取证步骤，不照搬版本相关判断。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "核查并恢复 192.168.219.107:31501 对应 Worker 进程/Pod，确认 31501 RPC 与 31502 fd-transfer 端口重新监听。",
+          "收集退出窗口前后的 Pod lastState、exitCode、OOMKilled、Kubernetes event、宿主机 dmesg 与 coredump，确认退出触发原因；当前日志不能区分 OOM、信号或容器终止。",
+          "恢复后刷新客户端与存活 Worker 的路由/transport snapshot，确认 PureQueryMeta 不再指向失活实例。"
+        ],
+        "long_term": [
+          "为 Worker 进程退出、端口失联与重启次数建立秒级告警，并自动归档退出码、信号和 coredump。",
+          "优化元数据 owner 失联后的快速失败与路由刷新，避免 10ms 请求预算全部消耗在对失活 owner 的等待。",
+          "定期演练 Worker 异常退出下的 GET 自愈路径，验证元数据重新选主和客户端 transport snapshot 收敛时间。"
+        ],
+        "verification": [
+          "连续观察至少 30 分钟：/stats/error_codes 中 1001、39 不再新增。",
+          "复测 GET：/stats/stages 的 GET·query_meta fail_cnt=0；SET 仍独立检查，不与 GET 混桶。",
+          "确认 192.168.219.107:31501/31502 可连接、客户端注册与 fd 传递成功，且 /stats/heatmap 无新故障热点。",
+          "核对容器/OS 事件给出的退出原因与日志时间线一致后，关闭退出诱因调查项。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复失联 Worker 并采集退出原因证据。",
+      "depends_on": "具备 Pod/宿主机运维权限",
+      "expected_effect": "恢复元数据 owner RPC 服务并闭环退出诱因。",
+      "verify": "31501/31502 监听正常，GET 1001/39 归零，退出码/OOM/信号证据明确。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "刷新路由与 transport snapshot，验证元数据查询自愈。",
+      "depends_on": "Worker 已恢复且健康检查通过",
+      "expected_effect": "请求不再指向失活 owner。",
+      "verify": "GET·query_meta fail_cnt=0，故障热力图无新增热点。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—（接口不提供 P99）",
+        "share_bar": [
+          {
+            "name": "QueryMeta",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "QueryMeta",
+            "p99": "—",
+            "anomaly_rate": "2/2 异常标记",
+            "fail_share": "100.0% 分类样本",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "证据 P90=10.121ms，max=10.121ms；请求占比不是耗时占比。"
+          }
+        ],
+        "conclusion": "GET 的 2 条分类样本全部归入 query_meta；其余 7 个 GET 桶为 0。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "SET sample_cnt=0；空结果仅表示本资产未解析到 SET 归因样本，不代表写路径健康。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 2,
+    "top_error_codes": [
+      {
+        "code": "1001",
+        "name": "K_RPC_DEADLINE_EXCEEDED",
+        "pct": "100.0% trace（2/2）",
+        "fault": "F01"
+      },
+      {
+        "code": "39",
+        "name": "K_METADATA_OWNER_UNAVAILABLE",
+        "pct": "50.0% trace（1/2）",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "GET·QueryMeta",
+        "pct": "100.0% 分类样本",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.189.100",
+        "host": "—",
+        "pct": "2/2 trace",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.109",
+        "host": "—",
+        "pct": "2/2 trace",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "04:47:47",
+        "level": "high",
+        "pct": "50.0",
+        "spike": true,
+        "lat_ms": "10.160",
+        "fault": "F01"
+      },
+      {
+        "time": "04:47:48",
+        "level": "critical",
+        "pct": "100.0",
+        "spike": true,
+        "lat_ms": "10.155",
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-5f7f613a",
+    "total_steps": 7,
+    "api_calls": 24,
+    "duration": "本次会话",
+    "steps": [
+      {
+        "title": "Step 1 标签与经验预检索",
+        "api_calls": [
+          "experience-skill SKILL/WIKI search",
+          "读取 train_valid.md 与 gt_labels.json"
+        ],
+        "result": "日志描述 worker_process_get_exit_mul 对应 Worker故障/Worker故障-进程退出；经验仅作为先验。"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}"
+        ],
+        "result": "任务 successful，2 条 trace、2 条故障 trace 已落库。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立阶段分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 2/2 归入 query_meta；SET 无样本。"
+      },
+      {
+        "title": "Step 4 精确统计",
+        "api_calls": [
+          "POST /stats/error_codes",
+          "POST /stats/pods",
+          "POST /stats/links",
+          "POST /stats/heatmap"
+        ],
+        "result": "1001 命中 2 个 trace、39 命中 1 个；热点位于 04:47。"
+      },
+      {
+        "title": "Step 5 Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "两条 GET 均在 PureQueryMeta→192.168.219.107:31501 超时。"
+      },
+      {
+        "title": "Step 6 Curated 与历史案例复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/1001",
+          "GET /failure_mode/status_code/39",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search"
+        ],
+        "result": "命中已确认案例 UB-CASE-002534；L1/L2 高度一致，因 errno 与版本差异按 adjust 采用并回写命中。"
+      },
+      {
+        "title": "Step 7 报告特征提取与渲染",
+        "api_calls": [
+          "error_features.py",
+          "latency_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "错误分布与阶段特征均由保存的真实 API 响应离线提取。"
+      }
+    ]
+  }
+}

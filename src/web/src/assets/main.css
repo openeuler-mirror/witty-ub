@@ -9979,6 +9979,23 @@ body.agent-panel-resizing-corner {
   opacity: 1;
   visibility: visible;
 }
+.fault-trace-pod-cell .role-chip::after {
+  display: none;
+}
+.fault-role-tooltip {
+  position: fixed;
+  z-index: 1400;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  padding: 4px 8px;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none;
+  white-space: pre-line;
+}
 /* tooltip 底色与 chip 角色色一致，直观对应"颜色→角色" */
 .role-chip.role-chip-client:hover::after {
   background: #1d4ed8;

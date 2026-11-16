@@ -20,9 +20,11 @@
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal, ROUND_HALF_UP
 import html as html_lib
 from html.parser import HTMLParser
 import json
+import math
 import os
 import re
 import sys
@@ -49,6 +51,23 @@ STAGE_STATUS_ENUM = ("ok", "warn", "bottleneck")
 SHARE_CLS_ENUM = ("s-ok", "s-warn", "s-bottleneck")
 TRACE_KIND_ENUM = ("latency", "error")
 EVIDENCE_TRACES_MAX = 5
+
+# 报告数据层的置信度统一为 0~1 浮点数。以下映射只用于兼容存量报告中
+# 没有数值的定性写法；新报告仍必须直接产出数值。
+CONFIDENCE_LABELS = {
+    "veryhigh": 0.95,
+    "极高": 0.95,
+    "high": 0.90,
+    "高": 0.90,
+    "mediumhigh": 0.80,
+    "中高": 0.80,
+    "medium": 0.60,
+    "中": 0.60,
+    "low": 0.30,
+    "低": 0.30,
+    "verylow": 0.10,
+    "极低": 0.10,
+}
 
 # 清理旧报告时保留的状态：已确认报告是案例与证据锚点回指的原文。
 CLEANUP_PROTECTED_STATUS = "confirmed"
@@ -87,6 +106,113 @@ def _as_num(value):
         return float(str(value).strip().rstrip("%").replace(",", ""))
     except (TypeError, ValueError):
         return None
+
+
+def _format_frontend_latency(value):
+    """Match App.vue formatLatencyTooltipValue for a total_latency value in ms."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number):
+        return None
+    if number == 0:
+        return "0"
+
+    def fixed(candidate):
+        # JS Number.toFixed chooses the larger integer on an exact tie. Python's
+        # native formatting uses ties-to-even, so round the exact IEEE float with
+        # ROUND_HALF_UP to preserve App.vue behavior at boundary values too.
+        rounded = Decimal.from_float(candidate).quantize(
+            Decimal("0.001"), rounding=ROUND_HALF_UP
+        )
+        return f"{rounded:.3f}"
+
+    value_us = number * 1000
+    if float(fixed(number)) != 0:
+        return f"{fixed(number)} ms"
+    if float(fixed(value_us)) != 0:
+        return f"{fixed(value_us)} us"
+    return f"{fixed(value_us * 1000)} ns"
+
+
+def _coerce_confidence(value):
+    """把存量置信度写法转成 0~1 float；无法识别时返回原值供校验报错。"""
+    if value is None or isinstance(value, bool):
+        return value
+
+    number = None
+    has_percent = False
+    if isinstance(value, (int, float)):
+        number = float(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return value
+        has_percent = "%" in text or "％" in text
+        numeric_text = text.replace(",", "")
+        match = re.search(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)", numeric_text)
+        if match:
+            residual = numeric_text[:match.start()] + numeric_text[match.end():]
+            residual = re.sub(r"[%％\s_:\-()（）\[\]]+", "", residual).lower()
+            allowed_residuals = set(CONFIDENCE_LABELS) | {"confidence", "置信", "置信度"}
+            if residual and residual not in allowed_residuals:
+                return value
+            number = float(match.group(0))
+        else:
+            label = re.sub(r"[\s_\-]+", "", text).lower()
+            return CONFIDENCE_LABELS.get(label, value)
+    else:
+        return value
+
+    if not math.isfinite(number):
+        return value
+    if has_percent or number > 1:
+        number /= 100
+    if 0 <= number <= 1:
+        return round(number, 2)
+    return value
+
+
+def _normalize_confidences(value):
+    """递归归一化所有 confidence / confidence_on_reference 字段。"""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in ("confidence", "confidence_on_reference"):
+                value[key] = _coerce_confidence(child)
+            else:
+                _normalize_confidences(child)
+    elif isinstance(value, list):
+        for child in value:
+            _normalize_confidences(child)
+
+
+def _check_confidences(value, path, errors):
+    """报告内所有置信度字段必须在归一化后满足同一数值契约。"""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_path = f"{path}.{key}" if path else key
+            if key in ("confidence", "confidence_on_reference"):
+                if child is None:
+                    continue
+                if isinstance(child, bool) or not isinstance(child, (int, float)):
+                    errors.append(
+                        f"{child_path}: 必须是 0~1 数值（存量 high/高/高90% 会自动兼容转换）"
+                    )
+                elif not math.isfinite(float(child)) or not 0 <= float(child) <= 1:
+                    errors.append(f"{child_path}: 必须在 0~1 范围内")
+            else:
+                _check_confidences(child, child_path, errors)
+    elif isinstance(value, list):
+        for i, child in enumerate(value):
+            _check_confidences(child, f"{path}[{i}]", errors)
+
+
+def _format_confidence(value) -> str:
+    """HTML 展示统一为百分比；数据层仍保留 0~1 float。"""
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "—"
+    pct = round(float(value) * 100)
+    return f"{pct}%"
 
 
 def _check_enum(path, value, enum, errors, required=True):
@@ -218,6 +344,65 @@ def _check_latency(path, latency, errors):
     if not isinstance(latency, dict):
         errors.append(f"{path}: 必须是对象")
         return
+    metrics = latency.get("metrics") or []
+    if not isinstance(metrics, list):
+        errors.append(f"{path}.metrics: 必须是数组")
+    else:
+        overview_requests = {}
+        for i, metric in enumerate(metrics):
+            if not isinstance(metric, dict):
+                continue
+            label = str(metric.get("label") or "").lower()
+            expected_mode = None
+            if "p99.99" in label or "p9999" in label:
+                expected_mode = "p9999"
+            elif "平均时延" in label or "均值" in label:
+                expected_mode = "avg"
+            if expected_mode is None:
+                continue
+            source = metric.get("source")
+            request = source.get("request") if isinstance(source, dict) else None
+            p = f"{path}.metrics[{i}]"
+            if not isinstance(source, dict) or source.get("endpoint") != "/log_parse_result/metrics/latency":
+                errors.append(f"{p}.source: AVG/P99.99 必须记录 metrics/latency 同源请求")
+                continue
+            if not isinstance(request, dict):
+                errors.append(f"{p}.source.request: 必须是对象")
+                continue
+            if request.get("sample_mode") != expected_mode:
+                errors.append(f"{p}.source.request.sample_mode: 必须为 {expected_mode}")
+            if request.get("bucket_seconds") != 3600:
+                errors.append(f"{p}.source.request.bucket_seconds: 报告页头必须为 3600")
+            for field in ("kb_id", "log_id", "operation", "start_time", "end_time"):
+                if not request.get(field):
+                    errors.append(f"{p}.source.request.{field}: AVG/P99.99 同源请求必填")
+            if source.get("response_path") != "result.metrics[0].total_latency":
+                errors.append(
+                    f"{p}.source.response_path: 必须为 result.metrics[0].total_latency"
+                )
+            if source.get("returned_points") != 1:
+                errors.append(f"{p}.source.returned_points: AVG/P99.99 必须恰好为 1")
+            observed = source.get("observed_total_latency_ms")
+            expected_value = _format_frontend_latency(observed)
+            if expected_value is None:
+                errors.append(
+                    f"{p}.source.observed_total_latency_ms: 必须逐字保存接口返回的有限数值"
+                )
+            elif metric.get("value") != expected_value:
+                errors.append(
+                    f"{p}.value: 必须按前端格式显示为 {expected_value!r}"
+                )
+            overview_requests[expected_mode] = request
+        if set(overview_requests) == {"avg", "p9999"}:
+            normalized = []
+            for mode in ("avg", "p9999"):
+                request = dict(overview_requests[mode])
+                request.pop("sample_mode", None)
+                normalized.append(request)
+            if normalized[0] != normalized[1]:
+                errors.append(
+                    f"{path}.metrics: AVG/P99.99 请求除 sample_mode 外必须完全一致"
+                )
     stages = latency.get("stages")
     if stages is None:
         return
@@ -364,6 +549,25 @@ def _compat_latency(lat):
     """旧结构 stages{p50,p90,max,share_pct} → 契约补充 p99/baseline/ratio/share。"""
     if not isinstance(lat, dict) or not lat:
         return lat
+    # AVG/P99.99 卡片不信任模型手写的展示文本：直接用保存的接口原值，按
+    # App.vue formatLatencyTooltipValue 的规则生成，保证报告和趋势图 tooltip 一致。
+    for metric in lat.get("metrics") or []:
+        if not isinstance(metric, dict):
+            continue
+        source = metric.get("source")
+        if not isinstance(source, dict):
+            continue
+        request = source.get("request")
+        if (
+            source.get("endpoint") == "/log_parse_result/metrics/latency"
+            and isinstance(request, dict)
+            and request.get("sample_mode") in ("avg", "p9999")
+        ):
+            display_value = _format_frontend_latency(
+                source.get("observed_total_latency_ms")
+            )
+            if display_value is not None:
+                metric["value"] = display_value
     for st in lat.get("stages") or []:
         if not isinstance(st, dict):
             continue
@@ -388,6 +592,7 @@ def normalize_compat(data):
     """
     if not isinstance(data, dict):
         return data
+    _normalize_confidences(data)
     targets = [data]
     faults = data.get("faults")
     if isinstance(faults, list):
@@ -414,6 +619,8 @@ def validate(data) -> tuple[list[str], list[str]]:
 
     if not isinstance(data, dict):
         raise Fatal("数据根节点必须是 JSON 对象", "检查 JSON 最外层是否为 { }")
+
+    _check_confidences(data, "", errors)
 
     for key in REQUIRED_TOP:
         if not isinstance(data.get(key), dict):
@@ -687,6 +894,7 @@ fault_relations[]{from,to,type,confidence,evidence}
 action_plan[]{priority,fault_ids,action,depends_on,expected_effect,verify}
 statistics{stage_breakdown|stage_breakdowns,heatmap_metric,dist_total,top_error_codes,top_failure_domains,top_pods,top_hosts,time_heatmap}
 workflow{session_id,total_steps,api_calls,duration,steps[]}
+置信度：所有 confidence / confidence_on_reference 均为 0~1 JSON number（最多两位小数，如 0.9）；HTML 统一显示为百分比；禁止新产出 high/高/90/"90%"/"高90%"
 枚举：role=primary|secondary|independent; status=confirmed|suspected|excluded; severity=P1|P2|P3
      category=error|latency|mixed; stage.status=ok|warn|bottleneck; share_bar.cls=s-ok|s-warn|s-bottleneck
      fault_relations.type=causes|common_cause|independent|correlated; evidence_traces[].kind=latency|error
@@ -696,7 +904,8 @@ workflow{session_id,total_steps,api_calls,duration,steps[]}
     "basic_info": "kb_id,kb_name,log_file,operation,time_range_start,time_range_end,total_trace_cnt,fault_trace_cnt,fault_ratio,parse_ok,diagnosis_ok",
     "conclusion": """first_level_label,second_level_label,one_line_conclusion,fault_domain,fault_component,fault_function,fault_function_loc,affected_scope_pct,affected_scope_desc,confidence,key_findings[]
 first_level_label / second_level_label：一级/二级标签，新报告必填 string|null，取值及配对见 references/log_label.json；按诊断证据语义匹配，未知层级填 null，一级 null 时二级也须 null；fault_domain 必须与两级标签一致（填写 一级/二级，两级均 null 时同步 null），不得自由填写域文本""",
-    "latency": """metrics[]{label,value,sub,tone},stages[]{name,p99,baseline,ratio,share,status,detail,features?},conclusion
+    "latency": """metrics[]{label,value,sub,tone,source?},stages[]{name,p99,baseline,ratio,share,status,detail,features?},conclusion
+metrics 中平均时延/P99.99 卡片强制 source={endpoint:'/log_parse_result/metrics/latency',request{kb_id,log_id,operation,start_time,end_time,bucket_seconds:3600,sample_mode:avg|p9999},response_path:'result.metrics[0].total_latency',returned_points:1,observed_total_latency_ms:<接口原值>}；两次请求除 sample_mode 外相同且响应均为单桶；value 由渲染器按前端 tooltip 规则自动生成（ms/us/ns，固定 3 位）
 features：从已有 /stats/stages 响应提取的互斥归因桶快照，不等同于物理阶段；旧字段保留
 features{operation,bucket_key,metric_name,source{endpoint,request,response_path},sample_cnt,truncated,sample_note,
  trace_cnt,normal_cnt,anomalous_cnt,bucket_share_pct,anomalous_ratio_pct,
@@ -731,7 +940,7 @@ time_heatmap[]{time,level,pct,spike,lat_ms,fault}
 GET/SET 阶段清单（报告阶段名 ↔ 字段 ↔ 阈值）：references/REPORT_BLOCKS.md""",
     "workflow": "session_id,total_steps,api_calls,duration,steps[]{title,api_calls[],result}",
     "source_code": "component,failure_mode_id,call_chain[]{function,file,line,role,role_label,call_site,code[]{num,text,highlight,ellipsis},analysis},fix_suggestion",
-    "incident": "one_line_conclusion,fault_count,primary_fault_id,secondary_fault_count,independent_fault_count,overall_impact,confidence",
+    "incident": "one_line_conclusion,fault_count,primary_fault_id,secondary_fault_count,independent_fault_count,overall_impact,confidence（0~1 JSON number，页面显示为百分比）",
     "action_plan": "priority,fault_ids[],action,depends_on,expected_effect,verify",
 }
 
@@ -894,6 +1103,7 @@ def render_report_html(data: dict, template_path: Path, data_path: Path) -> str:
         lstrip_blocks=False,
     )
     env.filters["safe_report_html"] = lambda value: Markup(_safe_report_html(value))
+    env.filters["confidence_pct"] = _format_confidence
     try:
         return env.get_template(template_path.name).render(**data)
     except Exception as exc:  # 模板语法/结构问题：给出模板侧定位
@@ -1062,6 +1272,41 @@ def print_fatal(exc: Fatal) -> int:
 
 
 # --------------------------------------------------------------------------- #
+LOG_SEMANTIC_TIMEOUT = 30
+
+
+def attach_log_semantic_profile(data: dict, kb_id=None) -> None:
+    """把「日志语义错误码轮廓」写入 basic_info，使文档固定携带该字段。
+
+    - ``basic_info`` 已带非空轮廓：跳过（尊重文档既有内容）。
+    - 需要 WITTY_API_BASE 与 kb_id（参数优先，其次 ``basic_info.kb_id``）。
+    尽力而为：任何网络/解析失败只在 stderr 提示，不影响报告生成。
+    """
+    basic = data.get("basic_info")
+    if not isinstance(basic, dict) or basic.get("log_semantic_profile"):
+        return
+    resolved_kb = kb_id or basic.get("kb_id")
+    base = (os.environ.get("WITTY_API_BASE") or "").strip().rstrip("/")
+    if not resolved_kb or not base:
+        return
+    try:
+        payload = json.dumps({"kb_id": resolved_kb}).encode("utf-8")
+        request = urllib.request.Request(
+            f"{base}/log_failure_event_result/log_semantic_profile",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=LOG_SEMANTIC_TIMEOUT) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        result = body.get("result") if isinstance(body, dict) else None
+        profile = result.get("profile") if isinstance(result, dict) else None
+        if isinstance(profile, dict) and profile:
+            basic["log_semantic_profile"] = profile
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        print(f"  ⚠ 未附加日志语义码轮廓：{exc}", file=sys.stderr)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(add_help=True, description="渲染诊断报告 HTML")
     parser.add_argument("data", nargs="?", help="报告数据 JSON 文件")
@@ -1099,6 +1344,7 @@ def main(argv=None) -> int:
         # knowledge_matches{title,summary}、stages{p50,p90,max}）→ 契约结构，
         # 转换后再校验与渲染，保证关键区块不因字段名不一致而留白。
         normalize_compat(data)
+        attach_log_semantic_profile(data, args.kb_id)
         if args.allow_incomplete:
             # 一线数据允许字段不全：契约问题降级为提示，缺失区块按模板默认呈现。
             errors, warnings = validate(data)

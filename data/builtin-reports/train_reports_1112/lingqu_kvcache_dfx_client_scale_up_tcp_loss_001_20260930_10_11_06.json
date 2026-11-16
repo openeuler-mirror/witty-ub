@@ -1,0 +1,768 @@
+{
+  "report": {
+    "title": "KVCache 扩容期间网卡丢包导致 SET 建链失败与长尾诊断报告",
+    "report_id": "RPT-20261112-TL01",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "0c36b1fe-1f43-4003-8665-895bbd5bbaf1",
+    "kb_name": "lingqu_kvcache_dfx_client_scale_up_tcp_loss_001_20260930_10_11_06",
+    "log_file": "lingqu_kvcache_dfx_client_scale_up_tcp_loss_001_20260930_10_11_06",
+    "operation": "SET（GET 独立核验无样本）",
+    "time_range_start": "2026-09-30 10:09:45",
+    "time_range_end": "2026-09-30 10:09:56",
+    "total_trace_cnt": 4,
+    "fault_trace_cnt": 3,
+    "fault_ratio": "75.0%（另有 1 条成功但时延异常）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Urma connect failed": 0.164399,
+      "T:E112": 0.986394
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个混合故障：扩容窗口的网络数据面丢包使 SET 的 bRPC/URMA 建链失败，并伴随单条 2.1 秒 CREATE 长尾。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "4 条 SET trace 中 3 条返回 1009，另 1 条成功请求耗时 2102.149ms；涉及客户端与两个远端 31501 端点。",
+    "confidence": "高 90%（故障标签由指定标注源给出；现场缺少 NIC/交换机计数）"
+  },
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核查并止损客户端到 192.168.189.117、192.168.235.161 的网络/URMA 数据面，检查 NIC、交换机端口丢包与错误计数。",
+      "depends_on": "网络与主机监控权限",
+      "expected_effect": "消除 E112 Host is down 和 K_URMA_CONNECT_FAILED，恢复稳定建链。",
+      "verify": "连续 SET 压测中 1009 归零，CREATE 长尾消失，接口成功率与时延恢复基线。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "同步核对两个目标 Worker 的进程、31501 监听、URMA Jetty/connection 与路由状态，排除远端进程退出或路由撤销。",
+      "depends_on": "Worker 与容器运行状态",
+      "expected_effect": "闭环网络丢包与远端服务不可用的反证检查。",
+      "verify": "目标 Worker 持续 Ready、端口可达、Jetty 建链成功且无旧实例残留。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET /stats/stages 返回 sample_cnt=0；空归因子集不等于 GET 健康，仅说明本资产未采到 GET 样本。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "数据面未观测",
+            "pct": 75.0,
+            "cls": "s-warn"
+          },
+          {
+            "name": "客户端 SDK 段",
+            "pct": 25.0,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "0/3",
+            "fail_share": "0%（时延异常口径）",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "3 条 trace 均返回 1009；阶段证据 p50=0.072ms、p90=max=0.087ms，缺少 Worker 侧分段，不能按短时延解释为成功。"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "1/1",
+            "fail_share": "100%（时延异常口径）",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "1 条成功 trace 的阶段证据耗时 2102.082ms、Client 总时延 2102.149ms；接口只提供 p50/p90/max，不补造 P99。"
+          }
+        ],
+        "conclusion": "SET 的 4 条归因样本中，3 条建链失败 trace 落入数据面未观测桶，1 条成功但极慢的请求落入客户端 SDK 桶；两类现象同处扩容扰动窗口。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 3,
+    "top_error_codes": [
+      {
+        "code": "1009",
+        "name": "K_URMA_CONNECT_FAILED",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "硬件故障/网卡故障-丢包",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.118",
+        "host": "—",
+        "pct": 80.0,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.117",
+        "host": "—",
+        "pct": 20.0,
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-09-30 10:09",
+        "level": "high",
+        "pct": 100.0,
+        "spike": true,
+        "lat_ms": 2102.149,
+        "fault": "F01"
+      }
+    ]
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "扩容窗口网卡丢包导致 SET 建链失败与 CREATE 长尾",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 90,
+      "category": "mixed",
+      "affected_scope": "2026-09-30 10:09:46–10:09:54；4 条 SET trace；客户端 192.168.219.118 与两个远端 31501 端点",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-丢包",
+        "one_line_conclusion": "扩容窗口的网络丢包导致 bRPC 对端不可达、URMA 建链失败，并诱发一条 2.1 秒 SET CREATE 长尾。",
+        "fault_domain": "硬件故障/网卡故障-丢包",
+        "fault_component": "客户端至远端 Worker 的网络/URMA 数据面",
+        "fault_function": "WorkerWorkerExchangeUrmaConnectInfo / SET Create",
+        "fault_function_loc": "transport_layer.cpp:892、object_client_impl.cpp:2841",
+        "affected_scope_pct": 100.0,
+        "affected_scope_desc": "本窗 4 条 SET 均受影响：3 条失败、1 条成功但时延异常；GET 未采到样本。",
+        "confidence": 90,
+        "key_findings": [
+          "3 条 SET 在 2.212 秒内均返回 K_URMA_CONNECT_FAILED(1009)。",
+          "三条原始日志均出现 RPC peer dead、brpc errno=112 Host is down、Not connected to。",
+          "另 1 条 SET 成功但总耗时 2102.149ms，其中 client.rpc.create_total=2100.430ms。",
+          "指定标签源将该日志描述映射为 硬件故障/网卡故障-丢包；现场尚缺 NIC/交换机丢包计数。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "0c36b1fe-1f43-4003-8665-895bbd5bbaf1",
+              "operation": "GET",
+              "start_time": "2026-09-30 10:09:45",
+              "end_time": "2026-09-30 10:09:56"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "0c36b1fe-1f43-4003-8665-895bbd5bbaf1",
+                    "operation": "GET",
+                    "start_time": "2026-09-30 10:09:45",
+                    "end_time": "2026-09-30 10:09:56",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 0,
+                  "returned_windows": 0
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 0,
+              "total_windows": 0
+            },
+            "code_distribution": {
+              "total_count": 0,
+              "items": [],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-30 10:09:45",
+                  "end_time": "2026-09-30 10:09:46",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:46",
+                  "end_time": "2026-09-30 10:09:47",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:47",
+                  "end_time": "2026-09-30 10:09:48",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:48",
+                  "end_time": "2026-09-30 10:09:49",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:49",
+                  "end_time": "2026-09-30 10:09:50",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:50",
+                  "end_time": "2026-09-30 10:09:51",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:51",
+                  "end_time": "2026-09-30 10:09:52",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:52",
+                  "end_time": "2026-09-30 10:09:53",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:53",
+                  "end_time": "2026-09-30 10:09:54",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:54",
+                  "end_time": "2026-09-30 10:09:55",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:55",
+                  "end_time": "2026-09-30 10:09:56",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "0c36b1fe-1f43-4003-8665-895bbd5bbaf1",
+              "operation": "SET",
+              "start_time": "2026-09-30 10:09:45",
+              "end_time": "2026-09-30 10:09:56"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "0c36b1fe-1f43-4003-8665-895bbd5bbaf1",
+                    "operation": "SET",
+                    "start_time": "2026-09-30 10:09:45",
+                    "end_time": "2026-09-30 10:09:56",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 3,
+              "items": [
+                {
+                  "code": "1009",
+                  "count": 3,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-30 10:09:45",
+                  "end_time": "2026-09-30 10:09:46",
+                  "complete": true,
+                  "counts": {
+                    "1009": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:46",
+                  "end_time": "2026-09-30 10:09:47",
+                  "complete": true,
+                  "counts": {
+                    "1009": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:47",
+                  "end_time": "2026-09-30 10:09:48",
+                  "complete": true,
+                  "counts": {
+                    "1009": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:48",
+                  "end_time": "2026-09-30 10:09:49",
+                  "complete": true,
+                  "counts": {
+                    "1009": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:49",
+                  "end_time": "2026-09-30 10:09:50",
+                  "complete": true,
+                  "counts": {
+                    "1009": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:50",
+                  "end_time": "2026-09-30 10:09:51",
+                  "complete": true,
+                  "counts": {
+                    "1009": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:51",
+                  "end_time": "2026-09-30 10:09:52",
+                  "complete": true,
+                  "counts": {
+                    "1009": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:52",
+                  "end_time": "2026-09-30 10:09:53",
+                  "complete": true,
+                  "counts": {
+                    "1009": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:53",
+                  "end_time": "2026-09-30 10:09:54",
+                  "complete": true,
+                  "counts": {
+                    "1009": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:54",
+                  "end_time": "2026-09-30 10:09:55",
+                  "complete": true,
+                  "counts": {
+                    "1009": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-30 10:09:55",
+                  "end_time": "2026-09-30 10:09:56",
+                  "complete": true,
+                  "counts": {
+                    "1009": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 在查询窗内无故障桶；SET 的 3 次逐码命中全部为 1009，其中 10:09:46 一秒内 2 次、10:09:48 一秒内 1 次。计数口径为逐码命中次数，不是去重业务失败数；GET 空结果仅表示未采到 GET 样本，不能据此判定健康。"
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET 最大总时延",
+            "value": "2102.149ms",
+            "sub": "成功但异常的代表 trace",
+            "tone": "danger"
+          },
+          {
+            "label": "客户端段证据耗时",
+            "value": "2102.082ms",
+            "sub": "set_client 桶 max；接口无 P99",
+            "tone": "danger"
+          },
+          {
+            "label": "故障码命中",
+            "value": "1009 × 3",
+            "sub": "逐码命中次数",
+            "tone": "danger"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p50": "2102.082ms",
+            "p90": "2102.082ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "1/4 归因样本",
+            "status": "bottleneck",
+            "detail": "代表 trace 的 client.rpc.create_total=2100.430ms；无独立基线，不计算放大倍数。"
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p50": "0.072ms",
+            "p90": "0.087ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "3/4 归因样本",
+            "status": "warn",
+            "detail": "3 条 1009 trace 缺少 Worker 侧数据面分段；快速失败不代表链路健康。"
+          }
+        ],
+        "conclusion": "额外耗时集中在 SET 客户端等待 Create 返回的阶段；单条成功请求达到 2.1 秒。同时，三条建链失败请求快速返回 1009，形成通断与长尾并存的混合故障。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "S1",
+            "title": "确认故障集中在 SET",
+            "description": "GET 无归因样本；SET 有 3 条 1009 故障 trace 和 1 条时延异常 trace。",
+            "evidence": "GET /stats/stages sample_cnt=0；SET sample_cnt=4；/stats/error_codes 显示 1009 trace_cnt=3。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S2",
+            "title": "定位到 bRPC/URMA 建链不可达",
+            "description": "三个失败 trace 均在 WorkerWorkerExchangeUrmaConnectInfo 阶段报告对端不可达并上浮为 1009。",
+            "evidence": "原文：RPC peer dead [brpc errno=112 Host is down] [E112]Not connected to ...:31501 yet。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S3",
+            "title": "同窗存在 CREATE 极端长尾",
+            "description": "成功 SET 的客户端 Create 等待超过 2.1 秒，与建链失败发生在同一扰动窗口。",
+            "evidence": "trace 607f9587... total=2102.149ms，client.rpc.create_total=2100.430ms。",
+            "confirmed": true
+          },
+          {
+            "step_label": "S4",
+            "title": "反证检查：远端进程/路由异常尚未完全排除",
+            "description": "日志没有 Worker 退出、容器重启、NIC 或交换机计数；Host is down 不能单独唯一证明丢包。",
+            "evidence": "options 未返回 host；现有原始日志仅证明端点不可达、建链失败和同窗长尾。",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "按用户指定的标签映射，根因归类为硬件故障/网卡故障-丢包；现场直接证据链为网络端点不可达（E112）→ bRPC/URMA 建链失败（1009）并伴随 2.1 秒 CREATE 长尾。丢包的物理计数仍需网络侧补证。",
+        "supporting_knowledge": "Curated kvcache_access_059 将 1009 解释为 URMA 建链失败；已确认案例 UB-CASE-002561 在 L1（1009/同故障模式）和 L2（SET/set_client）命中，并有同标签闭环记录。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "网络数据面丢包",
+            "detail": "扩容窗口客户端到远端 Worker 的链路发生不稳定。",
+            "type": "root"
+          },
+          {
+            "label": "bRPC 对端不可达",
+            "detail": "WorkerWorkerExchangeUrmaConnectInfo 返回 errno=112 Host is down。",
+            "type": "transport",
+            "transition": "链路不稳定使连接无法建立或响应显著延后"
+          },
+          {
+            "label": "URMA 建链失败",
+            "detail": "3 条 SET 上浮 K_URMA_CONNECT_FAILED(1009)。",
+            "type": "component",
+            "transition": "bRPC 建链信息交换失败"
+          },
+          {
+            "label": "SET 失败与长尾",
+            "detail": "3 条请求快速失败；另 1 条 Create 等待 2100.430ms 后成功。",
+            "type": "impact",
+            "transition": "连接失败或等待重试/恢复"
+          }
+        ],
+        "impact_scope": [
+          "操作域：SET；GET 未采到样本，不能外推。",
+          "时间范围：10:09:46–10:09:54 的瞬时扰动。",
+          "端点范围：客户端 192.168.219.118，远端 192.168.189.117:31501 与 192.168.235.161:31501。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "e18757c6-74ae-416b-8229-b42de203895e",
+          "kind": "error",
+          "why": "status_code=1009 + pod=192.168.219.118 + 10:09:45–10:09:56；E112 指向 192.168.189.117:31501",
+          "status_code": "1009",
+          "failure_mode_id": "kvcache_access_059",
+          "pod": "192.168.219.118",
+          "timestamp": "2026-09-30 10:09:46"
+        },
+        {
+          "trace_id": "ceb0474f-0b30-4831-b870-dbc373fd2089",
+          "kind": "error",
+          "why": "status_code=1009 + pod=192.168.219.118 + 10:09:45–10:09:56；E112 指向 192.168.235.161:31501",
+          "status_code": "1009",
+          "failure_mode_id": "kvcache_access_059",
+          "pod": "192.168.219.118",
+          "timestamp": "2026-09-30 10:09:46"
+        },
+        {
+          "trace_id": "607f9587-0f17-41ff-89cd-83e7218e67e0",
+          "kind": "latency",
+          "why": "SET·客户端SDK段桶内证据耗时 Top1；按证据耗时排序，不代表总体严重度分布",
+          "evidence_ms": 2102.082,
+          "client_ms": 2102.149
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "kvcache_access_059",
+          "stars": 5,
+          "match_logic": "L1 命中 1009/kvcache_access_059；L2 命中 URMA 建链域与 SET；L3 拓扑命中客户端到远端 Worker 的建链调用。",
+          "symptom": "K_URMA_CONNECT_FAILED，URMA 连接建立失败。",
+          "root_cause": "目标 Jetty 不存在或 UB 数据通道建立过程失败；这是知识解释，不是额外现场事实。",
+          "solution": "确认 URMA 已启用且目标 Jetty、UB 设备和网络配置有效，修复建链故障后重试。",
+          "adoption_class": "direct",
+          "adoption_label": "直接采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致",
+          "env_diff": "未取得版本信息",
+          "adaptation": "结合现场 E112 与网络丢包标签，优先补查网络侧计数。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 2,
+          "id": "UB-CASE-002561",
+          "stars": 5,
+          "match_logic": "L1 命中 1009 与 kvcache_access_059；L2 命中 SET/set_client；L5 现象文本命中 E112 Host is down 与 2.1 秒 CREATE 长尾。",
+          "symptom": "已确认案例：URMA 建链失败并伴随客户端 CREATE 长尾。",
+          "root_cause": "案例按同一标签归为网卡丢包，但同样声明缺少 NIC/交换机直接计数。",
+          "solution": "检查路由、邻居、NIC/交换机丢包计数，并同步排除远端 Worker/监听/Jetty 异常。",
+          "adoption_class": "direct",
+          "adoption_label": "已闭环案例直接参考",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致",
+          "env_diff": "资产时间窗不同，日志机制同构",
+          "adaptation": "仅复用排查顺序；结论仍由本次现场 trace 与指定标签支持。",
+          "applicability": "direct"
+        },
+        {
+          "rank": 3,
+          "id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": 4,
+          "match_logic": "L1 命中 K_URMA_CONNECT_FAILED=1009；L2 命中 URMA/TCP 传输域；L3/L5 命中 WorkerWorkerExchangeUrmaConnectInfo 与网络排查方向。",
+          "symptom": "本地经验 ds-rdma-transport-diagnosis：1009 表示 URMA 连接失败。",
+          "root_cause": "经验建议检查地址、设备和网络；经验不是现场证据。",
+          "solution": "同时检查 URMA 驱动/设备、系统日志与对端 Worker。",
+          "adoption_class": "adjust",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "与 curated 一致",
+          "env_diff": "经验面向通用传输层，需按本次 TCP 丢包标签聚焦",
+          "adaptation": "用于完善网络与对端状态的并行核验建议。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "检查客户端到两个目标 31501 端口的路由、ARP/邻居、连通性及 NIC/交换机丢包和错误计数；异常目标先摘流。",
+          "核对 192.168.189.117、192.168.235.161 的 Worker 进程、31501 监听、URMA Jetty 与设备状态，排除进程退出和路由撤销。",
+          "网络恢复后刷新旧 RPC channel 与 URMA connection/Jetty，再执行受控 SET 重试。"
+        ],
+        "long_term": [
+          "扩容流程增加新节点网络、端口与 URMA 建链预检，并设置稳定观察期后再放流。",
+          "对 E112 Host is down、1009、Jetty 重建及 CREATE 长尾建立同窗关联告警。",
+          "保留 NIC、交换机、驱动、URMA provider、Worker 生命周期和路由变更的同窗证据。"
+        ],
+        "verification": [
+          "连续 SET 压测中 status_code=1009 为 0，WorkerWorkerExchangeUrmaConnectInfo 不再出现 E112。",
+          "SET Create 时延回到基线且无 2 秒级长尾；GET/SET 分别复测并独立观察。",
+          "目标 Worker 持续 Ready、31501 可达、Jetty 建链成功，NIC/交换机丢包计数不再增长。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "workflow": {
+    "session_id": "train-diagnosis-0c36b1fe",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本会话完成",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences（SKILL/WIKI）"
+        ],
+        "result": "命中传输层与客户端错误经验，作为待验证假设。"
+      },
+      {
+        "title": "资产与任务核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "资产存在，解析任务成功；1 个日志目录。"
+      },
+      {
+        "title": "GET/SET 独立分诊",
+        "api_calls": [
+          "POST /stats/stages ×2"
+        ],
+        "result": "GET 无样本；SET 4 个样本，1 条客户端段长尾。"
+      },
+      {
+        "title": "通断分布统计",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events ×2"
+        ],
+        "result": "SET 1009 共 3 次，集中在 10:09:46 和 10:09:48。"
+      },
+      {
+        "title": "Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认 E112 Host is down、URMA 建链失败及 2.1 秒 CREATE 长尾。"
+      },
+      {
+        "title": "知识与案例核验",
+        "api_calls": [
+          "GET /failure_mode/status_code/1009",
+          "GET /failure_mode/kvcache_access_059",
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "curated 解释一致；已确认案例 UB-CASE-002561 命中并回写。"
+      },
+      {
+        "title": "报告生成",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only"
+        ],
+        "result": "按指定标签源写入两级标签并执行契约校验。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+      "keywords_matched": [
+        "1009",
+        "K_URMA_CONNECT_FAILED",
+        "WorkerWorkerExchangeUrmaConnectInfo"
+      ],
+      "search_query_used": "1009 K_URMA_CONNECT_FAILED E112 Host is down RPC peer dead WorkerWorkerExchangeUrmaConnectInfo",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "K_URMA_CONNECT_FAILED=1009 | URMA 连接失败 | 检查地址、设备、网络",
+      "how_used_in_diagnosis": "用于完善网络、设备与对端 Worker 并行核验建议，不作为现场证据。",
+      "confidence_on_reference": 0.9,
+      "confidence_reason": "与现场 1009/E112 日志及 curated kvcache_access_059 解释一致。"
+    }
+  ],
+  "experience_summary": {
+    "total_references": 1,
+    "adopted_as_evidence_count": 0,
+    "adopted_as_suggestion_count": 1,
+    "considered_not_adopted_count": 0,
+    "conflicted_with_curated_count": 0,
+    "reference_coverage_note": "采用一条与现场和 curated 知识一致的传输层经验，仅用于补充处置建议。"
+  }
+}

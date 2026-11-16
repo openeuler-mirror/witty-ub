@@ -17,7 +17,7 @@ from latency.exceptions import (
     UnprocessableBizException,
 )
 from latency.ENUM.phenomenon import PhenomenonIndexStatus
-from latency.services import label_taxonomy, report_phenomenon
+from latency.services import label_taxonomy, log_semantic_profile, report_phenomenon
 from latency.services.report_case_draft import CaseDraftPreview
 from latency.services.report_review import (
     ReportReviewService,
@@ -272,6 +272,20 @@ class DiagCaseLibraryService:
     ) -> CreateDiagCaseDraftMsg:
         """Create a draft from a server-built preview; labels are not client input."""
         payload = dict(preview.draft)
+        # 来源报告未给出「一句话根因」时 draft 为 None，而 schema 要求非空
+        # （min_length=1）。建案期用标题兜底，避免整条故障因缺字段而无法建案；
+        # 「缺该字段」这一事实仍由 preview.missing_fields 记录并写入 data_quality。
+        if not payload.get("root_cause_summary"):
+            payload["root_cause_summary"] = (
+                payload.get("title") or "（来源报告未提供一句话根因）"
+            )
+        # 文档未自带日志语义码轮廓时，建案期按来源资产兜底现算（确认后即可被检索）。
+        if not payload.get("log_semantic_profile") and (
+            payload.get("kb_id") or payload.get("kb_name")
+        ):
+            payload["log_semantic_profile"] = await log_semantic_profile.resolve_profile(
+                kb_name=payload.get("kb_name"), kb_id=payload.get("kb_id")
+            )
         payload.pop("verification_history_json", None)
         payload.update(
             {
@@ -592,8 +606,17 @@ class DiagCaseLibraryService:
         )
         await ReportReviewService.require_confirmed(report_id, expected_sidecar_hash)
         if confirmation_source == "import":
+            if not preview.draft.get("log_semantic_profile") and (
+                preview.draft.get("kb_id") or preview.draft.get("kb_name")
+            ):
+                preview.draft["log_semantic_profile"] = (
+                    await log_semantic_profile.resolve_profile(
+                        kb_name=preview.draft.get("kb_name"),
+                        kb_id=preview.draft.get("kb_id"),
+                    )
+                )
             preview.draft["kb_id"] = None
-            preview.draft["kb_name"] = None
+            # kb_name（= log_file.name）保留，供案例回溯来源日志与按名解析。否则丢弃。
         existing = await DiagCaseLibraryPGManager.find_active_bound_case(
             report_id, fault_id, preview.source_fault_hash,
             preview.labels.get("first_level_label"), preview.labels.get("second_level_label"),

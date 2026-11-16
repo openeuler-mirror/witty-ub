@@ -1,0 +1,406 @@
+{
+  "report": {
+    "title": "Worker 进程退出导致 SET 写入 URMA 建链失败诊断报告",
+    "report_id": "RPT-20261112-WX01",
+    "generated_at": "2026-11-12 12:18:04"
+  },
+  "basic_info": {
+    "kb_id": "e3b4008d-190f-4ea4-9f96-7e3535fc1cae",
+    "kb_name": "lingqu_kvcache_dfx_r_worker_process_set_exit_001_20260929_06_24_29",
+    "log_file": "lingqu_kvcache_dfx_r_worker_process_set_exit_001_20260929_06_24_29（log_id=d237b703-8843-40ce-96de-fc755ada1ac6）",
+    "operation": "GET / SET（分别分析，故障仅见于 SET）",
+    "time_range_start": "2026-09-29 06:22:05",
+    "time_range_end": "2026-09-29 06:22:15",
+    "total_trace_cnt": 6,
+    "fault_trace_cnt": 6,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：目标 Worker 进程退出后端点不可用，导致 SET 写请求在 URMA 连接信息交换阶段快速失败。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "10 秒内 6 条 SET trace 全部返回 1009，集中于客户端/数据角色 Pod 192.168.219.88，并指向不可达目标 192.168.219.86:31501。",
+    "confidence": "高 88%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "目标 Worker 进程退出导致 SET 写入 URMA 建链失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 88,
+      "category": "error",
+      "affected_scope": "SET；192.168.219.88 发起的 6 条故障 trace；目标 192.168.219.86:31501；2026-09-29 06:22:05~06:22:15",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程退出",
+        "one_line_conclusion": "目标 Worker 192.168.219.86:31501 退出后不可用，6 条 SET 写请求在 WorkerWorkerExchangeUrmaConnectInfo 阶段快速返回 K_URMA_CONNECT_FAILED(1009)。",
+        "fault_domain": "Worker故障/Worker故障-进程退出",
+        "fault_component": "KVCache Worker / URMA 建链入口",
+        "fault_function": "WorkerWorkerExchangeUrmaConnectInfo",
+        "fault_function_loc": "access_recorder.cpp:1066（失败上浮点）",
+        "affected_scope_pct": "100.00",
+        "affected_scope_desc": "本资产解析出的 6 条 trace 均为 SET 故障；GET 无归因样本，不能据此评价 GET 健康度。",
+        "confidence": "高 88%",
+        "key_findings": [
+          "SET 侧 Top 错误码仅有 1009，共命中 6 条 trace、6 个日志级事件，占本次错误码命中 100%。",
+          "6 条原始访问日志均出现“UB establish failed”“RPC peer dead”“brpc errno=112 Host is down”，固定指向 192.168.219.86:31501。",
+          "BRPC 记录 cntl_failed=1、cntl_error_code=112，ServerSend/ServerRecv 均为 0，说明请求未进入目标 Worker 处理链。",
+          "请求耗时仅 0.046~0.064ms，SET·URMA超时桶为 0，属于端点不可用导致的快速失败，不是排队或超时慢请求。",
+          "训练描述 r_worker_process_set_exit 对应的指定标签为 Worker故障/Worker故障-进程退出；现场未保留退出信号或退出码，因此具体退出原因仍需系统日志补证。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {"label": "故障 trace", "value": "6", "sub": "SET；均命中 1009", "tone": "danger"},
+          {"label": "主导错误码", "value": "1009", "sub": "K_URMA_CONNECT_FAILED · 100%", "tone": "danger"},
+          {"label": "峰值秒", "value": "2 次", "sub": "2026-09-29 06:22:06", "tone": "warn"},
+          {"label": "故障跨度", "value": "10 秒", "sub": "短时簇发", "tone": "warn"}
+        ],
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "e3b4008d-190f-4ea4-9f96-7e3535fc1cae",
+              "operation": "SET",
+              "start_time": "2026-09-29 06:22:05",
+              "end_time": "2026-09-29 06:22:15"
+            },
+            "code_filter": ["1009"],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "e3b4008d-190f-4ea4-9f96-7e3535fc1cae",
+                    "operation": "SET",
+                    "start_time": "2026-09-29 06:22:05",
+                    "end_time": "2026-09-29 06:22:15",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 5,
+                  "returned_windows": 5
+                }
+              ]
+            },
+            "coverage": {"complete": true, "returned_windows": 5, "total_windows": 5},
+            "code_distribution": {
+              "total_count": 6,
+              "items": [{"code": "1009", "count": 6, "share_pct": 100.0}],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {"start_time": "2026-09-29 06:22:05", "end_time": "2026-09-29 06:22:06", "complete": true, "counts": {"1009": 1}, "other_count": 0},
+                {"start_time": "2026-09-29 06:22:06", "end_time": "2026-09-29 06:22:07", "complete": true, "counts": {"1009": 2}, "other_count": 0},
+                {"start_time": "2026-09-29 06:22:07", "end_time": "2026-09-29 06:22:08", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-29 06:22:08", "end_time": "2026-09-29 06:22:09", "complete": true, "counts": {"1009": 1}, "other_count": 0},
+                {"start_time": "2026-09-29 06:22:09", "end_time": "2026-09-29 06:22:10", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-29 06:22:10", "end_time": "2026-09-29 06:22:11", "complete": true, "counts": {"1009": 1}, "other_count": 0},
+                {"start_time": "2026-09-29 06:22:11", "end_time": "2026-09-29 06:22:12", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-29 06:22:12", "end_time": "2026-09-29 06:22:13", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-29 06:22:13", "end_time": "2026-09-29 06:22:14", "complete": true, "counts": {"1009": 0}, "other_count": 0},
+                {"start_time": "2026-09-29 06:22:14", "end_time": "2026-09-29 06:22:15", "complete": true, "counts": {"1009": 1}, "other_count": 0}
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 错误码分布完整覆盖 5 个有数据秒桶：1009 共 6 次、占 100%，峰值为 06:22:06 的 2 次。计数为逐码命中次数；本资产每条 trace 仅命中该码。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "现场确认",
+            "title": "SET 故障语义收敛到 URMA 建链失败",
+            "description": "错误码与故障模式在 6 条 SET trace 中完全一致，排除多类错误并发。",
+            "evidence": "/stats/error_codes：1009 trace_cnt=6、event_cnt=6；list_trace_events：6 条均命中 kvcache_access_059。",
+            "confirmed": true
+          },
+          {
+            "step_label": "端点定位",
+            "title": "固定目标 Worker 在连接信息交换阶段不可达",
+            "description": "所有失败都从 192.168.219.88 指向 192.168.219.86:31501，并在 BRPC 建链 RPC 发出后立即失败。",
+            "evidence": "原始日志：WorkerWorkerExchangeUrmaConnectInfo -> RPC peer dead；brpc errno=112 Host is down；ServerSend=0、ServerRecv=0。",
+            "confirmed": true
+          },
+          {
+            "step_label": "根因定界",
+            "title": "目标 Worker 进程退出",
+            "description": "用户指定的训练描述 r_worker_process_set_exit 对应标签为 Worker故障-进程退出；现场的固定 Worker 端点快速不可达与该标签一致。目标 Worker 日志最后只保留 06:21:51 的健康注册，故障期无服务端处理行。",
+            "evidence": "gt_labels.json：r_worker_process_set_exit → Worker故障/Worker故障-进程退出；本地 ci-worker-master-1/kvcache.INFO.log 最后一条为 06:21:51.223533，故障从 06:22:05.662 开始。",
+            "confirmed": true
+          },
+          {
+            "step_label": "反证检查",
+            "title": "排除超时、排队和 Worker 内部慢处理",
+            "description": "若为慢处理，应看到毫秒至秒级等待、服务端收包或处理阶段；现场均未出现。",
+            "evidence": "6 条请求总时延 0.046~0.064ms；SET·URMA超时桶=0；BRPC framework_us 约 5~7us；无 Worker 数据面行。",
+            "excluded": true
+          },
+          {
+            "step_label": "证据边界",
+            "title": "具体退出信号与退出诱因未留存",
+            "description": "errno=112 单独看也可能由网络隔离、目标端口未监听或设备异常引起；本资产没有 container/systemd/dmesg、退出码或 OOMKilled 记录，因此不进一步断言 SIGKILL、OOM 或主机故障。",
+            "evidence": "/log_parse_result/options 未解析出 host/cluster；采集目录中目标 Worker 无退出信号日志。"
+          }
+        ],
+        "confirmed_root_cause": "目标 Worker 进程退出，使 192.168.219.86:31501 服务端点不可用；客户端 SET 在 WorkerWorkerExchangeUrmaConnectInfo 阶段收到 BRPC E112 Host is down，随后上浮为 K_URMA_CONNECT_FAILED(1009)。具体退出信号和诱因未被本资产采集。",
+        "supporting_knowledge": "Curated kvcache_access_059 将 1009 定义为 URMA 连接建立失败；已确认案例 UB-CASE-002612 与本次在错误码、故障模式、SET 操作域和单 Pod 影响规模上匹配。"
+      },
+      "propagation": {
+        "chain": [
+          {"label": "目标 Worker 进程退出", "detail": "192.168.219.86:31501 不再提供 Worker 服务；退出信号/退出码未采集。", "type": "root"},
+          {"label": "BRPC 对端快速不可达", "detail": "WorkerWorkerExchangeUrmaConnectInfo 返回 errno=112 Host is down，服务端无收发记录。", "type": "mechanism", "transition": "端点不可用"},
+          {"label": "URMA 建链失败", "detail": "连接信息交换失败，命中 kvcache_access_059。", "type": "fault", "transition": "建链 RPC 失败"},
+          {"label": "SET 返回 1009", "detail": "10 秒内 6 条 DS_KV_CLIENT_SET 快速失败。", "type": "impact", "transition": "错误上浮"}
+        ],
+        "impact_scope": [
+          "故障操作域：SET；GET 无归因样本，禁止与 SET 混合归桶。",
+          "受影响观测端：192.168.219.88；固定目标端点：192.168.219.86:31501。",
+          "故障窗口：2026-09-29 06:22:05~06:22:15，共 6 条故障 trace。"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "5d0bbf58-4baa-4d2a-9043-2544782830e7",
+          "kind": "error",
+          "why": "status_code=1009 + pod=192.168.219.88 + 06:22:05~06:22:15；首条故障且含 E112 Host is down",
+          "status_code": "1009",
+          "failure_mode_id": "kvcache_access_059",
+          "pod": "192.168.219.88",
+          "timestamp": "2026-09-29 06:22:05"
+        },
+        {
+          "trace_id": "09397ffb-967f-4499-a0d1-6fee95660539",
+          "kind": "error",
+          "why": "status_code=1009 + pod=192.168.219.88 + 06:22:05~06:22:15；峰值秒代表 trace",
+          "status_code": "1009",
+          "failure_mode_id": "kvcache_access_059",
+          "pod": "192.168.219.88",
+          "timestamp": "2026-09-29 06:22:06"
+        },
+        {
+          "trace_id": "580bb942-c9a9-49c4-8ca3-4f6580048ab9",
+          "kind": "error",
+          "why": "status_code=1009 + pod=192.168.219.88 + 06:22:05~06:22:15；末条故障，证明端点不可用持续至窗末",
+          "status_code": "1009",
+          "failure_mode_id": "kvcache_access_059",
+          "pod": "192.168.219.88",
+          "timestamp": "2026-09-29 06:22:14"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "UB-CASE-002612",
+          "stars": 5,
+          "match_logic": "L1 命中：1009 与 kvcache_access_059 完全一致；L2 命中：Worker故障-进程退出、SET、single_pod 一致；L5 未命中结构化关键词字段，但案例正文同样出现 RPC peer dead/Host is down。",
+          "symptom": "单节点 Worker 端点不可用导致 URMA 建链失败。",
+          "root_cause": "目标 Worker 不可用导致 WorkerWorkerExchangeUrmaConnectInfo 失败；进程退出诱因需系统日志补证。",
+          "solution": "恢复 Worker/31501 监听，刷新路由和 URMA 连接，核验失败 SET 后再重试。",
+          "phenomenon_fit": "错误码、故障模式、快速失败形态与固定目标端点不可达均一致。",
+          "log_fit": "本次现场有 RPC peer dead、E112 Host is down、ServerRecv=0。",
+          "rc_consistency": "一致；历史案例已闭环，但本次仍独立核对现场证据。",
+          "env_diff": "组件版本、编排配置与监控条件未知。",
+          "adaptation": "先确认本次目标 Worker 的进程/容器状态，再按现场编排方式恢复。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 2,
+          "id": "curated:kvcache_access_059",
+          "stars": 5,
+          "match_logic": "L1 命中：状态码 1009 与故障模式 ID 精确命中；L2 命中 URMA 建链阶段但不直接区分 Worker 退出与网络/设备异常；L5 由本次原始日志补足 Host is down。",
+          "symptom": "请求返回 K_URMA_CONNECT_FAILED，URMA 连接建立失败。",
+          "root_cause": "URMA 功能未启用、目标 Jetty 不存在或 UB 数据通道建立过程失败。",
+          "solution": "确认 URMA 已启用且目标 Jetty、UB 设备和网络配置有效；修复建链故障后重试。",
+          "phenomenon_fit": "直接解释 1009 的上浮机制。",
+          "log_fit": "现场在 WorkerWorkerExchangeUrmaConnectInfo 阶段失败。",
+          "rc_consistency": "作为机制解释一致；Worker 退出由训练标签与现场端点不可达进一步定界。",
+          "env_diff": "Curated 知识为通用机制，不含本次 Worker 生命周期信息。",
+          "adaptation": "优先检查 Worker 进程与端口；进程存活时再转查 Jetty、网络与设备。",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 3,
+          "id": "experience:ds-rdma-transport-diagnosis",
+          "stars": 4,
+          "match_logic": "L1 命中 K_URMA_CONNECT_FAILED=1009；L2 命中 Worker 生命周期关联的 URMA 建链阶段；L5 命中 WorkerWorkerExchangeUrmaConnectInfo 关键短语。",
+          "symptom": "远端 Worker 生命周期变化会触发 URMA 连接失效与重建。",
+          "root_cause": "远端 Worker 重启/退出或网络、Jetty 异常均可能造成建链失败。",
+          "solution": "同时检查远端 Worker 状态、Jetty/URMA 设备和网络，观察连接是否重建。",
+          "phenomenon_fit": "用于制定反证与补证步骤，不作为现场事实。",
+          "log_fit": "现场含 WorkerWorkerExchangeUrmaConnectInfo 与 1009。",
+          "rc_consistency": "与 curated 机制一致，无冲突。",
+          "env_diff": "经验文档基于 yuanrong-datasystem 0.8.1.rc20，本次日志组件版本未解析。",
+          "adaptation": "仅复用排查顺序，不直接套用版本相关细节。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "确认 192.168.219.86 上 Worker 进程/容器退出状态；按既定编排策略拉起，并确认 31501 端口重新监听、健康检查恢复。",
+          "恢复前暂停或限流依赖该 Worker 的 SET；恢复后刷新服务发现路由、BRPC channel 与 URMA Jetty/connection。",
+          "核验原 6 条 SET 是否实际写入；仅对未成功写入的请求做幂等重试，避免重复写。",
+          "若进程仍存活，立即转查 192.168.219.88→192.168.219.86:31501 路由/邻居状态、UB 设备及目标 Jetty，避免把 E112 单独等同于进程退出。"
+        ],
+        "long_term": [
+          "补齐 Worker 退出码、OOMKilled、SIGTERM/SIGKILL、容器重启次数、31501 端口和 Ready 状态监控。",
+          "关联 ETCD lease、节点摘除、路由刷新与 URMA 连接重建事件，缩短失效端点继续被选中的窗口。",
+          "持续采集目标 Worker、容器运行时、systemd/dmesg 日志，以便区分 OOM、人工终止、主机和网络/设备故障。"
+        ],
+        "verification": [
+          "同规模重放 SET：连续请求状态码为 0，1009 不再出现，目标 Worker 侧出现完整接收与处理日志。",
+          "验证 31501 监听、Worker Ready、服务发现实例 ID 与当前进程一致，URMA 连接信息交换成功。",
+          "故障演练后核对 ETCD/路由摘除与连接重建收敛时间，并确认请求未继续命中退出实例。"
+        ]
+      },
+      "simplified": false,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "恢复目标 Worker 进程/容器并确认 31501 与 URMA Jetty 可用。",
+      "depends_on": "具备目标节点或编排平台操作权限",
+      "expected_effect": "SET 不再在连接信息交换阶段返回 1009。",
+      "verify": "Worker Ready、31501 监听正常，SET 重放成功且服务端有完整处理日志。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "刷新服务发现、BRPC channel 与 URMA 连接，并对未成功写入的请求做幂等重试。",
+      "depends_on": "目标 Worker 恢复",
+      "expected_effect": "清除旧端点与旧 Jetty 状态，恢复数据写入。",
+      "verify": "错误码 1009 归零，连接交换成功，无重复写。"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": ["F01"],
+      "action": "补采退出码、容器事件及系统日志并完善 Worker 生命周期监控。",
+      "depends_on": "日志与监控权限",
+      "expected_effect": "下次可直接区分进程退出诱因与网络/设备故障。",
+      "verify": "退出演练可关联到退出信号、路由摘除和连接重建全链路。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "GET 归因子集 sample_cnt=0，8 个桶计数均为 0；这是数据缺口，不代表 GET 健康。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {"name": "SET·数据面未观测", "pct": 100.0, "cls": "s-warn"}
+        ],
+        "stages": [
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "0/6（is_anomalous 口径）",
+            "fail_share": "0%（阶段桶 fail_cnt 口径）",
+            "status": "warn",
+            "fault": true,
+            "detail": "6 条 trace 均缺 Worker 数据面列；证据耗时 P50=0.056ms、P90=0.064ms、max=0.064ms。阶段桶的 fail_cnt 依赖 is_anomalous，不能覆盖故障事件侧的 1009×6。"
+          }
+        ],
+        "conclusion": "SET 的 6 条样本全部归入 set_no_evidence；它们虽未被时延异常检测标记，却在故障事件侧全部返回 1009，说明这是快速通断失败而非慢请求。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 6,
+    "top_error_codes": [
+      {"code": "1009", "name": "K_URMA_CONNECT_FAILED", "pct": 100.0, "fault": true}
+    ],
+    "top_failure_domains": [
+      {"domain": "Worker故障/Worker故障-进程退出", "pct": 100.0, "fault": true}
+    ],
+    "top_pods": [
+      {"pod": "192.168.219.88", "host": "未解析", "pct": 100.0, "fault": true}
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "06:22:05", "level": 2, "pct": 50.0, "spike": false, "lat_ms": null, "fault": 1},
+      {"time": "06:22:06", "level": 4, "pct": 100.0, "spike": true, "lat_ms": null, "fault": 2},
+      {"time": "06:22:08", "level": 2, "pct": 50.0, "spike": false, "lat_ms": null, "fault": 1},
+      {"time": "06:22:10", "level": 2, "pct": 50.0, "spike": false, "lat_ms": null, "fault": 1},
+      {"time": "06:22:14", "level": 2, "pct": 50.0, "spike": false, "lat_ms": null, "fault": 1}
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-e3b4008d-20261112",
+    "total_steps": 7,
+    "api_calls": 24,
+    "duration": "约 20 分钟",
+    "steps": [
+      {"title": "经验库预检索", "api_calls": ["experience-skill search-experiences（SKILL/WIKI）"], "result": "命中 Worker 生命周期、URMA 建链与 1009 排查经验；仅作为先验与建议。"},
+      {"title": "资产与解析完整性核验", "api_calls": ["POST /log_kb/list", "GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "POST /task/list", "GET /log_parse_result/options"], "result": "1 个 KVCache 日志目录，解析任务 successful，6 条 trace、6 条故障事件；host/cluster 未解析。"},
+      {"title": "GET/SET 独立组件分诊", "api_calls": ["POST /stats/stages operation=GET", "POST /stats/stages operation=SET"], "result": "GET 无归因样本；SET 6 条均为 set_no_evidence，未跨 operation 混桶。"},
+      {"title": "通断分布量化", "api_calls": ["POST /stats/error_codes", "POST /stats/pods", "POST /stats/links", "POST /stats/heatmap", "POST /log_failure_event_result/list_time_aggregated_failure_events"], "result": "1009×6，占 100%；单 Pod、无可用 src/dst 结构化链路；10 秒短时簇发。"},
+      {"title": "Trace 与原始日志下钻", "api_calls": ["POST /trace/list", "POST /log_failure_event_result/list_trace_events", "POST /log_failure_event_result/list_log_events"], "result": "6 条 trace 均出现 RPC peer dead、E112 Host is down，固定目标 192.168.219.86:31501。"},
+      {"title": "知识与案例核验", "api_calls": ["GET /failure_mode/status_code/1009", "GET /failure_mode/kvcache_access_059", "POST /phenomenon/search", "POST /diag_case_library/search", "GET /diag_case_library/{case_id}", "POST /diag_case_library/{case_id}/hit"], "result": "Curated 解释与现场一致；采用已确认案例 UB-CASE-002612 作为需适配参考并完成命中回写；现象卡通道无返回。"},
+      {"title": "反证与标签核对", "api_calls": ["本地日志最小范围核验", "gt_labels.json 与 train_valid.md 映射核对"], "result": "排除超时慢处理；标签确定为 Worker故障/Worker故障-进程退出；具体退出信号与诱因未采集。"}
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+        "keywords_matched": ["Worker", "进程退出", "异常退出"],
+        "search_query_used": "Worker 进程退出 SET 写入 worker process exit",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "异常退出时，检查最后 ERROR/FATAL 日志、lease 失效、信号处理。",
+        "how_used_in_diagnosis": "用于检查退出前日志并明确 kill -9 等场景可能没有直接退出日志。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "与 Worker 生命周期相关，但不能替代本次退出现场证据。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+        "keywords_matched": ["1009", "K_URMA_CONNECT_FAILED", "WorkerWorkerExchangeUrmaConnectInfo"],
+        "search_query_used": "1009 K_URMA_CONNECT_FAILED kvcache_access_059 Worker 退出",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "传输层连接状态与 Worker 生命周期强相关，远端 Worker 重启会触发连接重建。",
+        "how_used_in_diagnosis": "用于组织 Worker 状态、Jetty、网络与设备的分层核验顺序。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "1009 与关键 RPC 精确匹配，且与 curated 知识无冲突。"
+      }
+    ],
+    "summary": {
+      "total_references": 2,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 2,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库用于先验假设、反证与处置建议；根因结论仍以本次 API、原始日志和用户指定标签为依据。"
+    }
+  }
+}

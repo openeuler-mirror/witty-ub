@@ -64,6 +64,12 @@ LEGACY_MAX_BYTES = 5 * 1024 * 1024
 RAG_DOC_PREFIX = "phenomenon_"
 PARSE_DEADLINE_MINUTES = 30
 MAX_PUBLISH_RETRIES = 5
+# 自检等待解析完成的最长秒数。RAG 侧冷启动 + 子进程初始化 + embedding 外呼，
+# 单篇解析实测约 65s，原先 60s 的窗口必然误判为失败（自检长期 False）。
+SELF_CHECK_PARSE_TIMEOUT_SECONDS = 180
+# RAG 不可用时的重试间隔上限（秒）。此类失败不计入 MAX_PUBLISH_RETRIES，
+# 避免服务端故障把待发布卡片一次性烧成终态 failed。
+RAG_UNAVAILABLE_RETRY_SECONDS = 300
 MAX_EVENT_RETRIES = 10
 MAX_CLEANUP_RETRIES = 10
 # 每轮自愈最多补多少条案例操作类型：源报告已删除的案例会一直留在待修复集合里，
@@ -967,6 +973,11 @@ class PhenomenonIndexService:
         except RAGError as exc:
             logger.warning("phenomenon publish skipped: %s", exc)
             return 0
+        # 服务端不可用时直接跳过本轮，不要把卡片以「失败」名义从队列里取走：
+        # 取走即消耗重试额度，服务端故障窗口会把整批卡片烧成终态 failed。
+        if not await client.health_check():
+            logger.warning("phenomenon publish skipped: RAG health check failed")
+            return 0
         cards = await Mgr.claim_due_cards(
             WORKER_ID,
             settings.rag_publish_workers(),
@@ -1026,6 +1037,11 @@ class PhenomenonIndexService:
         filename = f"{RAG_DOC_PREFIX}{extractor.sha256_hex(card.doc_id)[:16]}.txt"
         try:
             rag_doc_id = await client.upload_text(kb_id, filename, card.text or "")
+        except RAGUnavailableError as exc:
+            await PhenomenonIndexService._fail_publish(
+                card, str(exc), unavailable=True
+            )
+            return
         except RAGError as exc:
             await PhenomenonIndexService._fail_publish(card, str(exc))
             return
@@ -1134,7 +1150,9 @@ class PhenomenonIndexService:
         )
 
     @staticmethod
-    async def _fail_publish(card: PhenomenonIndex, error: str) -> None:
+    async def _fail_publish(
+        card: PhenomenonIndex, error: str, *, unavailable: bool = False
+    ) -> None:
         owner = card.lease_owner or WORKER_ID
         token = card.lease_token or ""
         pair = await Mgr.withdraw_candidate(
@@ -1142,6 +1160,22 @@ class PhenomenonIndexService:
         )
         if pair and pair[0] and pair[1]:
             await Mgr.enqueue_cleanup(pair[0], pair[1], "expired", card.doc_id)
+        if unavailable:
+            # RAG 服务端不可用（连接失败 / 5xx / 就绪前）不是卡片自身的问题：
+            # 不消耗重试额度、不置终态，只延后到服务恢复后再试，避免服务端
+            # 故障窗口把所有待发布卡片一次性烧成 failed，只能人工 --all 救回。
+            await Mgr.record_publish_failure(
+                card.doc_id,
+                owner,
+                token,
+                error=error[:256],
+                next_retry_at=_now()
+                + timedelta(seconds=RAG_UNAVAILABLE_RETRY_SECONDS),
+                terminal=False,
+                bump_retry=False,
+            )
+            await PhenomenonIndexService._refresh_after_publish(card)
+            return
         retries = int(card.retry_count or 0) + 1
         terminal = retries >= MAX_PUBLISH_RETRIES
         await Mgr.record_publish_failure(
@@ -1207,6 +1241,7 @@ class PhenomenonIndexService:
             "case_repaired": 0,
             "label_repaired": 0,
             "signals_dropped": 0,
+            "revived": 0,
         }
         await Mgr.promote_observing(600)
         stats["superseded_reports"] = (
@@ -1239,6 +1274,10 @@ class PhenomenonIndexService:
             client, kb_id = PhenomenonIndexService._rag_targets()
         except RAGError:
             return stats
+        # RAG 恢复后，把此前因服务端故障被烧成终态 failed 的卡片重新排队补索引。
+        # 只在健康时复活，避免服务端仍不可用时反复排队形成风暴。
+        if await client.health_check():
+            stats["revived"] = await Mgr.revive_failed_cards()
         try:
             remote = await PhenomenonIndexService._list_all_remote_docs(client, kb_id)
         except RAGError as exc:
@@ -1318,8 +1357,20 @@ class PhenomenonIndexService:
             )
             if fault is None:
                 continue
+            # 与建案/读取侧保持同一口径：单故障报告允许用报告级 top_error_codes
+            # 兜底。否则这里算出的 source_fault_hash 与绑定时的哈希不同，
+            # 修复任务反而会把正常绑定改成 stale，已确认文档退回「待验证」。
+            statistics = payload.get("statistics")
+            legacy_codes = (
+                statistics.get("top_error_codes")
+                if len(faults) == 1 and isinstance(statistics, dict)
+                else None
+            )
             source_fault_hash = extractor.compute_source_fault_hash(
-                fault, case.source_fault_id, operation
+                fault,
+                case.source_fault_id,
+                operation,
+                extractor.valid_status_codes(fault, legacy_codes),
             )
             if (
                 case.operation == operation
@@ -1434,12 +1485,15 @@ class PhenomenonIndexService:
             doc_id = await client.upload_text(
                 kb_id, f"{RAG_DOC_PREFIX}self_check.txt", marker
             )
-            for _ in range(30):
+            for _ in range(max(1, SELF_CHECK_PARSE_TIMEOUT_SECONDS // 2)):
                 if await client.parse_status(doc_id) == "success":
                     break
                 await asyncio.sleep(2)
             else:
-                logger.warning("phenomenon self-check parse timed out")
+                logger.warning(
+                    "phenomenon self-check parse timed out after %ss",
+                    SELF_CHECK_PARSE_TIMEOUT_SECONDS,
+                )
                 return False
             chunks = await client.search_chunks(kb_id, marker, 3)
             matched = any(str(item.get("doc_id")) == doc_id for item in chunks)

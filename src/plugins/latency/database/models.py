@@ -194,7 +194,8 @@ class LogParseResult(Base):
 # ============================================================
 # 2b. 分位统计表: latency_bucket_*
 #     parse 时按 10s/1min/10min/1h 四档粒度预统计,每 (bucket, operation, mode)
-#     存一条"代表请求"的行(14 个指标列同源)。按 log_id HASH 分区(仿 log_parse_result)。
+#     存一条统计行：端到端 AVG/P99.99 为全量精确聚合，阶段列保留代表 trace。
+#     按 log_id HASH 分区(仿 log_parse_result)。
 #     src_ip/dst_ip 是代表请求的属性,可为 NULL,不参与主键唯一性。
 # ============================================================
 class _LatencyBucketBase(Base):
@@ -495,6 +496,8 @@ class DiagCaseLibrary(Base):
     latency_components: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
     log_keywords: Mapped[Optional[list[Any]]] = mapped_column(JSONB, default=list)
     stage_features_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, default=dict)
+    # 日志语义错误码轮廓（单位向量，来自来源资产的 E/W 日志原文）；检索期次级排序信号。
+    log_semantic_profile: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, default=dict)
     fault_shape: Mapped[Optional[str]] = mapped_column(String)
     time_window_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, default=dict)
     confidence: Mapped[float] = mapped_column(Float, default=0.0)

@@ -151,6 +151,81 @@ class TestDeployConf:
         assert r.returncode != 0
         assert "Unsupported host architecture: riscv64" in r.stderr
 
+    def test_avx2_image_preserves_chinese_parser_addon(self):
+        dockerfile = (_DEPLOY_DIR / "docker/opengauss-x86.Dockerfile").read_text()
+        assert "AS opengauss-base" in dockerfile
+        assert "chparser.so" in dockerfile
+        assert "chparser.control" in dockerfile
+        assert "chparser--1.0.sql" in dockerfile
+        assert "dict.utf8.xdb" in dockerfile
+        assert "--from=opengauss-base" in dockerfile
+
+    def test_rag_deploy_exercises_chinese_parser_before_removing_rollback(self):
+        src = (_DEPLOY_DIR / "docker/deploy_rag.sh").read_text()
+        parser_check = src.index("SELECT to_tsvector(c.oid::regconfig")
+        rollback_removal = src.index(
+            'docker rm "$OPENGAUSS_RAG_ROLLBACK_CONTAINER"', parser_check
+        )
+        assert parser_check < rollback_removal
+        assert "cfgname = 'chinese'" in src
+        assert "rollback_opengauss_container" in src[parser_check:rollback_removal]
+
+    def test_rag_core_restarts_after_database_authentication_repair(self):
+        src = (_DEPLOY_DIR / "docker/deploy_rag.sh").read_text()
+        assert "RAG_DB_SESSION_RESET_REQUIRED=false" in src
+        assert "RAG_DB_SESSION_RESET_REQUIRED=true" in src
+        reuse_condition = src.split(
+            'if docker container inspect "$WITTY_RAG_CORE_CONTAINER"', 1
+        )[1].split("then\n        log_warn", 1)[0]
+        assert '[ "$RAG_DB_SESSION_RESET_REQUIRED" != true ]' in reuse_condition
+
+    def test_rag_core_restarts_after_opengauss_container_replacement(self):
+        src = (_DEPLOY_DIR / "docker/deploy_rag.sh").read_text()
+        switch_block = src.split(
+            'log_warn "openGauss 镜像已变化', 1
+        )[1].split('docker stop "$OPENGAUSS_RAG_CONTAINER"', 1)[0]
+        assert "RAG_DB_SESSION_RESET_REQUIRED=true" in switch_block
+
+        flag_init = src.index("RAG_DB_SESSION_RESET_REQUIRED=false")
+        open_gauss_switch = src.index('log_warn "openGauss 镜像已变化')
+        rag_reuse = src.index(
+            '[ "$RAG_DB_SESSION_RESET_REQUIRED" != true ]', open_gauss_switch
+        )
+        assert flag_init < open_gauss_switch < rag_reuse
+
+    def test_rag_parse_workers_bind_managers_without_running_schema_ddl(self):
+        patch = (
+            _DEPLOY_DIR / "patches/rag-core/process_handler.py"
+        ).read_text()
+        child_init = patch.split(
+            "async def _init_databases_in_child()", 1
+        )[1].split(
+            "async def _run_target_after_init", 1
+        )[0]
+
+        assert "find_sub_class_under" in child_init
+        assert "setattr(BaseScalarDataBase" in child_init
+        assert "setattr(BaseVectorDataBase" in child_init
+        assert ".init_database_specifics()" not in child_init
+
+    def test_rag_runtime_avoids_unstable_opengauss_search_indexes(self):
+        patch = (
+            _DEPLOY_DIR / "patches/rag-core/process_handler.py"
+        ).read_text()
+        loader = (
+            _DEPLOY_DIR / "patches/rag-core/sitecustomize.py"
+        ).read_text()
+        deploy = (_DEPLOY_DIR / "docker/deploy_rag.sh").read_text()
+
+        assert 'text("SET enable_seqscan = on;")' in patch
+        assert 'text("SET enable_indexscan = off;")' in patch
+        assert "ChunkManager.search_chunks_by_vector = staticmethod" in patch
+        assert "ChunkManager.search_chunks_by_keywords = staticmethod" in patch
+        assert "del is_tight" in patch
+        assert "multiprocessing.resource_tracker" in loader
+        assert "/rag-service/sitecustomize.py:ro" in deploy
+        assert 'eq .Destination "/rag-service/sitecustomize.py"' in deploy
+
     @pytest.mark.parametrize(
         "loader",
         [

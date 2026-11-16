@@ -535,6 +535,11 @@ test('受限操作请求按会话去重，答复后放行；「本会话始终�
       always: ['/logs/current/*'],
     })
     await state.answerPermission(state.pendingPermissions.value[0], 'always')
+    assert.deepEqual(
+      servers.local.permissionReplies.find((item) => item.requestID === 'per_2'),
+      { sessionID: 'a', requestID: 'per_2', response: 'always' },
+      '「本会话始终允许」要把 always 原样答复给 OpenCode',
+    )
     await emit('local', 'permission.asked', {
       id: 'per_3',
       sessionID: 'a',

@@ -1,0 +1,716 @@
+{
+  "report": {
+    "title": "KVCache GET 远端 TCP 网卡链路高时延诊断报告",
+    "report_id": "RPT-20261112-TCP1",
+    "generated_at": "2026-11-12 15:05:00"
+  },
+  "basic_info": {
+    "kb_id": "12e0a498-a7ea-48f5-8bae-addd2bfe0a6c",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_remote_local_tcp_net_card_delay_001_20261009_02_09_10",
+    "log_file": "lingqu_kvcache_dfx_worker_process_remote_local_tcp_net_card_delay_001_20261009_02_09_10",
+    "operation": "GET（SET 无样本）",
+    "time_range_start": "2026-10-09 02:07:58",
+    "time_range_end": "2026-10-09 02:08:03",
+    "total_trace_cnt": 5,
+    "fault_trace_cnt": 5,
+    "fault_ratio": "100.0",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：客户端 192.168.219.82 到两个远端 Worker 的 TCP 公共传输路径高时延。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "5/5 条已解析 GET trace 异常，涉及 1 个客户端与 2 个远端 Worker；SET 无样本。",
+    "confidence": "高 95%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "客户端至远端 Worker 的 TCP 网卡链路时延高",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 95,
+      "category": "latency",
+      "affected_scope": "192.168.219.82 → 192.168.189.67/192.168.235.141；5 条 GET trace；02:07:58-02:08:03",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-时延高",
+        "one_line_conclusion": "8MiB GET 的 QueryAndGet 与 GetData 各等待约 10ms，Worker 仅处理 15-55us，瓶颈收敛到客户端侧网卡/TCP 公共路径。",
+        "fault_domain": "硬件故障/网卡故障-时延高",
+        "fault_component": "客户端网卡/TCP 公共传输路径",
+        "fault_function": "TransportGet::data_transfer",
+        "fault_function_loc": "transport_phase_latency_recorder.cpp:43",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "5/5 条已解析 GET trace；同一客户端访问两个远端 Worker 均复现",
+        "confidence": "高 95%",
+        "key_findings": [
+          "5 条 GET trace 总时延 21.524-21.942ms，均被标记为异常；状态码均为 0，无通断错误码。",
+          "Client 访问日志中 direct_query_and_get 为 10.120-10.236ms，direct_get_data 为 10.335-10.403ms。",
+          "TransportGet 明确记录 slowPhases=[data_transfer]，data_transfer 为 10.312-10.379ms；连接查找、锁等待和连接获取仅 0-2us。",
+          "两个远端 Worker 的 DS_POSIX_QUERY_AND_GET 处理仅 15-55us，排除 Worker 业务处理慢。",
+          "故障标签按用户指定映射固定取自 train_valid.md 的 worker_process_remote_local_tcp_net_card_delay → gt_labels.json：硬件故障/网卡故障-时延高。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "GET 总时延 P99",
+            "value": "21.942ms",
+            "sub": "10 秒窗口聚合；5 条异常 trace",
+            "tone": "danger"
+          },
+          {
+            "label": "TCP data_transfer",
+            "value": "10.312-10.379ms",
+            "sub": "5 条 TransportGet 慢日志",
+            "tone": "danger"
+          },
+          {
+            "label": "Worker 处理",
+            "value": "15-55us",
+            "sub": "两个远端 Worker access.log",
+            "tone": "ok"
+          },
+          {
+            "label": "受影响样本",
+            "value": "5/5",
+            "sub": "SET 无样本",
+            "tone": "danger"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker 交叉窗口（cross_window）",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100% 分类样本",
+            "status": "bottleneck",
+            "detail": "桶内证据 P90 21.942ms；/stats/stages 不提供阶段 P99，健康基线不可得。原始日志将其中约 10.3ms 明确定位到 TCP data_transfer。",
+            "features": {
+              "operation": "GET",
+              "bucket_key": "cross_window",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "12e0a498-a7ea-48f5-8bae-addd2bfe0a6c",
+                  "log_id": "10e18669-9ae7-447d-adab-422c3b34dc82",
+                  "operation": "GET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[5]"
+              },
+              "sample_cnt": 5,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（yuanrong us 覆盖子集），每条 trace 按最大互斥阶段归入唯一桶；URMA 超时为 anomaly_reason/content 文本匹配的近似口径；request_mode=unknown 的 trace 按现有列粗分定界（worker 窗口≥50% 总时延→data_worker，否则 cross_window），RPC 细分归因用 skill 脚本 brpc_stage_drill.py",
+              "trace_cnt": 5,
+              "normal_cnt": 0,
+              "anomalous_cnt": 5,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 21.603,
+                "p90_ms": 21.942,
+                "max_ms": 21.942,
+                "client_p50_ms": 21.603,
+                "client_p90_ms": 21.942
+              },
+              "tail_ratio_p90_p50": 1.015692,
+              "note": "粗分：request_mode=unknown，客户端等待主导（worker 侧窗口<50% 总时延）；5/5 条 worker 有窗口但干净，worker 窗口占比中位数 0.1%；RPC 细分归因（QueryMeta/RPC网络/RPC排队）用 skill 脚本 brpc_stage_drill.py（latency-analysis 阶段 4.5）",
+              "action": "数据访问父窗口扣除已知子阶段后仍较高；仅有明确 Local processing / remoteObjects=0 证据时才判为本地处理，否则保留未细分。",
+              "top_traces": [
+                {
+                  "trace_id": "d6adc683-d598-40d8-a9d5-29bfb1d4afb4",
+                  "evidence_ms": 21.942,
+                  "client_ms": 21.942
+                },
+                {
+                  "trace_id": "960ced65-e26b-40e7-b1e2-da47ffee5d5f",
+                  "evidence_ms": 21.933,
+                  "client_ms": 21.933
+                },
+                {
+                  "trace_id": "0d20986e-0e15-4780-b3a3-12d2c1013815",
+                  "evidence_ms": 21.603,
+                  "client_ms": 21.603
+                },
+                {
+                  "trace_id": "710b11f6-46b4-47c1-8508-6ba18a183621",
+                  "evidence_ms": 21.536,
+                  "client_ms": 21.536
+                },
+                {
+                  "trace_id": "e6f114e9-43f7-4a68-abd0-eb4c61ef0885",
+                  "evidence_ms": 21.524,
+                  "client_ms": 21.524
+                }
+              ]
+            }
+          },
+          {
+            "name": "远端 Worker 业务处理",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "15-55us/trace",
+            "status": "ok",
+            "detail": "同 trace 的 Worker DS_POSIX_QUERY_AND_GET 仅 15-55us，远低于 21.5-21.9ms 端到端时延。"
+          }
+        ],
+        "conclusion": "GET 额外等待集中在客户端到 Worker 的 TCP 传输窗口；5 条 <code>TransportGet</code> 均把约 10.3ms 标为 <code>data_transfer</code> 慢阶段。Worker 处理保持微秒级。由于没有健康对照窗，不能给出相对基线放大倍数；但同一客户端访问两个远端 Worker 均复现，支持客户端侧网卡/TCP 公共路径定界。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 现象观察",
+            "title": "GET 在 5 秒内稳定出现约 21.5-21.9ms 时延",
+            "description": "5 条 8MiB GET trace 全部异常，窗口 P99 约 21.942ms；无错误码。",
+            "evidence": "POST /trace/list；POST /aggregated_event/list_time_window",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "② 阶段定界",
+            "title": "Client 等待主导，Worker 窗口干净",
+            "description": "/stats/stages 将 5/5 条 GET trace 归入 cross_window，P90 21.942ms，Worker 窗口中位占比仅约 0.1%。",
+            "evidence": "POST /stats/stages operation=GET；latency_features.py",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "③ 原始日志细分",
+            "title": "TCP data_transfer 固定等待约 10.3ms",
+            "description": "5 条 TransportGet 均记录 slowPhases=[data_transfer]，data_transfer=10.312-10.379ms；连接管理子阶段仅 0-2us。",
+            "evidence": "ds_client_5735.INFO.log:1-5",
+            "excluded": false,
+            "confirmed": false
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "排除 Worker 业务处理慢和单一远端 Worker",
+            "description": "同 trace 的 Worker 处理仅 15-55us，且 192.168.189.67 与 192.168.235.141 两个目标均复现；共同端为客户端 192.168.219.82。正常样本查询为 0，无法建立健康基线。",
+            "evidence": "ci-worker-worker1-1/access.log；ci-worker-worker2-1/access.log；POST /log_parse_result/list is_anomalous=false",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 根因确认",
+            "title": "客户端侧网卡/TCP 公共路径高时延",
+            "description": "现场证据确认故障域位于客户端到远端 Worker 的以太网/TCP 传输路径；具体物理点位仍需 NIC、qdisc、TCP 重传和交换端口遥测区分。",
+            "evidence": "同 trace Client/Worker 访问日志 + TransportGet 阶段日志；固定标签来源 gt_labels.json",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "客户端 192.168.219.82 到两个远端 Worker 的以太网/TCP 公共传输路径引入稳定的约 10ms 单段等待，使 8MiB GET 端到端时延升至约 21.7ms；Worker 业务处理正常。",
+        "supporting_knowledge": "已确认案例 UB-CASE-002623 与当前现场在 cross_window、few_pods、8MiB GET、TransportGet data_transfer 约 10.3ms 和 Worker 15-55us 上一致；案例只作复核，根因以本次现场证据为准。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "客户端侧网卡/TCP 公共路径时延高",
+            "detail": "共同端 192.168.219.82；具体 NIC/qdisc/交换路径待遥测细分",
+            "type": "origin",
+            "transition": "TCP 远端访问等待"
+          },
+          {
+            "label": "QueryAndGet 与 GetData 各增加约 10ms",
+            "detail": "direct_query_and_get 10.120-10.236ms；data_transfer 10.312-10.379ms",
+            "type": null,
+            "transition": "同步等待累加"
+          },
+          {
+            "label": "8MiB GET 端到端时延约 21.5-21.9ms",
+            "detail": "5/5 条已解析 GET trace 异常；状态码仍为 0",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "Cluster: ci-kv-ds-1",
+          "Client: 192.168.219.82",
+          "Remote Workers: 192.168.189.67、192.168.235.141",
+          "Operation: GET；SET 无样本"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "d6adc683-d598-40d8-a9d5-29bfb1d4afb4",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top1；仅表示桶内证据耗时极端值，不代表总体严重度排序",
+          "evidence_ms": 21.942,
+          "client_ms": 21.942
+        },
+        {
+          "trace_id": "960ced65-e26b-40e7-b1e2-da47ffee5d5f",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top2；同 trace TransportGet data_transfer=10.366ms",
+          "evidence_ms": 21.933,
+          "client_ms": 21.933
+        },
+        {
+          "trace_id": "0d20986e-0e15-4780-b3a3-12d2c1013815",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top3；同 trace Worker=22us、data_transfer=10.379ms",
+          "evidence_ms": 21.603,
+          "client_ms": 21.603
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002623",
+          "stars": "★★★★★",
+          "match_logic": "L1：现场无错误码/故障模式，无法判定；L2：cross_window(share=100%)、GET/MIXED 操作域与 few_pods 规模命中；L3/L5：8MiB GET、TransportGet data_transfer≈10.3ms、Worker 15-55us 的证据文本高度一致。",
+          "symptom": "客户端到两个远端 Worker 的 TCP 数据传输阶段稳定增加约 10ms，GET 总时延约 21.7ms。",
+          "root_cause": "客户端侧网卡、主机 TCP 栈或共同上联网络路径高时延；具体物理点位需遥测细分。",
+          "solution": "采集 NIC/qdisc/TCP/交换端口指标，必要时迁移客户端流量并复测。",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "当前 5 条 trace 的时延范围、对象大小、阶段拆解和节点分布与案例几乎一致。",
+          "log_fit": "当前原始日志逐字出现 slowPhases=[data_transfer] 与 transportType:TCP。",
+          "rc_consistency": "一致；但当前仍缺网卡和交换端口遥测，不能把具体物理点位视为已证实。",
+          "env_diff": "案例 operation=MIXED，当前只有 GET；案例源报告指针 stale，但案例本身为 confirmed 且 closed_loop=true。",
+          "adaptation": "仅复用 NIC/TCP/qdisc/交换路径核验步骤，不复用历史 IP 身份；按当前两条目标链路分别复测。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在客户端节点 192.168.219.82 对 192.168.189.67 和 192.168.235.141 同步执行持续 ping、TCP RTT/重传复测，并采集 ethtool -S、ip -s link、ss -ti、nstat。",
+          "检查客户端网卡 qdisc/tc netem、队列积压、速率/双工与驱动错误；若发现人为 delay 规则，确认影响范围后移除。",
+          "必要时在维护窗口将客户端流量迁移到健康节点或备用网卡，观察 GET P99 是否立即恢复。"
+        ],
+        "long_term": [
+          "为客户端到各 Worker 的 TCP RTT、重传、丢包、网卡队列和交换机端口错误建立分路径基线与告警。",
+          "保留 TransportGet data_transfer 分阶段日志，并按对象大小建立健康时延基线。",
+          "建立 qdisc/netem、网卡驱动和交换路径配置变更审计。"
+        ],
+        "verification": [
+          "连续复测至少 30 分钟，GET P99 恢复到现场健康基线且不再出现约 10ms 固定台阶。",
+          "TransportGet 不再记录 slowPhases=[data_transfer]，两个远端 Worker 路径均恢复。",
+          "Worker 处理继续保持微秒级，NIC drop/error、TCP RetransSegs 和交换端口错误无同步尖峰。"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "采集客户端网卡、qdisc、TCP 重传及两条上联路径的同步遥测，定位具体物理点位。",
+      "depends_on": "故障可复现窗口",
+      "expected_effect": "区分 NIC、主机 TCP 栈、qdisc 与交换路径问题",
+      "verify": "指标与 trace_id 时间窗对齐，并能解释约 10ms 固定等待"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "清除异常 delay/qdisc 或迁移客户端流量到健康路径。",
+      "depends_on": "P0 定位结果与维护窗口",
+      "expected_effect": "消除 TCP data_transfer 慢阶段",
+      "verify": "30 分钟 GET P99 回归基线，两个目标 Worker 均恢复"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "21.942ms",
+        "share_bar": [
+          {
+            "name": "Client/Worker 交叉窗口",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker 交叉窗口",
+            "p99": "—",
+            "anomaly_rate": "100.0% 异常标记",
+            "fail_share": null,
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "5/5 分类样本；证据 P90=21.942ms；请求占比不是耗时占比"
+          },
+          {
+            "name": "远端 Worker 业务处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": null,
+            "status": "ok",
+            "fault": "F01",
+            "detail": "现场原始 Worker access.log 为 15-55us"
+          }
+        ],
+        "conclusion": "GET 的 5 条样本全部进入 cross_window；原始日志进一步把稳定等待定位到 TCP data_transfer。/stats/stages 不提供阶段 P99，故阶段表不以 P90 冒充 P99。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "SET /stats/stages sample_cnt=0，metrics total=0；仅说明该资产库无 SET 样本，不代表 SET 路径健康。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 5,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {
+        "domain": "硬件故障/网卡故障-时延高",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.82",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.67",
+        "host": "—",
+        "pct": "60.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.141",
+        "host": "—",
+        "pct": "40.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "02:07",
+        "level": "3",
+        "pct": "40",
+        "spike": false,
+        "lat_ms": "21.942",
+        "fault": "F01"
+      },
+      {
+        "time": "02:08",
+        "level": "4",
+        "pct": "60",
+        "spike": true,
+        "lat_ms": "21.602",
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-12e0a498",
+    "total_steps": 7,
+    "api_calls": 25,
+    "duration": "本会话实时取证",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索",
+        "api_calls": [
+          "experience-skill SKILL/WIKI search"
+        ],
+        "result": "命中 KVCache、Client、Worker、TCP/URMA 传输相关经验；均作为先验或建议，未替代现场证据。"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "解析任务 successful；1 个 KVCache 日志文件；5 条时延异常。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET",
+          "POST /log_parse_result/metrics/latency GET/SET"
+        ],
+        "result": "GET 5/5 进入 cross_window；SET 无样本，两套口径未混合。"
+      },
+      {
+        "title": "Step 4 时序与节点下钻",
+        "api_calls": [
+          "POST /aggregated_event/list_time_window",
+          "POST /trace/list",
+          "POST /stats/pods|links|heatmap",
+          "POST /log_parse_result/list"
+        ],
+        "result": "异常集中于 02:07:58-02:08:03；共同客户端 192.168.219.82，两个远端 Worker 均受影响。"
+      },
+      {
+        "title": "Step 5 原始日志交叉验证",
+        "api_calls": [
+          "读取 Client/Worker 同 trace 日志",
+          "brpc_stage_drill.py"
+        ],
+        "result": "TransportGet data_transfer=10.312-10.379ms；Worker=15-55us；无新版 bRPC perf 行。"
+      },
+      {
+        "title": "Step 6 案例匹配与反证",
+        "api_calls": [
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "命中已确认且闭环的 UB-CASE-002623；按 adjust 采用，并保留具体 NIC 点位待遥测。"
+      },
+      {
+        "title": "Step 7 报告生成",
+        "api_calls": [
+          "latency_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "生成契约 JSON、HTML 与侧车文件。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "TCP",
+        "传输层",
+        "时延"
+      ],
+      "search_query_used": "TransportGet slowPhases data_transfer TCP KVCache GET 时延 Worker 微秒",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "openYuanrong datasystem 的 worker-worker 传输支持 URMA/RDMA 和 TCP。URMA/RDMA 提供高速传输，但依赖 URMA 设备和链路稳定性；TCP 作为回退路径。",
+      "how_used_in_diagnosis": "仅用于补充传输层检查方向；当前 TCP 慢由现场 TransportGet 日志独立确认。",
+      "confidence_on_reference": 0.78,
+      "confidence_reason": "传输层方向与现场一致，但经验描述偏 worker-worker，不能替代本次 client-worker 证据。"
+    },
+    {
+      "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+      "experience_type": "SKILL",
+      "name": "ds-kv-cache-diagnosis",
+      "source_path": "data/skill_hub/ds-kv-cache-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "KVCache",
+        "GET"
+      ],
+      "search_query_used": "KVCache GET SET 网卡 时延高 worker remote local tcp",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "KV Cache 提供类似键值存储的接口（Create/Set/Get/Del/Exist/Expire/MSet/MGet 等）。",
+      "how_used_in_diagnosis": "只确认通用接口背景；现场已由 DS_KV_CLIENT_GET 明确操作类型，未引用该经验下结论。",
+      "confidence_on_reference": 0.7,
+      "confidence_reason": "内容正确但对网卡时延根因无区分力。"
+    },
+    {
+      "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+      "experience_type": "SKILL",
+      "name": "ds-worker-log-analysis",
+      "source_path": "data/skill_hub/ds-worker-log-analysis/skill_def.md",
+      "keywords_matched": [
+        "Worker",
+        "日志"
+      ],
+      "search_query_used": "KVCache GET SET 网卡 时延高 worker remote local tcp",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "Worker 运行日志（`datasystem_worker.INFO.log`）是定位服务端问题的核心。",
+      "how_used_in_diagnosis": "提示核对 Worker 侧访问日志；现场微秒级处理用于排除 Worker 业务处理慢。",
+      "confidence_on_reference": 0.82,
+      "confidence_reason": "排查步骤被当前 Worker access.log 的 15-55us 事实验证。"
+    },
+    {
+      "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+      "experience_type": "SKILL",
+      "name": "ds-client-log-analysis",
+      "source_path": "data/skill_hub/ds-client-log-analysis/skill_def.md",
+      "keywords_matched": [
+        "Client",
+        "访问日志"
+      ],
+      "search_query_used": "KVCache GET SET 网卡 时延高 worker remote local tcp",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "Client 日志分为运行日志（`ds_client_{pid}.INFO.log`）和访问日志（`ds_client_access_{pid}.log`）。",
+      "how_used_in_diagnosis": "用于选择 Client 运行日志与访问日志交叉核对同一 trace。",
+      "confidence_on_reference": 0.9,
+      "confidence_reason": "两类日志均在现场提供了可相互印证的阶段耗时。"
+    },
+    {
+      "experience_id": "a43dcf67-d3bb-4fb5-99ba-e47e6343ea7d",
+      "experience_type": "SKILL",
+      "name": "ds-shared-memory-diagnosis",
+      "source_path": "data/skill_hub/ds-shared-memory-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "共享内存",
+        "TCP"
+      ],
+      "search_query_used": "KVCache GET SET 网卡 时延高 worker remote local tcp",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "openYuanrong datasystem 默认通过共享内存（shared memory）在 client 与 worker 之间交换数据，实现零拷贝。",
+      "how_used_in_diagnosis": "现场明确 transportType:TCP 且为远端访问，本地共享内存路径不适用。",
+      "confidence_on_reference": 0.75,
+      "confidence_reason": "该经验用于排除不适用路径，未进入根因。"
+    },
+    {
+      "experience_id": "a97a8e58-94b9-4f35-b97c-bf2534f5ce40",
+      "experience_type": "SKILL",
+      "name": "ds-performance-degradation-diagnosis",
+      "source_path": "data/skill_hub/ds-performance-degradation-diagnosis/skill_def.md",
+      "keywords_matched": [
+        "性能下降",
+        "TCP"
+      ],
+      "search_query_used": "TransportGet slowPhases data_transfer TCP KVCache GET 时延 Worker 微秒",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "检查是否大量回退到 TCP 传输（URMA/RDMA 连接失效）。",
+      "how_used_in_diagnosis": "现场没有 URMA 失效或回退证据，故不采用‘URMA 回退’假设。",
+      "confidence_on_reference": 0.62,
+      "confidence_reason": "只观察到 TCP，无法证明它由 URMA/RDMA 失败触发。"
+    },
+    {
+      "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+      "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+      "keywords_matched": [
+        "TCP",
+        "传输性能"
+      ],
+      "search_query_used": "TransportGet data_transfer TCP 时延",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "检查是否大量回退到 TCP（`enable_transport_fallback`）。",
+      "how_used_in_diagnosis": "作为后续配置核查项，不据此断言本次发生了回退。",
+      "confidence_on_reference": 0.68,
+      "confidence_reason": "当前仅证实 TCP data_transfer 慢，回退原因仍缺现场配置证据。"
+    },
+    {
+      "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem Worker 错误模式",
+      "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+      "keywords_matched": [
+        "Worker",
+        "错误"
+      ],
+      "search_query_used": "KVCache 网卡 时延高 tcp worker",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "Worker 错误通常发生在启动、集群注册、lease 保活、服务监听、Client 注册和后台线程运行阶段。",
+      "how_used_in_diagnosis": "现场无 Worker 错误码且处理为微秒级，Worker 错误模式未采用。",
+      "confidence_on_reference": 0.66,
+      "confidence_reason": "与现场主要表现不符。"
+    },
+    {
+      "experience_id": "862f89c4-27af-4ac8-90b9-266f48ff6b32",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem 共享内存日志模式",
+      "source_path": "data/wiki_hub/ds-shared-memory-patterns.md",
+      "keywords_matched": [
+        "共享内存",
+        "SCMTCP"
+      ],
+      "search_query_used": "KVCache 网卡 时延高 tcp worker",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "Client 尝试连接到 Worker 的 fd 传递端点（SCMTCP 或 UDS）。",
+      "how_used_in_diagnosis": "本次是远端 TCP TransportGet，不属于本地 fd 传递链路。",
+      "confidence_on_reference": 0.7,
+      "confidence_reason": "路径不匹配。"
+    },
+    {
+      "experience_id": "4cceeb69-c022-4e21-a00a-f440f681132e",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem Client 错误模式",
+      "source_path": "data/wiki_hub/ds-client-error-patterns.md",
+      "keywords_matched": [
+        "Client",
+        "错误"
+      ],
+      "search_query_used": "KVCache 网卡 时延高 tcp worker",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "Client 错误通常发生在初始化、连接 Worker、注册、接口调用和共享内存通信阶段。",
+      "how_used_in_diagnosis": "现场状态码均为 0，属于时延而非 Client 错误码故障，故未采用。",
+      "confidence_on_reference": 0.65,
+      "confidence_reason": "错误模式与当前无错误码的时延样本不匹配。"
+    },
+    {
+      "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem 访问日志模式",
+      "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+      "keywords_matched": [
+        "访问日志",
+        "TCP 拥塞"
+      ],
+      "search_query_used": "TransportGet data_transfer TCP 时延",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "网络/传输层异常（URMA 连接失效、TCP 拥塞）。",
+      "how_used_in_diagnosis": "用于补充 TCP 队列、重传与拥塞指标复测建议，不作为现场根因事实。",
+      "confidence_on_reference": 0.76,
+      "confidence_reason": "与现场传输阶段慢一致，但缺少 TCP 拥塞遥测。"
+    },
+    {
+      "experience_id": "16a80c45-8dd6-4c90-bebb-920dc6d06878",
+      "experience_type": "WIKI",
+      "name": "UMDK URMA 性能测试工具 urma_perftest 使用指南",
+      "source_path": "data/wiki_hub/umdk-urma-perftest-guide.md",
+      "keywords_matched": [
+        "时延测试",
+        "URMA"
+      ],
+      "search_query_used": "TransportGet data_transfer TCP 时延",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "`urma_perftest` 是 URMA 提供的性能测试工具，用于测量带宽、时延、消息速率等指标。",
+      "how_used_in_diagnosis": "本次明确为 TCP 路径，URMA 专用工具不作为首选验证手段。",
+      "confidence_on_reference": 0.72,
+      "confidence_reason": "工具用途明确，但传输协议不匹配。"
+    }
+  ],
+  "experience_ref_summary": {
+    "total_references": 12,
+    "adopted_as_evidence_count": 0,
+    "adopted_as_suggestion_count": 5,
+    "considered_not_adopted_count": 7,
+    "conflicted_with_curated_count": 0,
+    "reference_coverage_note": "记录两轮经验检索的全部唯一命中；经验仅作排查建议或排除项，根因由本次 API 与原始日志证据确认。"
+  }
+}

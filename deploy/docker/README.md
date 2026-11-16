@@ -241,10 +241,36 @@ WITTY_NETWORK_FALLBACK="prompt"         # 自检失败回退：prompt（提示�
 - ARM64 无 LSE（`/proc/cpuinfo` 不含 `atomics`）：使用 `OPENGAUSS_RAG_IMAGE_NO_LSE`，
   默认为 `hub-harbor.oepkgs.net/neocopilot/opengauss:7.0.0-lite-noLSE`。
 - ARM64 有 LSE：优先复用本地 Kunpeng HNSW 镜像；不存在时使用 ARM64 固定摘要。
-- x86_64：使用 x86_64 固定摘要，不自动复用本地 Kunpeng 镜像。
+- x86_64：要求 CPU 同时具备 AVX2 与 FMA，并使用
+  `OPENGAUSS_RAG_IMAGE_X86_AVX2`；不再支持 AVX-512/native 或通用 x86 镜像。
 
 显式设置 `OPENGAUSS_RAG_IMAGE` 可覆盖自动选择。noLSE 镜像基于 openGauss-Lite，
 支持 HNSW，但不包含鲲鹏 SRA Recall 的 PQ 加速。
+
+AVX2 镜像必须与现有数据库使用相同的 openGauss 源码版本和数据格式。
+当前 x86 镜像对应提交 `22b8cbffbd33023b7be11e17297c11972ab2e378`；仓库中的
+`deploy/patches/opengauss/22b8cbff-datavec-avx2.patch` 将 datavec 的
+`-march=native` 固定替换为 AVX2+FMA。构建 AVX2 包时应用该补丁：
+
+```bash
+bash deploy/docker/build_opengauss_x86_package.sh \
+  /path/to/openGauss-server \
+  /path/to/binarylibs
+
+bash deploy/docker/build_opengauss_x86_image.sh \
+  /path/to/openGauss-server/output/openGauss-Server-7.0.0-RC3-openEuler22.03-x86_64.tar.bz2 \
+  registry.example.com/witty/opengauss:7.0.0-rc3-avx2
+```
+
+构建脚本会校验源码提交、幂等应用补丁，并固定以 AVX2+FMA 和默认
+`MAKEFLAGS=-j2` 生成 release 包；可通过 `OPENGAUSS_BUILD_JOBS` 调整并发。
+
+第二个脚本以原 RAG openGauss 镜像为运行时基座，仅替换同版本的 openGauss 安装目录，
+保留入口脚本与系统依赖。构建并发布镜像后，把镜像引用写入
+`OPENGAUSS_RAG_IMAGE_X86_AVX2`。部署脚本只负责检测 CPU、拉取镜像和启动容器，不会在
+目标机器现场编译 openGauss。已有容器的镜像不匹配时，部署脚本会保留原数据卷、执行
+健康检查，并在失败时自动恢复旧容器。CPU 缺少 AVX2/FMA 或未配置 AVX2 镜像时，
+脚本会明确失败。
 
 ### PG 连接自动检测
 

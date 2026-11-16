@@ -1092,6 +1092,7 @@ class PhenomenonIndexPGManager:
         error: str,
         next_retry_at: datetime | None,
         terminal: bool,
+        bump_retry: bool = True,
     ) -> int:
         now = _now()
         async with PGManager.session() as session:
@@ -1105,7 +1106,13 @@ class PhenomenonIndexPGManager:
                     PhenomenonIndex.lease_expires_at >= now,
                 )
                 .values(
-                    retry_count=PhenomenonIndex.retry_count + 1,
+                    # 服务端不可用（RAG 宕机/超时）属环境故障，不计入卡片自身重试次数，
+                    # 否则一次服务端故障就会把整批卡片烧成终态 failed。
+                    retry_count=(
+                        PhenomenonIndex.retry_count + 1
+                        if bump_retry
+                        else PhenomenonIndex.retry_count
+                    ),
                     index_error=error,
                     next_retry_at=next_retry_at,
                     index_status=(
@@ -1557,6 +1564,43 @@ class PhenomenonIndexPGManager:
                     updated_at=_now(),
                 )
             )
+
+    @staticmethod
+    async def revive_failed_cards(limit: int = 50) -> int:
+        """把终态 failed 的卡片重新排队，等 RAG 恢复后自动补索引。
+
+        解析失败多来自 RAG 服务端故障（解析槽位泄漏、容器重启、模型未就绪），
+        不应让卡片永久停在 failed 而只能人工 --all --force 救回。每轮限量复活，
+        避免服务端仍不可用时形成风暴。
+        """
+        now = _now()
+        async with PGManager.session() as session:
+            doc_ids = (
+                await session.execute(
+                    select(PhenomenonIndex.doc_id)
+                    .where(
+                        PhenomenonIndex.index_status
+                        == PhenomenonIndexStatus.FAILED.value,
+                        PhenomenonIndex.next_retry_at.is_(None),
+                        PhenomenonIndex.enabled.is_(True),
+                    )
+                    .limit(limit)
+                )
+            ).scalars().all()
+            if not doc_ids:
+                return 0
+            await session.execute(
+                update(PhenomenonIndex)
+                .where(PhenomenonIndex.doc_id.in_(list(doc_ids)))
+                .values(
+                    index_status=PhenomenonIndexStatus.PENDING.value,
+                    next_retry_at=now,
+                    retry_count=0,
+                    index_error=None,
+                    updated_at=now,
+                )
+            )
+            return len(doc_ids)
 
     @staticmethod
     async def clear_mapping(

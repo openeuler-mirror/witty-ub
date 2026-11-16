@@ -1,0 +1,566 @@
+{
+  "report": {
+    "title": "KVCache Coordinator 主进程异常退出场景诊断报告",
+    "report_id": "report_e056e890_20261112_001",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "e056e890-9f0d-47a0-98a3-5fd1964acd44",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_local_get_coordinator_main_fail_001_20261011_09_29_45",
+    "log_file": "lingqu_kvcache_dfx_worker_process_local_get_coordinator_main_fail_001_20261011_09_29_45",
+    "operation": "GET / SET（独立口径）",
+    "time_range_start": "2026-10-11 09:27:00",
+    "time_range_end": "2026-10-11 09:30:05",
+    "total_trace_cnt": 12,
+    "fault_trace_cnt": 12,
+    "fault_ratio": "100.0（仅指归因样本异常标记比例，非业务失败率）",
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：外部标注指向 Coordinator 主进程异常退出，同窗 GET/SET 均出现成功请求长尾；现有日志不足以独立复原退出机制。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "12 条归因样本均被标记为时延异常：GET 7 条、SET 5 条；未检出错误码。",
+    "confidence": "中 72%"
+  },
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核对 Coordinator Pod/容器退出原因、退出码、OOM/信号与重启记录，并补采故障点前后至少 5 分钟的 Coordinator 日志。",
+      "depends_on": "Kubernetes 事件、容器运行时与宿主机审计记录",
+      "expected_effect": "确认进程异常退出的直接触发机制并恢复 Coordinator 稳定运行。",
+      "verify": "Coordinator 连续稳定运行，选主/心跳正常，且不再出现同类退出事件。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "对 GET TransportGet data_transfer 与 SET SDK 等待同步补采链路、URMA completion、线程栈和 Worker 侧时序。",
+      "depends_on": "可复现压测与两端指标采集",
+      "expected_effect": "把客户端等待进一步拆分为网络、URMA completion、调度或 SDK 同步等待。",
+      "verify": "GET/SET P90 回落至健康基线，Worker 微秒级窗口保持稳定，且无新增错误码。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "cross_window",
+            "pct": 100.0,
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker 交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "100%（7/7 归因样本）",
+            "fail_share": "100%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "证据 P50=46.118ms、P90=55.617ms、max=55.617ms；Worker 窗口占比中位数 0.0%。"
+          }
+        ],
+        "conclusion": "GET 的 7 条样本全部归入 cross_window；/stats/stages 不提供 P99，故不以 P90 或最大值冒充 P99。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "set_client",
+            "pct": 100.0,
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端 SDK 段",
+            "p99": "—",
+            "anomaly_rate": "100%（5/5 归因样本）",
+            "fail_share": "100%",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "证据 P50=39.387ms、P90=50.567ms、max=50.567ms；SET 状态均为 OK。"
+          }
+        ],
+        "conclusion": "SET 的 5 条样本全部归入 set_client；写路径与 GET 独立归桶，未混合百分比。"
+      }
+    ],
+    "heatmap_metric": "latency",
+    "dist_total": 12,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {
+        "domain": "Coordinator故障/Coordinator故障-进程异常退出",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-10-11 09:27",
+        "level": 3,
+        "pct": 41.7,
+        "spike": true,
+        "lat_ms": 50.63,
+        "fault": "F01"
+      },
+      {
+        "time": "2026-10-11 09:28",
+        "level": 3,
+        "pct": 41.7,
+        "spike": true,
+        "lat_ms": 55.617,
+        "fault": "F01"
+      },
+      {
+        "time": "2026-10-11 09:29",
+        "level": 2,
+        "pct": 16.6,
+        "spike": false,
+        "lat_ms": 45.155,
+        "fault": "F01"
+      }
+    ]
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Coordinator 主进程异常退出标注场景伴随 GET/SET 成功请求长尾",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 72,
+      "category": "latency",
+      "affected_scope": "集群 ci-kv-ds-1；GET 7 条、SET 5 条归因样本；09:27-09:29 集中",
+      "conclusion": {
+        "first_level_label": "Coordinator故障",
+        "second_level_label": "Coordinator故障-进程异常退出",
+        "one_line_conclusion": "故障标签标注 Coordinator 主进程异常退出；现场确认 12 条成功请求出现客户端等待长尾，但 Coordinator 日志为空，退出触发机制仍需运行时证据闭环。",
+        "fault_domain": "Coordinator故障/Coordinator故障-进程异常退出",
+        "fault_component": "KVCache Coordinator / Client 数据传输路径",
+        "fault_function": "Coordinator main process；TransportGet / Set",
+        "fault_function_loc": null,
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "12/12 归因样本被标记异常；该比例不是业务失败率",
+        "confidence": "中 72%",
+        "key_findings": [
+          "标签来源：train_valid.md 对应 worker_process_local_get_coordinator_main_fail，gt_labels.json 映射为 Coordinator故障/Coordinator故障-进程异常退出。",
+          "GET：7/7 样本归入 cross_window，证据 P90 55.617ms；Worker 窗口占比中位数 0.0%。",
+          "GET 原始日志反复出现 [SLOW LOG] [TransportGet] 与 slowPhases=[data_transfer]，data_transfer 为 18.465~30.433ms。",
+          "SET：5/5 样本归入 set_client，证据 P90 50.567ms；原始日志均显示 status: code: [OK]。",
+          "GET/SET Top 错误码均为空，URMA 超时桶为 0；当前是成功请求长尾，不是通断失败。",
+          "三份 Coordinator 日志均为 0 行，不能把缺失正文单独当作进程退出的现场证明。"
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "GET 证据 P90",
+            "value": "55.617ms",
+            "sub": "cross_window · 7 条归因样本",
+            "tone": "danger"
+          },
+          {
+            "label": "SET 证据 P90",
+            "value": "50.567ms",
+            "sub": "set_client · 5 条归因样本",
+            "tone": "warn"
+          },
+          {
+            "label": "错误码",
+            "value": "0 类",
+            "sub": "GET/SET /stats/error_codes 均为空",
+            "tone": "ok"
+          },
+          {
+            "label": "Coordinator 正文",
+            "value": "0 行",
+            "sub": "3 个 Coordinator 日志文件均为空",
+            "tone": "warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "GET·Client/Worker 交叉窗口未细分",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100% 分类样本",
+            "status": "bottleneck",
+            "detail": "客户端等待主导；Worker 窗口干净。原始 Client 日志把部分等待定位到 TransportGet data_transfer。",
+            "features": {
+              "operation": "GET",
+              "bucket_key": "cross_window",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "e056e890-9f0d-47a0-98a3-5fd1964acd44",
+                  "log_id": "cbe8361d-8b81-463a-a514-864a4b6c0262",
+                  "operation": "GET"
+                },
+                "response_path": "result.items[5]"
+              },
+              "sample_cnt": 7,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（yuanrong us 覆盖子集），每条 trace 按最大互斥阶段归入唯一桶；URMA 超时为 anomaly_reason/content 文本匹配的近似口径；request_mode=unknown 的 trace 按现有列粗分定界（worker 窗口≥50% 总时延→data_worker，否则 cross_window），RPC 细分归因用 skill 脚本 brpc_stage_drill.py",
+              "trace_cnt": 7,
+              "normal_cnt": 0,
+              "anomalous_cnt": 7,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 46.118,
+                "p90_ms": 55.617,
+                "max_ms": 55.617,
+                "client_p50_ms": 46.118,
+                "client_p90_ms": 55.617
+              },
+              "tail_ratio_p90_p50": 1.205972,
+              "note": "粗分：request_mode=unknown，客户端等待主导（worker 侧窗口<50% 总时延）；7/7 条 worker 有窗口但干净，worker 窗口占比中位数 0.0%；RPC 细分归因（QueryMeta/RPC网络/RPC排队）用 skill 脚本 brpc_stage_drill.py（latency-analysis 阶段 4.5）",
+              "action": "数据访问父窗口扣除已知子阶段后仍较高；仅有明确 Local processing / remoteObjects=0 证据时才判为本地处理，否则保留未细分。",
+              "top_traces": [
+                {
+                  "trace_id": "c09c7e74-d24c-4f96-9be2-fdaaefbb8436",
+                  "evidence_ms": 55.617,
+                  "client_ms": 55.617
+                },
+                {
+                  "trace_id": "92061d9b-312e-4424-ab8f-202cf48bfd33",
+                  "evidence_ms": 48.409,
+                  "client_ms": 48.409
+                },
+                {
+                  "trace_id": "9e279dfd-83da-4b96-be7e-0575934bf35f",
+                  "evidence_ms": 46.406,
+                  "client_ms": 46.406
+                },
+                {
+                  "trace_id": "cac5203e-2c65-4db7-a163-f8f6299aa7bb",
+                  "evidence_ms": 46.118,
+                  "client_ms": 46.118
+                },
+                {
+                  "trace_id": "f802af32-271f-46d7-b50a-5474f9e02a24",
+                  "evidence_ms": 45.155,
+                  "client_ms": 45.155
+                }
+              ]
+            }
+          },
+          {
+            "name": "SET·客户端 SDK 段",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100% 分类样本",
+            "status": "warn",
+            "detail": "SDK 段主导且请求返回 OK；未观测到 Worker 写处理或 URMA 超时主导。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "e056e890-9f0d-47a0-98a3-5fd1964acd44",
+                  "log_id": "cbe8361d-8b81-463a-a514-864a4b6c0262",
+                  "operation": "SET"
+                },
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 5,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 5,
+              "normal_cnt": 0,
+              "anomalous_cnt": 5,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 39.387,
+                "p90_ms": 50.567,
+                "max_ms": 50.567,
+                "client_p50_ms": 39.449,
+                "client_p90_ms": 50.63
+              },
+              "tail_ratio_p90_p50": 1.28385,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 5",
+              "action": "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 侧排队/重试与端到端 deadline，再看 Worker 侧是否已返回。",
+              "top_traces": [
+                {
+                  "trace_id": "c92864df-3711-4fdc-8adb-dba13f8c2ac2",
+                  "evidence_ms": 50.567,
+                  "client_ms": 50.63
+                },
+                {
+                  "trace_id": "ac0b8540-7ba6-408b-bdd2-01d890876f04",
+                  "evidence_ms": 40.85,
+                  "client_ms": 40.916
+                },
+                {
+                  "trace_id": "d81a3d61-b86c-4847-80c6-391ee9fcd2e7",
+                  "evidence_ms": 39.387,
+                  "client_ms": 39.449
+                },
+                {
+                  "trace_id": "92542b94-8c50-4d7c-a0b4-e9b891c4a4a1",
+                  "evidence_ms": 30.862,
+                  "client_ms": 30.936
+                },
+                {
+                  "trace_id": "588b8436-5967-4d53-b3f4-e05271954b80",
+                  "evidence_ms": 28.339,
+                  "client_ms": 28.39
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 与 SET 均为客户端等待主导，但两套路径已独立归桶。<strong>GET cross_window P90=55.617ms，SET set_client P90=50.567ms</strong>；无健康基线，且 /stats/stages 不提供 P99，因此不计算放大倍数。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 标签核验",
+            "title": "故障类别由指定标签源确定",
+            "description": "train_valid.md 将该日志路径映射到 worker_process_local_get_coordinator_main_fail；gt_labels.json 给出的两级标签为 Coordinator故障/Coordinator故障-进程异常退出。",
+            "evidence": "[/home/witty-ub-logs/data/train_valid.md:163；/home/witty-ub-logs/gt_labels.json:234-236]",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 现场现象",
+            "title": "GET 与 SET 同窗出现成功请求长尾",
+            "description": "GET 7 条异常标记样本均归入 cross_window，SET 5 条均归入 set_client；GET/SET 错误码统计均为空。",
+            "evidence": "[POST /stats/stages(GET/SET)；POST /stats/error_codes(GET/SET)]",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 阶段定位",
+            "title": "等待在客户端侧，Worker 业务窗口非主导",
+            "description": "GET Worker 窗口占比中位数 0.0%，原始日志显示 TransportGet data_transfer 慢；SET SDK 段占主导且业务状态为 OK。",
+            "evidence": "[/stats/stages cross_window、set_client；Client SLOW LOG]",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "未发现通断、URMA 超时或 Worker 处理慢证据",
+            "description": "两类操作 Top 错误码为空，URMA 超时桶为 0；Worker 侧窗口为微秒级。bRPC 旁路扫描未发现可继续拆分的新版 perf 行。",
+            "evidence": "[/stats/error_codes；/stats/stages；brpc_stage_drill.py: 0 条 perf 行]",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 证据边界",
+            "title": "进程退出机制尚不能由现场正文独立确认",
+            "description": "三份 Coordinator 日志均为空，既与进程未产生日志或异常退出相容，也可能是采集缺口；不能仅凭空文件断言退出信号、OOM 或崩溃点。",
+            "evidence": "[coordinator/*/kvcache_coordinator.INFO.log：均 0 行]",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "标签确认 Coordinator 主进程异常退出；现场仅确认客户端数据传输/SDK等待长尾，退出触发机制待补证",
+        "supporting_knowledge": "本地经验 ds-kv-cache-diagnosis 用于核对 status_code 与时延分量；已确认案例 UB-CASE-002547 仅作 cross_window/data_transfer 排查参考，不替代本次证据。"
+      },
+      "propagation": null,
+      "evidence_traces": [
+        {
+          "trace_id": "c09c7e74-d24c-4f96-9be2-fdaaefbb8436",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top1；按证据耗时排序，不代表严重度或普遍性",
+          "evidence_ms": 55.617,
+          "client_ms": 55.617
+        },
+        {
+          "trace_id": "92061d9b-312e-4424-ab8f-202cf48bfd33",
+          "kind": "latency",
+          "why": "GET·cross_window 桶内证据耗时 Top2；用于复核客户端等待与 Worker 微秒级窗口",
+          "evidence_ms": 48.409,
+          "client_ms": 48.409
+        },
+        {
+          "trace_id": "c92864df-3711-4fdc-8adb-dba13f8c2ac2",
+          "kind": "latency",
+          "why": "SET·set_client 桶内证据耗时 Top1；请求返回 OK，按证据耗时排序",
+          "evidence_ms": 50.567,
+          "client_ms": 50.63
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002547",
+          "rank": 1,
+          "stars": 3,
+          "match_logic": "L1 不命中：历史案例无错误码/故障模式且标签为 SDK故障；L2 命中：GET cross_window、客户端等待、Worker 窗口干净；L3 拓扑未核对；L5 命中 TransportGet data_transfer 机理短语。",
+          "symptom": "历史案例同样表现为成功 GET 在 TransportGet data_transfer 同步等待，cross_window 主导。",
+          "root_cause": "历史案例只确认 SDK 同步数据传输等待，未把底层原因确定为 OS、URMA 或网络；不能证明本次 Coordinator 退出机制。",
+          "solution": "复现时抓取 Client 线程栈，并同步采集 URMA completion、设备与链路指标。",
+          "phenomenon_fit": "GET 阶段与日志短语高度相似；本次 P90 更低，且另有外部 Coordinator 标签。",
+          "log_fit": "均有 [SLOW LOG] [TransportGet] 与 slowPhases=[data_transfer]。",
+          "rc_consistency": "仅对客户端等待机理一致；对 Coordinator 退出根因不一致。",
+          "env_diff": "历史案例标签为 SDK故障且 operation=MIXED；本次标签为 Coordinator故障。",
+          "adaptation": "仅复用补证清单，不复用其故障分类和根因结论。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "立即核查 Coordinator 容器退出码、lastState、OOMKilled、Signal、Kubernetes Events 和宿主机日志，并保留故障点前后 5 分钟证据。",
+          "确认 Coordinator 副本、Leader/选主与心跳状态；若主实例已退出，按变更流程拉起并确认服务端口与健康检查恢复。",
+          "复现时连续抓取 Client 线程栈，并对 GET trace 同步采集 TransportGet、URMA completion、NIC 队列与对端 Worker 日志。"
+        ],
+        "long_term": [
+          "为 Coordinator 建立进程退出、重启次数、选主切换与日志断流告警，并将退出码和 core dump 纳入自动归档。",
+          "为大对象 GET/SET 建立按对象大小分层的 P50/P90/P99 基线及 TransportGet/SDK 分阶段监控。",
+          "在客户端配置业务级超时、取消、熔断与隔离线程池，避免同步传输等待放大为进程无响应。"
+        ],
+        "verification": [
+          "Coordinator 连续稳定运行且无新增异常退出/重启事件；Leader 与心跳正常。",
+          "复测 GET：cross_window 不再集中，TransportGet data_transfer P90 回落至同负载健康基线。",
+          "复测 SET：set_client 等待回落；GET/SET 错误码保持为空，Worker 处理窗口仍为微秒级。"
+        ]
+      },
+      "source_code": null,
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "workflow": {
+    "session_id": "train-diagnosis-e056e890-20261112",
+    "total_steps": 7,
+    "api_calls": 24,
+    "duration": "本会话实时取证",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill search-experiences (SKILL/WIKI)"
+        ],
+        "result": "命中 ds-kv-cache-diagnosis 与 ds-worker-error-patterns；仅作为先验。"
+      },
+      {
+        "title": "资产与数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "日志任务 successful；1 个日志文件，anomaly_cnt=12。"
+      },
+      {
+        "title": "GET/SET 组件定位",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 全部归 cross_window；SET 全部归 set_client，两套口径独立。"
+      },
+      {
+        "title": "趋势与 Trace 下钻",
+        "api_calls": [
+          "POST /log_parse_result/metrics/latency",
+          "POST /trace/list",
+          "POST /stats/heatmap"
+        ],
+        "result": "异常集中在 09:27-09:29；获得 3 条代表 trace 锚点。"
+      },
+      {
+        "title": "通断反证",
+        "api_calls": [
+          "POST /stats/error_codes",
+          "POST /stats/links",
+          "POST /stats/pods"
+        ],
+        "result": "GET/SET 错误码均为空，未形成通断故障证据。"
+      },
+      {
+        "title": "原始日志与 bRPC 补查",
+        "api_calls": [
+          "本地只读日志核验",
+          "brpc_stage_drill.py"
+        ],
+        "result": "确认 TransportGet data_transfer 慢；Coordinator 文件为空；bRPC perf 行为 0。"
+      },
+      {
+        "title": "历史案例匹配",
+        "api_calls": [
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "UB-CASE-002547 仅作为 data_transfer 补证清单参考；不替代本次根因证据。"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+        "experience_type": "SKILL",
+        "name": "ds-kv-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-kv-cache-diagnosis",
+        "keywords_matched": [
+          "KVCache",
+          "GET",
+          "SET",
+          "时延"
+        ],
+        "search_query_used": "KVCache local get coordinator main fail 诊断报告",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": null,
+        "content_quoted": "分析 KV Cache 日志需要关注访问日志中的 DS_KV_CLIENT_* action、StatusCode、耗时和请求参数。",
+        "how_used_in_diagnosis": "用于设计 GET/SET、状态码和时延分量核验，不作为现场证据。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与本次 KVCache 访问日志字段直接对应。"
+      },
+      {
+        "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Worker 错误模式",
+        "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+        "keywords_matched": [
+          "Worker",
+          "进程",
+          "错误模式"
+        ],
+        "search_query_used": "KVCache local get coordinator main fail",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": null,
+        "content_quoted": "Worker 错误通常发生在启动、集群注册、lease 保活、服务监听、Client 注册和后台线程运行阶段。",
+        "how_used_in_diagnosis": "本次标签指向 Coordinator 且无 Worker 错误正文，未采用其根因模式。",
+        "confidence_on_reference": 0.35,
+        "confidence_reason": "组件对象不一致，仅用于排除检查。"
+      }
+    ],
+    "summary": {
+      "total_references": 2,
+      "adopted_count": 1,
+      "not_adopted_count": 1,
+      "conflicted_with_curated_count": 0
+    }
+  }
+}

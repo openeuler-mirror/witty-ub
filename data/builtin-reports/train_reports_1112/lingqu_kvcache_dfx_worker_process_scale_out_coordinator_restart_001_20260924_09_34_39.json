@@ -1,0 +1,1187 @@
+{
+  "report": {
+    "title": "worker扩容期间Coordinator异常退出诊断报告",
+    "report_id": "diag-1c5e5c01-20261112-coordinator-restart",
+    "generated_at": "2026-11-12 15:54:51"
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis",
+        "keywords_matched": [
+          "worker",
+          "异常退出",
+          "重启恢复"
+        ],
+        "search_query_used": "KVCache worker process scale out coordinator restart 扩容 协调器重启",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Worker 进程退出时可能触发 lease 失效，导致集群重平衡。",
+        "how_used_in_diagnosis": "用于制定进程退出后检查lease、注册和恢复状态的建议，不作为现场证据。",
+        "confidence_on_reference": 0.78,
+        "confidence_reason": "与扩容和进程生命周期相关，但本样本缺少直接lease日志。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+        "keywords_matched": [
+          "K_URMA_ERROR",
+          "TCP回退",
+          "连接重建"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 Unexpected TCP payload coordinator restart scale out",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "传输层连接状态与 Worker 生命周期强相关，远端 Worker 重启会触发连接重建。",
+        "how_used_in_diagnosis": "用于补充核验URMA连接状态、Jetty和TCP回退配置的处置步骤。",
+        "confidence_on_reference": 0.82,
+        "confidence_reason": "与1004及UB/TCP响应不一致现象相符，且不覆盖curated解释。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "K_URMA_ERROR",
+          "URMA",
+          "TCP"
+        ],
+        "search_query_used": "K_URMA_ERROR 1004 Unexpected TCP payload coordinator restart scale out",
+        "used_in_stage": "recommendation",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "URMA/RDMA 连接建立失败时，如果 enable_transport_fallback=true，通常会回退到 TCP，但性能会下降。",
+        "how_used_in_diagnosis": "用于建议核查高速传输与TCP回退的协商一致性。",
+        "confidence_on_reference": 0.76,
+        "confidence_reason": "现场确有UB请求收到TCP payload，但未观测到显式连接建立失败。"
+      },
+      {
+        "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+        "experience_type": "SKILL",
+        "name": "ds-hash-ring-metadata-diagnosis",
+        "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis",
+        "keywords_matched": [
+          "scale up",
+          "hash ring",
+          "元数据迁移"
+        ],
+        "search_query_used": "KVCache worker process scale out coordinator restart 扩容 协调器重启",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "hash ring 版本不一致是数据路由错误的常见原因，需要确认所有节点版本一致。",
+        "how_used_in_diagnosis": "作为候选检查方向；本次日志未提供ring版本不一致证据，未纳入根因。",
+        "confidence_on_reference": 0.45,
+        "confidence_reason": "场景有扩容背景，但缺少Update ring或迁移失败现场日志。"
+      }
+    ],
+    "summary": {
+      "total_references": 4,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 3,
+      "considered_not_adopted_count": 1,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库内容仅用于形成核验与处置建议；故障事实均回到本资产库API和原始日志证据核对。"
+    }
+  },
+  "basic_info": {
+    "kb_id": "1c5e5c01-82c8-4f9c-9930-1feb504827c1",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_scale_out_coordinator_restart_001_20260924_09_34_39",
+    "log_file": "lingqu_kvcache_dfx_worker_process_scale_out_coordinator_restart_001_20260924_09_34_39",
+    "operation": "GET（SET同窗无样本）",
+    "time_range_start": "2026-09-24 09:39:34",
+    "time_range_end": "2026-09-24 09:40:00",
+    "total_trace_cnt": 9,
+    "fault_trace_cnt": 8,
+    "fault_ratio": "88.89",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "T:URMA_WRITE": 0.707107,
+      "C:Urma operation failed": 0.707107
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到1个主故障：固定标签为Coordinator进程异常退出；现场直接观测为扩容窗口内GET数据面持续返回K_URMA_ERROR。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "8条GET故障trace，涉及5个Pod标识；SET同窗无故障记录",
+    "confidence": "中 72%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "worker扩容期间Coordinator异常退出并伴随GET传输协议响应不一致",
+      "role": "primary",
+      "status": "suspected",
+      "severity": "P2",
+      "confidence": 72,
+      "category": "error",
+      "affected_scope": "ci-kv-ds-1；GET 8条故障trace；09:39:37–09:39:59",
+      "conclusion": {
+        "first_level_label": "Coordinator故障",
+        "second_level_label": "Coordinator故障-进程异常退出",
+        "one_line_conclusion": "训练标签固定指向Coordinator进程异常退出；现场确认扩容窗口内8条GET请求因UB请求收到TCP payload而返回1004。",
+        "fault_domain": "Coordinator故障/Coordinator故障-进程异常退出",
+        "fault_component": "KVCache Coordinator / Worker-Worker传输状态",
+        "fault_function": "UB GetObjectRemote",
+        "fault_function_loc": "ub_transporter.cpp:648",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "1004覆盖全部8条故障码trace；多Pod参与计数",
+        "confidence": "中 72%",
+        "key_findings": [
+          "按用户指定映射，日志描述 worker_process_scale_out_coordinator_restart 的固定标签为 Coordinator故障/Coordinator故障-进程异常退出",
+          "GET故障侧共8条trace，错误码全部为1004（K_URMA_ERROR），在26秒窗口内短时簇发",
+          "8条原始日志均出现“UB GetObjectRemote unexpectedly returned TCP payload”，说明请求方按UB路径取数但收到TCP payload响应",
+          "SET阶段、SET故障码和SET trace均为0；影响未扩展到已观测写路径",
+          "Coordinator日志文件为空，缺少退出信号、PID切换或启动banner，故具体退出触发机制不能由现场日志独立确认"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "1c5e5c01-82c8-4f9c-9930-1feb504827c1",
+              "operation": "GET",
+              "start_time": "2026-09-24 09:39:34",
+              "end_time": "2026-09-24 09:40:00"
+            },
+            "code_filter": [
+              "1004"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "1c5e5c01-82c8-4f9c-9930-1feb504827c1",
+                    "operation": "GET",
+                    "start_time": "2026-09-24 09:39:34",
+                    "end_time": "2026-09-24 09:40:00",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 6,
+                  "returned_windows": 6
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 6,
+              "total_windows": 6
+            },
+            "code_distribution": {
+              "total_count": 8,
+              "items": [
+                {
+                  "code": "1004",
+                  "count": 8,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-24 09:39:34",
+                  "end_time": "2026-09-24 09:39:35",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:35",
+                  "end_time": "2026-09-24 09:39:36",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:36",
+                  "end_time": "2026-09-24 09:39:37",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:37",
+                  "end_time": "2026-09-24 09:39:38",
+                  "complete": true,
+                  "counts": {
+                    "1004": 3
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:38",
+                  "end_time": "2026-09-24 09:39:39",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:39",
+                  "end_time": "2026-09-24 09:39:40",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:40",
+                  "end_time": "2026-09-24 09:39:41",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:41",
+                  "end_time": "2026-09-24 09:39:42",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:42",
+                  "end_time": "2026-09-24 09:39:43",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:43",
+                  "end_time": "2026-09-24 09:39:44",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:44",
+                  "end_time": "2026-09-24 09:39:45",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:45",
+                  "end_time": "2026-09-24 09:39:46",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:46",
+                  "end_time": "2026-09-24 09:39:47",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:47",
+                  "end_time": "2026-09-24 09:39:48",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:48",
+                  "end_time": "2026-09-24 09:39:49",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:49",
+                  "end_time": "2026-09-24 09:39:50",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:50",
+                  "end_time": "2026-09-24 09:39:51",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:51",
+                  "end_time": "2026-09-24 09:39:52",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:52",
+                  "end_time": "2026-09-24 09:39:53",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:53",
+                  "end_time": "2026-09-24 09:39:54",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:54",
+                  "end_time": "2026-09-24 09:39:55",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:55",
+                  "end_time": "2026-09-24 09:39:56",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:56",
+                  "end_time": "2026-09-24 09:39:57",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:57",
+                  "end_time": "2026-09-24 09:39:58",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:58",
+                  "end_time": "2026-09-24 09:39:59",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:59",
+                  "end_time": "2026-09-24 09:40:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "1c5e5c01-82c8-4f9c-9930-1feb504827c1",
+              "operation": "SET",
+              "start_time": "2026-09-24 09:39:34",
+              "end_time": "2026-09-24 09:40:00"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "1c5e5c01-82c8-4f9c-9930-1feb504827c1",
+                    "operation": "SET",
+                    "start_time": "2026-09-24 09:39:34",
+                    "end_time": "2026-09-24 09:40:00",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 0,
+                  "returned_windows": 0
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 0,
+              "total_windows": 0
+            },
+            "code_distribution": {
+              "total_count": 0,
+              "items": [],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-24 09:39:34",
+                  "end_time": "2026-09-24 09:39:35",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:35",
+                  "end_time": "2026-09-24 09:39:36",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:36",
+                  "end_time": "2026-09-24 09:39:37",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:37",
+                  "end_time": "2026-09-24 09:39:38",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:38",
+                  "end_time": "2026-09-24 09:39:39",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:39",
+                  "end_time": "2026-09-24 09:39:40",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:40",
+                  "end_time": "2026-09-24 09:39:41",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:41",
+                  "end_time": "2026-09-24 09:39:42",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:42",
+                  "end_time": "2026-09-24 09:39:43",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:43",
+                  "end_time": "2026-09-24 09:39:44",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:44",
+                  "end_time": "2026-09-24 09:39:45",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:45",
+                  "end_time": "2026-09-24 09:39:46",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:46",
+                  "end_time": "2026-09-24 09:39:47",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:47",
+                  "end_time": "2026-09-24 09:39:48",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:48",
+                  "end_time": "2026-09-24 09:39:49",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:49",
+                  "end_time": "2026-09-24 09:39:50",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:50",
+                  "end_time": "2026-09-24 09:39:51",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:51",
+                  "end_time": "2026-09-24 09:39:52",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:52",
+                  "end_time": "2026-09-24 09:39:53",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:53",
+                  "end_time": "2026-09-24 09:39:54",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:54",
+                  "end_time": "2026-09-24 09:39:55",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:55",
+                  "end_time": "2026-09-24 09:39:56",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:56",
+                  "end_time": "2026-09-24 09:39:57",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:57",
+                  "end_time": "2026-09-24 09:39:58",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:58",
+                  "end_time": "2026-09-24 09:39:59",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 09:39:59",
+                  "end_time": "2026-09-24 09:40:00",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 路径在 2026-09-24 09:39:37–09:39:59 的 26 秒查询窗内出现 8 次错误码 1004 逐码命中，首秒集中 3 次，其后间歇出现；SET 路径同窗无故障记录。计数来自完整的秒级聚合，是逐码命中次数，不等于业务失败率。",
+        "metrics": [
+          {
+            "label": "GET错误码命中",
+            "value": "8次",
+            "sub": "逐码命中次数，非失败率",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "1004",
+            "sub": "K_URMA_ERROR，占本故障码命中100%",
+            "tone": "danger"
+          },
+          {
+            "label": "SET错误码命中",
+            "value": "0次",
+            "sub": "同一窗口未观测到SET故障记录",
+            "tone": "normal"
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 标签定界",
+            "title": "固定分类为Coordinator进程异常退出",
+            "description": "train_valid.md 将本资产日志路径映射为 worker_process_scale_out_coordinator_restart；gt_labels.json 对应固定标签为 Coordinator故障-进程异常退出。",
+            "evidence": "用户指定的训练标签来源：/home/witty-ub-logs/data/train_valid.md 与 /home/witty-ub-logs/gt_labels.json",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 现场现象",
+            "title": "GET错误码1004短时簇发",
+            "description": "09:39:37–09:39:59 共8条GET故障trace，1004占故障码命中100%；首秒3次，随后间歇出现。",
+            "evidence": "POST /stats/error_codes；POST /log_failure_event_result/list_time_aggregated_failure_events",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 机理定位",
+            "title": "UB请求与TCP payload响应语义不一致",
+            "description": "代表trace及其余7条故障trace均显示UB GetObjectRemote unexpectedly returned TCP payload，随后沿DataPlane、ReplicaReader、TransportLayer上浮为K_URMA_ERROR。",
+            "evidence": "POST /log_failure_event_result/list_log_events；kvcache_runtime_399/391/401/406；kvcache_access_022",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "排除SET面同步故障和URMA等待超时",
+            "description": "SET阶段样本、SET故障码与SET故障trace均为0；GET的urma_timeout桶为0。另有1条5.79ms成功慢trace，状态OK且不携带1004，不能与本故障强行归因。",
+            "evidence": "POST /stats/stages(GET/SET)；POST /stats/error_codes(GET/SET)；POST /trace/list",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 证据边界",
+            "title": "Coordinator退出细节缺失",
+            "description": "Coordinator日志文件存在但内容为空，现场没有退出信号、重启PID或启动序列。因此故障类别按固定标签确定，但“异常退出如何造成传输状态不一致”仍是与时间窗相符的机理推断，不提升为独立现场事实。",
+            "evidence": "本地原始文件 coordinator/ci-coodinator-0/kvcache_coordinator.INFO.log 为0行",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "故障分类按固定训练标签确定为worker扩容期间Coordinator进程异常退出；现场可确认的直接失败点是UB读路径收到TCP payload，触发K_URMA_ERROR(1004)。Coordinator退出到传输状态不一致之间的具体控制面传播因缺少Coordinator日志仅能中置信推断。",
+        "supporting_knowledge": "curated: kvcache_runtime_399、kvcache_runtime_391、kvcache_runtime_401、kvcache_runtime_406、kvcache_access_022；status_code 1004。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "Coordinator进程异常退出（固定标签）",
+            "detail": "发生于worker扩容场景；直接退出日志缺失",
+            "type": "origin",
+            "transition": "扩容控制状态与数据面连接状态需要重新收敛"
+          },
+          {
+            "label": "UB/TCP传输响应语义不一致",
+            "detail": "请求方走UB GetObjectRemote，返回侧出现TCP payload",
+            "transition": "kvcache_runtime_399识别异常响应"
+          },
+          {
+            "label": "错误沿GET调用链上浮",
+            "detail": "DataPlane → ReplicaReader → TransportLayer",
+            "transition": "转换为K_URMA_ERROR(1004)"
+          },
+          {
+            "label": "客户端GET失败",
+            "detail": "8条trace，09:39:37–09:39:59",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "集群: ci-kv-ds-1",
+          "操作域: GET；SET同窗无故障样本",
+          "故障码: 1004，共8次逐码命中",
+          "主要客户端Pod: 192.168.235.157（8/8故障trace参与）",
+          "远端Worker地址: 192.168.219.105:31501"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "63e30734-6f00-4c05-9e04-8c7e5367f4cf",
+          "kind": "error",
+          "why": "status_code=1004 + pod=192.168.235.157 + 09:39:34–09:40:00；首个故障秒内代表trace",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_runtime_399",
+          "pod": "192.168.235.157",
+          "timestamp": "2026-09-24 09:39:37"
+        },
+        {
+          "trace_id": "d7e0d6b0-1728-4e71-b750-30c7496fac62",
+          "kind": "error",
+          "why": "status_code=1004 + pod=192.168.235.157 + 09:39:34–09:40:00；持续期后段代表trace",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.235.157",
+          "timestamp": "2026-09-24 09:39:54"
+        },
+        {
+          "trace_id": "230d2a35-d175-470b-9e37-d3f0e885b149",
+          "kind": "error",
+          "why": "status_code=1004 + pod=192.168.235.157 + 09:39:34–09:40:00；末次故障trace",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.235.157",
+          "timestamp": "2026-09-24 09:39:59"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_runtime_399",
+          "stars": "★★★★★",
+          "match_logic": "L1命中：1004及kvcache_runtime_399；L2命中：GET数据传输域；L5命中：现场原文Unexpected TCP payload response。",
+          "symptom": "UB通道GetObjectRemote返回TCP payload，而UB路径期望DATA_ALREADY_TRANSFERRED。",
+          "root_cause": "高速传输路径收到异常响应状态，协议/回退状态不一致。",
+          "solution": "核对双方版本、UB协议与worker侧URMA写缓冲失败后回退TCP的状态。",
+          "phenomenon_fit": "与8条现场trace的同一日志短语完全一致。",
+          "log_fit": "直接命中ub_transporter.cpp:648日志。",
+          "rc_consistency": "与现场直接失败点一致；不能单独证明Coordinator退出。",
+          "env_diff": "curated知识不描述本次扩容与Coordinator生命周期背景。",
+          "adaptation": "需结合扩容控制面和Coordinator重启前后状态核验。",
+          "applicability": "direct"
+        },
+        {
+          "rank": "②",
+          "id": "UB-CASE-002598",
+          "stars": "★★★☆☆",
+          "match_logic": "L1部分命中：1004、kvcache_runtime_391、kvcache_access_022；L2部分命中：扩容与GET操作；L5不命中：历史案例为Worker退出，本次固定标签为Coordinator退出。",
+          "symptom": "历史已确认案例：扩容期间Worker进程退出导致读写链路失活。",
+          "root_cause": "远端Worker退出后旧路由/连接在收敛前继续被访问。",
+          "solution": "冻结扩容并核验实例生命周期、重建RPC与URMA Jetty、清理旧路由。",
+          "phenomenon_fit": "扩容背景和1004相似，但故障进程角色不同。",
+          "log_fit": "只匹配错误码/故障模式，不匹配本次Unexpected TCP payload机理。",
+          "rc_consistency": "方向相关但不一致，不能替代本次固定Coordinator标签。",
+          "env_diff": "历史案例为Worker进程退出且覆盖MIXED操作。",
+          "adaptation": "只复用收敛检查步骤，不复用Worker退出结论。",
+          "applicability": "reference"
+        },
+        {
+          "rank": "③",
+          "id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": "★★★☆☆",
+          "match_logic": "L1命中：经验库收录K_URMA_ERROR=1004；L2命中GET传输域；L5部分命中URMA/TCP回退，但未直接收录本次payload短语。",
+          "symptom": "高速传输连接失效、重建或回退期间请求可能失败。",
+          "root_cause": "连接状态与进程生命周期强相关，重启会触发连接重建。",
+          "solution": "检查URMA连接、Jetty状态、重建循环和TCP回退配置。",
+          "phenomenon_fit": "与1004和UB/TCP混合响应方向一致。",
+          "log_fit": "经验模式提供核验清单，不是本次现场事实。",
+          "rc_consistency": "可解释次生传输异常，但不能确认Coordinator退出细节。",
+          "env_diff": "经验针对Worker生命周期，本次标签指向Coordinator。",
+          "adaptation": "将生命周期检查扩展到Coordinator控制状态与Worker连接收敛。",
+          "applicability": "adjust"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "暂停继续扩容，核验Coordinator实例PID、容器重启次数、退出码、健康探针和09:39前后的启动/选主记录；在证据补齐前不要把重启触发原因归为网络或资源故障。",
+          "核验192.168.235.157到192.168.219.105:31501的Worker-Worker传输协商状态，检查URMA Jetty、remote instance ID、连接缓存与enable_transport_fallback配置是否一致。",
+          "若连接状态未收敛，在确认业务影响后重建受影响Worker间URMA连接并刷新路由；GET侧临时切换健康副本或按幂等策略重试。"
+        ],
+        "long_term": [
+          "为扩容编排增加Coordinator可用性闸门：扩容阶段发生Coordinator重启时冻结变更，待选主、路由、hash ring和传输连接全部收敛后再恢复。",
+          "补齐Coordinator进程生命周期日志、退出码、PID/instance ID和扩容事务ID，避免本样本中Coordinator日志为空造成根因证据缺口。",
+          "增加UB请求收到TCP payload的协议一致性告警，并记录双方transport mode、fallback原因、remote instance ID和连接代次。"
+        ],
+        "verification": [
+          "复测扩容流程，确认Coordinator全程存活或重启后完成选主与状态恢复，且不再出现空白生命周期日志。",
+          "连续观察30分钟，GET错误码1004归零，日志中不再出现“UB GetObjectRemote unexpectedly returned TCP payload”。",
+          "分别执行GET与SET验证：GET成功且传输模式一致；SET无新增故障记录，禁止用SET空样本替代主动复测。"
+        ]
+      },
+      "simplified": false,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "冻结扩容并补查Coordinator退出码、PID/容器重启与选主恢复证据",
+      "depends_on": "Coordinator编排与运行时日志权限",
+      "expected_effect": "确认退出触发原因并阻止控制状态继续漂移",
+      "verify": "形成完整退出—启动—恢复时间线"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验并重建受影响Worker间URMA连接与路由状态",
+      "depends_on": "先确认业务切流窗口",
+      "expected_effect": "消除UB请求收到TCP payload的协议状态不一致",
+      "verify": "GET 1004归零且payload异常短语不再出现"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "为扩容流程增加Coordinator可用性和传输状态收敛闸门",
+      "depends_on": "扩容编排改造",
+      "expected_effect": "避免重启窗口继续放量",
+      "verify": "故障注入复测中扩容自动冻结并在收敛后恢复"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": "100.0",
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "RPC网络",
+            "p99": "—",
+            "anomaly_rate": "0/9",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "归因桶trace_cnt=0"
+          },
+          {
+            "name": "RPC排队",
+            "p99": "—",
+            "anomaly_rate": "0/9",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "归因桶trace_cnt=0"
+          },
+          {
+            "name": "QueryMeta",
+            "p99": "—",
+            "anomaly_rate": "0/9",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "归因桶trace_cnt=0"
+          },
+          {
+            "name": "URMA",
+            "p99": "—",
+            "anomaly_rate": "0/9",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "URMA归因桶和URMA超时桶均为0；不能据此否定1004通断故障"
+          },
+          {
+            "name": "Data Worker服务端处理",
+            "p99": "—",
+            "anomaly_rate": "0/9",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "归因桶trace_cnt=0"
+          },
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "1/9",
+            "fail_share": "1/9",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "9条样本全部归入该桶；p90/max证据耗时5.79ms，接口不提供P99"
+          },
+          {
+            "name": "未解释残差",
+            "p99": "—",
+            "anomaly_rate": "0/9",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "归因桶trace_cnt=0"
+          },
+          {
+            "name": "URMA超时",
+            "p99": "—",
+            "anomaly_rate": "0/9",
+            "fail_share": "0/1",
+            "status": "ok",
+            "detail": "未命中URMA_WAIT_TIMEOUT文本近似口径"
+          }
+        ],
+        "conclusion": "GET共9条归因样本且未截断，全部落入交叉窗口未细分桶；其中1条时延异常。该阶段统计不能解释1004通断根因，故以故障码与原始日志下钻为主。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "无SET归因样本"
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "无SET归因样本"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "无SET归因样本"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "无SET归因样本"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "ok",
+            "detail": "无SET归因样本"
+          }
+        ],
+        "conclusion": "SET归因样本、错误码和故障trace均为空；空结果只表示本资产未观测到SET数据，不能替代主动写路径健康验证。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 8,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "GET传输协议响应异常",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.235.157",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.91",
+        "host": "—",
+        "pct": "87.5",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.170",
+        "host": "—",
+        "pct": "25.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.78",
+        "host": "—",
+        "pct": "12.5",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.219.105",
+        "host": "—",
+        "pct": "12.5",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "09:39:37",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      },
+      {
+        "time": "09:39:38",
+        "level": "2",
+        "pct": "33.3",
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "09:39:43",
+        "level": "2",
+        "pct": "33.3",
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "09:39:46",
+        "level": "2",
+        "pct": "33.3",
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "09:39:54",
+        "level": "2",
+        "pct": "33.3",
+        "spike": false,
+        "fault": "F01"
+      },
+      {
+        "time": "09:39:59",
+        "level": "2",
+        "pct": "33.3",
+        "spike": false,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-1c5e5c01-20261112",
+    "total_steps": 6,
+    "api_calls": 35,
+    "duration": "本会话实时取证",
+    "steps": [
+      {
+        "title": "Step 1 经验库与固定标签定位",
+        "api_calls": [
+          "experience-skill search-experiences",
+          "读取 train_valid.md / gt_labels.json"
+        ],
+        "result": "固定标签为Coordinator故障-进程异常退出；经验仅作先验建议"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "解析任务成功；1个日志文件；8条故障trace"
+      },
+      {
+        "title": "Step 3 GET/SET独立分诊",
+        "api_calls": [
+          "POST /stats/stages(GET)",
+          "POST /stats/stages(SET)",
+          "POST /stats/error_codes|pods|links|heatmap"
+        ],
+        "result": "GET 9条归因样本、8条1004；SET无样本"
+      },
+      {
+        "title": "Step 4 Trace与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "8条trace一致出现UB请求收到TCP payload并上浮1004"
+      },
+      {
+        "title": "Step 5 Curated知识与历史案例复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/1004",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search"
+        ],
+        "result": "curated模式直接匹配；历史案例仅部分可迁移，已回写采用的参考案例命中"
+      },
+      {
+        "title": "Step 6 报告生成",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "生成契约JSON并渲染HTML；Coordinator直接退出日志缺失已显式披露"
+      }
+    ]
+  }
+}

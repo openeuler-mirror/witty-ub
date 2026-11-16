@@ -171,6 +171,56 @@ class TaskPGManager:
         return bool(result.rowcount)
 
     @staticmethod
+    async def cancel_tasks_by_task_ids(task_ids: list[str]) -> int:
+        """Install a deletion fence for tasks before processes/files are removed.
+
+        Deletion is allowed from every task state.  Writing CANCELLED first makes
+        the existing PENDING -> RUNNING claim fail and also prevents a stale
+        FAILED_PENDING_REMOVE retry from being published as PENDING again.
+        """
+        if not task_ids:
+            return 0
+        async with PGManager.session() as session:
+            result = await session.execute(
+                text(
+                    "UPDATE task SET status = :status, completed_at = :completed_at "
+                    "WHERE id = ANY(:ids)"
+                ),
+                {
+                    "ids": task_ids,
+                    "status": TaskStatusEnum.CANCELLED.value,
+                    "completed_at": local_now(),
+                },
+            )
+        return result.rowcount or 0
+
+    @staticmethod
+    async def update_task_if_status(
+        task_id: str,
+        from_status: TaskStatusEnum,
+        task_info_dict: dict[str, Any],
+    ) -> bool:
+        """Conditionally update a task without overwriting a deletion fence."""
+        allowed = {k: v for k, v in task_info_dict.items() if hasattr(Task, k)}
+        if not allowed:
+            return False
+        set_clauses = ", ".join(f"{key} = :{key}" for key in allowed)
+        params = {
+            "id": task_id,
+            "from_status": from_status.value,
+            **allowed,
+        }
+        async with PGManager.session() as session:
+            result = await session.execute(
+                text(
+                    f"UPDATE task SET {set_clauses} WHERE id = :id "
+                    "AND status = :from_status"
+                ),
+                params,
+            )
+        return bool(result.rowcount)
+
+    @staticmethod
     async def mark_interrupted_running_tasks_for_retry() -> bool:
         """Route tasks left RUNNING by a crashed service through reinit().
 
@@ -207,6 +257,41 @@ class TaskPGManager:
                         for task_id in interrupted_ids
                     ],
                 )
+        return True
+
+    @staticmethod
+    async def mark_stale_running_for_retry(task_id: str, message: str) -> bool:
+        """Atomically route a RUNNING task whose worker vanished into the retry chain.
+
+        Only transitions when the row still holds RUNNING, so a concurrent
+        stop/delete or a worker that just finished cannot be clobbered.
+        """
+        async with PGManager.session() as session:
+            result = await session.execute(
+                text(
+                    "UPDATE task SET status = :to_status "
+                    "WHERE id = :id AND status = :from_status"
+                ),
+                {
+                    "id": task_id,
+                    "from_status": TaskStatusEnum.RUNNING.value,
+                    "to_status": TaskStatusEnum.FAILED_PENDING_REMOVE.value,
+                },
+            )
+            if not result.rowcount:
+                return False
+            await session.execute(
+                insert(TaskReport),
+                [
+                    {
+                        "task_id": task_id,
+                        "progress": 100.0,
+                        "message": message,
+                        "existed_status": True,
+                        "created_at": local_now(),
+                    }
+                ],
+            )
         return True
 
     @staticmethod

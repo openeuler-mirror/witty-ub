@@ -75,3 +75,41 @@ async def test_get_latency_metrics_valid_request_uses_bucket_table(monkeypatch):
     )
     assert total == 1
     assert captured == {"table": "LatencyBucket1min", "mode": "p99"}
+
+
+@pytest.mark.asyncio
+async def test_get_latency_metrics_avg_uses_true_average_mode(monkeypatch):
+    captured = {}
+
+    async def _fake_query(table, req, stats_mode):
+        captured["mode"] = stats_mode
+        return []
+
+    monkeypatch.setattr(
+        LogParseResultPGManager, "_query_bucket_stats", staticmethod(_fake_query)
+    )
+    await LogParseResultPGManager.get_latency_metrics(
+        GetLatencyMetricsRequest(
+            kb_id="kb-1", sample_mode=SampleMode.AVG, bucket_seconds=60, log_id="lg"
+        )
+    )
+    assert captured["mode"] == "avg"
+
+
+@pytest.mark.asyncio
+async def test_get_latency_metrics_p9999_uses_linear_storage_mode(monkeypatch):
+    captured = {}
+
+    async def _fake_query(table, req, stats_mode):
+        captured["mode"] = stats_mode
+        return []
+
+    monkeypatch.setattr(
+        LogParseResultPGManager, "_query_bucket_stats", staticmethod(_fake_query)
+    )
+    await LogParseResultPGManager.get_latency_metrics(
+        GetLatencyMetricsRequest(
+            kb_id="kb-1", sample_mode=SampleMode.P9999, bucket_seconds=60, log_id="lg"
+        )
+    )
+    assert captured["mode"] == "p9999l"

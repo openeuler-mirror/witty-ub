@@ -1,0 +1,1111 @@
+{
+  "report": {
+    "title": "KVCache本地UB端口DOWN通断故障诊断报告",
+    "report_id": "RPT-20261112-UBD2",
+    "generated_at": "2026-11-12 15:04:50"
+  },
+  "basic_info": {
+    "kb_id": "6af4060b-8d77-4576-8b04-5ef55511f639",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_local_ub_link_down_002_20260923_23_14_23",
+    "log_file": "lingqu_kvcache_dfx_worker_process_local_ub_link_down_002_20260923_23_14_23",
+    "operation": "GET（SET同窗无样本）",
+    "time_range_start": "2026-09-23 23:13:57",
+    "time_range_end": "2026-09-23 23:14:09",
+    "total_trace_cnt": 3,
+    "fault_trace_cnt": 3,
+    "fault_ratio": "100.00（仅指已解析3条trace）",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Urma operation failed": 0.267644,
+      "T:URMA_WRITE": 0.963518
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别1个GET通断故障：共同目标端的UB/URMA发送路径失败，按训练标签固定归类为ub端口故障-down。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "3条GET故障trace，涉及2个源Worker与1个共同目标端；SET无故障样本",
+    "confidence": "直接故障边界高；物理端口DOWN中等"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "本地UB端口DOWN导致GET远端取数失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": "高 88%（物理器件点位待遥测闭环）",
+      "category": "error",
+      "affected_scope": "GET；3条trace；192.168.235.160/192.168.189.79 → 192.168.219.90",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-down",
+        "one_line_conclusion": "两台源Worker向共同目标192.168.219.90发送URMA WR均返回ret=4096，GET级联返回K_URMA_ERROR(1004)；按固定标签归为ub端口故障-down。",
+        "fault_domain": "硬件故障/ub端口故障-down",
+        "fault_component": "目标端UB/URMA数据通路",
+        "fault_function": "urma_post_jetty_send_wr",
+        "fault_function_loc": "urma_manager.cpp:2592",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "已解析3条GET trace全部失败；两个源Worker共同指向192.168.219.90",
+        "confidence": "高 88%",
+        "key_findings": [
+          "GET侧3/3条trace返回1004，SET侧同窗为0，读写路径已独立分析",
+          "3条原始日志均出现call urma_post_jetty_send_wr failed, ret: 4096，数据块均为4 MiB",
+          "源端跨192.168.235.160与192.168.189.79，但目标均为192.168.219.90，异常收敛于共同目标端路径",
+          "TCP fallback payload随后被拒绝，远端对象读取失败沿DataPlane→ReplicaReader→TransportLayer上浮",
+          "应用日志未提供PORT_DOWN、端口state或光功率，因此端口DOWN标签固定使用，但具体端口/光模块需硬件遥测闭环"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "6af4060b-8d77-4576-8b04-5ef55511f639",
+              "operation": "GET",
+              "start_time": "2026-09-23 23:13:57",
+              "end_time": "2026-09-23 23:14:09"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "6af4060b-8d77-4576-8b04-5ef55511f639",
+                    "operation": "GET",
+                    "start_time": "2026-09-23 23:13:57",
+                    "end_time": "2026-09-23 23:14:09",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 3,
+              "items": [
+                {
+                  "code": "1004",
+                  "count": 3,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-23 23:13:57",
+                  "end_time": "2026-09-23 23:13:58",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:13:58",
+                  "end_time": "2026-09-23 23:13:59",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:13:59",
+                  "end_time": "2026-09-23 23:14:00",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:00",
+                  "end_time": "2026-09-23 23:14:01",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:01",
+                  "end_time": "2026-09-23 23:14:02",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:02",
+                  "end_time": "2026-09-23 23:14:03",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:03",
+                  "end_time": "2026-09-23 23:14:04",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:04",
+                  "end_time": "2026-09-23 23:14:05",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:05",
+                  "end_time": "2026-09-23 23:14:06",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:06",
+                  "end_time": "2026-09-23 23:14:07",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:07",
+                  "end_time": "2026-09-23 23:14:08",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:08",
+                  "end_time": "2026-09-23 23:14:09",
+                  "complete": true,
+                  "counts": {
+                    "1004": 2
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "6af4060b-8d77-4576-8b04-5ef55511f639",
+              "operation": "SET",
+              "start_time": "2026-09-23 23:13:57",
+              "end_time": "2026-09-23 23:14:09"
+            },
+            "code_filter": null,
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "6af4060b-8d77-4576-8b04-5ef55511f639",
+                    "operation": "SET",
+                    "start_time": "2026-09-23 23:13:57",
+                    "end_time": "2026-09-23 23:14:09",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 0,
+                  "returned_windows": 0
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 0,
+              "total_windows": 0
+            },
+            "code_distribution": {
+              "total_count": 0,
+              "items": [],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-23 23:13:57",
+                  "end_time": "2026-09-23 23:13:58",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:13:58",
+                  "end_time": "2026-09-23 23:13:59",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:13:59",
+                  "end_time": "2026-09-23 23:14:00",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:00",
+                  "end_time": "2026-09-23 23:14:01",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:01",
+                  "end_time": "2026-09-23 23:14:02",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:02",
+                  "end_time": "2026-09-23 23:14:03",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:03",
+                  "end_time": "2026-09-23 23:14:04",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:04",
+                  "end_time": "2026-09-23 23:14:05",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:05",
+                  "end_time": "2026-09-23 23:14:06",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:06",
+                  "end_time": "2026-09-23 23:14:07",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:07",
+                  "end_time": "2026-09-23 23:14:08",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-23 23:14:08",
+                  "end_time": "2026-09-23 23:14:09",
+                  "complete": true,
+                  "counts": {},
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET侧在2026-09-23 23:13:57至23:14:09出现3次状态码1004逐码命中，分别落在两个秒级窗口（1次、2次）；SET同口径为0。计数是逐码命中次数，不是业务失败率。",
+        "metrics": [
+          {
+            "label": "GET故障trace",
+            "value": "3",
+            "sub": "状态码1004，逐trace统计",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "1004",
+            "sub": "K_URMA_ERROR，占逐码命中100%",
+            "tone": "danger"
+          },
+          {
+            "label": "SET故障trace",
+            "value": "0",
+            "sub": "同一资产与时间范围",
+            "tone": "ok"
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据完整性",
+            "title": "解析任务成功且有3条故障trace",
+            "description": "日志文件overall_status=successful，解析得到3条trace及3条trace failure event。",
+            "evidence": "GET /log_kb/{kb_id}；POST /log_file/list/{kb_id}；GET /task/{task_id}",
+            "confirmed": true
+          },
+          {
+            "step_label": "② 操作域隔离",
+            "title": "故障仅在GET侧观测",
+            "description": "GET状态码1004命中3条trace；SET错误码、热力图、时间聚合与阶段样本均为0。",
+            "evidence": "POST /stats/error_codes|heatmap；POST /stats/stages；GET/SET各独立请求",
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 调用点定位",
+            "title": "URMA发送WR提交失败",
+            "description": "三个trace均在urma_manager.cpp:2592调用urma_post_jetty_send_wr失败并返回4096。",
+            "evidence": "POST /log_failure_event_result/list_log_events，trace 23bfd710…、f5943bec…、b76d4eca…",
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 故障域收敛",
+            "title": "两个源端共同指向目标192.168.219.90",
+            "description": "源端分别为192.168.235.160和192.168.189.79，目标地址均为192.168.219.90，且跨srcChipId=1/2复现，弱化单一源Worker局部故障解释。",
+            "evidence": "POST /log_failure_event_result/list_trace_events；原始srcAddress/targetAddress字段",
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "排除慢请求、SET路径与Worker退出主导",
+            "description": "trace总时延仅0.399~0.418ms且is_anomalous=false；无SET故障，无Worker退出/重启/lease异常日志。",
+            "evidence": "POST /trace/list；POST /stats/stages；经验库生命周期假设回查",
+            "excluded": true
+          },
+          {
+            "step_label": "⑥ 物理层边界",
+            "title": "端口DOWN分类成立但器件点位待验证",
+            "description": "训练标签固定为ub端口故障-down，现场应用证据与链路不可用相容；但无PORT_DOWN、端口state、LOS或光功率快照，不能从ret=4096唯一定位具体光模块。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md与gt_labels.json固定标签；现场证据缺口说明",
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "共同目标192.168.219.90方向的UB/URMA数据通路不可用，使远端Worker调用urma_post_jetty_send_wr返回4096，TCP回退又被拒绝，最终3条GET均上浮K_URMA_ERROR(1004)。报告按固定标签归类为硬件故障/ub端口故障-down；具体DOWN端口、光模块或对端端口仍需端口遥测确认。",
+        "supporting_knowledge": "curated状态码1004及kvcache_access_022均指向URMA库、设备、上下文、Jetty或事件底层错误；已确认案例UB-CASE-002630复现GET+ret=4096+TCP回退+1004链路，但其物理端口同样需遥测闭环。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "目标端UB链路/端口不可用",
+            "detail": "两台源Worker共同向192.168.219.90发送4 MiB数据时复现",
+            "type": "root"
+          },
+          {
+            "label": "URMA WR提交失败",
+            "detail": "urma_post_jetty_send_wr返回ret=4096",
+            "type": "error",
+            "transition": "物理/设备异常在URMA API边界上浮"
+          },
+          {
+            "label": "TCP回退负载被拒",
+            "detail": "Worker-to-worker TCP fallback payload rejected",
+            "type": "fallback",
+            "transition": "高速通路失败后备用路径未兜底"
+          },
+          {
+            "label": "远端对象读取失败",
+            "detail": "Get object remote failed，随后DataPlane与ReplicaReader失败",
+            "type": "service",
+            "transition": "传输失败扩散到对象读取链"
+          },
+          {
+            "label": "GET返回1004",
+            "detail": "TransportLayer Get failed，客户端access最终返回K_URMA_ERROR",
+            "type": "impact",
+            "transition": "错误码暴露给业务调用方"
+          }
+        ],
+        "impact_scope": [
+          "GET读路径",
+          "3条已解析故障trace",
+          "2个源Worker",
+          "1个共同目标端192.168.219.90",
+          "SET路径未观测故障"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "23bfd710-bc0f-4635-9fcd-a77e3618edfd",
+          "kind": "error",
+          "why": "status_code=1004 + pod=192.168.235.160/192.168.219.90 + 窗口23:13:57~23:13:58；首条ret=4096",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.235.160 → 192.168.219.90",
+          "timestamp": "2026-09-23 23:13:57"
+        },
+        {
+          "trace_id": "f5943bec-9634-46eb-a322-1c9a8b56dbcc",
+          "kind": "error",
+          "why": "status_code=1004 + pod=192.168.189.79/192.168.219.90 + 窗口23:14:08~23:14:09；第二源端复现",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.189.79 → 192.168.219.90",
+          "timestamp": "2026-09-23 23:14:08"
+        },
+        {
+          "trace_id": "b76d4eca-a89c-4693-86cd-a7ea252f361d",
+          "kind": "error",
+          "why": "status_code=1004 + pod=192.168.235.160/192.168.219.90 + 窗口23:14:08~23:14:09；同目标再次失败",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.235.160 → 192.168.219.90",
+          "timestamp": "2026-09-23 23:14:08"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": 1,
+          "id": "kvcache_access_022",
+          "stars": 5,
+          "match_logic": "L1命中1004/K_URMA_ERROR；L2命中URMA/硬件域与GET数据面；L3命中URMA传输操作失败。",
+          "symptom": "请求返回K_URMA_ERROR，URMA传输或资源操作失败。",
+          "root_cause": "URMA库、设备、上下文、Jetty、内存段、事件或异步处理发生底层错误。",
+          "solution": "检查URMA设备、上下文、Jetty、内存段和事件状态，恢复后重试。",
+          "adoption_class": "curated",
+          "adoption_label": "直接采用",
+          "phenomenon_fit": "状态码与故障模式完全一致",
+          "log_fit": "ret=4096位于URMA WR提交边界",
+          "rc_consistency": "一致，但curated不唯一定位物理端口",
+          "env_diff": "无版本信息",
+          "adaptation": "增加端口状态和光模块遥测以收敛物理点位",
+          "applicability": "direct"
+        },
+        {
+          "rank": 2,
+          "id": "UB-CASE-002630",
+          "stars": 4,
+          "match_logic": "L1命中1004；L2命中GET/少量Pod/硬件域；L3命中urma_post_jetty_send_wr ret=4096与TCP回退链，未按IP名称匹配。",
+          "symptom": "历史已确认案例同样在GET远端取数时发生URMA WR提交失败并上浮1004。",
+          "root_cause": "直接故障边界同为URMA发送失败；历史案例也将端口DOWN作为固定分类并保留物理遥测缺口。",
+          "solution": "核验双端端口、光模块、驱动事件并恢复链路；同步检查TCP回退协议。",
+          "adoption_class": "confirmed_case",
+          "adoption_label": "调整后采用",
+          "phenomenon_fit": "错误码、操作域、调用点与回退路径高度相似",
+          "log_fit": "同为ret=4096；本次是fallback payload rejected，历史案例还包含客户端Unexpected payload",
+          "rc_consistency": "直接机制一致，具体物理点位均待遥测",
+          "env_diff": "端点、时间与实例不同，未按身份字段匹配",
+          "adaptation": "仅复用排查步骤，不复用历史IP与器件结论",
+          "applicability": "adjust"
+        },
+        {
+          "rank": 3,
+          "id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+          "stars": 3,
+          "match_logic": "L1命中K_URMA_ERROR=1004；L2命中URMA/RDMA传输域；L3命中设备、链路与Jetty排查方向。",
+          "symptom": "URMA/RDMA传输层问题可表现为连接失效、Jetty异常与重建。",
+          "root_cause": "经验库仅提供排查方向，不作为本次现场根因证据。",
+          "solution": "检查URMA设备与链路、Jetty状态、连接重建和驱动日志。",
+          "adoption_class": "experience",
+          "adoption_label": "仅供参考",
+          "phenomenon_fit": "组件与错误码匹配",
+          "log_fit": "未给出本次ret=4096的版本化精确语义",
+          "rc_consistency": "方向一致",
+          "env_diff": "经验适配yuanrong-datasystem 0.8.1.rc20，本次版本未知",
+          "adaptation": "现场执行前核对版本与命令可用性",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在192.168.219.90及两个源端执行端口/设备检查，保存state、link_width、speed、FEC/CRC、LOS/LOL和光模块DOM快照；同步核对交换机对端端口。",
+          "确认具体DOWN端口后先摘流或切换到健康UB端口，再按变更流程重置端口、清洁并重插光模块/光纤；故障随器件迁移时更换对应器件。",
+          "链路恢复后清理失效URMA Jetty/连接上下文并触发重建；复核TCP fallback payload被拒的策略，避免高速链路故障时无兜底。"
+        ],
+        "long_term": [
+          "建立UB端口state、光功率、温度、FEC/CRC、link width/speed与K_URMA_ERROR(1004)的同时间轴告警。",
+          "为urma_post_jetty_send_wr返回码补充provider/驱动语义、设备号与物理端口映射。",
+          "增加GET远端取数的UB端口DOWN故障注入与TCP回退回归测试，验证大对象回退协议和限额。"
+        ],
+        "verification": [
+          "连续执行同路径4 MiB远端GET，确认不再出现ret=4096、fallback payload rejected及状态码1004。",
+          "确认受影响端口state恢复UP、link_width/speed回到基线，且FEC/CRC/LOS告警不再增长。",
+          "至少观察30分钟，GET错误码1004归零；SET继续独立观察，不以本次空样本替代健康验证。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验并隔离192.168.219.90方向的DOWN UB端口/物理链路",
+      "depends_on": "端口到IP/ChipId的资产映射",
+      "expected_effect": "停止URMA WR提交失败",
+      "verify": "端口UP且4 MiB GET不再返回1004"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复后重建URMA Jetty/连接并检查TCP回退策略",
+      "depends_on": "物理链路恢复",
+      "expected_effect": "恢复数据通路并避免回退路径二次失败",
+      "verify": "连接重建成功且无fallback payload rejected"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补齐端口、光模块、驱动和交换机遥测联动告警",
+      "depends_on": "监控采集权限",
+      "expected_effect": "下次可直接闭环物理点位",
+      "verify": "告警可关联端口事件、trace_id与1004"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": 100.0,
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "cross_window",
+            "p99": "—（P90 0.418ms）",
+            "anomaly_rate": "0%时延异常",
+            "fail_share": "0（阶段fail_cnt）",
+            "status": "ok",
+            "fault": "3条trace另有1004故障码",
+            "detail": "阶段归因与故障码来自不同链路；快速错误不等于阶段健康证明"
+          }
+        ],
+        "conclusion": "GET 3条样本均落入cross_window，证据耗时P90仅0.418ms且is_anomalous=false；这是快速通断失败，不是高时延或URMA_WAIT_TIMEOUT。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [],
+        "conclusion": "SET归因样本、错误码和故障时间聚合均为空；空结果仅说明本资产未观测到SET样本，不作为系统健康证明。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 3,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "URMA/硬件",
+        "pct": 100.0,
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.90",
+        "host": "未解析",
+        "pct": 50.0,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.160",
+        "host": "未解析",
+        "pct": 33.333333,
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.79",
+        "host": "未解析",
+        "pct": 16.666667,
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-09-23 23:13",
+        "level": "medium",
+        "pct": 33.333333,
+        "spike": "1条故障trace",
+        "fault": "F01"
+      },
+      {
+        "time": "2026-09-23 23:14",
+        "level": "high",
+        "pct": 66.666667,
+        "spike": "2条故障trace",
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-6af4060b-20261112",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本次会话内完成",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": [
+          "experience-skill SKILL/WIKI检索"
+        ],
+        "result": "命中RDMA/URMA传输诊断经验，作为待验证假设"
+      },
+      {
+        "title": "资产与解析核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "任务successful，日志文件1份，解析3条trace"
+      },
+      {
+        "title": "GET/SET组件分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 3条快速样本；SET无样本；未跨operation混桶"
+      },
+      {
+        "title": "通断分布统计",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events"
+        ],
+        "result": "GET 1004×3，两个秒级窗口；SET为0"
+      },
+      {
+        "title": "Trace与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "三个trace均定位到urma_post_jetty_send_wr ret=4096"
+      },
+      {
+        "title": "知识与历史案例核验",
+        "api_calls": [
+          "GET /failure_mode/status_code/1004",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search"
+        ],
+        "result": "curated解释一致；采用UB-CASE-002630为调整后参考并回写命中"
+      },
+      {
+        "title": "报告契约与渲染",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "待执行校验与正式渲染"
+      }
+    ]
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "a0227481-5a5a-4b93-8fb7-de128596e844",
+        "experience_type": "SKILL",
+        "name": "ds-worker-log-analysis",
+        "source_path": "data/skill_hub/ds-worker-log-analysis",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "KVCache worker process local UB link down 连接失败",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "异常退出时，检查最后 ERROR/FATAL 日志、lease 失效、信号处理。",
+        "how_used_in_diagnosis": "未观测退出、重启或lease异常，未采用Worker退出假设。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "流程有效，但现场没有对应证据。"
+      },
+      {
+        "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+        "experience_type": "SKILL",
+        "name": "ds-hash-ring-metadata-diagnosis",
+        "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "KVCache worker process local UB link down 连接失败",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "元数据迁移涉及本地 RocksDB 数据在不同 Worker 间搬迁。",
+        "how_used_in_diagnosis": "现场故障收敛在URMA数据面，未采用元数据迁移方向。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "未出现hash ring或迁移日志。"
+      },
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "1004 urma_post_jetty_send_wr ret 4096 K_URMA_ERROR",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+        "how_used_in_diagnosis": "用于形成设备、链路、Jetty及连接重建的处置建议。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与现场1004及curated kvcache_access_022解释一致。"
+      },
+      {
+        "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+        "experience_type": "SKILL",
+        "name": "ds-client-log-analysis",
+        "source_path": "data/skill_hub/ds-client-log-analysis",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "KVCache worker process local UB link down 连接失败",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "检查 `Connects to local server`/`Register client` 日志，确认连接 Worker 成功。",
+        "how_used_in_diagnosis": "故障发生在已建立会话的数据传输阶段，未采用注册失败方向。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "现场无注册失败。"
+      },
+      {
+        "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+        "experience_type": "SKILL",
+        "name": "ds-cluster-management-diagnosis",
+        "source_path": "data/skill_hub/ds-cluster-management-diagnosis",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "KVCache worker process local UB link down 连接失败",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "检查各 Worker 的 lease 创建和保活日志。",
+        "how_used_in_diagnosis": "未观察到控制面或lease故障，未采用。",
+        "confidence_on_reference": 0.45,
+        "confidence_reason": "现场为URMA发送WR失败。"
+      },
+      {
+        "experience_id": "4ddc5242-7261-4657-a860-78d518b063a3",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem ETCD 事件模式",
+        "source_path": "data/wiki_hub/ds-etcd-event-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "KVCache worker process local UB link down 连接失败",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Worker 向 ETCD 申请 lease，`expiry time` 通常为 `node_timeout_s`。",
+        "how_used_in_diagnosis": "无ETCD事件，未采用。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "现场错误路径不涉及ETCD。"
+      },
+      {
+        "experience_id": "91885e84-cdb9-43ff-bfea-74a77f80eea1",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Worker 错误模式",
+        "source_path": "data/wiki_hub/ds-worker-error-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "KVCache worker process local UB link down 连接失败",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Worker 错误通常发生在启动、集群注册、lease 保活、服务监听、Client 注册和后台线程运行阶段。",
+        "how_used_in_diagnosis": "用于检查Worker生命周期候选，现场未命中后排除。",
+        "confidence_on_reference": 0.55,
+        "confidence_reason": "当前日志只有数据面URMA错误。"
+      },
+      {
+        "experience_id": "1f2d9b46-3f6e-4b84-b26f-d7b48793b555",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Hash Ring 模式",
+        "source_path": "data/wiki_hub/ds-hash-ring-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "KVCache worker process local UB link down 连接失败",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "所有 Worker 应最终达到相同的 ring 版本。",
+        "how_used_in_diagnosis": "无ring版本异常，未采用。",
+        "confidence_on_reference": 0.35,
+        "confidence_reason": "现场无对应日志。"
+      },
+      {
+        "experience_id": "862f89c4-27af-4ac8-90b9-266f48ff6b32",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 共享内存日志模式",
+        "source_path": "data/wiki_hub/ds-shared-memory-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "KVCache worker process local UB link down 连接失败",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Try connect worker for shm fd transfer, endpoint: ...",
+        "how_used_in_diagnosis": "远端GET走UB路径，未采用共享内存方向。",
+        "confidence_on_reference": 0.35,
+        "confidence_reason": "现场传输类型为UB/TCP回退。"
+      },
+      {
+        "experience_id": "4cceeb69-c022-4e21-a00a-f440f681132e",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem Client 错误模式",
+        "source_path": "data/wiki_hub/ds-client-error-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "KVCache worker process local UB link down 连接失败",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "Client 错误通常发生在初始化、连接 Worker、注册、接口调用和共享内存通信阶段。",
+        "how_used_in_diagnosis": "仅保留为排查范围，未作为根因。",
+        "confidence_on_reference": 0.5,
+        "confidence_reason": "现场已精确定位到URMA发送WR边界。"
+      },
+      {
+        "experience_id": "e9c85879-f805-4594-9888-55304c09e952",
+        "experience_type": "SKILL",
+        "name": "umdk-urma-cr-log-analysis",
+        "source_path": "data/skill_hub/umdk-urma-cr-log-analysis",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "1004 urma_post_jetty_send_wr ret 4096 K_URMA_ERROR",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "如果日志中出现 `udriver return fail`，必须同时检查 `dmesg` 中的内核日志。",
+        "how_used_in_diagnosis": "当前无CR或udriver return fail原文，未采用CR分析路径。",
+        "confidence_on_reference": 0.45,
+        "confidence_reason": "组件相关但日志模式不匹配。"
+      },
+      {
+        "experience_id": "ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1",
+        "experience_type": "SKILL",
+        "name": "ds-kv-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-kv-cache-diagnosis",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "1004 urma_post_jetty_send_wr ret 4096 K_URMA_ERROR",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "检查 `is_retry` 参数。",
+        "how_used_in_diagnosis": "当前直接故障点明确，未用重试参数解释根因。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "现场访问日志没有重试主导证据。"
+      },
+      {
+        "experience_id": "b552a989-d3a9-4e0d-83dd-efe3c5bc9e2c",
+        "experience_type": "SKILL",
+        "name": "ds-object-cache-diagnosis",
+        "source_path": "data/skill_hub/ds-object-cache-diagnosis",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "1004 urma_post_jetty_send_wr ret 4096 K_URMA_ERROR",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "检查 `is_retry` 参数。",
+        "how_used_in_diagnosis": "本资产为KVCache GET，未采用Object Cache流程。",
+        "confidence_on_reference": 0.3,
+        "confidence_reason": "对象类型与现场操作域不一致。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "1004 urma_post_jetty_send_wr ret 4096 K_URMA_ERROR",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+        "how_used_in_diagnosis": "内容与已采用的RDMA诊断Skill重复，避免重复引用。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "与现场一致，但无新增信息。"
+      },
+      {
+        "experience_id": "d068a8f2-0422-4cdf-91db-8541070e1c96",
+        "experience_type": "WIKI",
+        "name": "UMDK URMA CR 操作状态码日志模式",
+        "source_path": "data/wiki_hub/umdk-urma-cr-status-log-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "1004 urma_post_jetty_send_wr ret 4096 K_URMA_ERROR",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "[URMA][liburma][thread_id=...][...]udriver return fail",
+        "how_used_in_diagnosis": "现场没有CR或udriver日志，未采用。",
+        "confidence_on_reference": 0.4,
+        "confidence_reason": "日志模式不匹配。"
+      },
+      {
+        "experience_id": "0b6d2ec2-39c1-42da-937c-1cec8f41ce8a",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 访问日志模式",
+        "source_path": "data/wiki_hub/ds-access-log-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "1004 urma_post_jetty_send_wr ret 4096 K_URMA_ERROR",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "检查 `is_retry` 参数和请求幂等性。",
+        "how_used_in_diagnosis": "仅作为重试安全提醒，未影响根因与主要方案。",
+        "confidence_on_reference": 0.45,
+        "confidence_reason": "现场无is_retry证据。"
+      },
+      {
+        "experience_id": "e5945607-c7a2-4913-91ee-f350be409cbc",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem 流缓存指标日志模式",
+        "source_path": "data/wiki_hub/ds-sc-metrics-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "1004 urma_post_jetty_send_wr ret 4096 K_URMA_ERROR",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "streamName [\"exit\"] / numLocalProd / numRemoteProd / numLocalCon / numRemoteCon",
+        "how_used_in_diagnosis": "本次为KVCache GET，不涉及流缓存，未采用。",
+        "confidence_on_reference": 0.2,
+        "confidence_reason": "操作域不匹配。"
+      },
+      {
+        "experience_id": "da922fd2-51a1-44e8-9568-ab2624aa0fe6",
+        "experience_type": "WIKI",
+        "name": "UMDK DLock 错误日志模式",
+        "source_path": "data/wiki_hub/umdk-dlock-error-log-patterns.md",
+        "keywords_matched": [
+          "KVCache",
+          "URMA",
+          "连接失败"
+        ],
+        "search_query_used": "1004 urma_post_jetty_send_wr ret 4096 K_URMA_ERROR",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "[DLOCK][...]server init failed, ret: <status>",
+        "how_used_in_diagnosis": "现场无DLock日志，未采用。",
+        "confidence_on_reference": 0.2,
+        "confidence_reason": "组件不匹配。"
+      }
+    ],
+    "summary": {
+      "total_references": 18,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 1,
+      "considered_not_adopted_count": 17,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "记录诊断前后两轮检索的全部命中；仅RDMA/URMA传输经验用于建议，其余因现场不匹配或内容重复未采用。"
+    }
+  }
+}

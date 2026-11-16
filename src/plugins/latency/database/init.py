@@ -43,6 +43,7 @@ _MISSING_COLUMN_DDL: list[tuple[str, str, str]] = [
     ("diag_case_library", "label_taxonomy_version", "CHAR(64)"),
     ("diag_case_library", "source_label_hash", "CHAR(64)"),
     ("diag_case_library", "verification_history_json", "JSONB DEFAULT '[]'"),
+    ("diag_case_library", "log_semantic_profile", "JSONB DEFAULT '{}'"),
     ("diag_case_library", "confirmation_source", "VARCHAR(16)"),
     ("diagnostic_report_index", "confirmed_by", "VARCHAR(64)"),
     ("diagnostic_report_index", "confirmed_at", "TIMESTAMP"),

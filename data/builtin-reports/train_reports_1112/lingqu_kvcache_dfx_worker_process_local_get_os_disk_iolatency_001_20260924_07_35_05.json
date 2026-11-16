@@ -1,0 +1,577 @@
+{
+  "report": {
+    "title": "KVCache Worker 本地 GET 磁盘 I/O 时延故障诊断报告",
+    "report_id": "diag-b7789adf-dd22-48c5-8155-167c7ae46490-20261112",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "basic_info": {
+    "kb_id": "b7789adf-dd22-48c5-8155-167c7ae46490",
+    "kb_name": "lingqu_kvcache_dfx_worker_process_local_get_os_disk_iolatency_001_20260924_07_35_05",
+    "log_file": "lingqu_kvcache_dfx_worker_process_local_get_os_disk_iolatency_001_20260924_07_35_05",
+    "operation": "GET（故障标签目标）；SET（现场仅存可解析请求）",
+    "time_range_start": "2026-09-24 07:32:31",
+    "time_range_end": "2026-09-24 07:32:33",
+    "total_trace_cnt": 3,
+    "fault_trace_cnt": 3,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "T:URMA_WRITE": 1.0
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：指定故障标签将其定界为 OS 硬盘 I/O 速度慢影响 Worker 本地 GET；当前资产仅保留 3 条 SET·K_URMA_ERROR 旁证，缺少 GET 与磁盘指标，根因机理仍需现场复测闭环。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "故障标签指向 Worker 本地 GET 路径；可解析现场数据为 3 条 SET 故障 trace，涉及 2 个 Pod IP",
+    "confidence": "中 65%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "Worker 本地 GET 受 OS 硬盘 I/O 速度慢影响",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 65,
+      "category": "mixed",
+      "affected_scope": "标签目标为 Worker 本地 GET；现场仅观测到 192.168.219.97 → 192.168.235.170 的 3 条 SET 故障 trace",
+      "conclusion": {
+        "first_level_label": "OS故障",
+        "second_level_label": "OS故障-硬盘IO速度慢",
+        "one_line_conclusion": "依据 train_valid.md 路径映射到 gt_labels.json 的指定标签，本故障归类为 OS 硬盘 I/O 速度慢；当前日志未保留 GET 请求、iostat 或资源日志，因此只能确认标签定界，不能从现场日志独立复现磁盘慢根因。",
+        "fault_domain": "OS故障/OS故障-硬盘IO速度慢",
+        "fault_component": "Worker 所在节点的 OS 磁盘子系统",
+        "fault_function": "KVCache 本地 GET 磁盘读取路径",
+        "fault_function_loc": null,
+        "affected_scope_pct": null,
+        "affected_scope_desc": "GET 影响比例不可计算；SET 侧 3/3 trace 出现 1004",
+        "confidence": "中 65%",
+        "key_findings": [
+          "训练描述路径映射到标签 worker_process_local_get_os_disk_iolatency，对应 OS故障/OS故障-硬盘IO速度慢",
+          "GET /stats/stages sample_cnt=0，GET metrics original_count=0，资产中没有可量化的本地 GET 时延样本",
+          "SET /stats/stages sample_cnt=3，全部归入 set_client；证据耗时 P90 仅 0.335ms，不支持将这 3 条 SET 定性为高时延",
+          "3 条 SET trace 均返回 K_URMA_ERROR(1004)，原文为 urma_post_jetty_send_wr failed, ret: 4096；该现象与磁盘 I/O 慢之间没有现场因果证据",
+          "解析任务 successful，但原始目录仅 8 个文件、6 行有效日志，结论受样本稀疏限制"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {
+            "label": "SET 故障 trace",
+            "value": "3",
+            "sub": "全部携带 1004",
+            "tone": "danger"
+          },
+          {
+            "label": "主导错误码",
+            "value": "1004",
+            "sub": "K_URMA_ERROR · 3 次逐码命中",
+            "tone": "danger"
+          }
+        ],
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "b7789adf-dd22-48c5-8155-167c7ae46490",
+              "operation": "SET",
+              "start_time": "2026-09-24 07:32:31",
+              "end_time": "2026-09-24 07:32:33"
+            },
+            "code_filter": [
+              "1004"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "b7789adf-dd22-48c5-8155-167c7ae46490",
+                    "operation": "SET",
+                    "start_time": "2026-09-24 07:32:31",
+                    "end_time": "2026-09-24 07:32:33",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 2,
+                  "returned_windows": 2
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 2,
+              "total_windows": 2
+            },
+            "code_distribution": {
+              "total_count": 3,
+              "items": [
+                {
+                  "code": "1004",
+                  "count": 3,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-09-24 07:32:31",
+                  "end_time": "2026-09-24 07:32:32",
+                  "complete": true,
+                  "counts": {
+                    "1004": 2
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-24 07:32:32",
+                  "end_time": "2026-09-24 07:32:33",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "SET 侧在 2 个连续秒窗内出现 3 次 1004 逐码命中，1004 占该查询范围内错误码命中的 100%；这是 URMA 写提交失败旁证，不是 GET 磁盘慢的直接测量，也不能称为业务失败率。"
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "GET 样本",
+            "value": "0",
+            "sub": "无 GET 归因与 metrics 数据",
+            "tone": "warning"
+          },
+          {
+            "label": "SET Client P90",
+            "value": "0.349ms",
+            "sub": "3 条代表 trace",
+            "tone": "neutral"
+          },
+          {
+            "label": "SET 主阶段证据 P90",
+            "value": "0.335ms",
+            "sub": "set_client 桶",
+            "tone": "neutral"
+          }
+        ],
+        "stages": [
+          {
+            "name": "GET·本地磁盘读取",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "—",
+            "status": "warn",
+            "detail": "故障标签指向该阶段，但 /stats/stages 与 metrics 均无 GET 样本，无法量化 P99、放大倍数或影响占比。"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100%（仅 3 条 SET 分类样本）",
+            "status": "ok",
+            "detail": "上游只提供 P50/P90/max；P90=0.335ms、Client P90=0.349ms，不能把 P90 冒充 P99。"
+          }
+        ],
+        "conclusion": "<strong>GET 时延证据缺失</strong>，无法从资产独立验证磁盘 I/O 长尾；SET 样本耗时为亚毫秒级，未显示时延瓶颈。故报告将 OS 磁盘慢作为外部标签定界，并把 iostat/GET P99 复测列为闭环条件。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据可用性",
+            "title": "解析成功但样本极少",
+            "description": "日志文件任务状态 successful，解析报告显示扫描 8 个文件、6 行并形成 3 条 trace；因此可分析现存数据，但不能把空 GET 结果解释为健康。",
+            "evidence": "[GET /log_file/{id}] overall_status=successful；parse_timing rows=3",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② GET/SET 分离",
+            "title": "GET 无样本，SET 有 3 条",
+            "description": "GET /stats/stages sample_cnt=0，GET metrics original_count=0；SET /stats/stages sample_cnt=3，禁止把 SET 阶段数据用于填补 GET 本地读取链路。",
+            "evidence": "[POST /stats/stages] operation=GET/SET；[POST /log_parse_result/metrics/latency] operation=GET/SET",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 标签定界",
+            "title": "指定映射给出 OS 硬盘 I/O 速度慢",
+            "description": "train_valid.md 将该日志路径映射为 worker_process_local_get_os_disk_iolatency；gt_labels.json 将其映射到 OS故障/OS故障-硬盘IO速度慢。该标签按用户要求用于报告分类。",
+            "evidence": "[/home/witty-ub-logs/data/train_valid.md:164；/home/witty-ub-logs/gt_labels.json:338-340]",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 现场旁证",
+            "title": "仅观测到 SET·URMA 写提交失败",
+            "description": "3 条 SET trace 均携带 1004/kvcache_access_022，原文为 urma_post_jetty_send_wr failed, ret: 4096；Worker 的 DS_POSIX_CREATE 耗时仅 13~16us。该现象不能证明磁盘 I/O 慢。",
+            "evidence": "[POST /log_failure_event_result/list_trace_events；原始 access 日志]",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "⑤ 反证检查",
+            "title": "排除用 SET 亚毫秒时延反推 GET 磁盘慢",
+            "description": "SET 主阶段证据 P90=0.335ms，且当前数据没有 GET、iostat、resource.log 或 block-layer 指标；因此底层磁盘慢机理尚未由现场证据闭环，URMA 错误与磁盘标签之间也不建立因果。",
+            "evidence": "[POST /stats/stages operation=SET；GET 空结果；原始目录文件清单]",
+            "excluded": true,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "按指定故障标签，Worker 本地 GET 受 OS 硬盘 I/O 速度慢影响；现场日志缺少独立磁盘指标，机理待复测确认。",
+        "supporting_knowledge": "Curated kvcache_access_022 仅解释现场 1004 为 URMA/硬件错误；experience-skill 建议性能问题结合磁盘 I/O、iowait、缓存命中率和 Client/Worker 双侧日志，均被列为复测项而非现成证据。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "OS 磁盘 I/O 服务时间升高",
+            "detail": "来自指定故障标签；需 iostat await/util 与块设备延迟直方图验证",
+            "type": "origin",
+            "transition": "本地缓存未命中后进入磁盘读取"
+          },
+          {
+            "label": "Worker 本地 GET 读取等待",
+            "detail": "预期表现为本地读处理阶段拉长；当前无 GET trace 可量化",
+            "type": null,
+            "transition": "等待时间上浮到 Client GET"
+          },
+          {
+            "label": "GET 长尾时延升高",
+            "detail": "标签目标现象；P99、影响比例与持续时间待复测",
+            "type": "impact"
+          }
+        ],
+        "impact_scope": [
+          "知识库: b7789adf-dd22-48c5-8155-167c7ae46490",
+          "故障标签目标: Worker 本地 GET 路径",
+          "现场观测旁证: 192.168.219.97 → 192.168.235.170 的 3 条 SET·1004",
+          "限制: 无 host、无 GET trace、无磁盘监控"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "e01c0626-3912-4e49-9d37-3f0819383085",
+          "kind": "error",
+          "why": "status_code=1004 + pods=192.168.219.97/192.168.235.170 + 07:32:31-07:32:33",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.219.97 ↔ 192.168.235.170",
+          "timestamp": "2026-09-24 07:32:31"
+        },
+        {
+          "trace_id": "3ccd490c-28fd-4817-ab8e-03331490d3db",
+          "kind": "error",
+          "why": "status_code=1004 + pods=192.168.219.97/192.168.235.170 + 07:32:31-07:32:33",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.219.97 ↔ 192.168.235.170",
+          "timestamp": "2026-09-24 07:32:31"
+        },
+        {
+          "trace_id": "72c7fff7-1e1d-4eee-8e27-f52af8c4679d",
+          "kind": "error",
+          "why": "status_code=1004 + pods=192.168.219.97/192.168.235.170 + 07:32:31-07:32:33",
+          "status_code": "1004",
+          "failure_mode_id": "kvcache_access_022",
+          "pod": "192.168.219.97 ↔ 192.168.235.170",
+          "timestamp": "2026-09-24 07:32:32"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "kvcache_access_022",
+          "stars": "★★★★★",
+          "match_logic": "L1: 1004 与 kvcache_access_022 精确命中；L2: URMA/硬件域仅解释 SET 旁证，与 OS 磁盘标签不同域；L3: 同一源目 Pod 对命中。",
+          "symptom": "请求返回 K_URMA_ERROR，URMA 传输或资源操作失败",
+          "root_cause": "URMA 库、设备、上下文、Jetty、内存段、事件或异步处理发生底层错误",
+          "solution": "检查 URMA 设备、上下文、Jetty、内存段和事件状态；该知识不用于证明磁盘慢",
+          "phenomenon_fit": "与 3 条 SET·1004 完全一致，但不覆盖缺失的 GET 磁盘慢证据",
+          "log_fit": "命中 Urma operation failed 与 urma_post_jetty_send_wr failed, ret: 4096",
+          "rc_consistency": "仅解释旁证，不能替代 OS 磁盘标签根因",
+          "env_diff": "无版本信息",
+          "adaptation": "分开复核磁盘与 URMA 两条路径，禁止仅凭共时建立因果",
+          "applicability": "reference"
+        },
+        {
+          "rank": "②",
+          "id": "ac435977-bed4-4fbf-8fed-5dd694804bf0",
+          "stars": "★★★★☆",
+          "match_logic": "L1: 1004 与 kvcache_access_022 命中；L2: set_client、few_pods、link_pair 命中但案例 operation=MIXED 仅部分匹配；L5: urma_post_jetty_send_wr ret=4096 原文命中。",
+          "symptom": "历史已确认案例同样出现 URMA 写提交 ret=4096，并把物理链路高时延保留为待验证根因",
+          "root_cause": "历史案例只确认 URMA 写提交边界失败，未凭该日志独立确认物理层高时延",
+          "solution": "同步采集两端设备、链路、RTT/丢包与队列指标，再决定是否复用链路处置",
+          "phenomenon_fit": "SET 侧日志高度相似；不含本次 GET 磁盘标签对应证据",
+          "log_fit": "精确命中 ret=4096 关键短语",
+          "rc_consistency": "与本次对 URMA 旁证的保守定界一致",
+          "env_diff": "operation 为 MIXED，且历史链路实体不同",
+          "adaptation": "只复用证据边界与采集方法，不复用其物理根因结论",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "在故障 Worker 节点采集 iostat -x 1、pidstat -d 1、/proc/diskstats 与块设备延迟直方图，核对 await、svctm、util、队列深度和 iowait 是否与 GET 尖峰同窗升高",
+          "按同一 key 与对象大小复现本地 GET，保留 GET trace，并同时采集 Cache_Hit_Info 的 memHitNum/diskHitNum，确认请求确实走本地磁盘而非远端/内存路径",
+          "对 3 条 SET·1004 单独检查两端 URMA 设备、Jetty、内存段和驱动状态；不要把该错误直接归因于磁盘慢"
+        ],
+        "long_term": [
+          "为 Worker 本地磁盘建立 await、P99 块延迟、队列深度、吞吐和 iowait 基线与告警，并与 KVCache GET P99 按 trace/时间窗关联",
+          "优化本地缓存命中与 Spill/L2 策略，减少热点 GET 落盘；评估磁盘介质、调度器、RAID/LVM 与容器 IO 限额",
+          "补齐 GET 本地读阶段与磁盘 I/O 的可观测字段，避免仅靠样例标签或 SET 旁证定界"
+        ],
+        "verification": [
+          "复测窗口中 GET /stats/stages 必须出现 GET 样本，并能区分本地读取阶段；不再以 SET 数据代替 GET",
+          "故障前后对比磁盘 await/P99 与 GET P99：磁盘指标恢复且 GET P99 同步恢复，才确认闭环",
+          "连续观察至少 30 分钟，确认本地 GET P99 回到业务基线，且 1004 不再新增；两项分别验收"
+        ]
+      },
+      "simplified": false,
+      "upstream": null,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "补采故障 Worker 的磁盘 I/O 与本地 GET 同窗证据",
+      "depends_on": "获得故障 Worker/Host 标识并可复现 GET",
+      "expected_effect": "确认或否定 OS 磁盘 I/O 慢对 GET 长尾的直接贡献",
+      "verify": "iostat/块延迟与 GET P99 同窗对齐，形成故障前后对照"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "独立排查并清除 SET·K_URMA_ERROR(1004)",
+      "depends_on": "两端 URMA 设备与 Jetty 状态可采集",
+      "expected_effect": "避免旁路写入故障干扰复测",
+      "verify": "相同 4MiB 写入不再返回 1004，三条代表 trace 的路径可正常完成"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "GET·归因子集",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "—",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "sample_cnt=0；无 GET us 字段与归因样本，空结果不代表健康"
+          }
+        ],
+        "conclusion": "GET 是故障标签目标操作，但当前资产无 GET 可量化样本；不生成虚假百分比。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "SET·客户端SDK段",
+            "pct": "100.0",
+            "cls": "s-ok"
+          }
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "0.0%（解析异常标记）",
+            "fail_share": "100.0% 携带 1004",
+            "status": "ok",
+            "fault": "F01",
+            "detail": "3/3 分类样本；证据 P90=0.335ms、Client P90=0.349ms。1004 故障码与 is_anomalous 时延标记口径不同。"
+          }
+        ],
+        "conclusion": "SET 的 3 条样本均归入 set_client，但耗时为亚毫秒级；错误码 1004 是通断/调用结果旁证，不等同于 SET 时延异常。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 3,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "URMA/硬件（仅现场 SET 旁证）",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.97",
+        "host": "—",
+        "pct": "50.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.170",
+        "host": "—",
+        "pct": "50.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "07:32:31",
+        "level": "4",
+        "pct": "66.7",
+        "spike": true,
+        "fault": "F01"
+      },
+      {
+        "time": "07:32:32",
+        "level": "2",
+        "pct": "33.3",
+        "spike": false,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-b7789adf",
+    "total_steps": 7,
+    "api_calls": 24,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "资产与解析状态核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "资产匹配，任务 successful；3 条 trace，样本稀疏"
+      },
+      {
+        "title": "GET/SET 独立阶段分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 0 样本；SET 3 样本全部 set_client，未混桶"
+      },
+      {
+        "title": "时延与聚合复核",
+        "api_calls": [
+          "POST /log_parse_result/metrics/latency GET/SET",
+          "POST /aggregated_event/list GET/SET"
+        ],
+        "result": "GET 无 metrics；SET P99 采样返回 1 点，端到端 0.343ms；IP 对聚合为空"
+      },
+      {
+        "title": "错误码与时窗取证",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events"
+        ],
+        "result": "SET 侧 3 条 1004，集中在 07:32:31-07:32:32"
+      },
+      {
+        "title": "Curated 知识核验",
+        "api_calls": [
+          "GET /failure_mode/status_code/1004",
+          "GET /failure_mode/kvcache_access_022"
+        ],
+        "result": "1004 被解释为 URMA 传输或资源操作失败；不支持直接推断磁盘慢"
+      },
+      {
+        "title": "经验与历史案例匹配",
+        "api_calls": [
+          "experience-skill 两轮检索",
+          "POST /phenomenon/search",
+          "POST /diag_case_library/search",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "历史案例高度匹配 URMA ret=4096，但仅作为旁证边界与采集建议"
+      },
+      {
+        "title": "故障标签定界",
+        "api_calls": [
+          "读取 train_valid.md",
+          "读取 gt_labels.json",
+          "读取报告标签参考"
+        ],
+        "result": "按用户指定映射使用 OS故障/OS故障-硬盘IO速度慢；报告显式保留证据缺口"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "a97a8e58-94b9-4f35-b97c-bf2534f5ce40",
+      "experience_type": "SKILL",
+      "name": "ds-performance-degradation-diagnosis",
+      "source_path": "data/skill_hub/ds-performance-degradation-diagnosis",
+      "keywords_matched": [
+        "磁盘 I/O",
+        "iowait",
+        "GET 时延"
+      ],
+      "search_query_used": "KVCache GET 本地读取 磁盘 IO 时延 Worker 慢查询",
+      "used_in_stage": "stage_5_recommendation",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "系统级监控（CPU、内存、磁盘、网络、调度延迟）不可或缺。",
+      "how_used_in_diagnosis": "用于提出补采 iostat、iowait 与 GET P99 同窗证据的建议，不作为现场根因证据。",
+      "confidence_on_reference": 0.82,
+      "confidence_reason": "建议与性能诊断通用取证原则一致，但本资产未提供这些指标。"
+    },
+    {
+      "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+      "experience_type": "SKILL",
+      "name": "ds-rdma-transport-diagnosis",
+      "source_path": "data/skill_hub/ds-rdma-transport-diagnosis",
+      "keywords_matched": [
+        "K_URMA_ERROR",
+        "URMA_WRITE",
+        "ret 4096"
+      ],
+      "search_query_used": "K_URMA_ERROR URMA_WRITE urma_post_jetty_send_wr ret 4096 disk IO",
+      "used_in_stage": "stage_5_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "content_quoted": "K_URMA_ERROR=1004 | URMA 通用错误 | 检查 URMA 设备和链路",
+      "how_used_in_diagnosis": "用于把 1004 旁证的排查限定在 URMA 设备与链路，不把它冒充磁盘慢证据。",
+      "confidence_on_reference": 0.9,
+      "confidence_reason": "与 curated kvcache_access_022 及三条现场原文一致。"
+    }
+  ]
+}

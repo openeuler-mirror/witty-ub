@@ -91,11 +91,21 @@ _REPRESENTATIVE_COLUMNS: tuple[str, ...] = (
     *METRIC_KEYS,
 )
 
-# 4 种分位模式：(模式名, 分位点)。pmax=1.0 → floor(cnt*1)-1 = cnt-1（最大值行）。
+# 4 种展示模式：(模式名, 代表行选取点)。
+#
+# ``avg`` 与 ``p9999`` 的 total_latency 不再使用这里的代表行值：
+# - avg = 桶内所有有效 total_latency 的算术平均值；
+# - p9999 = perf_analyze/kvcache_trace_report.py::compute_percentile 的线性插值口径，
+#   即在有序数组的 ``(n - 1) * 0.9999`` 位置插值。
+#
+# 这里的 0.5/0.9999 只用于选一条可供阶段分解展示的代表 trace；
+# 端到端总时延会在 ``compute_bucket_stats_from_frame`` 中被真实聚合值覆盖。
 PERCENTILE_MODES: tuple[tuple[str, float], ...] = (
-    ("median", 0.5),
+    ("avg", 0.5),
     ("p99", 0.99),
-    ("p9999", 0.9999),
+    # ``p9999l`` uses a new storage key so legacy ordinal P9999 rows cannot be
+    # mistaken for the perf_analyze-compatible linear-interpolation result.
+    ("p9999l", 0.9999),
     ("pmax", 1.0),
 )
 
@@ -283,7 +293,7 @@ def compute_bucket_stats_from_frame(
     取值语义与原 ``_representative_tuple`` 逐字段一致，交给
     ``log_parse_result_bulk.copy_dataframe`` 做类型归一化（INET / TIMESTAMP）
     与 COPY。行序仍为「粒度 (10,60,600,3600) × 模式
-    (median,p99,p9999,pmax) × (桶, operation) 顺序」，与原实现相同。
+    (avg,p99,p9999,pmax) × (桶, operation) 顺序」。
 
     Args:
         df_trace: T2 ``parse_log`` 产出的 polars DataFrame（TRACE_COLUMNS
@@ -308,9 +318,11 @@ def compute_bucket_stats_from_frame(
         for row in selected.iter_rows(named=True):
             pending.append({
                 "g": g,
+                "bucket_id": int(row["_bucket_id"]),
                 "bucket_dt": np.datetime64(int(row["_bucket_id"]) * g, "s").item(),
                 "op_code": int(row["_op_code"]),
                 "mode": row["mode"],
+                "stat_total_latency": row.get("_stat_total_latency"),
                 "row": row,
                 "tid": row["tid"],
                 # GET 组按传输类型另选的 local/remote 分位代表（SET 组恒为 None）。
@@ -358,7 +370,9 @@ def compute_bucket_stats_from_frame(
         yrow = yr_lookup.get(item["tid"]) if item["tid"] else None
         ylocal = yr_lookup.get(item["tid_local"]) if item["tid_local"] else None
         yremote = yr_lookup.get(item["tid_remote"]) if item["tid_remote"] else None
-        records[item["g"]].append({
+        total_stat = item["stat_total_latency"]
+        total_latency = total_stat if total_stat is not None else row.get("total_latency")
+        record = {
             "kb_id": kb_id,
             "log_id": log_id,
             "bucket": item["bucket_dt"],
@@ -369,7 +383,10 @@ def compute_bucket_stats_from_frame(
             "trace_id": row.get("tid"),
             "src_ip": row.get("src"),
             "dst_ip": row.get("dst"),
-            **{name: row.get(name) for name in METRIC_KEYS},
+            **{
+                name: (total_latency if name == "total_latency" else row.get(name))
+                for name in METRIC_KEYS
+            },
             **{
                 name: (
                     (ylocal.get(name) if ylocal else None) if name in qg_local_fields
@@ -378,7 +395,14 @@ def compute_bucket_stats_from_frame(
                 )
                 for name in YUANRONG_METRIC_FIELDS
             },
-        })
+        }
+        # total_latency_us and legacy total_latency are the same end-to-end
+        # measurement in different units.  Do not leave AVG/P99.99 with a
+        # representative trace's microsecond value after overriding the exact
+        # aggregate millisecond value above.
+        if total_stat is not None:
+            record["total_latency_us"] = total_latency * 1000.0
+        records[item["g"]].append(record)
     return {g: _frame_from_records(records[g]) for g in GRANULARITY_KEYS}
 
 

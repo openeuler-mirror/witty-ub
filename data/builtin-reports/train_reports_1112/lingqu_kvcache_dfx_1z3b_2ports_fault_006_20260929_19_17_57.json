@@ -1,0 +1,1623 @@
+{
+  "report": {
+    "title": "1z3b 双端口故障 KVCache 诊断报告",
+    "report_id": "RPT-20261112-2P06",
+    "generated_at": "2026-11-12 00:00:00"
+  },
+  "chapter_0_experience_refs": {
+    "experience_refs": [
+      {
+        "experience_id": "d5e3fafa-8d9c-4228-86cb-fa9585980d79",
+        "experience_type": "SKILL",
+        "name": "umdk-link-failure-diagnosis",
+        "source_path": "data/skill_hub/umdk-link-failure-diagnosis",
+        "keywords_matched": [
+          "URMA",
+          "PORT_DOWN",
+          "链路故障"
+        ],
+        "search_query_used": "KVCache 1z3b 双端口 故障 通断 时延 URMA",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "多端口环境下，必须结合端口号和日志时间戳定位具体端口。",
+        "how_used_in_diagnosis": "用于形成端口状态、链路宽度和对端状态的核验建议，不作为现场证据。",
+        "confidence_on_reference": 0.85,
+        "confidence_reason": "与多端口 URMA 故障场景直接相关，但现场缺少 urma_admin 输出。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "K_URMA_WAIT_TIMEOUT",
+          "URMA",
+          "TCP fallback"
+        ],
+        "search_query_used": "K_URMA_WAIT_TIMEOUT 1010 cqe status 9 TCP fallback payload rejected limiter",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "content_quoted": "K_URMA_WAIT_TIMEOUT=1010 | URMA 等待超时 | 检查网络延迟和远端状态",
+        "how_used_in_diagnosis": "用于补充设备、链路和远端状态的排查方向；错误码解释以 curated 知识为准。",
+        "confidence_on_reference": 0.9,
+        "confidence_reason": "与 curated 的 1010 解释一致，且与现场超时日志相符。"
+      }
+    ],
+    "summary": {
+      "total_references": 2,
+      "adopted_as_evidence_count": 0,
+      "adopted_as_suggestion_count": 2,
+      "considered_not_adopted_count": 0,
+      "conflicted_with_curated_count": 0,
+      "reference_coverage_note": "经验库仅用于排查流程和处置建议；根因判断以本资产库 API 与原始 trace 日志为现场依据。"
+    }
+  },
+  "basic_info": {
+    "kb_id": "088af3c8-d312-4662-b775-0b2b2f3a745c",
+    "kb_name": "lingqu_kvcache_dfx_1z3b_2ports_fault_006_20260929_19_17_57",
+    "log_file": "lingqu_kvcache_dfx_1z3b_2ports_fault_006_20260929_19_17_57",
+    "operation": "GET / SET",
+    "time_range_start": "2026-09-29 19:18:15",
+    "time_range_end": "2026-09-29 19:29:25",
+    "total_trace_cnt": 2,
+    "fault_trace_cnt": 2,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:Urma operation failed": 0.032669,
+      "T:URMA_SEND_LANE_TIMEOUT_OBSERVED": 0.098006,
+      "T:URMA_SEND_LANE_FORCE_RELEASE": 0.098006,
+      "T:URMA_WAIT_TIMEOUT": 0.68604,
+      "T:WRITE": 0.68604,
+      "C:Urma wait for completion timed out": 0.196011
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个 URMA 数据通路主故障，分别在 SET 与 GET 路径表现为 CQE 异常和完成等待超时；按指定训练标签归类为 ub端口故障-down。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "2 条已解析 trace 均异常：1 次 8 MiB SET 失败、1 次 GET 远端对象读取失败。",
+    "confidence": "中高 78%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "URMA completion 异常导致 GET/SET 失败（标签：ub端口故障-down）",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P1",
+      "confidence": 0.78,
+      "category": "mixed",
+      "affected_scope": "集群 zxj-recall-kv-ds-1 的 3 个 Pod IP、2 条请求路径；日志未提供 Host 与物理端口号。",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "ub端口故障-down",
+        "one_line_conclusion": "现场确认 URMA completion 数据通路异常导致 SET 返回 1004、GET 返回 1010；训练标签指定为 ub端口故障-down，但日志未直接记录 PORT_DOWN 或端口状态。",
+        "fault_domain": "硬件故障/ub端口故障-down",
+        "fault_component": "URMA 数据通路 / UB 端口链路",
+        "fault_function": "UrmaManager::WaitToFinish / FastTransport WRITE",
+        "fault_function_loc": "fast_transport_base.cpp:219; urma_manager.cpp:1689",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "2/2 已解析 trace 异常；涉及 192.168.219.78、192.168.189.82、192.168.235.179",
+        "confidence": "中高 78%",
+        "key_findings": [
+          "SET trace 返回 K_URMA_ERROR(1004)：URMA WRITE waitUs=788435，CQE status=9，8 MiB TCP fallback 又被 1 MiB limiter 拒绝。",
+          "GET trace 返回 K_URMA_WAIT_TIMEOUT(1010)：completion 等待 2.285ms 超时，pendingWrs=1，并沿远端对象读取链上浮。",
+          "Worker 侧 SET CREATE 仅 0.053ms，GET QueryAndGet 仅 0.045ms，不支持 Worker 业务处理慢作为首因。",
+          "训练描述 1z3b_2ports_fault 映射到 硬件故障/ub端口故障-down；该分类是外部标签，物理 down 仍需端口遥测闭环。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "088af3c8-d312-4662-b775-0b2b2f3a745c",
+              "operation": "GET",
+              "start_time": "2026-09-29 19:18:15",
+              "end_time": "2026-09-29 19:29:25"
+            },
+            "code_filter": [
+              "1010"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "088af3c8-d312-4662-b775-0b2b2f3a745c",
+                    "start_time": "2026-09-29 19:18:15",
+                    "end_time": "2026-09-29 19:29:25",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100,
+                    "operation": "GET"
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 1,
+              "items": [
+                {
+                  "code": "1010",
+                  "count": 1,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 14,
+              "windows": [
+                {
+                  "start_time": "2026-09-29 19:18:15",
+                  "end_time": "2026-09-29 19:18:29",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:18:29",
+                  "end_time": "2026-09-29 19:18:43",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:18:43",
+                  "end_time": "2026-09-29 19:18:57",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:18:57",
+                  "end_time": "2026-09-29 19:19:11",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:19:11",
+                  "end_time": "2026-09-29 19:19:25",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:19:25",
+                  "end_time": "2026-09-29 19:19:39",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:19:39",
+                  "end_time": "2026-09-29 19:19:53",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:19:53",
+                  "end_time": "2026-09-29 19:20:07",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:20:07",
+                  "end_time": "2026-09-29 19:20:21",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:20:21",
+                  "end_time": "2026-09-29 19:20:35",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:20:35",
+                  "end_time": "2026-09-29 19:20:49",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:20:49",
+                  "end_time": "2026-09-29 19:21:03",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:21:03",
+                  "end_time": "2026-09-29 19:21:17",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:21:17",
+                  "end_time": "2026-09-29 19:21:31",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:21:31",
+                  "end_time": "2026-09-29 19:21:45",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:21:45",
+                  "end_time": "2026-09-29 19:21:59",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:21:59",
+                  "end_time": "2026-09-29 19:22:13",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:22:13",
+                  "end_time": "2026-09-29 19:22:27",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:22:27",
+                  "end_time": "2026-09-29 19:22:41",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:22:41",
+                  "end_time": "2026-09-29 19:22:55",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:22:55",
+                  "end_time": "2026-09-29 19:23:09",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:23:09",
+                  "end_time": "2026-09-29 19:23:23",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:23:23",
+                  "end_time": "2026-09-29 19:23:37",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:23:37",
+                  "end_time": "2026-09-29 19:23:51",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:23:51",
+                  "end_time": "2026-09-29 19:24:05",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:24:05",
+                  "end_time": "2026-09-29 19:24:19",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:24:19",
+                  "end_time": "2026-09-29 19:24:33",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:24:33",
+                  "end_time": "2026-09-29 19:24:47",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:24:47",
+                  "end_time": "2026-09-29 19:25:01",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:25:01",
+                  "end_time": "2026-09-29 19:25:15",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:25:15",
+                  "end_time": "2026-09-29 19:25:29",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:25:29",
+                  "end_time": "2026-09-29 19:25:43",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:25:43",
+                  "end_time": "2026-09-29 19:25:57",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:25:57",
+                  "end_time": "2026-09-29 19:26:11",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:26:11",
+                  "end_time": "2026-09-29 19:26:25",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:26:25",
+                  "end_time": "2026-09-29 19:26:39",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:26:39",
+                  "end_time": "2026-09-29 19:26:53",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:26:53",
+                  "end_time": "2026-09-29 19:27:07",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:27:07",
+                  "end_time": "2026-09-29 19:27:21",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:27:21",
+                  "end_time": "2026-09-29 19:27:35",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:27:35",
+                  "end_time": "2026-09-29 19:27:49",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:27:49",
+                  "end_time": "2026-09-29 19:28:03",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:28:03",
+                  "end_time": "2026-09-29 19:28:17",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:28:17",
+                  "end_time": "2026-09-29 19:28:31",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:28:31",
+                  "end_time": "2026-09-29 19:28:45",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:28:45",
+                  "end_time": "2026-09-29 19:28:59",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:28:59",
+                  "end_time": "2026-09-29 19:29:13",
+                  "complete": true,
+                  "counts": {
+                    "1010": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:29:13",
+                  "end_time": "2026-09-29 19:29:25",
+                  "complete": true,
+                  "counts": {
+                    "1010": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          },
+          {
+            "operation": "SET",
+            "scope": {
+              "kb_id": "088af3c8-d312-4662-b775-0b2b2f3a745c",
+              "operation": "SET",
+              "start_time": "2026-09-29 19:18:15",
+              "end_time": "2026-09-29 19:29:25"
+            },
+            "code_filter": [
+              "1004"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "088af3c8-d312-4662-b775-0b2b2f3a745c",
+                    "start_time": "2026-09-29 19:18:15",
+                    "end_time": "2026-09-29 19:29:25",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100,
+                    "operation": "SET"
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 1,
+              "items": [
+                {
+                  "code": "1004",
+                  "count": 1,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 14,
+              "windows": [
+                {
+                  "start_time": "2026-09-29 19:18:15",
+                  "end_time": "2026-09-29 19:18:29",
+                  "complete": true,
+                  "counts": {
+                    "1004": 1
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:18:29",
+                  "end_time": "2026-09-29 19:18:43",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:18:43",
+                  "end_time": "2026-09-29 19:18:57",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:18:57",
+                  "end_time": "2026-09-29 19:19:11",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:19:11",
+                  "end_time": "2026-09-29 19:19:25",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:19:25",
+                  "end_time": "2026-09-29 19:19:39",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:19:39",
+                  "end_time": "2026-09-29 19:19:53",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:19:53",
+                  "end_time": "2026-09-29 19:20:07",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:20:07",
+                  "end_time": "2026-09-29 19:20:21",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:20:21",
+                  "end_time": "2026-09-29 19:20:35",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:20:35",
+                  "end_time": "2026-09-29 19:20:49",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:20:49",
+                  "end_time": "2026-09-29 19:21:03",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:21:03",
+                  "end_time": "2026-09-29 19:21:17",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:21:17",
+                  "end_time": "2026-09-29 19:21:31",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:21:31",
+                  "end_time": "2026-09-29 19:21:45",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:21:45",
+                  "end_time": "2026-09-29 19:21:59",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:21:59",
+                  "end_time": "2026-09-29 19:22:13",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:22:13",
+                  "end_time": "2026-09-29 19:22:27",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:22:27",
+                  "end_time": "2026-09-29 19:22:41",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:22:41",
+                  "end_time": "2026-09-29 19:22:55",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:22:55",
+                  "end_time": "2026-09-29 19:23:09",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:23:09",
+                  "end_time": "2026-09-29 19:23:23",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:23:23",
+                  "end_time": "2026-09-29 19:23:37",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:23:37",
+                  "end_time": "2026-09-29 19:23:51",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:23:51",
+                  "end_time": "2026-09-29 19:24:05",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:24:05",
+                  "end_time": "2026-09-29 19:24:19",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:24:19",
+                  "end_time": "2026-09-29 19:24:33",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:24:33",
+                  "end_time": "2026-09-29 19:24:47",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:24:47",
+                  "end_time": "2026-09-29 19:25:01",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:25:01",
+                  "end_time": "2026-09-29 19:25:15",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:25:15",
+                  "end_time": "2026-09-29 19:25:29",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:25:29",
+                  "end_time": "2026-09-29 19:25:43",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:25:43",
+                  "end_time": "2026-09-29 19:25:57",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:25:57",
+                  "end_time": "2026-09-29 19:26:11",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:26:11",
+                  "end_time": "2026-09-29 19:26:25",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:26:25",
+                  "end_time": "2026-09-29 19:26:39",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:26:39",
+                  "end_time": "2026-09-29 19:26:53",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:26:53",
+                  "end_time": "2026-09-29 19:27:07",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:27:07",
+                  "end_time": "2026-09-29 19:27:21",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:27:21",
+                  "end_time": "2026-09-29 19:27:35",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:27:35",
+                  "end_time": "2026-09-29 19:27:49",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:27:49",
+                  "end_time": "2026-09-29 19:28:03",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:28:03",
+                  "end_time": "2026-09-29 19:28:17",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:28:17",
+                  "end_time": "2026-09-29 19:28:31",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:28:31",
+                  "end_time": "2026-09-29 19:28:45",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:28:45",
+                  "end_time": "2026-09-29 19:28:59",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:28:59",
+                  "end_time": "2026-09-29 19:29:13",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                },
+                {
+                  "start_time": "2026-09-29 19:29:13",
+                  "end_time": "2026-09-29 19:29:25",
+                  "complete": true,
+                  "counts": {
+                    "1004": 0
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "完整秒级聚合各返回 1 个命中窗：SET 在 19:18:15 命中 1004 一次，GET 在 19:29:24 命中 1010 一次。计数为逐码命中次数，不是业务失败率；两次异常相隔约 11 分钟，时间先后本身不证明因果。",
+        "metrics": [
+          {
+            "label": "故障 trace",
+            "value": "2",
+            "sub": "GET 1 / SET 1",
+            "tone": "bad"
+          },
+          {
+            "label": "错误码",
+            "value": "1010 / 1004",
+            "sub": "GET / SET 独立口径",
+            "tone": "warn"
+          }
+        ]
+      },
+      "latency": {
+        "metrics": [
+          {
+            "label": "SET Client 总时延",
+            "value": "788.866 ms",
+            "sub": "唯一 SET 异常样本",
+            "tone": "bad"
+          },
+          {
+            "label": "GET Client 总时延",
+            "value": "2.805 ms",
+            "sub": "唯一 GET 异常样本",
+            "tone": "warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "GET·Client/Worker交叉窗口未细分",
+            "p50": "2.805 ms",
+            "p90": "2.805 ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100.0% 分类样本",
+            "status": "warn",
+            "detail": "仅 1 条样本；P90 不能替代 P99。原始日志把直接机制定位为 URMA completion 超时。",
+            "features": {
+              "operation": "GET",
+              "bucket_key": "cross_window",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "088af3c8-d312-4662-b775-0b2b2f3a745c",
+                  "log_id": "cb9d1d96-ca4d-45ff-af96-3b33282a5a9b",
+                  "operation": "GET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[5]"
+              },
+              "sample_cnt": 1,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（yuanrong us 覆盖子集），每条 trace 按最大互斥阶段归入唯一桶；URMA 超时为 anomaly_reason/content 文本匹配的近似口径；request_mode=unknown 的 trace 按现有列粗分定界（worker 窗口≥50% 总时延→data_worker，否则 cross_window），RPC 细分归因用 skill 脚本 brpc_stage_drill.py",
+              "trace_cnt": 1,
+              "normal_cnt": 0,
+              "anomalous_cnt": 1,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 2.805,
+                "p90_ms": 2.805,
+                "max_ms": 2.805,
+                "client_p50_ms": 2.805,
+                "client_p90_ms": 2.805
+              },
+              "tail_ratio_p90_p50": 1.0,
+              "note": "粗分：request_mode=unknown，客户端等待主导（worker 侧窗口<50% 总时延）；1/1 条 worker 有窗口但干净，worker 窗口占比中位数 1.6%；RPC 细分归因（QueryMeta/RPC网络/RPC排队）用 skill 脚本 brpc_stage_drill.py（latency-analysis 阶段 4.5）",
+              "action": "数据访问父窗口扣除已知子阶段后仍较高；仅有明确 Local processing / remoteObjects=0 证据时才判为本地处理，否则保留未细分。",
+              "top_traces": [
+                {
+                  "trace_id": "24d614af-b6d0-4eee-8612-3be49e3ad12d",
+                  "evidence_ms": 2.805,
+                  "client_ms": 2.805
+                }
+              ]
+            }
+          },
+          {
+            "name": "SET·客户端SDK段（含数据面等待）",
+            "p50": "788.813 ms",
+            "p90": "788.813 ms",
+            "p99": "—",
+            "baseline": "—",
+            "ratio": "—",
+            "share": "100.0% 分类样本",
+            "status": "bottleneck",
+            "detail": "唯一 SET 样本的 SDK 段几乎覆盖 Client 总时延；原始日志显示其中 788.435ms 为 URMA WRITE 等待。",
+            "features": {
+              "operation": "SET",
+              "bucket_key": "set_client",
+              "metric_name": "主阶段耗时",
+              "source": {
+                "endpoint": "/stats/stages",
+                "request": {
+                  "kb_id": "088af3c8-d312-4662-b775-0b2b2f3a745c",
+                  "log_id": "cb9d1d96-ca4d-45ff-af96-3b33282a5a9b",
+                  "operation": "SET",
+                  "sample_cap": 1000
+                },
+                "response_path": "result.items[3]"
+              },
+              "sample_cnt": 1,
+              "truncated": false,
+              "sample_note": "样本集=异常 trace 全量+top慢正常（含 total_latency_us 的代表 trace），每条 trace 按写路径实测列归入唯一桶；SET 流程与 GET 不同（写路径走 CREATE/PUBLISH），两套桶口径独立、不混合归桶；本视角仅用 SDK 段与 Worker 端两段实测列；SET 侧剔除维度（node48 实测）：urma_processing_us / create_latency / publish_latency / w2w_urma_latency 恒 NULL；c2w_urma_latency = 总时延 − worker_total_latency 恒 ≈ 总时延，无额外信息量；sdk_processing_us + local_worker_internal_us ≡ total_latency_us，故 set_residual 桶实测恒 0（仅防御性保留）；URMA 超时为 anomaly_reason/content 文本匹配的近似口径",
+              "trace_cnt": 1,
+              "normal_cnt": 0,
+              "anomalous_cnt": 1,
+              "bucket_share_pct": 100.0,
+              "anomalous_ratio_pct": 100.0,
+              "distribution": {
+                "p50_ms": 788.813,
+                "p90_ms": 788.813,
+                "max_ms": 788.813,
+                "client_p50_ms": 788.866,
+                "client_p90_ms": 788.866
+              },
+              "tail_ratio_p90_p50": 1.0,
+              "note": "有 Worker 侧行且 sdk_processing_us ≥ local_worker_internal_us，证据取 SDK 段耗时；家族构成：DS_KV_CLIENT_SET 1",
+              "action": "写请求耗时集中在客户端 SDK 段（含等待数据面返回）：先查 SDK 侧排队/重试与端到端 deadline，再看 Worker 侧是否已返回。",
+              "top_traces": [
+                {
+                  "trace_id": "270c1f70-e7d9-44e8-9c71-54c4211e0022",
+                  "evidence_ms": 788.813,
+                  "client_ms": 788.866
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 与 SET 各只有 1 条异常样本，不能推断总体 P99。SET 的长等待集中在客户端数据面等待，GET 虽总时延仅 2.805ms，但以 1010 失败。"
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据可用性",
+            "title": "解析成功且故障 trace 完整落库",
+            "description": "日志文件 overall_status=successful，解析得到 2 条 trace、2 条异常、2 条故障 trace。",
+            "evidence": "GET /log_kb/{kb_id}; POST /log_file/list/{kb_id}",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 读写分诊",
+            "title": "GET 与 SET 各有一条独立失败表现",
+            "description": "GET 命中 1010，SET 命中 1004；两套 /stats/stages 独立取数，未跨操作混桶。",
+            "evidence": "POST /stats/stages(GET/SET); POST /stats/error_codes(GET/SET)",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 直接机理",
+            "title": "URMA completion 等待链路异常",
+            "description": "SET 出现 CQE status=9，URMA WRITE 等待 788.435ms 后失败；GET 出现 URMA_WAIT_TIMEOUT，send lane 保留 1 个 pending WR。",
+            "evidence": "trace 270c1f70-e7d9-44e8-9c71-54c4211e0022; trace 24d614af-b6d0-4eee-8612-3be49e3ad12d",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "不支持 Worker 处理慢或内存不足作为首因",
+            "description": "SET Worker CREATE 仅 0.053ms，申请约 8MiB 时 memOccupied 约 7.46GB、阈值约 28.31GB；GET QueryAndGet 仅 0.045ms。",
+            "evidence": "同两条 trace 的 access.log 与 worker 日志",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 边界确认",
+            "title": "物理端口 down 由训练标签指定，现场尚缺直接遥测",
+            "description": "标签映射明确为 ub端口故障-down，现场 URMA 故障与之相容；但未采集 PORT_DOWN、urma_admin port state、光功率或交换机端口事件，不能仅凭超时/CQE 将具体物理端口 down 认作日志已独立证明。",
+            "evidence": "/home/witty-ub-logs/data/train_valid.md + /home/witty-ub-logs/gt_labels.json；现场证据缺口说明",
+            "excluded": false,
+            "confirmed": false
+          }
+        ],
+        "confirmed_root_cause": "已确认的直接故障机理是 URMA WRITE completion 数据通路异常；报告按用户指定训练标签归类为 ub端口故障-down，具体双端口及物理故障点需端口状态/遥测复核。",
+        "supporting_knowledge": "curated: status 1004/1010、kvcache_access_022/026、kvcache_runtime_906；历史案例 UB-CASE-002525 与 UB-CASE-002552 仅作待核验参考。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "外部标签：双 UB 端口 down",
+            "detail": "训练描述映射；物理端口状态待遥测验证",
+            "type": "origin",
+            "transition": "URMA 数据通路失去可靠 completion"
+          },
+          {
+            "label": "URMA completion 异常",
+            "detail": "CQE status=9 或等待 completion 超时",
+            "type": null,
+            "transition": "错误沿 FastTransport 返回",
+            "branches": [
+              {
+                "label": "SET 写路径",
+                "nodes": [
+                  {
+                    "label": "URMA WRITE 失败",
+                    "detail": "waitUs=788435，1004",
+                    "type": "impact",
+                    "transition": "尝试 TCP fallback"
+                  },
+                  {
+                    "label": "8 MiB 回退被拒",
+                    "detail": "payload ≥ 1 MiB limiter",
+                    "type": "impact"
+                  }
+                ]
+              },
+              {
+                "label": "GET 读路径",
+                "nodes": [
+                  {
+                    "label": "远端对象回传超时",
+                    "detail": "elapsedMs=2.285，1010",
+                    "type": "impact",
+                    "transition": "错误沿 TransportGet 上浮"
+                  },
+                  {
+                    "label": "GET 请求失败",
+                    "detail": "远端对象未返回",
+                    "type": "impact"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "impact_scope": [
+          "Cluster: zxj-recall-kv-ds-1",
+          "SET: 192.168.235.179 → 192.168.219.78",
+          "GET: 192.168.219.78 → 192.168.189.82",
+          "共 2 条故障 trace；Host 与物理端口号未解析"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "270c1f70-e7d9-44e8-9c71-54c4211e0022",
+          "kind": "error",
+          "operation": "SET",
+          "status_code": "1004",
+          "why": "过滤条件 status_code=1004 + operation=SET + 2026-09-29 19:18:15–19:18:17；同一 trace 也是 SET·客户端SDK段桶内证据耗时 Top。",
+          "timestamp": "2026-09-29 19:18:15.396",
+          "pod": "192.168.235.179 / 192.168.219.78"
+        },
+        {
+          "trace_id": "24d614af-b6d0-4eee-8612-3be49e3ad12d",
+          "kind": "error",
+          "operation": "GET",
+          "status_code": "1010",
+          "why": "过滤条件 status_code=1010 + operation=GET + 2026-09-29 19:29:24–19:29:25；同一 trace 是 GET·cross_window 桶内证据耗时 Top，不代表总体严重度排序。",
+          "timestamp": "2026-09-29 19:29:24.546",
+          "pod": "192.168.219.78 / 192.168.189.82"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "id": "UB-CASE-002525",
+          "rank": "①",
+          "stars": "★★★★☆",
+          "match_logic": "L1 命中 1010、kvcache_access_026、kvcache_runtime_906；L2 命中 URMA/硬件域、MIXED 操作与链路对形态；L5 命中 URMA_WAIT_TIMEOUT，但历史 IP 不参与匹配。",
+          "symptom": "URMA 完成事件等待超时并按指定标签归类为 ub端口故障-down。",
+          "root_cause": "直接机理为 completion 超时；物理端口 down 仍需端口状态与光模块遥测确认。",
+          "solution": "核验端口 state、link_width、speed、光功率及对端状态；恢复后复测 GET/SET。",
+          "applicability": "adjust",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "调整后采用"
+        },
+        {
+          "id": "UB-CASE-002552",
+          "rank": "②",
+          "stars": "★★★★☆",
+          "match_logic": "L1 命中 1004 与 kvcache_access_022；L2 命中 SET/few_pods，但历史二级标签不同；L5 命中 CQE 异常和 8MiB 被 1MiB fallback limiter 拒绝。",
+          "symptom": "大对象 SET 在 URMA completion 失败后，TCP 回退因容量限制不可用。",
+          "root_cause": "URMA 主路径失败与回退容量不足共同使写请求上浮 1004。",
+          "solution": "先恢复 URMA completion 路径，再评估大对象 TCP fallback 阈值与风险。",
+          "applicability": "adjust",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "调整后采用"
+        },
+        {
+          "id": "EXP-ds-rdma-transport-diagnosis",
+          "rank": "③",
+          "stars": "★★★☆☆",
+          "match_logic": "L1 经验条目覆盖 K_URMA_WAIT_TIMEOUT；L2 覆盖 URMA 传输层但不含本次分布；L5 提供设备、链路、远端状态核验流程。",
+          "symptom": "URMA/RDMA 传输等待超时或连接失效。",
+          "root_cause": "经验库只给排查方向，不替代本次现场根因证据。",
+          "solution": "检查 URMA 设备、链路、远端状态与回退路径。",
+          "applicability": "reference",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "按 192.168.235.179→192.168.219.78 与 192.168.219.78→192.168.189.82 映射两端物理 UB 端口，立即采集 urma_admin port show/dev show、端口 state、link_width、speed 与对端状态。",
+          "采集同窗驱动/固件与交换机端口事件、Rx/Tx 光功率、LOS/LOL、FEC/CRC/符号错误；若端口 DOWN 或光功率异常，隔离后重新插拔或更换对应光模块/光纤。",
+          "恢复前将 8 MiB SET 流量迁移到健康 URMA 路径；如要提高 1 MiB TCP fallback limiter，先评估带宽、内存和并发放大风险。"
+        ],
+        "long_term": [
+          "建立 KVCache IP、URMA 设备/端口、光模块序列号和交换机端口的拓扑映射，并统一监控 PORT_DOWN、链路宽度/速率、光功率和误码。",
+          "联合告警 URMA completion latency、CQE 状态、pending/orphan WR、TCP fallback 触发/拒绝次数及 payload 大小。",
+          "为大对象写入设计可验证的降级策略，避免 URMA 单路径异常后因固定 1 MiB 阈值直接转化为业务失败。"
+        ],
+        "verification": [
+          "端口恢复为 ACTIVE 且链路宽度/速率、光功率和误码计数回到健康基线。",
+          "以相同 8 MiB 对象连续复测 GET/SET 至少 30 分钟，1004、1010、CQE status=9、URMA_WAIT_TIMEOUT 与 fallback limiter rejection 均无新增。",
+          "复测 SET 时确认 Worker CREATE 仍为低时延，Client 端不再出现约 788ms 的 URMA waitUs。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "确认两条路径对应的物理 UB 端口并采集端口/光模块/交换机遥测。",
+      "depends_on": "拓扑映射与设备访问权限",
+      "expected_effect": "闭环双端口 down 的物理证据并定位故障件。",
+      "verify": "端口 state、光功率、误码与同窗事件一致。"
+    },
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "隔离或恢复异常端口，必要时更换光模块/光纤。",
+      "depends_on": "确认受影响端口",
+      "expected_effect": "恢复 URMA completion 数据通路。",
+      "verify": "8 MiB GET/SET 连续复测无 1004/1010。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "评估并改造大对象 TCP fallback 容量策略。",
+      "depends_on": "完成容量与风险评估",
+      "expected_effect": "主路径异常时保留可控降级能力。",
+      "verify": "8 MiB fallback 演练成功且无资源放大。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "交叉窗口未细分",
+            "pct": "100.0",
+            "cls": "s-warn"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "100.0%（异常标记）",
+            "fail_share": "100.0%",
+            "status": "warn",
+            "fault": "F01",
+            "detail": "1 条分类样本，证据 P90/max=2.805ms；P90 不替代 P99。原始日志确认 1010。"
+          }
+        ],
+        "conclusion": "GET 仅 1 条异常样本，归入 cross_window；应依据原始日志把直接机理定位到 URMA completion 超时，不能从单样本估算总体 P99。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "客户端SDK段",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "客户端SDK段（含数据面等待）",
+            "p99": "—",
+            "anomaly_rate": "100.0%（异常标记）",
+            "fail_share": "100.0%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "1 条分类样本，证据 P90/max=788.813ms；原始日志显示 URMA WRITE waitUs=788435。"
+          }
+        ],
+        "conclusion": "SET 唯一样本由客户端 SDK 段主导，但该段包含数据面等待；Worker CREATE 仅 0.053ms，直接异常位于 URMA completion 路径。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 2,
+    "top_error_codes": [
+      {
+        "code": "1004",
+        "name": "K_URMA_ERROR",
+        "pct": "50.0",
+        "fault": "F01"
+      },
+      {
+        "code": "1010",
+        "name": "K_URMA_WAIT_TIMEOUT",
+        "pct": "50.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "URMA/硬件",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.78",
+        "host": "—",
+        "pct": "50.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.189.82",
+        "host": "—",
+        "pct": "25.0",
+        "fault": "F01"
+      },
+      {
+        "pod": "192.168.235.179",
+        "host": "—",
+        "pct": "25.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "19:18",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      },
+      {
+        "time": "19:29",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "diag-088af3c8-20261112",
+    "total_steps": 7,
+    "api_calls": 35,
+    "duration": "本会话实时取证",
+    "steps": [
+      {
+        "title": "Step 1 经验库预检索与标签定位",
+        "api_calls": [
+          "experience-skill SKILL/WIKI search",
+          "读取 train_valid.md 与 gt_labels.json"
+        ],
+        "result": "训练描述 1z3b_2ports_fault 映射为 硬件故障/ub端口故障-down；经验仅作先验。"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "日志解析成功，2 条 trace、2 条异常、2 条故障 trace。"
+      },
+      {
+        "title": "Step 3 GET/SET 组件分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 归入 cross_window；SET 归入 set_client；两套桶独立。"
+      },
+      {
+        "title": "Step 4 通断分布与 trace 下钻",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events"
+        ],
+        "result": "确认 GET=1010、SET=1004，并取得两条原始日志证据。"
+      },
+      {
+        "title": "Step 5 Curated 知识复核与反证",
+        "api_calls": [
+          "GET /failure_mode/status_code/1004",
+          "GET /failure_mode/status_code/1010",
+          "GET /failure_mode/{id}"
+        ],
+        "result": "直接机理收敛为 URMA completion 异常；排除 Worker 处理慢/内存不足为首因。"
+      },
+      {
+        "title": "Step 6 已确认案例匹配",
+        "api_calls": [
+          "POST /diag_case_library/search（GET/SET 分开）",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "采用 UB-CASE-002525、UB-CASE-002552 作为调整后参考，均回到本次现场证据核对。"
+      },
+      {
+        "title": "Step 7 报告生成",
+        "api_calls": [
+          "error_features.py",
+          "latency_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "生成契约 JSON、HTML 与同名侧车并执行内容自检。"
+      }
+    ]
+  }
+}

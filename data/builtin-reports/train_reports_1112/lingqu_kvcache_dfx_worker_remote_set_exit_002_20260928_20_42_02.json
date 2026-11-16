@@ -1,0 +1,185 @@
+{
+  "report": {
+    "title": "lingqu_kvcache_dfx_worker_remote_set_exit_002_20260928_20_42_02 诊断报告",
+    "report_id": "report-2bdb6d78-worker-remote-set-exit-20260928",
+    "generated_at": "2026-11-12 16:00:00"
+  },
+  "basic_info": {
+    "kb_id": "2bdb6d78-3b80-43e7-9519-c2db6d1fff43",
+    "kb_name": "lingqu_kvcache_dfx_worker_remote_set_exit_002_20260928_20_42_02",
+    "log_file": "lingqu_kvcache_dfx_worker_remote_set_exit_002_20260928_20_42_02",
+    "operation": "SET",
+    "time_range_start": "2026-09-28 20:56:19",
+    "time_range_end": "2026-09-28 20:56:32",
+    "total_trace_cnt": 15,
+    "fault_trace_cnt": 15,
+    "fault_ratio": 100.0,
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个 SET 通断故障：远端 Worker 发生进程切换后，客户端本地 UB 发送端全端口 BAD，15 条写请求快速返回 2007；进程退出原因仍需系统日志闭环。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "20:56:19~20:56:31 的 15 条已解析 SET trace 全部命中错误码 2007，集中于客户端 Pod 192.168.219.82。",
+    "confidence": 0.85
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "远端 Worker 进程切换后 SET 请求因本地 UB 发送端不可用而快速失败",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 0.85,
+      "category": "error",
+      "affected_scope": "单 Pod、SET 写路径、15 条 trace",
+      "conclusion": {
+        "first_level_label": "Worker故障",
+        "second_level_label": "Worker故障-进程退出",
+        "one_line_conclusion": "固定故障标签为 Worker故障/Worker故障-进程退出；现场确认 Worker PID 已切换且 15 条 SET 均因本地 UB 全端口 BAD 返回 2007，但具体退出信号与因果链仍需容器/系统日志补证。",
+        "fault_domain": "Worker故障/Worker故障-进程退出",
+        "fault_component": "远端 Worker 与客户端本地 UB 发送端",
+        "fault_function": "DS_KV_CLIENT_SET",
+        "fault_function_loc": "access_recorder.cpp:1066",
+        "affected_scope_pct": 100.0,
+        "affected_scope_desc": "故障侧 15/15 条 SET trace 命中 2007；均来自 Pod 192.168.219.82。该比例是本资产已解析 trace 范围，不代表全业务失败率。",
+        "confidence": 0.85,
+        "key_findings": [
+          "SET 时间聚合完整返回 9 个有数据秒窗，共 15 次错误码 2007 命中；峰值为 20:56:30~20:56:31 的 3 次。",
+          "3 条代表原始日志逐字显示 Client-local UB endpoint unavailable: all ports are BAD。",
+          "故障模式统一为 kvcache_access_067；curated 知识解释为本地 URMA/UB 发送端被隔离、未就绪或健康检查判定不可用。",
+          "worker1 日志 PID 从 1523 变为 4961，而 worker2 保持 1541，支持单个远端 Worker 发生进程切换；资产未提供退出码、信号或 OOM 记录。",
+          "GET 归因样本为 0；空结果仅表示没有 GET 归因子集，不能据此声明 GET 健康。"
+        ]
+      },
+      "error": {
+        "metrics": [
+          {"label": "SET 故障 trace", "value": "15", "sub": "故障侧 distinct trace", "tone": "danger"},
+          {"label": "主导错误码", "value": "2007", "sub": "15 次逐码命中，占 100%", "tone": "danger"},
+          {"label": "集中窗口", "value": "13s", "sub": "20:56:19~20:56:32", "tone": "warn"}
+        ],
+        "conclusion": "SET 故障在 13 秒查询范围内形成短时簇发，错误码构成仅有 2007；15 是逐码命中次数，不是业务失败率。",
+        "breakdowns": [
+          {
+            "operation": "SET",
+            "scope": {"kb_id":"2bdb6d78-3b80-43e7-9519-c2db6d1fff43","operation":"SET","start_time":"2026-09-28 20:56:19","end_time":"2026-09-28 20:56:32"},
+            "code_filter": ["2007"],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {"request":{"kb_id":"2bdb6d78-3b80-43e7-9519-c2db6d1fff43","operation":"SET","start_time":"2026-09-28 20:56:19","end_time":"2026-09-28 20:56:32","interval":"second","sort_by":"timestamp","sort_desc":false,"page_num":1,"page_cnt":100},"response_path":"result.events","total_windows":9,"returned_windows":9}
+              ]
+            },
+            "coverage": {"complete":true,"returned_windows":9,"total_windows":9},
+            "code_distribution": {"total_count":15,"items":[{"code":"2007","count":15,"share_pct":100.0}],"other_count":0},
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {"start_time":"2026-09-28 20:56:19","end_time":"2026-09-28 20:56:20","complete":true,"counts":{"2007":1},"other_count":0},
+                {"start_time":"2026-09-28 20:56:20","end_time":"2026-09-28 20:56:21","complete":true,"counts":{"2007":2},"other_count":0},
+                {"start_time":"2026-09-28 20:56:21","end_time":"2026-09-28 20:56:22","complete":true,"counts":{"2007":2},"other_count":0},
+                {"start_time":"2026-09-28 20:56:22","end_time":"2026-09-28 20:56:23","complete":true,"counts":{"2007":0},"other_count":0},
+                {"start_time":"2026-09-28 20:56:23","end_time":"2026-09-28 20:56:24","complete":true,"counts":{"2007":1},"other_count":0},
+                {"start_time":"2026-09-28 20:56:24","end_time":"2026-09-28 20:56:25","complete":true,"counts":{"2007":0},"other_count":0},
+                {"start_time":"2026-09-28 20:56:25","end_time":"2026-09-28 20:56:26","complete":true,"counts":{"2007":2},"other_count":0},
+                {"start_time":"2026-09-28 20:56:26","end_time":"2026-09-28 20:56:27","complete":true,"counts":{"2007":1},"other_count":0},
+                {"start_time":"2026-09-28 20:56:27","end_time":"2026-09-28 20:56:28","complete":true,"counts":{"2007":0},"other_count":0},
+                {"start_time":"2026-09-28 20:56:28","end_time":"2026-09-28 20:56:29","complete":true,"counts":{"2007":1},"other_count":0},
+                {"start_time":"2026-09-28 20:56:29","end_time":"2026-09-28 20:56:30","complete":true,"counts":{"2007":0},"other_count":0},
+                {"start_time":"2026-09-28 20:56:30","end_time":"2026-09-28 20:56:31","complete":true,"counts":{"2007":3},"other_count":0},
+                {"start_time":"2026-09-28 20:56:31","end_time":"2026-09-28 20:56:32","complete":true,"counts":{"2007":2},"other_count":0}
+              ]
+            }
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {"step_label":"事实 1","title":"SET 故障语义单一","description":"15 条 SET trace 均命中状态码 2007 与故障模式 kvcache_access_067。","evidence":"/stats/error_codes: status_code=2007, trace_cnt=15, event_cnt=15；/list_trace_events total=15。","confirmed":true,"excluded":false},
+          {"step_label":"事实 2","title":"发送端在数据面前快速拒绝","description":"代表日志均显示客户端本地 UB 端点全部端口 BAD；SET 阶段 15/15 归入 set_no_evidence，最大仅 0.004ms。","evidence":"trace 031da2e0...、8b677977...、4faa3600... 原始日志；/stats/stages operation=SET。","confirmed":true,"excluded":false},
+          {"step_label":"事实 3","title":"远端 Worker 发生进程切换","description":"worker1 同一地址 192.168.235.153 的 PID 从 1523 变为 4961；worker2 PID 保持 1541。该事实支持单 Worker 进程退出/重启场景。","evidence":"ci-worker-worker1-1/kvcache.INFO.log 第 1~14 行与第 15~21 行；worker2 日志对照。","confirmed":true,"excluded":false},
+          {"step_label":"反证检查","title":"排除 Worker 内部慢处理与 URMA 等待超时","description":"没有 Worker 数据面行，set_worker、set_client、set_urma_timeout 均为 0，且请求微秒级返回，不符合进入 Worker 后慢处理或 completion 等待超时。","evidence":"/stats/stages operation=SET；/stats/links total=0。","confirmed":true,"excluded":true},
+          {"step_label":"证据边界","title":"退出原因及严格因果尚未闭环","description":"当前资产未提供容器 restartCount、退出码、SIGTERM/SIGKILL、OOM 或系统日志；PID 切换与 2007 时间接近不能单独证明退出直接导致端口 BAD。","evidence":"现有 API 与本地日志中无退出信号记录。","confirmed":false,"excluded":false}
+        ],
+        "confirmed_root_cause": "直接故障机制已确认：客户端本地 UB 发送端全部端口处于 BAD 状态，SET 在进入 Worker 数据面前返回 K_URMA_WORKER_UNAVAILABLE(2007)。结合固定标签及现场 Worker PID 切换，最可能的上游事件是远端 Worker 进程退出/重启后连接健康状态失效；具体退出原因和严格因果仍待系统日志闭环。",
+        "supporting_knowledge": "Curated failure_mode kvcache_access_067 与 status_code 2007 均指向本地 UB/URMA 发送端隔离、未就绪或健康检查不可用；已确认案例 UB-CASE-002641 在相同 SET、2007、故障模式及 PID 切换特征下给出相同机制，但历史案例仅作为待验证假设。"
+      },
+      "propagation": {
+        "chain": [
+          {"label":"远端 Worker 进程切换","detail":"worker1 PID 1523→4961；退出原因未记录。","type":"source","transition":"与错误窗口接近，因果待系统日志确认"},
+          {"label":"客户端本地 UB 发送端全端口 BAD","detail":"健康状态判定发送端不可用。","type":"mechanism","transition":"直接导致请求在 Worker 数据面前被拒绝"},
+          {"label":"SET 返回 2007","detail":"15 条 DS_KV_CLIENT_SET 命中 K_URMA_WORKER_UNAVAILABLE。","type":"impact","transition":"写请求未进入 Worker 数据面"}
+        ],
+        "impact_scope": ["Pod 192.168.219.82", "SET 写路径", "20:56:19~20:56:31", "15 条已解析故障 trace"]
+      },
+      "evidence_traces": [
+        {"trace_id":"031da2e0-1270-4648-ad90-7cd915d22187","kind":"error","why":"过滤条件：operation=SET + status_code=2007 + pod=192.168.219.82 + 20:56:19~20:56:32；首个秒窗代表 trace，原文含 all ports are BAD。","status_code":"2007","failure_mode_id":"kvcache_access_067","pod":"192.168.219.82","timestamp":"2026-09-28 20:56:19.915"},
+        {"trace_id":"4faa3600-9da8-4b8c-81d1-bb29c29ede87","kind":"error","why":"过滤条件：operation=SET + status_code=2007 + pod=192.168.219.82 + 20:56:19~20:56:32；中段代表 trace，原文含 all ports are BAD。","status_code":"2007","failure_mode_id":"kvcache_access_067","pod":"192.168.219.82","timestamp":"2026-09-28 20:56:26.178"},
+        {"trace_id":"a195ede5-fac9-45fb-a8ba-a8b18b47b77f","kind":"error","why":"过滤条件：operation=SET + status_code=2007 + pod=192.168.219.82 + 20:56:19~20:56:32；末个秒窗代表 trace。","status_code":"2007","failure_mode_id":"kvcache_access_067","pod":"192.168.219.82","timestamp":"2026-09-28 20:56:31.352"}
+      ],
+      "knowledge_matches": [
+        {"rank":1,"id":"kvcache_access_067","stars":5,"match_logic":"L1 命中 2007/kvcache_access_067；L2 命中 SET 发送端故障域；L3 现场原文命中 all ports are BAD。","symptom":"请求返回 K_URMA_WORKER_UNAVAILABLE，本地 URMA 发送 Worker 不可用。","root_cause":"客户端本地 UB 发送端被隔离、未就绪或健康检查判定不可用。","solution":"检查本地 UB 发送端隔离、初始化和健康状态，恢复发送端或切换可用路径。","adoption_class":"direct","adoption_label":"直接采用","phenomenon_fit":"高","log_fit":"高","rc_consistency":"一致","env_diff":"无版本信息可比","adaptation":"补充 Worker 退出原因核验。","applicability":"direct"},
+        {"rank":2,"id":"UB-CASE-002641","stars":4,"match_logic":"L1 命中 2007 与 kvcache_access_067；L2 命中 SET、单 Pod 及 Worker故障/进程退出；L5 命中 all ports are BAD 与 PID 切换机理。","symptom":"远端 Worker 进程切换后 UB 发送端全端口 BAD。","root_cause":"历史案例认为进程退出/重启导致连接健康状态失效，但具体退出信号与系统级因果仍需闭环。","solution":"核验 Worker 进程/容器状态，恢复服务与 UB 端口，刷新连接并补采退出码、restartCount、OOM 和系统日志。","adoption_class":"adjust","adoption_label":"调整后采用","phenomenon_fit":"高","log_fit":"高","rc_consistency":"一致","env_diff":"历史案例环境与本资产未完全核验。","adaptation":"仅复用排查与恢复步骤，不把历史结论当现场证明。","applicability":"adjust"},
+        {"rank":3,"id":"experience:ds-worker-log-analysis","stars":3,"match_logic":"L1 未提供 2007 专项解释；L2 命中 Worker 异常退出调查域；L5 命中检查最后 ERROR/FATAL、信号和系统日志的方法。","symptom":"Worker 异常退出或重启时需区分正常重启和异常退出。","root_cause":"经验库不直接给出本次根因，仅提供退出取证方法。","solution":"检查退出前 ERROR/FATAL、容器日志、dmesg/systemd 和 lease 变化。","adoption_class":"reference","adoption_label":"仅供参考","phenomenon_fit":"中","log_fit":"中","rc_consistency":"不冲突","env_diff":"经验基于通用 Worker 日志模式。","adaptation":"用于补证计划，不作为现场事实。","applicability":"reference"}
+      ],
+      "solution": {
+        "short_term": [
+          "核验 192.168.235.153 对应 Worker 的进程与容器状态；确认服务 Ready、31501/31502 监听及 UB 端口恢复 GOOD。",
+          "在 192.168.219.82 刷新或重建到该 Worker 的 UB 连接/健康状态；必要时临时切换可用传输路径。",
+          "按业务幂等性要求受控重试窗口内失败的 SET，避免盲目重复写。"
+        ],
+        "long_term": [
+          "补齐 Worker restartCount、退出码、OOMKilled、SIGTERM/SIGKILL 与 UB BAD/GOOD 状态的关联告警。",
+          "完善 Worker 退出后的路由摘除、发送端健康刷新、自动重连与备用路径切换闭环。",
+          "开展远端 Worker 退出演练，量化 2007 持续窗口和连接恢复时间。"
+        ],
+        "verification": [
+          "重复相同 WriteMode=3、1KiB SET，确认不再出现 2007，且能观测到 Worker 数据面处理行。",
+          "连续观察 Worker PID、容器 Ready、UB 端口状态与新产生的 2007 计数，确认恢复稳定。",
+          "导出故障前后容器/systemd/dmesg/OOM 记录；若无退出证据，则将进程退出因果降级并转查发送端隔离、初始化或健康检查逻辑。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {"priority":"P0","fault_ids":["F01"],"action":"恢复 Worker 服务与 UB 发送端健康，刷新连接后受控重试失败 SET。","depends_on":"确认业务写入幂等性","expected_effect":"停止 2007 快速失败并恢复 Worker 数据面处理。","verify":"重复同规格 SET，确认 2007 归零且出现 Worker 侧处理日志。"},
+    {"priority":"P1","fault_ids":["F01"],"action":"补采退出码、restartCount、OOM、信号与系统日志，闭环 Worker 退出原因。","depends_on":"容器与节点日志可访问","expected_effect":"区分进程退出、主动重启和发送端自身健康异常。","verify":"取得与 PID 切换时间一致的可追溯退出记录，或形成明确反证。"}
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {"operation":"GET","total_p99_ms":null,"share_bar":[],"stages":[],"conclusion":"GET sample_cnt=0，无可归因样本；空结果不代表 GET 健康。"},
+      {"operation":"SET","total_p99_ms":null,"share_bar":[{"name":"SET·数据面未观测","pct":100.0,"cls":"s-warn"}],"stages":[{"name":"SET·数据面未观测","p99":null,"anomaly_rate":0.0,"fail_share":0.0,"status":"warn","fault":"15/15 trace 缺 Worker 数据面行","detail":"p50=0.002ms，p90=0.004ms，max=0.004ms；这是证据耗时，不可补写 P99。"}],"conclusion":"SET 15 个样本全部归入 set_no_evidence；请求在客户端快速失败，不属于慢处理。"}
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 15,
+    "top_error_codes": [{"code":"2007","name":"K_URMA_WORKER_UNAVAILABLE","pct":100.0,"fault":"F01"}],
+    "top_failure_domains": [{"domain":"Worker故障/Worker故障-进程退出","pct":100.0,"fault":"F01"}],
+    "top_pods": [{"pod":"192.168.219.82","host":"未解析","pct":100.0,"fault":"F01"}],
+    "top_hosts": [],
+    "time_heatmap": [{"time":"2026-09-28 20:56","level":"high","pct":100.0,"spike":true,"lat_ms":null,"fault":"F01"}]
+  },
+  "workflow": {
+    "session_id": "diag-2bdb6d78-20261112",
+    "total_steps": 7,
+    "api_calls": 20,
+    "duration": "约 20 分钟",
+    "steps": [
+      {"title":"资产与解析完整性核验","api_calls":["GET /log_kb/{kb_id}","POST /log_file/list/{kb_id}","GET /task/{task_id}","GET /log_parse_result/options"],"result":"解析任务 successful，故障 trace 15 条；cluster/host 未解析。"},
+      {"title":"GET/SET 独立阶段分诊","api_calls":["POST /stats/stages operation=GET","POST /stats/stages operation=SET"],"result":"GET 无样本；SET 15/15 为 set_no_evidence。"},
+      {"title":"故障分布统计","api_calls":["POST /stats/error_codes","POST /stats/pods","POST /stats/links","POST /stats/heatmap"],"result":"2007 占 100%，单 Pod，单分钟热点，无可解析源目对。"},
+      {"title":"时间窗与 trace 下钻","api_calls":["POST /log_failure_event_result/list_time_aggregated_failure_events","POST /log_failure_event_result/list_trace_events","POST /log_failure_event_result/list_log_events"],"result":"15 次 2007，原始日志确认 all ports are BAD。"},
+      {"title":"Curated 知识解读","api_calls":["GET /failure_mode/status_code/2007","GET /failure_mode/kvcache_access_067"],"result":"直接机制为本地 UB/URMA 发送端不可用。"},
+      {"title":"历史案例匹配与现场复核","api_calls":["POST /diag_case_library/search","GET /diag_case_library/1ff1f319-...","POST /diag_case_library/1ff1f319-.../hit"],"result":"命中 UB-CASE-002641；其结论仅作为待验证假设，现场 PID 切换与错误码/日志短语相符。"},
+      {"title":"报告契约生成","api_calls":["error_features.py","render_report.py --validate-only","render_report.py"],"result":"错误分布由已保存响应离线提取；报告待校验与渲染。"}
+    ]
+  },
+  "experience_refs": [
+    {"experience_id":"a0227481-5a5a-4b93-8fb7-de128596e844","experience_type":"SKILL","name":"ds-worker-log-analysis","source_path":"data/skill_hub/ds-worker-log-analysis","keywords_matched":["Worker","异常退出","系统日志"],"search_query_used":"KVCache remote set worker exit 写入退出","used_in_stage":"stage_0_pre_search","adoption_status":"adopted_as_suggestion","conflict_with_curated_knowledge":false,"conflict_detail":"","content_quoted":"异常退出时，检查最后 ERROR/FATAL 日志、lease 失效、信号处理。","how_used_in_diagnosis":"用于制定 Worker 退出原因补证与验证步骤，不作为现场证据。","confidence_on_reference":0.75,"confidence_reason":"与 PID 切换事实相符，且不覆盖 curated 2007 解释。"},
+    {"experience_id":"ba1f591b-7f75-417a-8a2b-bbc0b4bda9c1","experience_type":"SKILL","name":"ds-kv-cache-diagnosis","source_path":"data/skill_hub/ds-kv-cache-diagnosis","keywords_matched":["SET","status_code"],"search_query_used":"KVCache remote set worker exit 写入退出","used_in_stage":"stage_0_pre_search","adoption_status":"adopted_as_suggestion","conflict_with_curated_knowledge":false,"conflict_detail":"","content_quoted":"KV Cache 访问日志中 status_code=0 表示成功，非 0 需要结合 StatusCode 表分析。","how_used_in_diagnosis":"用于确认按 SET 与非零状态码进入通断诊断。","confidence_on_reference":0.8,"confidence_reason":"现场 15 条 SET 均为 2007，且已由 curated 状态码知识复核。"}
+  ]
+}

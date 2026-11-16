@@ -826,7 +826,10 @@ export function createAgentChatState() {
         ),
     )
 
-  const respondPermission = (request: AgentPermissionRequest, response: 'once' | 'reject') =>
+  const respondPermission = (
+    request: AgentPermissionRequest,
+    response: 'once' | 'always' | 'reject',
+  ) =>
     api.value?.respondPermission(request.sessionID, request.id, response) ??
     Promise.resolve(false)
 
@@ -926,7 +929,9 @@ export function createAgentChatState() {
     interactionSubmitting.value = request.id
     interactionError.value = ''
     try {
-      await respondPermission(request, reply === 'reject' ? 'reject' : 'once')
+      // 必须把 always 原样交给 OpenCode，让服务端在继续 Agent 前就记住会话授权。
+      // 本地规则仍作为重连或重复事件场景的保护。
+      await respondPermission(request, reply)
       if (reply === 'always') {
         const rules = sessionPermissionRules.value[request.sessionID] ?? []
         sessionPermissionRules.value[request.sessionID] = [

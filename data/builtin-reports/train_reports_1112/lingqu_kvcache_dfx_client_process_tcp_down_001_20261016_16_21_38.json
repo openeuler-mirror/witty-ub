@@ -1,0 +1,422 @@
+{
+  "report": {
+    "title": "lingqu_kvcache_dfx_client_process_tcp_down_001_20261016_16_21_38 诊断报告",
+    "report_id": "diag-79d2a7a9-20261112-client-tcp-down",
+    "generated_at": "2026-11-12 12:00:00"
+  },
+  "basic_info": {
+    "kb_id": "79d2a7a9-119d-4761-95cd-1474a03ebc68",
+    "kb_name": "lingqu_kvcache_dfx_client_process_tcp_down_001_20261016_16_21_38",
+    "log_file": "21353007-7c9a-40cf-9b59-48a2b8c9a2a4",
+    "operation": "GET / SET（分别分析）",
+    "time_range_start": "2026-10-16 16:22:23",
+    "time_range_end": "2026-10-16 16:22:40",
+    "total_trace_cnt": 6144,
+    "fault_trace_cnt": 3,
+    "fault_ratio": 0.048828,
+    "parse_ok": true,
+    "diagnosis_ok": true
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别到 1 个主故障：单网卡 down 使 Worker 到控制后端的 TCP/BRPC 路由不可达，短时触发集群降级、重新入群和业务准入关闭。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "192.168.219.103 到 192.168.235.165:31511 的控制面连接在约 17 秒内不可用；本地 Worker 一度关闭业务准入，16:22:40 恢复 ACTIVE。",
+    "confidence": 0.92
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "客户端侧单网卡 down 导致控制后端 TCP/BRPC 不可达",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 0.92,
+      "category": "error",
+      "affected_scope": "Worker 192.168.219.103 与控制后端 192.168.235.165:31511 之间的 TCP/BRPC 控制链路",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-单网卡down",
+        "one_line_conclusion": "16:22:23 单网卡 down 引发到 192.168.235.165:31511 的 No route to host，随后连接持续未建立并使 Worker 短时降级，16:22:40 恢复。",
+        "fault_domain": "硬件故障/网卡故障-单网卡down",
+        "fault_component": "客户端/Worker 所在节点以太网链路",
+        "fault_function": "TCP 路由与 BRPC 控制后端连接",
+        "fault_function_loc": "192.168.219.103 -> 192.168.235.165:31511",
+        "affected_scope_pct": null,
+        "affected_scope_desc": "影响一个 Worker 的控制后端连通性；缺少主机/NIC 遥测，不能量化整机或全业务受影响比例。",
+        "confidence": 0.92,
+        "key_findings": [
+          "16:22:23.608 首次出现 cntl_error_code=113、ds_error_code=1012，原文明确为 No route to host。",
+          "随后持续出现 errorCode=112、ds_error_code=1011（Not connected），并驱逐失效 RPC stub。",
+          "16:22:35 Worker 报 control_backend_unavailable、peer_observed_local_member_unavailable，并关闭集群拓扑业务准入。",
+          "16:22:40 拓扑版本 9 发布，local_state=ACTIVE、active_count=2、failed_count=0，降级级别恢复为 0。",
+          "通断聚合链路未收录这些控制面日志：/stats/error_codes 与时间聚合均为空，因此未生成错误码时间分布块；空结果不作为健康证据。"
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "S1",
+            "title": "确认首个网络不可达信号",
+            "description": "Worker 在向 192.168.235.165:31511 执行 CoordinatorService.Put 时，BRPC 控制器返回 errno 113，服务端收发时间戳均为 0，说明请求未到达对端。",
+            "evidence": "kvcache.INFO.log:80815-80816：cntl_error_code=113、ds_error_code=1012、cntl_failed=1，errorText='No route to host'。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "S2",
+            "title": "确认连接失败持续并非单次业务错误",
+            "description": "首次路由不可达后，同一目标连续返回 errno 112 Not connected，RPC stub 被驱逐；该序列符合链路 down 后连接无法重建，而非单个 KV 请求参数或对象状态异常。",
+            "evidence": "kvcache.INFO.log:80818-80824、80831-80839：RPC_STUB_EVICTION，errorCode=112，cntl_failed=1。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "S3",
+            "title": "确认集群级派生影响",
+            "description": "控制后端不可达使本 Worker 被对端判为成员缺失，触发 require_rejoin、Worker unhealthy 和业务准入关闭；这是连接中断的下游影响，不作为另一独立故障拆分。",
+            "evidence": "kvcache.INFO.log:83077-83088：control_backend_unavailable、peer_observed_local_member_unavailable、Worker is unhealthy、business admission is now closed。",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "S4",
+            "title": "反证 Worker 进程退出与持续故障",
+            "description": "同一 Worker 在故障窗持续输出日志，并于 16:22:40 收到拓扑 PUT、发布 ring v9、恢复 ACTIVE；因此不支持 Worker 进程退出作为首要根因，也不支持故障持续未恢复。",
+            "evidence": "kvcache.INFO.log:90243-90256：CLUSTER_WATCH PUT、CLUSTER_DEGRADED level=0、member_count=2 active_count=2 failed_count=0。",
+            "excluded": true,
+            "confirmed": true
+          },
+          {
+            "step_label": "S5",
+            "title": "物理故障分类与证据边界",
+            "description": "按用户指定的 gt_labels 映射，本样本分类为单网卡 down；应用日志直接证明路由不可达和连接中断，但没有 ethtool、carrier 或交换机端口事件，具体物理端口仍需同窗遥测复核。",
+            "evidence": "train_valid.md 将路径映射为 client_process_tcp_down；gt_labels.json 对应 硬件故障/网卡故障-单网卡down。",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "单网卡 down 导致 Worker 到控制后端的 TCP 路由不可达，BRPC 连接中断并触发集群短时降级。",
+        "supporting_knowledge": "Curated 状态码 1012 表示 K_RPC_NETWORK_BLIP，1011 表示 K_RPC_PEER_DEAD；二者与现场 E113→E112 的时序一致。物理网卡 down 分类来自用户指定的训练标签映射，应用日志未包含 NIC 物理遥测。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "单网卡链路 down",
+            "detail": "客户端/Worker 节点到目标控制后端的路由消失。",
+            "type": "root",
+            "transition": "TCP 建连失败"
+          },
+          {
+            "label": "BRPC E113 No route to host",
+            "detail": "CoordinatorService.Put 首次返回 errno 113 / ds_error_code 1012。",
+            "type": "error",
+            "transition": "连接状态失效"
+          },
+          {
+            "label": "BRPC E112 Not connected",
+            "detail": "后续重试持续未连接并触发 RPC_STUB_EVICTION。",
+            "type": "error",
+            "transition": "控制后端不可用"
+          },
+          {
+            "label": "Worker 集群降级与重新入群",
+            "detail": "control_backend_unavailable 后，本地成员被对端判为缺失，Worker unhealthy，业务准入关闭。",
+            "type": "impact",
+            "transition": "拓扑恢复"
+          },
+          {
+            "label": "拓扑恢复 ACTIVE",
+            "detail": "16:22:40 ring v9 发布，active_count=2、failed_count=0，降级级别恢复为 0。",
+            "type": "recovery",
+            "transition": "恢复服务"
+          }
+        ],
+        "impact_scope": [
+          "控制面目标：192.168.235.165:31511",
+          "受影响 Worker：192.168.219.103",
+          "持续窗口：约 16:22:23.608 至 16:22:40.417",
+          "业务影响：Worker 短时关闭拓扑业务准入；通断聚合未形成可量化的失败请求分母"
+        ]
+      },
+      "evidence_traces": [],
+      "knowledge_matches": [
+        {
+          "id": "status-code:1012,1011",
+          "rank": 1,
+          "stars": 5,
+          "match_logic": "L1 命中：现场原文分别携带 ds_error_code=1012/1011；L2 命中网络通断域，但不包含 NIC 物理层证据；L3 拓扑命中单 Worker 到单控制后端；curated 解释与现场 E113→E112 时序一致。",
+          "symptom": "1012=K_RPC_NETWORK_BLIP（瞬时网络中断）；1011=K_RPC_PEER_DEAD（对端或连接明确不可用）。",
+          "root_cause": "网络连接先发生不可达，随后对端连接保持死亡/未连接状态。",
+          "solution": "优先恢复链路并重建 RPC channel，再核对目标端服务与路由。",
+          "adoption_class": "curated",
+          "adoption_label": "已采用",
+          "phenomenon_fit": "高",
+          "log_fit": "高",
+          "rc_consistency": "一致",
+          "env_diff": "curated 只解释 RPC 语义，不证明具体 NIC。",
+          "adaptation": "结合用户指定标签和 NIC/交换机遥测确认物理端口。",
+          "applicability": "adjust"
+        },
+        {
+          "id": "experience:ds-client-log-analysis",
+          "rank": 2,
+          "stars": 4,
+          "match_logic": "L1 未提供 1011/1012 专项映射；L2 命中 Client/Worker 连接断开域；L3 建议检查重连与 Worker 状态，与本次反证流程一致。",
+          "symptom": "连接异常时应同时核对重连日志、Worker 状态和访问日志。",
+          "root_cause": "网络异常或 Worker 不可达均可导致连接断开，需现场区分。",
+          "solution": "检查网络、Worker 存活状态和重连过程。",
+          "adoption_class": "experience",
+          "adoption_label": "作为排查建议采用",
+          "phenomenon_fit": "中",
+          "log_fit": "中",
+          "rc_consistency": "一致",
+          "env_diff": "经验为通用流程，不是本次现场证据。",
+          "adaptation": "本次用持续日志与恢复 ACTIVE 排除了 Worker 退出。",
+          "applicability": "adjust"
+        },
+        {
+          "id": "UB-CASE-002564",
+          "rank": 3,
+          "stars": 2,
+          "match_logic": "历史案例仅 L2 命中 SET 操作域与 few_pods 影响规模；L1 错误码/故障模式不命中，L5 日志关键词不命中，score_norm=0.1765。",
+          "symptom": "远端 Worker 重启后旧服务发现/连接状态未收敛。",
+          "root_cause": "旧路由、RPC/URMA 连接状态未及时收敛。",
+          "solution": "可参考其连接刷新和 Ready 门禁检查，但不能复用 Worker 重启根因。",
+          "adoption_class": "confirmed_case",
+          "adoption_label": "仅作反证参考",
+          "phenomenon_fit": "低",
+          "log_fit": "低",
+          "rc_consistency": "不一致",
+          "env_diff": "本次无 Worker 重启证据，且直接出现 No route to host。",
+          "adaptation": "只借用恢复后检查服务发现与连接收敛的验证项。",
+          "applicability": "reference"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "核查 192.168.219.103 与 192.168.235.165 对应主机在 16:22:23–16:22:40 的网卡 carrier/link、路由表、bond/主备切换和交换机端口状态；确认 down 口已恢复。",
+          "确认 192.168.235.165:31511 已监听且从 192.168.219.103 可达，清理或重建指向该端点的 BRPC channel/stub。",
+          "在 Worker 恢复 ring v9、local_state=ACTIVE、业务准入重新开放之前保持摘流，避免拓扑未收敛时继续承接请求。"
+        ],
+        "long_term": [
+          "建立 NIC carrier、RX/TX errors、路由变化、交换机端口 down 与 BRPC E113/E112 的同窗联动告警。",
+          "对单网卡部署增加 bond/双链路冗余与故障切换演练，验证控制后端连接能在链路 down 时自动迁移。",
+          "补齐控制面 trace 的故障解析规则，使 UbHealthLeaseSync/TopologyEngine 的 1012、1011 能进入 /stats/error_codes 与时间聚合。"
+        ],
+        "verification": [
+          "从 192.168.219.103 连续探测 192.168.235.165:31511，确认无 EHOSTUNREACH/ENETUNREACH 且连接重建成功。",
+          "复核日志不再出现 E113 No route to host、E112 Not connected、control_backend_unavailable。",
+          "确认最新拓扑保持 active_count=2、failed_count=0、local_state=ACTIVE，业务准入处于开放状态。",
+          "分别执行 GET 与 SET 冒烟测试；GET/SET 阶段桶独立复核，确认没有新增异常或失败 trace。"
+        ]
+      }
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": ["F01"],
+      "action": "核查并恢复单网卡、主机路由及交换机端口，确认到 192.168.235.165:31511 的 TCP 连通性。",
+      "depends_on": "主机与网络设备同窗遥测",
+      "expected_effect": "消除 E113/E112 并恢复控制后端连接。",
+      "verify": "端口探测成功，BRPC cntl_failed=0，日志无 No route to host。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": ["F01"],
+      "action": "重建 BRPC channel/stub，并等待拓扑 ACTIVE 后再放流。",
+      "depends_on": "物理链路已恢复",
+      "expected_effect": "避免旧连接状态和未收敛拓扑继续影响业务。",
+      "verify": "active_count=2、failed_count=0、local_state=ACTIVE。"
+    },
+    {
+      "priority": "P2",
+      "fault_ids": ["F01"],
+      "action": "完善控制面错误解析和 NIC/交换机联动监控。",
+      "depends_on": "解析规则与监控平台变更窗口",
+      "expected_effect": "后续故障可由标准通断 API 完整量化。",
+      "verify": "注入链路 down 时 1012/1011 可进入错误码统计、时间热力与 trace 下钻。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {"name": "Client/Worker交叉窗口未细分", "pct": 100.0, "cls": "s-ok"}
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": null,
+            "anomaly_rate": 0.0,
+            "fail_share": 0.0,
+            "status": "ok",
+            "fault": "无异常 trace",
+            "detail": "988 条 GET 归因样本全部正常，p90=1.802ms、max=1.892ms；接口不提供 P99，未用 max 冒充 P99。"
+          }
+        ],
+        "conclusion": "GET 与 SET 独立归桶；GET 侧 988 条样本均无异常，不能据此否定控制面 TCP 故障，因为该故障日志未进入业务 GET 故障聚合。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": null,
+        "share_bar": [
+          {"name": "SET·客户端SDK段", "pct": 83.333333, "cls": "s-warn"},
+          {"name": "SET·未解释残差", "pct": 16.666667, "cls": "s-warn"}
+        ],
+        "stages": [
+          {
+            "name": "SET·客户端SDK段",
+            "p99": null,
+            "anomaly_rate": 20.0,
+            "fail_share": 66.666667,
+            "status": "warn",
+            "fault": "2 条异常标记",
+            "detail": "10 条样本，p90=1.722ms、max=2.531ms；异常 trace 原始上下文均为 INFO/status=0，不能当作 TCP-down 失败请求。"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": null,
+            "anomaly_rate": 50.0,
+            "fail_share": 33.333333,
+            "status": "warn",
+            "fault": "1 条异常标记",
+            "detail": "2 条样本，p90=max=1.287ms；CREATE/PUBLISH 分段未产出，保留观测缺口。"
+          }
+        ],
+        "conclusion": "SET 侧共 12 条归因样本、3 条异常标记；异常窗口为 16:22 分钟，但无故障码且请求状态为 0，只作为同期现象，不据时间共现断言由网卡 down 导致。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 3,
+    "top_error_codes": [],
+    "top_failure_domains": [
+      {"domain": "硬件故障/网卡故障-单网卡down", "pct": 100.0, "fault": "F01"}
+    ],
+    "top_pods": [],
+    "top_hosts": [],
+    "time_heatmap": [
+      {"time": "16:22", "level": 3, "pct": 100.0, "spike": true, "lat_ms": null, "fault": "SET 异常标记 3 条；与控制面故障同窗但不作为因果证明"}
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-79d2a7a9-20261112",
+    "total_steps": 7,
+    "api_calls": 27,
+    "duration": "本会话",
+    "steps": [
+      {
+        "title": "经验库预检索",
+        "api_calls": ["experience-skill search-experiences（SKILL/WIKI）"],
+        "result": "命中 Client 连接、集群管理等经验，作为待验证排查假设。"
+      },
+      {
+        "title": "资产与解析完整性核验",
+        "api_calls": ["GET /log_kb/{kb_id}", "POST /log_file/list/{kb_id}", "GET /log_parse_result/options"],
+        "result": "单日志文件解析成功，6144 条 trace，任务 successful；资产 anomaly_cnt=3。"
+      },
+      {
+        "title": "GET/SET 组件定位",
+        "api_calls": ["POST /stats/stages operation=GET", "POST /stats/stages operation=SET"],
+        "result": "GET 988 条均正常；SET 12 条中 3 条异常标记，GET/SET 未混桶。"
+      },
+      {
+        "title": "通断统计与 trace 下钻",
+        "api_calls": ["POST /stats/error_codes|pods|links|heatmap", "POST /trace/list", "POST /log_failure_event_result/list_time_aggregated_failure_events", "POST /log_failure_event_result/list_log_events"],
+        "result": "标准通断错误码聚合为空；3 条 SET 异常 trace 无 failure_codes，原始上下文均为 INFO/status=0。"
+      },
+      {
+        "title": "原始日志补证",
+        "api_calls": ["本地日志只读检索（API 未暴露的控制面日志）"],
+        "result": "取得 E113 No route to host、E112 Not connected、集群降级与恢复 ACTIVE 的完整时序。"
+      },
+      {
+        "title": "Curated 与历史案例核对",
+        "api_calls": ["GET /failure_mode/status_code/1012", "GET /failure_mode/status_code/1011", "POST /diag_case_library/search"],
+        "result": "Curated 解释与现场一致；历史案例仅 L2 低度匹配，不复用其 Worker 重启根因。"
+      },
+      {
+        "title": "标签映射与报告契约准备",
+        "api_calls": ["train_valid.md", "gt_labels.json", "references/log_label.json"],
+        "result": "按用户指定映射填入 硬件故障/网卡故障-单网卡down，并确认该标签对存在于报告标签参考。"
+      }
+    ]
+  },
+  "experience_refs": [
+    {
+      "experience_id": "b672cdcc-4ca5-49f2-b9e6-cb32428131e5",
+      "experience_type": "SKILL",
+      "name": "ds-client-log-analysis",
+      "source_path": "data/skill_hub/ds-client-log-analysis",
+      "keywords_matched": ["client", "连接失败", "重连"],
+      "search_query_used": "KVCache client TCP down 连接失败 单网卡 down",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "出现连接断开时，检查重连日志和 Worker 状态。",
+      "how_used_in_diagnosis": "用于设计 Worker 存活与连接重建的反证检查。",
+      "confidence_on_reference": 0.8,
+      "confidence_reason": "建议与现场连接中断时序一致，且未覆盖 curated 状态码解释。"
+    },
+    {
+      "experience_id": "4cceeb69-c022-4e21-a00a-f440f681132e",
+      "experience_type": "WIKI",
+      "name": "yuanrong-datasystem Client 错误模式",
+      "source_path": "data/wiki_hub/ds-client-error-patterns.md",
+      "keywords_matched": ["连接断开", "网络", "Worker"],
+      "search_query_used": "KVCache client TCP down 连接失败 单网卡 down",
+      "used_in_stage": "stage_0_pre_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "Client 与 Worker 之间的网络断开。",
+      "how_used_in_diagnosis": "作为网络断开候选，随后由 No route to host 现场日志验证。",
+      "confidence_on_reference": 0.8,
+      "confidence_reason": "与现场路由不可达相符，但经验本身不作为现场证据。"
+    },
+    {
+      "experience_id": "e449fd44-ab0c-437e-8905-adfa013442f1",
+      "experience_type": "SKILL",
+      "name": "ds-cluster-management-diagnosis",
+      "source_path": "data/skill_hub/ds-cluster-management-diagnosis",
+      "keywords_matched": ["1012", "1011", "节点状态"],
+      "search_query_used": "K_RPC_NETWORK_BLIP 1012 K_RPC_PEER_DEAD 1011 No route to host",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "adopted_as_suggestion",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "",
+      "content_quoted": "lease 失效通常与 Worker 进程挂起或网络问题相关，需结合系统日志。",
+      "how_used_in_diagnosis": "用于检查网络中断后的成员状态转换，并保留系统遥测缺口。",
+      "confidence_on_reference": 0.75,
+      "confidence_reason": "与集群降级时序相符；curated 状态码解释优先。"
+    },
+    {
+      "experience_id": "103dbc3b-153f-4b06-9e76-049e5719afde",
+      "experience_type": "SKILL",
+      "name": "ds-hash-ring-metadata-diagnosis",
+      "source_path": "data/skill_hub/ds-hash-ring-metadata-diagnosis",
+      "keywords_matched": ["节点上下线", "ring"],
+      "search_query_used": "K_RPC_NETWORK_BLIP 1012 K_RPC_PEER_DEAD 1011 No route to host",
+      "used_in_stage": "stage_6_post_search",
+      "adoption_status": "considered_not_adopted",
+      "conflict_with_curated_knowledge": false,
+      "conflict_detail": "未采用：本次 ring 更新是网络恢复后的派生动作，不是根因。",
+      "content_quoted": "检查 Add Node/Remove Node 事件，确认节点上下线。",
+      "how_used_in_diagnosis": "仅用于检查恢复时序，未用于根因结论。",
+      "confidence_on_reference": 0.5,
+      "confidence_reason": "主题相关但未命中首个故障边界。"
+    }
+  ],
+  "diagnostic_limitations": [
+    "通断聚合接口未收录 UbHealthLeaseSync/TopologyEngine 控制面 trace，错误码构成与失败请求率无法由标准聚合量化。",
+    "日志中无 ethtool、ip -s link、carrier、bond 或交换机端口遥测；单网卡 down 分类按用户指定训练标签采用，具体物理端口需补证。",
+    "3 条 SET 异常 trace 均无 failure_codes 且原始上下文 status=0，不将其描述为业务失败，也不因时间共现断言与网卡 down 存在因果关系。"
+  ]
+}

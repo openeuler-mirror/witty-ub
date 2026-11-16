@@ -42,19 +42,40 @@ def select_bucket_representatives(frame, granularities=(1, 10, 60, 600, 3600)):
         # that behavior, including a selected request whose tid itself is null.
         index = pl.when(index < pl.col("total_latency").count()).then(index)
         picks.append(pl.struct("tid", "total_latency").get(index).alias(mode))
+    # Exact end-to-end statistics share the same all-trace grouping pass as the
+    # representative selection.  P99.99 matches perf_analyze's
+    # ``(n - 1) * 0.9999`` linear interpolation; AVG is the arithmetic mean.
+    total_stats = [
+        pl.col("total_latency").mean().alias("_avg_total_latency"),
+        pl.col("total_latency")
+        .quantile(0.9999, interpolation="linear")
+        .alias("_p9999_total_latency"),
+    ]
     result = {}
     for seconds in granularities:
         groups = (
             ordered.with_columns(_bucket_id_expr(seconds, has_epoch_sec))
-            .group_by("_bucket_id", "_op_code").agg(picks)
+            .group_by("_bucket_id", "_op_code").agg(*picks, *total_stats)
             .sort("_bucket_id", "_op_code")
         )
-        base = pl.concat([
-            groups.select("_bucket_id", "_op_code", mode)
-            .filter(pl.col(mode).is_not_null()).unnest(mode)
-            .with_columns(pl.lit(mode).alias("mode"))
-            for mode, _ in PERCENTILE_MODES
-        ])
+        parts = []
+        for mode, _ in PERCENTILE_MODES:
+            if mode == "avg":
+                stat = pl.col("_avg_total_latency")
+            elif mode == "p9999l":
+                stat = pl.col("_p9999_total_latency")
+            else:
+                stat = pl.lit(None, dtype=pl.Float64)
+            parts.append(
+                groups.select(
+                    "_bucket_id", "_op_code", mode,
+                    stat.alias("_stat_total_latency"),
+                )
+                .filter(pl.col(mode).is_not_null())
+                .unnest(mode)
+                .with_columns(pl.lit(mode).alias("mode"))
+            )
+        base = pl.concat(parts)
         # GET 组再按传输类型分别选 local/remote 分位代表，与整体代表合并进单行
         # （分桶表主键 (log_id, bucket, operation, mode) 不允许同桶同分位两行）。
         if has_qgt:

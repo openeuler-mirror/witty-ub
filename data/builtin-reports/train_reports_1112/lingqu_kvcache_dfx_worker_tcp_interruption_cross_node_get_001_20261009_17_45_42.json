@@ -1,0 +1,556 @@
+{
+  "report": {
+    "title": "跨节点 GET TCP/RPC 链路闪断诊断报告",
+    "report_id": "diag-088ebee8-0c17-4728-acbc-f85417a047b1-20261112",
+    "generated_at": "2026-11-12 00:00:00",
+    "experience_refs": [
+      {
+        "experience_id": "f9f70f4d-f4e3-4d44-bb98-0357643c8230",
+        "experience_type": "SKILL",
+        "name": "ds-rdma-transport-diagnosis",
+        "source_path": "data/skill_hub/ds-rdma-transport-diagnosis/skill_def.md",
+        "keywords_matched": [
+          "TCP",
+          "连接中断",
+          "K_RPC_DEADLINE_EXCEEDED"
+        ],
+        "search_query_used": "K_RPC_DEADLINE_EXCEEDED 1001 QueryAndGet ServerRecv=0 TCP 闪断",
+        "used_in_stage": "stage_6_post_search",
+        "adoption_status": "adopted_as_suggestion",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "K_RPC_DEADLINE_EXCEEDED=1001 | RPC 超时 | 检查网络、负载、线程池",
+        "how_used_in_diagnosis": "作为网络、服务端负载和线程池三类候选的排查建议；根因仍以现场 trace 为准。",
+        "confidence_on_reference": 0.75,
+        "confidence_reason": "与 curated 1001 解释一致，但经验本身不能证明物理网卡故障。"
+      },
+      {
+        "experience_id": "443f893e-644d-441e-a551-ef1fdaabb2f6",
+        "experience_type": "WIKI",
+        "name": "yuanrong-datasystem RDMA/URMA 传输日志模式",
+        "source_path": "data/wiki_hub/ds-rdma-transport-patterns.md",
+        "keywords_matched": [
+          "TCP",
+          "连接重建",
+          "网络抖动"
+        ],
+        "search_query_used": "KVCache GET TCP interruption cross node worker 连接中断",
+        "used_in_stage": "stage_0_pre_search",
+        "adoption_status": "considered_not_adopted",
+        "conflict_with_curated_knowledge": false,
+        "conflict_detail": "",
+        "content_quoted": "Jetty 失效通常由远端 Worker 重启或网络抖动触发，需要观察是否自动恢复。",
+        "how_used_in_diagnosis": "现场未出现 URMA/Jetty 日志，故未采用该分支，仅保留为反证候选。",
+        "confidence_on_reference": 0.6,
+        "confidence_reason": "资料可靠但与本次纯 TCP/RPC 现场证据不完全同源。"
+      }
+    ]
+  },
+  "basic_info": {
+    "kb_id": "088ebee8-0c17-4728-acbc-f85417a047b1",
+    "kb_name": "lingqu_kvcache_dfx_worker_tcp_interruption_cross_node_get_001_20261009_17_45_42",
+    "log_file": "lingqu_kvcache_dfx_worker_tcp_interruption_cross_node_get_001_20261009_17_45_42",
+    "operation": "GET（SET 已独立核验为空）",
+    "time_range_start": "2026-10-09 17:46:53",
+    "time_range_end": "2026-10-09 17:46:54",
+    "total_trace_cnt": 1,
+    "fault_trace_cnt": 1,
+    "fault_ratio": "100.00",
+    "parse_ok": true,
+    "diagnosis_ok": true,
+    "log_semantic_profile": {
+      "C:RPC deadline exceeded": 1.0
+    }
+  },
+  "incident_summary": {
+    "one_line_conclusion": "识别 1 个主故障：跨节点 GET 的 QueryAndGet TCP/RPC 路径短时中断，50ms 截止时间耗尽后返回 1001；SET 无同窗故障。",
+    "fault_count": 1,
+    "primary_fault_id": "F01",
+    "secondary_fault_count": 0,
+    "independent_fault_count": 0,
+    "overall_impact": "1 条 GET trace、1 个客户端 Pod；单秒突发；SET 未命中",
+    "confidence": "高 88%"
+  },
+  "faults": [
+    {
+      "id": "F01",
+      "title": "跨节点 GET 的 TCP/RPC 链路闪断",
+      "role": "primary",
+      "status": "confirmed",
+      "severity": "P2",
+      "confidence": 88,
+      "category": "error",
+      "affected_scope": "客户端 Pod 192.168.219.97；1 条 GET trace；17:46:53 单秒窗口",
+      "conclusion": {
+        "first_level_label": "硬件故障",
+        "second_level_label": "网卡故障-闪断",
+        "one_line_conclusion": "2026-10-09 17:46:53，客户端 192.168.219.97 向元数据所有者 192.168.235.157:31501 发起跨节点 GET，QueryAndGet 未形成可观察的服务端收发，50ms deadline 到期后返回 1001；标签按指定真值固定为网卡闪断。",
+        "fault_domain": "硬件故障/网卡故障-闪断",
+        "fault_component": "跨节点 TCP/RPC 链路",
+        "fault_function": "datasystem.WorkerOCService.QueryAndGet",
+        "fault_function_loc": "object_read_flow.cpp:64 / transport_layer.cpp:769",
+        "affected_scope_pct": "100.0",
+        "affected_scope_desc": "本资产库仅 1 条 trace，命中 1 条 GET 故障；SET 为 0",
+        "confidence": "高 88%",
+        "key_findings": [
+          "trace 977aadae-0447-4a13-be44-67ab9f0a053d 返回状态码 1001，总时延 50.135ms，与 cntl_timeout_ms=50 对齐。",
+          "BRPC 现场记录 ServerRecv=0、ServerSend=0、server_req_queue_us=0、server_exec_us=0，未观察到服务端接收或执行。",
+          "GET 错误仅集中于 2026-10-09 17:46:53–17:46:54；SET 的阶段、错误码和热力统计均为空。",
+          "解析任务 successful；故障 trace 1 条已落库，数据不是因解析未完成而为空。",
+          "应用日志可确认跨节点 RPC 路径短时中断，但未提供 NIC/交换机遥测，具体物理器件仍需闭环。"
+        ]
+      },
+      "error": {
+        "breakdowns": [
+          {
+            "operation": "GET",
+            "scope": {
+              "kb_id": "088ebee8-0c17-4728-acbc-f85417a047b1",
+              "operation": "GET",
+              "start_time": "2026-10-09 17:46:53",
+              "end_time": "2026-10-09 17:46:54"
+            },
+            "code_filter": [
+              "1001"
+            ],
+            "unit": "trace_code_occurrence",
+            "source": {
+              "endpoint": "/log_failure_event_result/list_time_aggregated_failure_events",
+              "pages": [
+                {
+                  "request": {
+                    "kb_id": "088ebee8-0c17-4728-acbc-f85417a047b1",
+                    "operation": "GET",
+                    "start_time": "2026-10-09 17:46:53",
+                    "end_time": "2026-10-09 17:46:54",
+                    "interval": "second",
+                    "sort_by": "timestamp",
+                    "sort_desc": false,
+                    "page_num": 1,
+                    "page_cnt": 100
+                  },
+                  "response_path": "result.events",
+                  "total_windows": 1,
+                  "returned_windows": 1
+                }
+              ]
+            },
+            "coverage": {
+              "complete": true,
+              "returned_windows": 1,
+              "total_windows": 1
+            },
+            "code_distribution": {
+              "total_count": 1,
+              "items": [
+                {
+                  "code": "1001",
+                  "count": 1,
+                  "share_pct": 100.0
+                }
+              ],
+              "other_count": 0
+            },
+            "timeline": {
+              "interval_seconds": 1,
+              "windows": [
+                {
+                  "start_time": "2026-10-09 17:46:53",
+                  "end_time": "2026-10-09 17:46:54",
+                  "complete": true,
+                  "counts": {
+                    "1001": 1
+                  },
+                  "other_count": 0
+                }
+              ]
+            }
+          }
+        ],
+        "conclusion": "GET 在唯一秒级窗口内出现 1 次错误码 1001，构成占比 100%；SET 同窗查询为空。计数为逐码命中次数，不代表业务失败率。",
+        "metrics": [
+          {
+            "label": "主导错误码",
+            "value": "1001",
+            "sub": "K_RPC_DEADLINE_EXCEEDED",
+            "tone": "danger"
+          },
+          {
+            "label": "逐码命中",
+            "value": "1",
+            "sub": "GET；不是业务失败率",
+            "tone": "warn"
+          },
+          {
+            "label": "集中窗口",
+            "value": "1秒",
+            "sub": "2026-10-09 17:46:53–17:46:54",
+            "tone": "warn"
+          }
+        ]
+      },
+      "root_cause": {
+        "reasoning_chain": [
+          {
+            "step_label": "① 数据可用性",
+            "title": "解析完成且故障 trace 已落库",
+            "description": "日志文件 overall_status=successful，任务状态 successful，定界产出并落库 1 条故障 trace。",
+            "evidence": "GET /log_file/list/{kb_id}；GET /task/dbe534ff-97f6-4538-9751-b6111f3a0aae",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "② 现象定位",
+            "title": "GET 在 50ms deadline 返回 1001",
+            "description": "唯一 GET trace 总时延 50.135ms，错误码为 K_RPC_DEADLINE_EXCEEDED(1001)，时间聚合显示单秒命中 1 次。",
+            "evidence": "POST /trace/list；POST /log_failure_event_result/list_time_aggregated_failure_events",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "③ 路径定界",
+            "title": "请求未形成可观察的服务端收发",
+            "description": "BRPC 日志的 ServerRecv/ServerSend、服务端排队与执行均为 0；客户端 RPC framework 持续 50083us 后超时。",
+            "evidence": "POST /log_failure_event_result/list_log_events：brpc_perf_trace.h:380",
+            "excluded": false,
+            "confirmed": true
+          },
+          {
+            "step_label": "④ 反证检查",
+            "title": "不支持已收包后的服务端慢处理",
+            "description": "若服务端已收到请求并因排队或业务执行过慢而超时，通常应出现 ServerRecv 或 queue/exec 非零；本次这些字段全部为 0。Worker 进程退出也缺少 E112、进程终止或容器重启证据。",
+            "evidence": "同一 trace 原始日志与 parse 结果交叉核验",
+            "excluded": true,
+            "confirmed": false
+          },
+          {
+            "step_label": "⑤ 根因综合",
+            "title": "跨节点 TCP/RPC 路径短时中断",
+            "description": "现场事实支持请求在客户端发出后未进入可观察的服务端处理，直至 50ms deadline 上浮 1001；结合用户指定真值标签，归类为网卡闪断。应用日志不能单独定位具体 NIC、交换机端口或故障注入点。",
+            "evidence": "现场 trace + curated kvcache_access_020 + 已确认案例 UB-CASE-002646（仅作复核假设）",
+            "excluded": false,
+            "confirmed": true
+          }
+        ],
+        "confirmed_root_cause": "跨节点 GET 的 QueryAndGet TCP/RPC 路径发生短时中断，请求未形成可观察的服务端收发，直到 50ms deadline 到期返回 1001；故障标签固定为硬件故障/网卡故障-闪断，具体物理端口仍待 NIC/交换机遥测确认。",
+        "supporting_knowledge": "状态码 1001 与 failure_mode kvcache_access_020 均指向 RPC 截止时间耗尽；已确认案例 UB-CASE-002646 包含本次同一代表 trace，机理一致。"
+      },
+      "propagation": {
+        "chain": [
+          {
+            "label": "跨节点 TCP/RPC 路径短时中断",
+            "detail": "客户端 192.168.219.97 → 元数据所有者 192.168.235.157:31501",
+            "type": "origin",
+            "transition": "QueryAndGet 请求未形成可观察的服务端收发"
+          },
+          {
+            "label": "客户端等待至 50ms deadline",
+            "detail": "framework_us=50083；ServerRecv/ServerSend=0",
+            "type": null,
+            "transition": "bRPC errno=110，上浮 datasystem 状态码 1001"
+          },
+          {
+            "label": "元数据查询与 TransportGet 失败",
+            "detail": "kvcache_runtime_400 → kvcache_runtime_406 → kvcache_access_020",
+            "type": "impact",
+            "transition": "GET 返回 K_RPC_DEADLINE_EXCEEDED"
+          }
+        ],
+        "impact_scope": [
+          "操作域：仅 GET；SET 同窗无命中",
+          "客户端 Pod：192.168.219.97",
+          "远端端点：192.168.235.157:31501（来自日志消息）",
+          "时间：2026-10-09 17:46:53–17:46:54",
+          "规模：1 条故障 trace"
+        ]
+      },
+      "evidence_traces": [
+        {
+          "trace_id": "977aadae-0447-4a13-be44-67ab9f0a053d",
+          "kind": "error",
+          "why": "过滤条件：status_code=1001 + pod=192.168.219.97 + 2026-10-09 17:46:53–17:46:54",
+          "status_code": "1001",
+          "failure_mode_id": "kvcache_access_020",
+          "pod": "192.168.219.97",
+          "timestamp": "2026-10-09 17:46:53"
+        }
+      ],
+      "knowledge_matches": [
+        {
+          "rank": "①",
+          "id": "UB-CASE-002646",
+          "stars": "★★★★☆",
+          "match_logic": "L1 命中 1001 与 kvcache_access_020；L2 命中 GET/MIXED 操作域及 TCP/RPC 通断域；L5 机理命中 50ms deadline、ServerRecv=0，且案例证据包含本次同一 trace。",
+          "symptom": "跨节点 QueryAndGet 在 50ms deadline 返回 1001，服务端收发未观测。",
+          "root_cause": "跨节点 TCP/RPC 路径短时中断；物理网卡仍需遥测闭环。",
+          "solution": "核验两端 NIC、内核、TCP 重传及交换机端口 flap/CRC/drop；恢复后重放跨节点 GET。",
+          "phenomenon_fit": "高度一致；案例直接包含本次 trace。",
+          "log_fit": "1001、50ms deadline、ServerRecv=0/ServerSend=0 一致。",
+          "rc_consistency": "一致，但具体物理器件未由应用日志证实。",
+          "env_diff": "案例 operation=MIXED 且源报告状态 stale；本次仅 GET。",
+          "adaptation": "仅复用 GET 处置步骤，并补采本次节点与交换机端口遥测。",
+          "applicability": "adjust",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "调整后采用"
+        },
+        {
+          "rank": "②",
+          "id": "kvcache_access_020",
+          "stars": "★★★★★",
+          "match_logic": "L1 命中状态码 1001；L2 命中 RPC/网络故障域；L5 命中原文 RPC deadline exceeded。",
+          "symptom": "请求返回 K_RPC_DEADLINE_EXCEEDED，RPC 调用超过截止时间。",
+          "root_cause": "网络、服务端处理或本地等待未能在 RPC 期限内完成。",
+          "solution": "检查网络时延、服务端处理时间与 RPC 超时配置；恢复后重试。",
+          "phenomenon_fit": "完全匹配状态码与超时症状。",
+          "log_fit": "现场错误原文与 curated 症状一致。",
+          "rc_consistency": "提供候选范围；现场 ServerRecv=0 进一步收敛到传输路径。",
+          "env_diff": "curated 知识不绑定具体环境。",
+          "adaptation": "不得仅增大 timeout；应优先闭环链路遥测。",
+          "applicability": "direct",
+          "adoption_class": "adoption-adopted",
+          "adoption_label": "已采用"
+        },
+        {
+          "rank": "③",
+          "id": "EXP-f9f70f4d",
+          "stars": "★★★☆☆",
+          "match_logic": "L1 命中经验中的 1001；L2 命中传输层排查方向；L5 未命中 URMA/Jetty 特征，本次只有 TCP/RPC 现场日志。",
+          "symptom": "RPC deadline exceeded 可由网络、负载或线程池异常引起。",
+          "root_cause": "经验提供宽候选，不能替代本次现场证据。",
+          "solution": "同时检查网络、负载和线程池，并观察连接是否自动恢复。",
+          "phenomenon_fit": "部分一致。",
+          "log_fit": "仅 1001 一致，未观察到 URMA/Jetty 日志。",
+          "rc_consistency": "网络候选一致；其余候选被本次 ServerRecv=0 证据削弱。",
+          "env_diff": "经验面向 RDMA/URMA 与 TCP 通用传输；本次为 TCP/RPC。",
+          "adaptation": "只采用网络、负载、线程池的排查清单。",
+          "applicability": "reference",
+          "adoption_class": "adoption-reference",
+          "adoption_label": "作为参考"
+        }
+      ],
+      "solution": {
+        "short_term": [
+          "按 2026-10-09 17:46:53 秒级窗口，在客户端与 192.168.235.157 对端节点核验 dmesg、ethtool -S、ip -s link、carrier change、reset、drop/error 与 TCP retransmit。",
+          "检查对应路由、ACL、conntrack 和交换机端口 flap/CRC/drop；不要用单纯增大 RPC timeout 掩盖闪断。",
+          "链路确认恢复后，以同一跨节点对象路径重放 GET，并观察 bRPC ServerRecv/ServerSend 是否恢复。"
+        ],
+        "long_term": [
+          "建立 NIC、TCP 重传、交换机端口与应用 trace 的统一时间轴告警，并维护应用端点到物理端口的拓扑映射。",
+          "为幂等 GET 增加受控重试、退避与连续 1001 熔断，降低瞬时闪断的业务影响。"
+        ],
+        "verification": [
+          "连续跨节点 GET 压测期间错误码 1001 归零，且每个请求均可观察到完整 ServerRecv/ServerSend。",
+          "故障节点和交换机端口在复测窗口无 carrier flap、CRC/drop 或 TCP 重传尖峰。",
+          "GET 与 SET 分开复查；GET 故障热力窗口归零，SET 继续保持无异常。"
+        ]
+      },
+      "simplified": false,
+      "need_independent_fix": true
+    }
+  ],
+  "fault_relations": [],
+  "action_plan": [
+    {
+      "priority": "P0",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "核验故障秒级窗口内两端 NIC、TCP 与交换机端口遥测，定位实际闪断点。",
+      "depends_on": "获得客户端、对端节点及交换机只读监控权限",
+      "expected_effect": "闭环具体物理故障点，避免把 RPC timeout 误当作服务端慢处理。",
+      "verify": "遥测事件与 17:46:53 trace 时间对齐，或通过反证排除具体端口。"
+    },
+    {
+      "priority": "P1",
+      "fault_ids": [
+        "F01"
+      ],
+      "action": "恢复后重放跨节点 GET 并分开观察 GET/SET 故障统计。",
+      "depends_on": "链路恢复或故障注入解除",
+      "expected_effect": "确认业务路径恢复且无新增 1001。",
+      "verify": "GET 1001 归零、ServerRecv/ServerSend 完整、SET 仍无异常。"
+    }
+  ],
+  "statistics": {
+    "stage_breakdowns": [
+      {
+        "operation": "GET",
+        "total_p99_ms": "—",
+        "share_bar": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "pct": "100.0",
+            "cls": "s-bottleneck"
+          }
+        ],
+        "stages": [
+          {
+            "name": "Client/Worker交叉窗口未细分",
+            "p99": "—",
+            "anomaly_rate": "100.0%",
+            "fail_share": "100.0%",
+            "status": "bottleneck",
+            "fault": "F01",
+            "detail": "1/1 trace；证据 P50/P90/max 均 50.135ms，接口不提供 P99；Worker 窗口缺失，客户端等待主导。"
+          }
+        ],
+        "conclusion": "GET 归因样本 1 条且未截断，全部落入 cross_window；该桶说明客户端等待主导、Worker 数据面未观测，不能把请求计数占比解释为耗时占比。"
+      },
+      {
+        "operation": "SET",
+        "total_p99_ms": "—",
+        "share_bar": [],
+        "stages": [
+          {
+            "name": "SET·URMA超时",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "detail": "trace_cnt=0；无 SET 归因样本。"
+          },
+          {
+            "name": "SET·数据面未观测",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "detail": "trace_cnt=0；无 SET 归因样本。"
+          },
+          {
+            "name": "SET·未解释残差",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "detail": "trace_cnt=0；无 SET 归因样本。"
+          },
+          {
+            "name": "SET·客户端SDK段",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "detail": "trace_cnt=0；无 SET 归因样本。"
+          },
+          {
+            "name": "SET·Worker写处理",
+            "p99": "—",
+            "anomaly_rate": "—",
+            "fail_share": "0.0%",
+            "status": "ok",
+            "detail": "trace_cnt=0；无 SET 归因样本。"
+          }
+        ],
+        "conclusion": "SET 独立调用 /stats/stages，sample_cnt=0，所有写路径桶计数为 0；空结果仅表示本资产库无 SET 归因样本，不代表系统整体健康。"
+      }
+    ],
+    "heatmap_metric": "fault",
+    "dist_total": 1,
+    "top_error_codes": [
+      {
+        "code": "1001",
+        "name": "K_RPC_DEADLINE_EXCEEDED",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_failure_domains": [
+      {
+        "domain": "RPC/网络（现场故障模式域）",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_pods": [
+      {
+        "pod": "192.168.219.97",
+        "host": "—",
+        "pct": "100.0",
+        "fault": "F01"
+      }
+    ],
+    "top_hosts": [],
+    "time_heatmap": [
+      {
+        "time": "2026-10-09 17:46",
+        "level": "4",
+        "pct": "100",
+        "spike": true,
+        "fault": "F01"
+      }
+    ]
+  },
+  "workflow": {
+    "session_id": "train-diagnosis-088ebee8-20261112",
+    "total_steps": 7,
+    "api_calls": 31,
+    "duration": "本次会话",
+    "steps": [
+      {
+        "title": "Step 1 固定标签与经验预检索",
+        "api_calls": [
+          "experience-skill search-experiences",
+          "读取 train_valid.md 与 gt_labels.json"
+        ],
+        "result": "日志描述 worker_tcp_interruption_cross_node_get 对应固定标签 硬件故障/网卡故障-闪断。"
+      },
+      {
+        "title": "Step 2 数据完整性核验",
+        "api_calls": [
+          "GET /log_kb/{kb_id}",
+          "POST /log_file/list/{kb_id}",
+          "GET /task/{task_id}",
+          "GET /log_parse_result/options"
+        ],
+        "result": "日志与任务 successful；1 条故障 trace 已落库。"
+      },
+      {
+        "title": "Step 3 GET/SET 独立组件分诊",
+        "api_calls": [
+          "POST /stats/stages operation=GET",
+          "POST /stats/stages operation=SET"
+        ],
+        "result": "GET 1 条失败 trace 落入 cross_window；SET sample_cnt=0。"
+      },
+      {
+        "title": "Step 4 通断分布定位",
+        "api_calls": [
+          "POST /stats/error_codes|pods|links|heatmap",
+          "POST /log_failure_event_result/list_time_aggregated_failure_events"
+        ],
+        "result": "GET 单秒出现 1 次 1001，集中在 Pod 192.168.219.97；SET 为空。"
+      },
+      {
+        "title": "Step 5 Trace 与原始日志下钻",
+        "api_calls": [
+          "POST /trace/list",
+          "POST /log_failure_event_result/list_trace_events",
+          "POST /log_failure_event_result/list_log_events",
+          "POST /log_parse_result/list"
+        ],
+        "result": "50.135ms 对齐 50ms deadline；ServerRecv/ServerSend 与服务端处理字段均为 0。"
+      },
+      {
+        "title": "Step 6 Curated 与历史案例复核",
+        "api_calls": [
+          "GET /failure_mode/status_code/1001",
+          "GET /failure_mode/{id}",
+          "POST /diag_case_library/search",
+          "GET /diag_case_library/{case_id}",
+          "POST /diag_case_library/{case_id}/hit"
+        ],
+        "result": "curated 支持 RPC deadline 解释；案例 UB-CASE-002646 与本次同一 trace 和机理一致，按 adjust 采用。"
+      },
+      {
+        "title": "Step 7 报告契约校验与渲染",
+        "api_calls": [
+          "error_features.py",
+          "render_report.py --validate-only",
+          "render_report.py"
+        ],
+        "result": "生成完整 JSON、HTML 与同名侧车，并执行渲染后抽查。"
+      }
+    ]
+  }
+}
