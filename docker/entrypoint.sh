@@ -286,6 +286,25 @@ start_opencode() {
     done
 }
 
+# ── 历史会话知识库关联回填（all / frontend 角色） ──────────────
+# 会话历史由 OpenCode 数据卷保留；旧版本的知识库映射只存在首条消息前缀和
+# 浏览器 localStorage 中。启动后在后台把该 ID 写回会话 metadata，换浏览器
+# 或清理缓存后仍能恢复关联。失败只记日志，不影响容器启动。
+restore_opencode_session_kb() {
+    local log="/var/log/witty-ub/opencode_session_migration.log"
+    : >>"$log" 2>/dev/null || true
+    local script="${OPENCODE_SESSION_MIGRATION_SCRIPT:-/usr/local/bin/migrate_opencode_sessions.py}"
+    [ -x "$script" ] || return 0
+    local data_home="${XDG_DATA_HOME:-/root/.local/share}"
+    echo "Restoring knowledge-base links for existing OpenCode sessions..."
+    (
+        exec "$script" \
+            --database "${data_home}/opencode/opencode.db" \
+            --server "http://127.0.0.1:4096" \
+            --metadata-key witty_ub_kb_id
+    ) >>"$log" 2>&1 &
+}
+
 # 清理后台服务，也覆盖启动检查失败导致的退出；experience 子进程通过 exec 接收信号。
 trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
 trap 'exit 0' SIGTERM SIGINT
@@ -300,6 +319,7 @@ all)
     # OpenCode queries the latency HTTP API directly, so start it only
     # after the backend is healthy.
     start_opencode
+    restore_opencode_session_kb
     echo "All services started successfully!"
     echo "========================================"
     echo "  - Web UI:     http://localhost:8080"
@@ -326,6 +346,7 @@ frontend)
     start_experience
     wait_backend_ready
     start_opencode
+    restore_opencode_session_kb
     echo "Frontend-only container started successfully!"
     echo "========================================"
     echo "  - Web UI:     http://localhost:8080"
@@ -344,10 +365,12 @@ esac
 # Keep container running and forward signals
 # Use tail to keep the container alive and capture any background process output
 if [ "${WITTY_ROLE}" = "frontend" ]; then
-    tail -f /var/log/witty-ub/opencode_server.log /var/log/witty-ub/experience_server.log &
+    tail -f /var/log/witty-ub/opencode_server.log /var/log/witty-ub/experience_server.log \
+        /var/log/witty-ub/opencode_session_migration.log &
 elif [ "${WITTY_ROLE}" = "backend" ]; then
     tail -f /var/log/witty-ub/latency_server.log &
 else
-    tail -f /var/log/witty-ub/latency_server.log /var/log/witty-ub/opencode_server.log /var/log/witty-ub/experience_server.log &
+    tail -f /var/log/witty-ub/latency_server.log /var/log/witty-ub/opencode_server.log \
+        /var/log/witty-ub/experience_server.log /var/log/witty-ub/opencode_session_migration.log &
 fi
 wait

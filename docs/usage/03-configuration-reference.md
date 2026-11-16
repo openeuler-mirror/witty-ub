@@ -171,6 +171,7 @@ RPM 单机部署：Nginx 8080、FastAPI 9772、OpenCode 4096、PostgreSQL 5432�
 | `witty-ub-uploads` | 命名卷 | `/var/witty-ub/latency/file/file_upload` | 上传的日志文件 |
 | `witty-ub-results` | 命名卷 | `/var/witty-ub/latency/file/file_parse_result` | 解析结果 |
 | `witty-ub-experience-data` | 命名卷 | `…/skills/experience-skill/data` | Agent 经验库 `experience.db` |
+| `witty-ub-opencode-data` | 命名卷 | `/root/.local/share/opencode` | OpenCode 会话历史、登录凭据、会话与知识库关联（`opencode.db`） |
 | `witty-ub-reports` | 命名卷 | `/var/witty-ub/reports` | 诊断报告（HTML + 侧车 JSON），前端「诊断报告」列表读取 |
 | `~/.config/opencode` | bind mount | `/root/.config/opencode` | OpenCode 配置目录 |
 | `pg15-data` | 命名卷 | `/var/lib/pgsql/data` | PostgreSQL 数据目录 |
@@ -292,6 +293,8 @@ bash /var/witty-ub/deploy/deploy_opencode.sh
 > **API-key 仅支持直接修改配置文件时**：如果用户的 API-key 只支持直接修改 opencode 的配置文件（即无法通过前端页面配置），此时无需在前端页面进行配置，直接在本机的 opencode 配置文件（通常是 `~/.config/opencode/opencode.jsonc`）按照 API-key 提供方给出的教程进行配置即可，平台会自动识别大模型。
 >
 > **Docker 部署修改 opencode 配置**：docker 部署时，如果需要修改 opencode 配置文件，请在宿主机上进行操作。部署时会将宿主机的 opencode 配置目录（`~/.config/opencode/`）映射到容器中（`/root/.config/opencode/`），在容器内直接修改不会持久化。
+>
+> **Docker 部署的会话历史**：会话、消息与登录凭据位于数据卷 `witty-ub-opencode-data`（容器内 `/root/.local/share/opencode`），不随镜像升级/容器重建丢失。会话与知识库的对应关系同时写入 OpenCode session metadata（`witty_ub_kb_id`），换浏览器或清理 localStorage 后仍可恢复；历史会话在容器启动时由首条 prompt 中的知识库 ID 自动回填。
 
 ---
 
@@ -340,6 +343,7 @@ bash /var/witty-ub/deploy/deploy_opencode.sh
 | `WITTY_HOST_PORT` | `32412` | 宿主机端口 |
 | `WITTY_LOG_LEVEL` | `info` | 日志级别 |
 | `OPENCODE_CONFIG_DIR` | `${HOME}/.config/opencode` | OpenCode 配置目录 |
+| `OPENCODE_DATA_VOLUME` | `witty-ub-opencode-data` | OpenCode 数据卷（会话历史、登录凭据、知识库关联）；升级时沿用，旧容器数据自动迁入 |
 | `WITTY_EXTRA_MOUNTS` | `/home:/home:ro` | 额外目录挂载 |
 | `WITTY_NETWORK_MODE` | `bridge` | 容器网络模式：`bridge` 接入 `PG_NETWORK` 组网，容器间用容器名互访；`host` 共享宿主机网络（端口映射失效、PG 走 `127.0.0.1:5432`），用于服务器把 Docker 网络视为不可信区域的场景 |
 | `WITTY_SSL_VERIFY` | `true` | 是否校验 OpenCode/LLM 出网 HTTPS 证书（同上表） |

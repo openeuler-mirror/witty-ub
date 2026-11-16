@@ -80,6 +80,7 @@ services:
       - "32413:8080"
     volumes:
       - ~/.config/opencode:/root/.config/opencode          # LLM key
+      - witty-ub-opencode-data:/root/.local/share/opencode  # 会话历史与知识库关联
       - witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data
     environment:
       - WITTY_BACKEND_URL=http://<后端机器IP>:9772
@@ -147,6 +148,7 @@ docker run -d \
   --restart unless-stopped \
   -p 32413:8080 \
   -v ~/.config/opencode:/root/.config/opencode \
+  -v witty-ub-opencode-data:/root/.local/share/opencode \
   -v witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data \
   -e WITTY_BACKEND_URL=http://<后端机器IP>:9772 \
   witty-ub:frontend
@@ -193,6 +195,7 @@ services:
       - witty-ub-uploads:/var/witty-ub/latency/file/file_upload
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
       - ~/.config/opencode:/root/.config/opencode
+      - witty-ub-opencode-data:/root/.local/share/opencode
     secrets:
       - pg_password
     environment:
@@ -216,6 +219,7 @@ volumes:
   witty-ub-logs:
   witty-ub-uploads:
   witty-ub-results:
+  witty-ub-opencode-data:
 
 networks:
   witty-ub-network:
@@ -240,6 +244,7 @@ docker volume create witty-ub-data
 docker volume create witty-ub-logs
 docker volume create witty-ub-uploads
 docker volume create witty-ub-results
+docker volume create witty-ub-opencode-data
 
 # 启动容器（默认 WITTY_ROLE=all）
 docker run -d \
@@ -251,6 +256,7 @@ docker run -d \
   -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
   -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
   -v ~/.config/opencode:/root/.config/opencode \
+  -v witty-ub-opencode-data:/root/.local/share/opencode \
   -v /etc/witty-ub/pg.passwd:/run/secrets/pg_password:ro \
   -e PYTHONPATH=/var/witty-ub \
   -e LOG_LEVEL=info \
@@ -321,6 +327,7 @@ docker run -d \
 | `witty-ub-results` | `/var/witty-ub/latency/file/file_parse_result` | backend | 解析结果 |
 | `~/.config/opencode` | `/root/.config/opencode` | frontend | LLM key 等配置 |
 | `witty-ub-experience-data` | `.../experience-skill/data` | frontend | Agent 经验库（experience.db） |
+| `witty-ub-opencode-data` | `/root/.local/share/opencode` | frontend / all | OpenCode 会话历史、登录凭据、会话与知识库关联（`opencode.db`） |
 | `witty-ub-reports` | `/var/witty-ub/reports` | backend / frontend | 诊断报告（HTML + 侧车 JSON），前端「诊断报告」列表读取 |
 | `witty-ub-builtin-reports` | `/var/witty-ub/builtin-reports` | backend | 内置定界报告的生效压缩包与导入状态（`reports.zip`、`import-state.json`） |
 | `witty-ub-logs` | `/var/log/witty-ub` | 通用 | 应用日志 |
@@ -328,6 +335,30 @@ docker run -d \
 > 报告目录由 `WITTY_REPORT_DIR` 指定（容器内默认 `/var/witty-ub/reports`，与
 > `witty-ub-reports` 卷同路径）。跨机分离部署时前端与后端不共享该卷，前端只能看到
 > 本节点 agent 生成的报告。
+
+### 升级与历史会话
+
+镜像升级会重建容器，OpenCode 的会话历史、登录凭据与会话/知识库关联保存在
+`witty-ub-opencode-data` 卷，不随容器删除。每次启动时前端还会把历史会话消息中的
+知识库 ID 回填到 OpenCode session metadata（`witty_ub_kb_id`）；换浏览器或清理
+localStorage 后，打开会话仍能恢复原知识库。回填日志见
+`/var/log/witty-ub/opencode_session_migration.log`，失败不影响容器启动。
+
+脚本部署（`deploy_witty.sh` / `manage.sh`）会自动创建并挂载该卷。首次从旧版本升级时，
+脚本会在删除旧容器前把 `/root/.local/share/opencode` 复制到卷中；复制失败会保留旧容器
+并以非 0 退出，不会静默丢历史。
+
+手工 `docker run` / `docker compose` 部署需要自行挂载该卷。首次升级前（旧容器仍在时）先迁移：
+
+```bash
+mkdir -p /tmp/opencode-data
+docker cp <旧容器名>:/root/.local/share/opencode/. /tmp/opencode-data/
+docker run --rm -v witty-ub-opencode-data:/data -v /tmp/opencode-data:/src:ro \
+  --entrypoint sh witty-ub:latest -c 'cp -a /src/. /data/'
+```
+
+不要在升级时删除该卷：`docker compose down -v`、`manage.sh uninstall --yes` 会删除
+历史会话。
 
 ### 内置定界报告
 
@@ -367,6 +398,11 @@ docker start witty-ub-frontend
 
 # 数据备份
 docker run --rm -v witty-ub-data:/data -v $(pwd):/backup alpine tar czf /backup/backup.tar.gz -C /data .
+
+# OpenCode 会话历史、登录凭据与知识库关联备份
+# 先停止承载 OpenCode 的容器（witty-ub / witty-ub-frontend），确保 SQLite WAL 已落盘
+docker run --rm -v witty-ub-opencode-data:/data -v $(pwd):/backup alpine \
+  tar czf /backup/opencode-data.tar.gz -C /data .
 ```
 
 ---

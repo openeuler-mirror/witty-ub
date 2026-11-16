@@ -40,6 +40,7 @@ bash deploy/docker/deploy_witty.sh --role frontend \
 ```
 
 既有的 `witty-ub:frontend` 镜像与部署方式保持不变，可随时回退。
+替换式部署沿用 `witty-ub-opencode-data` 卷，切换回既有前端时会话历史与知识库关联不会丢失。
 
 ### 3.2 与既有前端同机并行
 
@@ -47,6 +48,7 @@ bash deploy/docker/deploy_witty.sh --role frontend \
 docker run -d --name witty-ub-frontend-exp --restart unless-stopped \
   -p 32414:8080 \
   -v ~/.config/opencode:/root/.config/opencode \
+  -v witty-ub-opencode-data-exp:/root/.local/share/opencode \
   -v witty-ub-experience-data-exp:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data \
   -e WITTY_ROLE=frontend \
   -e WITTY_BACKEND_URL=http://<后端IP>:9772 \
@@ -54,7 +56,8 @@ docker run -d --name witty-ub-frontend-exp --restart unless-stopped \
 ```
 
 容器内仍是 8080（nginx 静态根 `/var/witty-ub/web-exp`，`/agent-api/` 反代容器内 OpenCode）。
-并行时与既有前端容器（32413）端口、容器名、经验库卷均相互独立。
+并行时与既有前端容器（32413）端口、容器名、经验库卷与 OpenCode 数据卷均相互独立；
+两个前端各自保存自己的会话历史，不能共用同一个 `witty-ub-opencode-data` 卷。
 
 ### 3.3 验证
 
