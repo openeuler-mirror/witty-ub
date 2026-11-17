@@ -14,7 +14,7 @@ const js = ts.transpileModule(controller.replaceAll('import.meta.env', 'environm
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
 }).outputText
 
-function setup() {
+function setup({ controlRetryTimers = false } = {}) {
   const sessions = [
     { id: 'a', title: '会话 A' },
     { id: 'b', title: '会话 B' },
@@ -33,6 +33,7 @@ function setup() {
   const requests = []
   const deferred = new Map()
   const failures = new Set()
+  const retryTimers = []
   const ref = (value) => ({ value })
   const reactive = (value) => value
   const window = {
@@ -45,7 +46,13 @@ function setup() {
       getItem: (key) => storage.get(key) ?? null,
       setItem: (key, value) => storage.set(key, value),
     },
-    setTimeout,
+    setTimeout: (callback, delay) => {
+      if (controlRetryTimers && delay < 10000) {
+        retryTimers.push(callback)
+        return 0
+      }
+      return setTimeout(callback, delay)
+    },
     clearTimeout,
   }
   const fetch = async (url, init = {}) => {
@@ -147,8 +154,258 @@ function setup() {
     ref({ name: '测试资产' }),
     ref([]),
   )
-  return { api, sessions, histories, statuses, storage, requests, deferred, failures }
+  return { api, sessions, histories, statuses, storage, requests, deferred, failures, retryTimers }
 }
+
+const flush = () => new Promise((resolve) => setImmediate(resolve))
+const emitAgentEvent = (api, type, properties) =>
+  api.handleOpenCodeEvent(
+    new MessageEvent('message', { data: JSON.stringify({ type, properties }) }),
+  )
+const completionStep = {
+  info: { id: 'step-a', role: 'assistant', sessionID: 'a', finish: 'tool-calls' },
+  parts: [{ id: 'reason-a', type: 'reasoning', text: '正在分析日志' }],
+}
+const completionAnswer = {
+  info: { id: 'answer-a', role: 'assistant', sessionID: 'a', finish: 'stop' },
+  parts: [{ id: 'text-a', type: 'text', text: '诊断结论：网络异常' }],
+}
+const streamCompletionAnswer = (api) => {
+  emitAgentEvent(api, 'message.updated', { info: completionAnswer.info })
+  emitAgentEvent(api, 'message.part.updated', {
+    part: { ...completionAnswer.parts[0], messageID: 'answer-a', sessionID: 'a' },
+  })
+}
+const currentAnswer = (api) =>
+  api
+    .buildAgentTurns(api.agentChatMessages.value)
+    .at(-1)
+    ?.answer.map((part) => part.text)
+
+test('完成事件的旧历史响应晚到时不会覆盖已经显示的最终回答', async () => {
+  const { api, histories, deferred } = setup({ controlRetryTimers: true })
+  try {
+    histories.a.push(completionStep)
+    await api.connectAgent('')
+    await api.openAgentSession({ id: 'a' })
+    let releaseOld, releaseNew
+    deferred.set(
+      '/session/a/message',
+      new Promise((resolve) => {
+        releaseOld = resolve
+      }),
+    )
+    emitAgentEvent(api, 'session.status', { sessionID: 'a', status: { type: 'idle' } })
+    streamCompletionAnswer(api)
+    deferred.set(
+      '/session/a/message',
+      new Promise((resolve) => {
+        releaseNew = resolve
+      }),
+    )
+    emitAgentEvent(api, 'session.idle', { sessionID: 'a' })
+    releaseNew([...histories.a, completionAnswer])
+    await flush()
+    assert.deepEqual(currentAnswer(api), ['诊断结论：网络异常'])
+    releaseOld(histories.a)
+    await flush()
+    assert.deepEqual(currentAnswer(api), ['诊断结论：网络异常'])
+    assert.equal(api.isAgentSending.value, false)
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
+test('完成后取到缺少最终消息、正文或完成标记的历史时保留实时回答', async () => {
+  for (const partial of [
+    [],
+    [{ ...completionAnswer, parts: [] }],
+    [{ ...completionAnswer, info: { ...completionAnswer.info, finish: 'tool-calls' } }],
+    [{ ...completionAnswer, parts: [{ ...completionAnswer.parts[0], text: '诊断' }] }],
+  ]) {
+    const { api, histories } = setup({ controlRetryTimers: true })
+    try {
+      histories.a.push(completionStep)
+      await api.connectAgent('')
+      await api.openAgentSession({ id: 'a' })
+      streamCompletionAnswer(api)
+      histories.a.push(...partial)
+      emitAgentEvent(api, 'session.idle', { sessionID: 'a' })
+      await flush()
+      assert.deepEqual(currentAnswer(api), ['诊断结论：网络异常'])
+    } finally {
+      api.closeAgentEventStream()
+    }
+  }
+})
+
+test('完成历史请求期间收到的新正文不会被旧快照截断', async () => {
+  const { api, histories, deferred } = setup({ controlRetryTimers: true })
+  try {
+    await api.connectAgent('')
+    await api.openAgentSession({ id: 'a' })
+    streamCompletionAnswer(api)
+    let release
+    deferred.set(
+      '/session/a/message',
+      new Promise((resolve) => {
+        release = resolve
+      }),
+    )
+    emitAgentEvent(api, 'session.idle', { sessionID: 'a' })
+    emitAgentEvent(api, 'message.part.delta', {
+      sessionID: 'a',
+      messageID: 'answer-a',
+      partID: 'text-a',
+      field: 'text',
+      delta: '，请检查链路',
+    })
+    release([...histories.a, completionAnswer])
+    await flush()
+    assert.deepEqual(currentAnswer(api), ['诊断结论：网络异常，请检查链路'])
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
+test('完成时历史尚未补齐会自动重试，取得最终回答后停止重试', async () => {
+  const { api, histories, retryTimers, requests } = setup({ controlRetryTimers: true })
+  try {
+    histories.a.push(completionStep)
+    await api.connectAgent('')
+    await api.openAgentSession({ id: 'a' })
+    emitAgentEvent(api, 'session.idle', { sessionID: 'a' })
+    await flush()
+    assert.equal(retryTimers.length, 1)
+    histories.a.push(completionAnswer)
+    retryTimers.shift()()
+    await flush()
+    assert.deepEqual(currentAnswer(api), ['诊断结论：网络异常'])
+    assert.equal(retryTimers.length, 0)
+    assert.equal(requests.filter((item) => item.path === '/session/a/message').length, 3)
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
+test('历史仍停留在上一轮时保留本轮问题并继续补拉', async () => {
+  const { api, histories, retryTimers } = setup({ controlRetryTimers: true })
+  try {
+    histories.a.push(completionAnswer)
+    await api.connectAgent('')
+    await api.openAgentSession({ id: 'a' })
+    api.agentChatInput.value = '继续定位'
+    await api.sendAgentMessage()
+    emitAgentEvent(api, 'session.idle', { sessionID: 'a' })
+    await flush()
+    assert.ok(api.agentChatMessages.value.some((message) => message.content === '继续定位'))
+    assert.equal(retryTimers.length, 1)
+    histories.a.push(
+      { info: { id: 'u-next', role: 'user' }, parts: [{ type: 'text', text: '继续定位' }] },
+      { ...completionAnswer, info: { ...completionAnswer.info, id: 'answer-next' } },
+    )
+    retryTimers.shift()()
+    await flush()
+    assert.deepEqual(currentAnswer(api), ['诊断结论：网络异常'])
+    assert.equal(retryTimers.length, 0)
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
+test('完成历史暂时失败时重试可以恢复，持续不完整时重试有上限', async () => {
+  const { api, histories, failures, retryTimers, requests } = setup({ controlRetryTimers: true })
+  try {
+    histories.a.push(completionStep)
+    await api.connectAgent('')
+    await api.openAgentSession({ id: 'a' })
+    failures.add('GET /session/a/message')
+    emitAgentEvent(api, 'session.idle', { sessionID: 'a' })
+    await flush()
+    assert.equal(retryTimers.length, 1)
+    failures.clear()
+    histories.a.push(completionAnswer)
+    retryTimers.shift()()
+    await flush()
+    assert.deepEqual(currentAnswer(api), ['诊断结论：网络异常'])
+    histories.a.pop()
+    emitAgentEvent(api, 'session.idle', { sessionID: 'a' })
+    await flush()
+    for (let attempt = 0; attempt < 5 && retryTimers.length; attempt += 1) {
+      retryTimers.shift()()
+      await flush()
+    }
+    assert.equal(retryTimers.length, 0, '不应无限轮询')
+    assert.ok(requests.filter((item) => item.path === '/session/a/message').length <= 7)
+    assert.deepEqual(currentAnswer(api), ['诊断结论：网络异常'])
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
+test('切换会话或发送下一轮后，完成历史的响应及重试均失效', async () => {
+  for (const action of ['switch', 'send', 'close']) {
+    const { api, histories, deferred, retryTimers, requests } = setup({ controlRetryTimers: true })
+    try {
+      histories.a.push(completionStep)
+      await api.connectAgent('')
+      await api.openAgentSession({ id: 'a' })
+      let release
+      deferred.set(
+        '/session/a/message',
+        new Promise((resolve) => {
+          release = resolve
+        }),
+      )
+      emitAgentEvent(api, 'session.idle', { sessionID: 'a' })
+      if (action === 'switch') await api.openAgentSession({ id: 'b' })
+      if (action === 'send') {
+        api.agentChatInput.value = '新的问题'
+        await api.sendAgentMessage()
+      }
+      if (action === 'close') api.closeAgentEventStream()
+      const previousMessages = structuredClone(api.agentChatMessages.value)
+      const requestCount = requests.length
+      release([...histories.a, completionAnswer])
+      await flush()
+      assert.deepEqual(api.agentChatMessages.value, previousMessages)
+      while (retryTimers.length) {
+        retryTimers.shift()()
+        await flush()
+      }
+      assert.equal(requests.length, requestCount)
+    } finally {
+      api.closeAgentEventStream()
+    }
+  }
+})
+
+test('已排队的完成历史重试在切换、发送或断开连接后取消', async () => {
+  for (const action of ['switch', 'send', 'close']) {
+    const { api, histories, retryTimers, requests } = setup({ controlRetryTimers: true })
+    try {
+      histories.a.push(completionStep)
+      await api.connectAgent('')
+      await api.openAgentSession({ id: 'a' })
+      emitAgentEvent(api, 'session.idle', { sessionID: 'a' })
+      await flush()
+      assert.equal(retryTimers.length, 1)
+      if (action === 'switch') await api.openAgentSession({ id: 'b' })
+      if (action === 'send') {
+        api.agentChatInput.value = '新的问题'
+        await api.sendAgentMessage()
+      }
+      if (action === 'close') api.closeAgentEventStream()
+      const requestCount = requests.length
+      retryTimers.shift()()
+      await flush()
+      assert.equal(requests.length, requestCount)
+      assert.equal(retryTimers.length, 0)
+    } finally {
+      api.closeAgentEventStream()
+    }
+  }
+})
 
 test('new sessions are created lazily; rename and delete update server and local state', async () => {
   const { api, sessions, requests } = setup()
