@@ -43,10 +43,13 @@ def select_bucket_representatives(frame, granularities=(1, 10, 60, 600, 3600)):
         index = pl.when(index < pl.col("total_latency").count()).then(index)
         picks.append(pl.struct("tid", "total_latency").get(index).alias(mode))
     # Exact end-to-end statistics share the same all-trace grouping pass as the
-    # representative selection.  P99.99 matches perf_analyze's
-    # ``(n - 1) * 0.9999`` linear interpolation; AVG is the arithmetic mean.
+    # representative selection.  P99/P99.99 match perf_analyze's
+    # ``(n - 1) * p`` linear interpolation; AVG is the arithmetic mean.
     total_stats = [
         pl.col("total_latency").mean().alias("_avg_total_latency"),
+        pl.col("total_latency")
+        .quantile(0.99, interpolation="linear")
+        .alias("_p99_total_latency"),
         pl.col("total_latency")
         .quantile(0.9999, interpolation="linear")
         .alias("_p9999_total_latency"),
@@ -62,6 +65,8 @@ def select_bucket_representatives(frame, granularities=(1, 10, 60, 600, 3600)):
         for mode, _ in PERCENTILE_MODES:
             if mode == "avg":
                 stat = pl.col("_avg_total_latency")
+            elif mode == "p99l":
+                stat = pl.col("_p99_total_latency")
             elif mode == "p9999l":
                 stat = pl.col("_p9999_total_latency")
             else:

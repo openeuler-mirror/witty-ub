@@ -133,7 +133,7 @@ class TestComputeBucketStatsFromFrame:
         result = compute_bucket_stats_from_frame(_make_trace_frame(), kb_id="kb", log_id="log")
         assert set(result.keys()) == set(GRANULARITY_KEYS)
 
-    def test_avg_and_p9999_match_perf_analyze_linear_interpolation(self):
+    def test_avg_and_percentiles_match_perf_analyze_linear_interpolation(self):
         result = compute_bucket_stats_from_frame(_make_trace_frame(), kb_id="kb", log_id="log")
         first_get_bucket = {
             row["mode"]: row
@@ -141,10 +141,48 @@ class TestComputeBucketStatsFromFrame:
             if row["bucket"].second == 0
         }
         assert first_get_bucket["avg"]["total_latency"] == pytest.approx(150.0)
+        assert first_get_bucket["p99l"]["total_latency"] == pytest.approx(199.0)
+        assert first_get_bucket["p99l"]["total_latency_us"] == pytest.approx(199_000.0)
         # perf_analyze: index=(2-1)*0.9999 => 100*(1-.9999)+200*.9999
         assert first_get_bucket["p9999l"]["total_latency"] == pytest.approx(199.99)
         assert first_get_bucket["avg"]["total_latency_us"] == pytest.approx(150_000.0)
         assert first_get_bucket["p9999l"]["total_latency_us"] == pytest.approx(199_990.0)
+
+    @pytest.mark.parametrize("values, expected", [
+        ([7.0], 7.0),
+        ([20.0, 10.0], 19.9),
+        ([5.0, 1.0, 4.0, 2.0, 3.0], 4.96),
+        (list(map(float, range(100))), 98.01),
+        ([0.0] * 99 + [1000.0], 10.0),
+        ([0.0, 0.0], 0.0),
+    ])
+    @pytest.mark.parametrize("operation", ["GET", "SET"])
+    @pytest.mark.parametrize("cached", [False, True])
+    def test_p99_linear_all_granularities(self, values, expected, operation, cached):
+        """perf_analyze reference values, including the tail missed by ordinal sampling."""
+        from latency.bucket.representatives import select_bucket_representatives
+        from latency.parse.trace_frames import TraceFrames
+
+        base = 1704067200
+        frame = pl.DataFrame({
+            "tid": [f"t{i}" for i in range(len(values))],
+            "bucket_epoch": [base] * len(values),
+            "epoch_sec": [base] * len(values),
+            "total_ms": values,
+            "total_latency": values,
+            "operation": [operation] * len(values),
+        })
+        details = None
+        if cached:
+            details = TraceFrames.from_frames(frame, frame)
+            details.bucket_representatives = select_bucket_representatives(details.light)
+            frame = details.light
+        result = compute_bucket_stats_from_frame(frame, trace_details=details)
+        for granularity in GRANULARITY_KEYS:
+            row = result[granularity].filter(pl.col("mode") == "p99l").to_dicts()[0]
+            assert row["total_latency"] == pytest.approx(expected)
+            assert row["total_latency_us"] == pytest.approx(expected * 1000)
+            assert row["operation"] == operation
 
     def test_null_rows_filtered(self):
         df = _make_trace_frame().with_columns(

@@ -177,11 +177,11 @@ class TestSampleBucketedData:
         assert info["window_ms"] == 0
         assert len(sampled) == 2
 
-    def test_percentile_mode_picks_sorted_rank(self):
+    def test_p99_mode_uses_linear_interpolation(self):
         rows = [self._row("2024-01-01 00:00:00", list(range(100)))]
         sampled, info = LatencyMetricsSampler.sample(rows, 10, SampleMode.P99)
         assert info["mode"] == "p99"
-        assert sampled[0]["total_latency"] == 98.0
+        assert sampled[0]["total_latency"] == pytest.approx(98.01)
 
 
 class TestSamplerParseJsonArray:
@@ -262,7 +262,7 @@ class TestSamplerAggregateValues:
         assert LatencyMetricsSampler._aggregate_values([1.0, 5.0, 3.0], SampleMode.AVG) == 3.0
 
     def test_p99(self):
-        assert LatencyMetricsSampler._aggregate_values(list(range(100)), SampleMode.P99) == 98.0
+        assert LatencyMetricsSampler._aggregate_values(list(range(100)), SampleMode.P99) == pytest.approx(98.01)
 
     def test_p95(self):
         assert LatencyMetricsSampler._aggregate_values(list(range(100)), SampleMode.P95) == 94.0
