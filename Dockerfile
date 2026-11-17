@@ -136,13 +136,14 @@ RUN find /var/witty-ub/web -type d -exec chmod 0755 {} \; && \
 
 COPY docker/entrypoint.sh /entrypoint.sh
 COPY docker/healthcheck.sh /healthcheck.sh
-RUN chmod +x /entrypoint.sh /healthcheck.sh
+COPY docker/migrate_opencode_sessions.py /usr/local/bin/migrate_opencode_sessions.py
+RUN chmod +x /entrypoint.sh /healthcheck.sh /usr/local/bin/migrate_opencode_sessions.py
 
 ENV WITTY_ROLE=frontend
 
 EXPOSE 8080 4096
 
-VOLUME ["/var/log/witty-ub"]
+VOLUME ["/var/log/witty-ub", "/root/.local/share/opencode"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["/healthcheck.sh"]
@@ -240,7 +241,8 @@ RUN chmod 0755 /usr/bin/witty-ub-log /usr/bin/witty-ub-topo \
 # Copy entrypoint & healthcheck scripts
 COPY docker/entrypoint.sh /entrypoint.sh
 COPY docker/healthcheck.sh /healthcheck.sh
-RUN chmod +x /entrypoint.sh /healthcheck.sh
+COPY docker/migrate_opencode_sessions.py /usr/local/bin/migrate_opencode_sessions.py
+RUN chmod +x /entrypoint.sh /healthcheck.sh /usr/local/bin/migrate_opencode_sessions.py
 
 # Expose ports
 # 8080: Web UI (nginx)
@@ -249,7 +251,7 @@ RUN chmod +x /entrypoint.sh /healthcheck.sh
 EXPOSE 8080 9772 4096
 
 # Volumes for persistent data
-VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/witty-ub/builtin-reports", "/var/log/witty-ub"]
+VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/witty-ub/builtin-reports", "/var/log/witty-ub", "/root/.local/share/opencode"]
 
 # Health check (role-aware: frontend probes the remote backend)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

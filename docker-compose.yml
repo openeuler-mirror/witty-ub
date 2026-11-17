@@ -75,8 +75,9 @@ services:
       - witty-ub-reports:/var/witty-ub/reports
       # 内置定界报告：镜像种子按哈希同步到此卷并导入，换镜像即替换内容
       - witty-ub-builtin-reports:/var/witty-ub/builtin-reports
-      # opencode
+      # OpenCode 配置与会话数据：会话历史、登录凭据、会话与知识库关联
       - ~/.config/opencode:/root/.config/opencode
+      - witty-ub-opencode-data:/root/.local/share/opencode
       # experience-skill persistent data (experience.db)
       - witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data
     secrets:
@@ -165,8 +166,9 @@ services:
     ports:
       - "32413:8080" # Web UI (Nginx + 反代远端后端/本机 OpenCode)
     volumes:
-      # OpenCode LLM 配置与经验库留在前端节点
+      # OpenCode 配置、会话数据与经验库留在前端节点
       - ~/.config/opencode:/root/.config/opencode
+      - witty-ub-opencode-data:/root/.local/share/opencode
       # 日志卷与单机/后端保持一致（否则 /var/log/witty-ub 会生成匿名卷）
       - witty-ub-logs:/var/log/witty-ub
       # experience-skill persistent data (experience.db)
@@ -204,6 +206,9 @@ volumes:
   witty-ub-experience-data:
     driver: local
     name: witty-ub-experience-data
+  witty-ub-opencode-data:
+    driver: local
+    name: witty-ub-opencode-data
   witty-ub-reports:
     driver: local
     name: witty-ub-reports
@@ -215,7 +220,6 @@ networks:
   witty-ub-network:
     name: ${WITTY_NETWORK:-witty-ub-network}
     driver: bridge
-    name: witty-ub-network
 
 secrets:
   pg_password:

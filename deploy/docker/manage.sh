@@ -23,7 +23,7 @@ CONFIG_KEYS=(
     WITTY_NETWORK_MODE_FRONTEND WITTY_NETWORK_SELFCHECK WITTY_NETWORK_FALLBACK
     PG_HOST PG_PORT PG_DATABASE PG_USER PG_PASSWORD PG_SECRET_FILE
     PG_HOST_IN_CONTAINER PG_PORT_IN_CONTAINER PG_CONTAINER_NAME PG_NETWORK PG_VOLUME
-    OPENCODE_CONFIG_DIR
+    OPENCODE_CONFIG_DIR OPENCODE_DATA_VOLUME
     WITTY_RAG_MCP_URL WITTY_RAG_NETWORK RAG_CONFIG_FILE RAG_DB_SECRET_FILE RAG_DB_PASSWORD
     RAG_ACCESS_KEY_SECRET_FILE
     RAG_MODEL_API_KEY_SECRET_FILE RAG_MODEL_API_KEY
@@ -95,6 +95,7 @@ WITTY_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}"
 WITTY_BACKEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-backend"
 WITTY_FRONTEND_CONTAINER="${WITTY_CONTAINER_NAME:-witty-ub}-frontend"
 PG_VOLUME="${PG_VOLUME:-pg15-data}"
+OPENCODE_DATA_VOLUME="${OPENCODE_DATA_VOLUME:-witty-ub-opencode-data}"
 RAG_DB_CONTAINER="${OPENGAUSS_RAG_CONTAINER:-opengauss-rag}"
 RAG_CORE_CONTAINER="${WITTY_RAG_CORE_CONTAINER:-witty-rag-core}"
 RAG_DB_VOLUME="${OPENGAUSS_RAG_VOLUME:-opengauss-rag-data}"
@@ -595,7 +596,7 @@ do_uninstall_all() {
     echo ""
     log_warn "About to delete:"
     echo "  - Containers: ${WITTY_CONTAINER}, ${WITTY_BACKEND_CONTAINER} (split), ${WITTY_FRONTEND_CONTAINER} (split), ${RAG_CORE_CONTAINER}, ${RAG_DB_CONTAINER}, ${PG_CONTAINER}"
-    echo "  - Volumes: witty-ub-data, witty-ub-case, witty-ub-logs, witty-ub-uploads, witty-ub-results, witty-ub-reports, witty-ub-builtin-reports, witty-ub-experience-data, ${RAG_DB_VOLUME}, ${PG_VOLUME}"
+    echo "  - Volumes: witty-ub-data, witty-ub-case, witty-ub-logs, witty-ub-uploads, witty-ub-results, witty-ub-reports, witty-ub-builtin-reports, witty-ub-experience-data, ${OPENCODE_DATA_VOLUME}, ${RAG_DB_VOLUME}, ${PG_VOLUME}"
     if [ "$scope" = "2" ]; then
         echo "  - Images: images used by the containers above"
     fi
@@ -626,7 +627,7 @@ do_uninstall_all() {
     done
 
     # 删除所有数据卷
-    for v in witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports witty-ub-builtin-reports witty-ub-experience-data "$RAG_DB_VOLUME" "$PG_VOLUME"; do
+    for v in witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports witty-ub-builtin-reports witty-ub-experience-data "$OPENCODE_DATA_VOLUME" "$RAG_DB_VOLUME" "$PG_VOLUME"; do
         if volume_exists "$v"; then
             log_info "Removing volume: $v"
             docker volume rm "$v" &>/dev/null

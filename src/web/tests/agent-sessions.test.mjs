@@ -166,7 +166,7 @@ test('new sessions are created lazily; rename and delete update server and local
     assert.equal(api.agentSessionAssetIndex.value[id], 'kb-new')
     assert.deepEqual(
       requests.find((item) => item.method === 'POST' && item.path === '/session')?.body,
-      {},
+      { metadata: { witty_ub_kb_id: 'kb-new' } },
     )
     assert.ok(requests.some((item) => item.method === 'GET' && item.path === `/session/${id}`))
     assert.ok(!requests.some((item) => item.method === 'PATCH' && item.path === `/session/${id}`))
@@ -187,6 +187,92 @@ test('new sessions are created lazily; rename and delete update server and local
     await api.submitAgentSessionDialog()
     assert.equal(api.agentSessionId.value, '')
     assert.ok(!api.agentSessions.value.some((item) => item.id === id))
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
+test('session metadata restores knowledge-base links without localStorage', async () => {
+  const { api, sessions } = setup()
+  sessions[0].metadata = { witty_ub_kb_id: 'kb-a' }
+  try {
+    await api.connectAgent('')
+    assert.equal(api.agentSessionAssetIndex.value.a, 'kb-a')
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
+test('opening a legacy session backfills its knowledge-base metadata', async () => {
+  const { api, requests } = setup()
+  try {
+    await api.connectAgent('')
+    await api.openAgentSession({ id: 'a' })
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(api.agentSessionAssetIndex.value.a, 'kb-a')
+    assert.deepEqual(
+      requests.find((item) => item.method === 'PATCH' && item.path === '/session/a')?.body,
+      { metadata: { witty_ub_kb_id: 'kb-a' } },
+    )
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
+test('knowledge-base prefix in a later user message is recovered', async () => {
+  const { api, histories, requests } = setup()
+  histories.b.push({
+    info: { id: 'u-b2', role: 'user' },
+    parts: [{ type: 'text', text: '当前页面选中的知识库 ID 是 kb-later。\n\n问题 B2' }],
+  })
+  try {
+    await api.connectAgent('')
+    await api.openAgentSession({ id: 'b' })
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(api.agentSessionAssetIndex.value.b, 'kb-later')
+    assert.deepEqual(
+      requests.find((item) => item.method === 'PATCH' && item.path === '/session/b')?.body,
+      { metadata: { witty_ub_kb_id: 'kb-later' } },
+    )
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
+test('local knowledge-base index is backfilled to the server', async () => {
+  const { api, storage, requests } = setup()
+  storage.set('witty-ub.agent-session-assets:/agent-api', JSON.stringify({ b: 'kb-b' }))
+  try {
+    await api.connectAgent('')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(
+      requests.find((item) => item.method === 'PATCH' && item.path === '/session/b')?.body,
+      { metadata: { witty_ub_kb_id: 'kb-b' } },
+    )
+  } finally {
+    api.closeAgentEventStream()
+  }
+})
+
+test('session.updated metadata refreshes the knowledge-base link', async () => {
+  const { api } = setup()
+  try {
+    await api.connectAgent('')
+    api.handleOpenCodeEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'session.updated',
+          properties: {
+            info: {
+              id: 'a',
+              sessionID: 'a',
+              metadata: { witty_ub_kb_id: 'kb-updated' },
+            },
+          },
+        }),
+      }),
+    )
+    assert.equal(api.agentSessionAssetIndex.value.a, 'kb-updated')
   } finally {
     api.closeAgentEventStream()
   }
@@ -260,6 +346,8 @@ test('session storage is scoped by server; child agent sessions are hidden', asy
     await api.connectAgent('')
     await api.openAgentSession({ id: 'a' })
     assert.equal(api.filteredAgentSessions.value.length, 2)
+    // The second server has the same fake session list but no stored metadata.
+    delete sessions.find((item) => item.id === 'a').metadata
     await api.connectAgent('http://other-server')
     assert.equal(api.agentSessionId.value, '')
     assert.equal(api.agentSessionAssetIndex.value.a, undefined)

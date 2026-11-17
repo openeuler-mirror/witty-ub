@@ -103,12 +103,12 @@ tail() { echo ready > "$READY"; }
             capture_output=True, text=True, timeout=5,
         )
 
-    def _start_until_ready(self, role):
+    def _start_until_ready(self, role, **env):
         self.calls.write_text("")
         self.work.joinpath("ready").unlink(missing_ok=True)
         result = subprocess.Popen(
             ["bash", str(self.entrypoint)],
-            env={**self.env, "WITTY_ROLE": role},
+            env={**self.env, "WITTY_ROLE": role, **env},
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
         def cleanup():
@@ -218,6 +218,36 @@ tail() { echo ready > "$READY"; }
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("web server exited", result.stdout)
 
+    def test_frontend_roles_backfill_opencode_session_metadata_after_opencode(self):
+        migration = self.work / "migrate-sessions"
+        self._executable(migration, '#!/bin/bash\necho "migrate $*" >> "$CALLS"\n')
+        for role in ("all", "frontend"):
+            with self.subTest(role=role):
+                self.calls.write_text("")
+                result = self._start_until_ready(
+                    role, OPENCODE_SESSION_MIGRATION_SCRIPT=str(migration)
+                )
+                deadline = time.monotonic() + 3
+                while "migrate " not in self.calls.read_text() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                calls = self.calls.read_text()
+                self.assertIn("migrate ", calls)
+                self.assertLess(calls.index("opencode"), calls.index("migrate "))
+                self.assertIn("--server http://127.0.0.1:4096", calls)
+                self.assertIn("--metadata-key witty_ub_kb_id", calls)
+                result.terminate()
+                result.communicate(timeout=5)
+                self._assert_service_terminated()
+
+    def test_backend_does_not_backfill_opencode_session_metadata(self):
+        migration = self.work / "migrate-sessions"
+        self._executable(migration, '#!/bin/bash\necho "migrate $*" >> "$CALLS"\n')
+        result = self._run_startup(
+            "backend", OPENCODE_SESSION_MIGRATION_SCRIPT=str(migration)
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("migrate ", self.calls.read_text())
+
     def test_deployment_creates_and_mounts_experience_volume_by_role(self):
         source = (ROOT / "deploy/docker/deploy_witty.sh").read_text()
         volumes = source.split("# 3.2 准备数据卷", 1)[1].split("# 3.3", 1)[0]
@@ -231,17 +261,27 @@ docker() { echo "docker $*" >> "$CALLS"; }
                 self.calls.write_text("")
                 result = subprocess.run(
                     ["bash", "-c", harness + volumes + run],
-                    env={**self.env, "ROLE": role, "SELECTED_IMAGE": "test-image"},
+                    env={
+                        **self.env,
+                        "ROLE": role,
+                        "SELECTED_IMAGE": "test-image",
+                        "OPENCODE_DATA_VOLUME": "witty-ub-opencode-data",
+                        "OPENCODE_DATA_PATH": "/root/.local/share/opencode",
+                    },
                     capture_output=True, text=True, timeout=5,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 calls = self.calls.read_text()
                 mount = "-v witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data"
+                opencode_mount = "-v witty-ub-opencode-data:/root/.local/share/opencode"
                 if role in ("all", "frontend"):
                     self.assertIn("docker volume create witty-ub-experience-data", calls)
                     self.assertIn(mount, calls)
+                    self.assertIn("docker volume create witty-ub-opencode-data", calls)
+                    self.assertIn(opencode_mount, calls)
                 else:
                     self.assertNotIn("witty-ub-experience-data", calls)
+                    self.assertNotIn("witty-ub-opencode-data", calls)
                 if role in ("all", "backend"):
                     self.assertIn("--health-cmd=/healthcheck.sh", calls)
 
