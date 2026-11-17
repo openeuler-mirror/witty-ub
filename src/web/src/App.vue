@@ -1271,6 +1271,8 @@ let agentLocalMessageSequence = 0
 let agentRequestSequence = 0
 let agentEventStreamSequence = 0
 let agentSessionListSequence = 0
+let agentMessageRefreshSequence = 0
+let agentMessageRevision = 0
 let agentHistoryEvents: MessageEvent<string>[] = []
 let shouldIgnoreNextAgentAbortError = false
 let agentPanelResize:
@@ -2707,6 +2709,75 @@ const rejectAgentQuestion = async (request: OpenCodeQuestionRequest) => {
   }
 }
 
+// 完成事件可能重复，历史写入也可能落后于 SSE。只采用最新请求且不丢失
+// 已收到的消息/正文；短暂补拉未落盘的最终回答，避免界面停在「已完成」。
+const refreshCompletedAgentMessages = async () => {
+  const refreshSequence = ++agentMessageRefreshSequence
+  const requestSequence = agentRequestSequence
+  const sessionId = agentSessionId.value
+  const isCurrent = () =>
+    refreshSequence === agentMessageRefreshSequence &&
+    requestSequence === agentRequestSequence &&
+    sessionId === agentSessionId.value &&
+    !isAgentSending.value
+
+  for (const delay of [0, 250, 750, 1500]) {
+    if (delay) await new Promise<void>((resolve) => window.setTimeout(resolve, delay))
+    if (!isCurrent()) return
+    const revision = agentMessageRevision
+    try {
+      const history = await requestAgentApi<OpenCodeMessage[]>(
+        `/session/${encodeURIComponent(sessionId)}/message`,
+      )
+      if (!isCurrent()) return
+      if (revision !== agentMessageRevision) continue
+      const snapshot = toAgentChatMessages(history)
+      const currentUsers = agentChatMessages.value.filter(
+        (message) => message.role === 'user' && !message.questionReply,
+      )
+      const fetchedUsers = snapshot.filter((message) => message.role === 'user')
+      if (
+        currentUsers.some((message, index) => {
+          const fetched = fetchedUsers[index]
+          return message.messageId
+            ? fetched?.messageId !== message.messageId
+            : fetched?.content !== message.content
+        })
+      )
+        continue
+      const preservesStream = agentChatMessages.value.every((message) => {
+        if (message.role !== 'assistant' || !message.messageId) return true
+        const fetched = snapshot.find((item) => item.messageId === message.messageId)
+        if (!fetched) return false
+        if (message.finish && fetched.finish !== message.finish) return false
+        if (message.aborted && !fetched.aborted) return false
+        if (message.status === 'error' && fetched.status !== 'error') return false
+        return (message.parts ?? []).every((part) => {
+          const fetchedPart = fetched.parts?.find((item) => item.id === part.id)
+          if (!fetchedPart) return false
+          if (part.type !== 'tool') return fetchedPart.text.startsWith(part.text)
+          return (
+            !['completed', 'error'].includes(part.tool?.status || '') ||
+            fetchedPart.tool?.status === part.tool?.status
+          )
+        })
+      })
+      const lastTurn = buildAgentTurns(snapshot).at(-1)
+      if (!preservesStream) continue
+      agentChatMessages.value = withAgentQuestionReplies(sessionId, snapshot)
+      snapshot.forEach((message) => {
+        if (message.role === 'assistant' && message.messageId) {
+          assistantMessageIds.add(message.messageId)
+        }
+      })
+      void scrollAgentChatToBottom()
+      if (lastTurn?.answer.length || lastTurn?.status === 'error') return
+    } catch {
+      // 保留实时内容；暂时失败与尚未写入最终消息都使用同一个有上限的重试。
+    }
+  }
+}
+
 const handleOpenCodeEvent = (event: MessageEvent<string>) => {
   let payload: OpenCodeEvent
   try {
@@ -2734,6 +2805,7 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     agentHistoryEvents.push(event)
     return
   }
+  if (payload.type.startsWith('message.')) agentMessageRevision += 1
   if (payload.type === 'permission.asked' && properties?.id) {
     const request = normalizeAgentPermissionRequest(properties)
     if (request) addAgentPermissionRequest(request)
@@ -2854,21 +2926,7 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     agentSessionStatuses.value[eventSessionId] = { type: 'idle' }
     if (agentSessionId.value) {
       void refreshAgentSession(agentSessionId.value)
-      const sequence = agentRequestSequence
-      void requestAgentApi<OpenCodeMessage[]>(
-        `/session/${encodeURIComponent(agentSessionId.value)}/message`,
-      )
-        .then((messages) => {
-          if (sequence === agentRequestSequence && !isAgentSending.value) {
-            agentChatMessages.value = withAgentQuestionReplies(
-              agentSessionId.value,
-              toAgentChatMessages(messages),
-            )
-          }
-        })
-        .catch(() => {
-          // Keep the streamed response if history is temporarily unavailable.
-        })
+      void refreshCompletedAgentMessages()
     }
     void scrollAgentChatToBottom()
     return
@@ -2920,6 +2978,7 @@ const replayAgentHistoryEvents = () => {
 }
 
 const closeAgentEventStream = () => {
+  agentMessageRefreshSequence += 1
   agentEventController?.abort()
   agentEventController = null
   isAgentEventStreamConnected = false
