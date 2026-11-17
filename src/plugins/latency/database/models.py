@@ -194,7 +194,7 @@ class LogParseResult(Base):
 # ============================================================
 # 2b. 分位统计表: latency_bucket_*
 #     parse 时按 10s/1min/10min/1h 四档粒度预统计,每 (bucket, operation, mode)
-#     存一条统计行：端到端 AVG/P99.99 为全量精确聚合，阶段列保留代表 trace。
+#     存一条统计行：端到端 AVG/P99/P99.99 为全量精确聚合，阶段列保留代表 trace。
 #     按 log_id HASH 分区(仿 log_parse_result)。
 #     src_ip/dst_ip 是代表请求的属性,可为 NULL,不参与主键唯一性。
 # ============================================================

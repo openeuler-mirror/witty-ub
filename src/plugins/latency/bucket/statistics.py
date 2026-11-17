@@ -93,18 +93,17 @@ _REPRESENTATIVE_COLUMNS: tuple[str, ...] = (
 
 # 4 种展示模式：(模式名, 代表行选取点)。
 #
-# ``avg`` 与 ``p9999`` 的 total_latency 不再使用这里的代表行值：
+# ``avg``、``p99`` 与 ``p9999`` 的 total_latency 不再使用这里的代表行值：
 # - avg = 桶内所有有效 total_latency 的算术平均值；
-# - p9999 = perf_analyze/kvcache_trace_report.py::compute_percentile 的线性插值口径，
-#   即在有序数组的 ``(n - 1) * 0.9999`` 位置插值。
+# - p99 / p9999 = perf_analyze/kvcache_trace_report.py::compute_percentile
+#   的线性插值口径，即在有序数组的 ``(n - 1) * p`` 位置插值。
 #
-# 这里的 0.5/0.9999 只用于选一条可供阶段分解展示的代表 trace；
+# 这里的 0.5/0.99/0.9999 只用于选一条可供阶段分解展示的代表 trace；
 # 端到端总时延会在 ``compute_bucket_stats_from_frame`` 中被真实聚合值覆盖。
 PERCENTILE_MODES: tuple[tuple[str, float], ...] = (
     ("avg", 0.5),
-    ("p99", 0.99),
-    # ``p9999l`` uses a new storage key so legacy ordinal P9999 rows cannot be
-    # mistaken for the perf_analyze-compatible linear-interpolation result.
+    # New storage keys distinguish linear quantiles from legacy ordinal rows.
+    ("p99l", 0.99),
     ("p9999l", 0.9999),
     ("pmax", 1.0),
 )
@@ -397,7 +396,7 @@ def compute_bucket_stats_from_frame(
             },
         }
         # total_latency_us and legacy total_latency are the same end-to-end
-        # measurement in different units.  Do not leave AVG/P99.99 with a
+        # measurement in different units.  Do not leave AVG/P99/P99.99 with a
         # representative trace's microsecond value after overriding the exact
         # aggregate millisecond value above.
         if total_stat is not None:
