@@ -3236,6 +3236,9 @@ const toFaultAggregatedEventRows = (
 
 const assets = ref<LogKnowledge[]>([])
 const selectedAsset = ref<LogKnowledge | null>(null)
+const selectedAssetDisplayName = computed(() =>
+  (selectedAsset.value?.name ?? '').replace(/([^\r\n]{100})(?=[^\r\n])/gu, '$1\n'),
+)
 const selectedAssetId = ref<string | null>(null)
 let assetSelectionRequestSequence = 0
 watch(selectedAssetId, (nextAssetId, previousAssetId) => {
@@ -20452,7 +20455,7 @@ onBeforeUnmount(() => {
         <header class="detail-header">
           <div class="detail-title-block">
             <p class="eyebrow">资产库详情</p>
-            <h1>{{ selectedAsset.name }}</h1>
+            <h1>{{ selectedAssetDisplayName }}</h1>
             <p class="detail-description">{{ selectedAsset.description }}</p>
             <div class="detail-times">
               <span>创建时间：{{ displayServerTime(selectedAsset.created_at) }}</span>
