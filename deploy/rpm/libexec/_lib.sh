@@ -13,6 +13,8 @@ set -euo pipefail
 
 # RPM 安装后路径常量（与 witty-ub.spec 中的安装路径一致）
 WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
+export WITTY_CLASSIFIER_MODEL_DIR="${WITTY_CLASSIFIER_MODEL_DIR:-${WITTY_DIR}/fault_classifier}"
+export WITTY_CASE_MATCHING_DIR="${WITTY_CASE_MATCHING_DIR:-${WITTY_DIR}/classifier-runtime}"
 WITTY_MANAGER_DIR="${WITTY_MANAGER_DIR:-/usr/libexec/witty-ub-manager}"
 WITTY_LATENCY_DIR="${WITTY_LATENCY_DIR:-${WITTY_DIR}/latency}"
 WITTY_CONFIG_DIR="${WITTY_CONFIG_DIR:-${WITTY_DIR}/config}"
@@ -25,6 +27,12 @@ PG_SECRET_FILE="${PG_SECRET_FILE:-${WITTY_ETC_DIR}/pg.passwd}"
 DIAG_CONFIG_FILE="${DIAG_CONFIG_FILE:-${WITTY_CONFIG_DIR}/diagnosis_config.toml}"
 
 # 前端连接配置（witty-ub-web 子包安装默认值，manager config 管理）
+WITTY_CLASSIFIER_ENV="${WITTY_ETC_DIR}/classifier.env"
+if [ -r "$WITTY_CLASSIFIER_ENV" ]; then
+    set -a
+    . "$WITTY_CLASSIFIER_ENV"
+    set +a
+fi
 WITTY_WEB_ENV="${WITTY_ETC_DIR}/web/env"
 NGINX_CONF_TEMPLATE="${NGINX_CONF_TEMPLATE:-/usr/share/witty-ub/nginx/witty-ub-web.conf.template}"
 NGINX_CONF_FILE="${WITTY_ETC_DIR}/web/nginx.conf"
@@ -36,6 +44,24 @@ WITTY_SKILL_SCRIPTS="${WITTY_SKILL_DIR}/scripts"
 
 # witty-ub 的 systemd services：由 role_services 按角色动态生成
 WITTY_SERVICES=()
+
+# Packaged seed files are backend-owned; mutable models survive RPM upgrades.
+prepare_classifier_runtime() {
+    case "$WITTY_CLASSIFIER_MODEL_DIR" in
+        /*) ;;
+        *) _err "WITTY_CLASSIFIER_MODEL_DIR 必须是绝对路径"; return 1 ;;
+    esac
+    mkdir -p "$WITTY_CLASSIFIER_MODEL_DIR" || return 1
+    if [ "${WITTY_ROLE:-all}" != "frontend" ]; then
+        local required
+        for required in scripts/default_matching.py assets/default_label_policy/numeric_classifier.json.gz assets/default_label_policy/cosine_bank.json.gz; do
+            [ -r "$WITTY_CASE_MATCHING_DIR/$required" ] || {
+                _err "分类器运行资源缺失: $WITTY_CASE_MATCHING_DIR/$required；请更新 witty-ub-backend RPM"
+                return 1
+            }
+        done
+    fi
+}
 
 # ──────────────────── 色彩 ────────────────────
 
@@ -379,6 +405,8 @@ bin_t ${WITTY_LATENCY_DIR}/deploy
 bin_t ${WITTY_LATENCY_DIR}/.venv/bin
 lib_t ${WITTY_LATENCY_DIR}/.venv/lib
 usr_t ${WITTY_LATENCY_DIR}
+usr_t ${WITTY_CASE_MATCHING_DIR}
+var_lib_t ${WITTY_CLASSIFIER_MODEL_DIR}
 EOF
     _log "SELinux 后端标签已配置 (deploy/venv 标 bin_t/lib_t)"
 }

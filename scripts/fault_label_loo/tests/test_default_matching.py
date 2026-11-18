@@ -101,6 +101,18 @@ class DefaultPolicyTests(unittest.TestCase):
             self.assertEqual(fault['label_matching']['decision']['method'],'all_feature_cosine_k4')
             self.assertIn('multiple_faults',fault['label_matching']['decision']['fallback_reason'])
 
+    def test_report_pins_bundle_for_global_and_each_fault_prediction(self):
+        q,s,r,c,model,bank=fixtures();data=report_data()
+        second=copy.deepcopy(data['faults'][0]);second.update(id='F02',role='secondary');data['faults'].append(second)
+        seen=[]
+        def assets(kind,directory=None):
+            seen.append(directory)
+            return model if kind=='numeric_classifier' else bank
+        with tempfile.TemporaryDirectory() as tmp,patch.object(engine,'observe',return_value=(q,s,r,c)),patch.object(engine,'asset',side_effect=assets),patch.object(engine.model_registry,'active_directory',side_effect=[Path(tmp)/'first',Path(tmp)/'second']) as active:
+            generate_report.label_report(data,work_dir=Path(tmp)/'out')
+            self.assertEqual(active.call_count,1)
+            self.assertTrue(seen and all(directory==Path(tmp)/'first' for directory in seen))
+
     def test_normal_html_command_uses_default_without_model_flag(self):
         q,s,r,c,model,bank=fixtures();data=report_data()
         def assets(kind,*args):return model if kind=='numeric_classifier' else bank

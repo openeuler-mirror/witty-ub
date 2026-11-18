@@ -15,6 +15,7 @@ import loo_support as io
 import mined_log_features_v2 as extraction
 import mine_label_features_v2 as training
 import portable_classifier
+import fixed_matching
 
 
 def write(path,value):
@@ -48,6 +49,7 @@ def build(args):
     assert training.predict(fitted,numeric)==[portable_classifier.predict(model,v)['label'] for v in numeric]
     sources=[{'source_id':q['source_id'],'identity':q['identity'],
         'log_content_sha256':io.digest(sorted(r['sha256'] for r in c['provenance']['files'])),
+        'report_observation_fingerprint':io.digest(fixed_matching.extract_report(io.read(q['path']))[:2]),
         'vector':extraction.vector('all_context_v2',b,c)} for q,b,c in zip(queries,base,contexts)]
     bank={'schema_version':cosine_matching.VERSION,'feature_version':extraction.VERSION,'view':'all_context_v2',
           'sources':sources,'cases':[{k:c[k] for k in ('id','source_id','identity','label')} for c in prepared['cases']]}

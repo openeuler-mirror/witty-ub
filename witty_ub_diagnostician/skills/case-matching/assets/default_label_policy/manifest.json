@@ -11,7 +11,7 @@
     },
     "cosine_bank": {
       "path": "cosine_bank.json.gz",
-      "sha256": "2f0a5112f5bc921259eee7b7851914c20b6be6a8396ee9e3584e378021a25829"
+      "sha256": "d714c6da239a6cdab4ccb445b5f3c5b9d30140118b51c237ca005c7792f6ecc6"
     }
   },
   "gt_sha256": "9685f6eda7d22a29911b87782a230aeea2c8873532610f23fa0898e23be82c79",
@@ -42,5 +42,6 @@
       "v7": 52
     },
     "excluded_reason": "Coordinator故障 and UB管控面故障; fixed five-label scope"
-  }
+  },
+  "source_observation_cache_version": "report-evidence-fingerprint-v1"
 }

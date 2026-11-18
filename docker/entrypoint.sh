@@ -27,6 +27,9 @@ export WITTY_RAG_MCP_URL="${WITTY_RAG_MCP_URL:-http://witty-rag-core:12312/sse}"
 export OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
 # 诊断报告落盘根目录（由 witty-ub-reports 卷持久化；agent 子进程继承此变量）
 export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-${WITTY_DIR}/reports}"
+export WITTY_CLASSIFIER_MODEL_DIR="${WITTY_CLASSIFIER_MODEL_DIR:-${WITTY_DIR}/fault_classifier}"
+export WITTY_CASE_MATCHING_DIR="${WITTY_CASE_MATCHING_DIR:-${WITTY_DIR}/classifier-runtime}"
+mkdir -p "${WITTY_CLASSIFIER_MODEL_DIR}"
 # 内置定界报告：镜像内的只读种子 → 独立卷中的生效副本，按压缩包哈希判断是否重载
 export WITTY_BUILTIN_REPORTS="${WITTY_BUILTIN_REPORTS:-1}"
 export WITTY_BUILTIN_REPORT_ARCHIVE="${WITTY_BUILTIN_REPORT_ARCHIVE:-/usr/share/witty-ub/builtin-reports/reports.zip}"
@@ -75,6 +78,16 @@ sync_backend_data() {
     # would otherwise miss rules added by a newer image.
     # Source-built images seed from /usr/share/witty-ub/data; RPM images already
     # install the data directly into the runtime dir.
+    echo "Checking classifier runtime..."
+    if [ ! -f "${WITTY_CASE_MATCHING_DIR}/assets/default_label_policy/numeric_classifier.json.gz" ] || \
+       [ ! -f "${WITTY_CASE_MATCHING_DIR}/scripts/default_matching.py" ]; then
+        echo "[ERROR] Classifier runtime missing: ${WITTY_CASE_MATCHING_DIR}; rebuild the backend image"
+        exit 1
+    fi
+    "${WITTY_DIR}/latency/.venv/bin/python" -c 'import sklearn' || {
+        echo "[ERROR] Classifier training dependency missing: scikit-learn; rebuild the backend image"
+        exit 1
+    }
     echo "Syncing packaged diagnosis data..."
     WITTY_DATA_SEED_DIR="/usr/share/witty-ub/data"
     WITTY_RUNTIME_DATA_DIR="${WITTY_DIR}/data"

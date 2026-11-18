@@ -367,7 +367,7 @@ class TestLifespan:
         # 调度任务注册：handle_tasks 每秒执行、单实例、合并积压；
         # master：收尸（reap_finished_processes）+ 看门狗（watchdog_running_tasks）
         # 各自独立成 interval job
-        assert len(scheduler.jobs) == (10 if index_enabled else 3)
+        assert len(scheduler.jobs) == (11 if index_enabled else 4)
         fn, args, kwargs = scheduler.jobs[0]
         assert fn is fake_task.handle_tasks
         assert args == ("interval",)
@@ -389,10 +389,12 @@ class TestLifespan:
             fastapi_server.PhenomenonIndexService.cleanup_documents,
             fastapi_server.PhenomenonIndexService.reconcile,
         ]
-        assert [job[0] for job in scheduler.jobs[3:]] == (
+        assert scheduler.jobs[3][0] is fastapi_server.FaultClassifierService.tick
+        assert scheduler.jobs[3][2] == {"seconds":5,"max_instances":1,"coalesce":True}
+        assert [job[0] for job in scheduler.jobs[4:]] == (
             expected_workers if index_enabled else []
         )
-        for _, args, kwargs in scheduler.jobs[3:]:
+        for _, args, kwargs in scheduler.jobs[4:]:
             assert args == ("interval",)
             assert kwargs["seconds"] > 0
             assert kwargs["max_instances"] == 1

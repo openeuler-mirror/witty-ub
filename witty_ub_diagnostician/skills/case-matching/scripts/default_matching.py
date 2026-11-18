@@ -1,4 +1,4 @@
-"""Frozen numeric classifier with all-feature cosine K4 fallback; no training."""
+"""Versioned numeric classifier with all-feature cosine K4 fallback; no training."""
 from functools import lru_cache
 import gzip
 import hashlib
@@ -12,6 +12,7 @@ import feature_vectors
 import fixed_matching
 import mined_log_features_v2 as extraction
 import portable_classifier
+import model_registry
 
 POLICY='numeric-units-classifier-cosine-fallback-v1'
 ASSETS=Path(__file__).resolve().parents[1]/'assets/default_label_policy'
@@ -29,7 +30,7 @@ def load_file(path,expected_sha=None):
 
 
 def asset(kind,assets_dir=None):
-    directory=Path(assets_dir) if assets_dir is not None else ASSETS
+    directory=Path(assets_dir) if assets_dir is not None else model_registry.active_directory() or ASSETS
     manifest=load_file(str(directory/'manifest.json'))
     if manifest.get('feature_version',extraction.VERSION)!=extraction.VERSION:
         raise ValueError('Runtime asset feature version mismatch')
@@ -66,9 +67,11 @@ def validate_model(model):
     if model.get('view')!='numeric_units' or model.get('metadata',{}).get('feature_version')!=extraction.VERSION:
         raise ValueError('Numeric classifier feature version mismatch')
     names=model['feature_names'];classes=model['classes'];weights=model['coefficients'];intercept=model['intercept']
-    if len(weights)!=len(classes) or len(intercept)!=len(classes) or any(len(w)!=len(names) for w in weights):
+    rows=1 if len(classes)==2 else len(classes)
+    if len(weights)!=rows or len(intercept)!=rows or any(len(w)!=len(names) for w in weights):
         raise ValueError('Invalid numeric classifier dimensions')
-    if set(classes)!=set(feature_vectors.LABELS):raise ValueError('Numeric classifier label scope mismatch')
+    if len(classes)<2 or len(set(classes))!=len(classes) or not set(classes)<=set(feature_vectors.LABELS):
+        raise ValueError('Numeric classifier label scope mismatch')
     if any(not math.isfinite(v) for w in weights for v in w) or any(not math.isfinite(v) for v in intercept):
         raise ValueError('Invalid numeric classifier coefficients')
 
@@ -87,6 +90,13 @@ def predict_numeric(model,numeric):
 def match(profile,cases=None,structured=None,raw=None,context=None,*,model=None,references=None,
           query_identities=(),excluded_sources=(),allow_classifier=True,fallback_reason=None,assets_dir=None):
     baseline_matching.validate_profile(profile)
+    # Pin both assets once per prediction; an atomic activation cannot mix bundles.
+    if assets_dir is None:assets_dir=model_registry.active_directory() or ASSETS
+    if model is None and allow_classifier:
+        try:
+            disabled=load_file(str(Path(assets_dir)/'manifest.json')).get('classifier_disabled_reason')
+            if disabled:allow_classifier=False;fallback_reason='insufficient_training_data: '+disabled
+        except (OSError,ValueError,KeyError):pass
     context=context or unknown_context()
     if context.get('schema_version')!=extraction.VERSION:context=unknown_context('feature_version_mismatch')
     query_identities=sorted(set(query_identities)|set(context.get('provenance',{}).get('source_identities',[])))

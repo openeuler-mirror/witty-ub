@@ -782,10 +782,13 @@ else
         'test -x /usr/bin/witty-ub-brpc-diag &&
          test -f /var/witty-ub/data/ubsocket/ubsocket_failure_mode.json &&
          test -f /var/witty-ub/data/umq/umq_failure_mode.json &&
-         test -f /var/witty-ub/data/urma/urma_failure_mode.json'; then
-        log_ok "BRPC diagnosis binary and data verified"
+         test -f /var/witty-ub/data/urma/urma_failure_mode.json &&
+         test -f /var/witty-ub/classifier-runtime/scripts/default_matching.py &&
+         test -f /var/witty-ub/classifier-runtime/assets/default_label_policy/numeric_classifier.json.gz &&
+         /var/witty-ub/latency/.venv/bin/python -c "import sklearn"'; then
+        log_ok "BRPC diagnosis and fault classifier runtime verified"
     else
-        log_error "Image is missing the BRPC diagnosis binary or required data files"
+        log_error "Image is missing diagnosis data, classifier runtime or scikit-learn"
         log_error "Please use an updated image containing witty-ub-brpc-diag and ubsocket/umq/urma rules"
         exit 1
     fi
@@ -814,9 +817,9 @@ log_info "Preparing Docker volumes ..."
 if [ "$ROLE" = "frontend" ]; then
     # frontend 也挂 witty-ub-logs：否则镜像声明的 VOLUME /var/log/witty-ub 会生成匿名卷，
     # 容器重建后日志丢失且残留孤儿卷（与文档"witty-ub-logs 通用"的描述保持一致）。
-    ROLE_VOLUMES=(witty-ub-logs witty-ub-experience-data witty-ub-reports "${OPENCODE_DATA_VOLUME}")
+    ROLE_VOLUMES=(witty-ub-logs witty-ub-experience-data witty-ub-reports witty-ub-classifier-models "${OPENCODE_DATA_VOLUME}")
 else
-    ROLE_VOLUMES=(witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports witty-ub-builtin-reports)
+    ROLE_VOLUMES=(witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports witty-ub-builtin-reports witty-ub-classifier-models)
     if [ "$ROLE" = "all" ]; then
         ROLE_VOLUMES+=(witty-ub-experience-data "${OPENCODE_DATA_VOLUME}")
     fi
@@ -1024,6 +1027,7 @@ backend)
         -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
         -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
         -v witty-ub-reports:/var/witty-ub/reports \
+        -v witty-ub-classifier-models:/var/witty-ub/fault_classifier \
         -v witty-ub-builtin-reports:/var/witty-ub/builtin-reports \
         -v "${PG_SECRET_FILE}:/run/secrets/pg_password:ro" \
         "${EXTRA_MOUNT_ARGS[@]}" \
@@ -1061,6 +1065,7 @@ frontend)
         -v "${OPENCODE_DATA_VOLUME}:${OPENCODE_DATA_PATH}" \
         -v witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data \
         -v witty-ub-reports:/var/witty-ub/reports \
+        -v witty-ub-classifier-models:/var/witty-ub/fault_classifier \
         -v witty-ub-builtin-reports:/var/witty-ub/builtin-reports \
         "${EXTRA_MOUNT_ARGS[@]}" \
         -e WITTY_ROLE=frontend \
@@ -1083,6 +1088,7 @@ frontend)
         -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
         -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
         -v witty-ub-reports:/var/witty-ub/reports \
+        -v witty-ub-classifier-models:/var/witty-ub/fault_classifier \
         -v witty-ub-builtin-reports:/var/witty-ub/builtin-reports \
         -v "${PG_SECRET_FILE}:/run/secrets/pg_password:ro" \
         -v "${OPENCODE_CONFIG_DIR}:/root/.config/opencode" \

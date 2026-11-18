@@ -24,7 +24,7 @@ allowed-tools: >
 
 普通诊断和 Agent 报告标签统一使用
 [数值分类器与余弦 K4 默认方案](references/DEFAULT_LABEL_POLICY.md)。共用入口是
-`scripts/default_matching.py`：新增数值特征（统一单位）＋冻结分类器为主，
+`scripts/default_matching.py`：新增数值特征（统一单位）＋当前已发布分类器为主，
 全特征余弦 K4 同时作为案例参照和退化路径。默认资源随 skill 打包，不需指定实验目录或模型路径。
 普通 `match_baseline.py` / `match_cases.py` 和报告入口统一使用这一策略；不在诊断时训练或调整模型。
 
@@ -34,8 +34,12 @@ allowed-tools: >
 详细输入、故障索引对齐和运行依赖见上面的默认方案文档；
 [旧底座说明](references/BASELINE_MATCHING.md)与[候选评分说明](references/COMBINATION_MATCHING.md)解释运行时底层计算。
 单故障采用报告级主预测；多故障保留报告级预测，各故障使用余弦 K4 退化，不复制同一个全局标签。
-离线训练与评估位于仓库根 `scripts/fault_label_loo/`；运行只依赖 skill 内代码和 assets，标准库推理。
-部署权重由全部 474 份数据离线拟合一次；v6 的逐折权重和 79.96% 成绩是评估记录，不是部署模型的独立测试。
+初始资源由 474 份开发报告拟合；后端在已确认案例增删后自动重训并原子发布模型与参考库，
+Agent 通过共享模型目录读取已发布版本，以标准库推理。每次匹配固定同一版本，报告生成本身不训练。
+数据不足时自动停用分类器，使用当前参考库的全特征余弦 K4；无可比案例则保留空标签。
+训练中再次增删案例会终止旧训练并按最新数据重启；案例库顶部显示训练状态。
+数据资格、规模门槛、持久化与部署见[默认方案](references/DEFAULT_LABEL_POLICY.md#已确认案例变更后的自动训练)。
+离线评估仍位于仓库根 `scripts/fault_label_loo/`；v6 的逐折权重和 79.96% 成绩是评估记录，不是部署模型的独立测试。
 
 需要用真实标签挖掘更有区分力的日志模式时，参见
 [监督特征挖掘](references/SUPERVISED_FEATURE_MINING.md)。候选提取器不读取 GT；

@@ -328,6 +328,7 @@ docker run -d \
 | `~/.config/opencode` | `/root/.config/opencode` | frontend | LLM key 等配置 |
 | `witty-ub-experience-data` | `.../experience-skill/data` | frontend | Agent 经验库（experience.db） |
 | `witty-ub-opencode-data` | `/root/.local/share/opencode` | frontend / all | OpenCode 会话历史、登录凭据、会话与知识库关联（`opencode.db`） |
+| `witty-ub-classifier-models` | `/var/witty-ub/fault_classifier` | backend / frontend / all | 分类器重训权重、参考库、训练状态及观测缓存 |
 | `witty-ub-reports` | `/var/witty-ub/reports` | backend / frontend | 诊断报告（HTML + 侧车 JSON），前端「诊断报告」列表读取 |
 | `witty-ub-builtin-reports` | `/var/witty-ub/builtin-reports` | backend | 内置定界报告的生效压缩包与导入状态（`reports.zip`、`import-state.json`） |
 | `witty-ub-logs` | `/var/log/witty-ub` | 通用 | 应用日志 |
@@ -335,6 +336,9 @@ docker run -d \
 > 报告目录由 `WITTY_REPORT_DIR` 指定（容器内默认 `/var/witty-ub/reports`，与
 > `witty-ub-reports` 卷同路径）。跨机分离部署时前端与后端不共享该卷，前端只能看到
 > 本节点 agent 生成的报告。
+
+分类器模型卷须由后端和 Agent 共享；跨机时须使用同一共享文件系统，
+相同卷名本身不会同步不同宿主机的数据。具体配置见[分类器部署说明](../../deploy/CLASSIFIER_RUNTIME.md)。
 
 ### 升级与历史会话
 

@@ -38,6 +38,10 @@ RUN yum install -y witty-ub-backend && \
     yum clean all && \
     rm -rf /var/cache/yum
 
+RUN test -f /var/witty-ub/classifier-runtime/scripts/default_matching.py && \
+    test -f /var/witty-ub/classifier-runtime/assets/default_label_policy/numeric_classifier.json.gz && \
+    /var/witty-ub/latency/.venv/bin/python -c 'import sklearn'
+
 RUN mkdir -p /var/witty-ub/latency/file/file_upload \
     /var/witty-ub/latency/file/file_parse_result \
     /var/log/witty-ub
@@ -54,7 +58,7 @@ ENV PYTHONPATH=/var/witty-ub
 
 EXPOSE 9772
 
-VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub"]
+VOLUME ["/var/witty-ub/fault_classifier", "/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["/healthcheck.sh"]
@@ -112,7 +116,7 @@ ENV WITTY_ROLE=frontend
 
 EXPOSE 8080 4096
 
-VOLUME ["/var/log/witty-ub", "/root/.local/share/opencode"]
+VOLUME ["/var/witty-ub/fault_classifier", "/var/log/witty-ub", "/root/.local/share/opencode"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["/healthcheck.sh"]
@@ -132,6 +136,10 @@ RUN yum install -y witty-ub gettext nodejs npm python3-jinja2 curl libstdc++ && 
     rm -rf /var/cache/yum
 
 # Create additional directories if not created by RPM
+RUN test -f /var/witty-ub/classifier-runtime/scripts/default_matching.py && \
+    test -f /var/witty-ub/classifier-runtime/assets/default_label_policy/numeric_classifier.json.gz && \
+    /var/witty-ub/latency/.venv/bin/python -c 'import sklearn'
+
 RUN mkdir -p /var/witty-ub/latency/file/file_upload \
     /var/witty-ub/latency/file/file_parse_result \
     /etc/witty-ub/web \
@@ -160,7 +168,7 @@ ENV PYTHONPATH=/var/witty-ub
 
 EXPOSE 8080 9772 4096
 
-VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub", "/root/.local/share/opencode"]
+VOLUME ["/var/witty-ub/fault_classifier", "/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub", "/root/.local/share/opencode"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["/healthcheck.sh"]

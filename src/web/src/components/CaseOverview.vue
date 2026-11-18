@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiBase, request } from '../api/client'
+import ClassifierTrainingBanner from './ClassifierTrainingBanner.vue'
 import {
   deleteDiagnosticReport,
   fetchImportOptions, fetchLabelTaxonomy, fetchReports, importCases, importReportPath, searchDiagCases,
@@ -276,6 +277,8 @@ watch(() => props.refreshToken, () => void load())
         <button v-if="view === 'documents'" class="primary-btn" type="button" aria-haspopup="dialog" :aria-expanded="importDialogOpen" :disabled="importing" @click="toggleImport">导入定界报告</button>
       </div>
     </header>
+
+    <ClassifierTrainingBanner :refresh-token="refreshToken" :operator="operator" />
 
     <Teleport to="body">
       <div v-if="importDialogOpen" class="modal" @click.self="closeImport">

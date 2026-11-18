@@ -103,6 +103,7 @@ def label_report(payload,cases=None,log_dir=None,work_dir=None,api_base=None,cla
     if model is not None and model.get('view')!='numeric_units':
         return _label_legacy_report(payload,cases,log_dir,work_dir,api_base,model)
     result=copy.deepcopy(payload);directory=Path(work_dir);directory.mkdir(parents=True,exist_ok=True)
+    assets_dir=default_matching.model_registry.active_directory() or default_matching.ASSETS
     profile,structured,raw,context=default_matching.observe(payload,log_dir)
     hashes=_write_evidence(directory,'report',profile,structured,raw,context)
     if cases is None and api_base:
@@ -110,7 +111,7 @@ def label_report(payload,cases=None,log_dir=None,work_dir=None,api_base=None,cla
         code=match_cases.main(argv)
         if code:raise ValueError(f'案例库检索失败，exit={code}')
         cases=json.loads((directory/'report.matches.json').read_text())['case_envelopes']
-    matched=default_matching.match(profile,cases,structured,raw,context,model=model,
+    matched=default_matching.match(profile,cases,structured,raw,context,model=model,assets_dir=assets_dir,
                                     query_identities=default_matching.identities(payload))
     (directory/'report.matches.json').write_text(json.dumps(matched,ensure_ascii=False,indent=2)+'\n')
     result['label_matching']=_matching_record(matched,'report','report',hashes,raw)
@@ -126,7 +127,7 @@ def label_report(payload,cases=None,log_dir=None,work_dir=None,api_base=None,cla
             query['log_semantic_profile']=profile['log_semantic_profile'];observed['log']=structured['log']
             stem=f'fault-{index}';fault_hashes=_write_evidence(directory,stem,query,observed,raw,context)
             fault_match=default_matching.match(query,cases,observed,raw,context,allow_classifier=False,
-                fallback_reason='multiple_faults_require_fault_scoped_evidence',
+                fallback_reason='multiple_faults_require_fault_scoped_evidence',assets_dir=assets_dir,
                 query_identities=default_matching.identities(payload))
             _apply_label(target,fault_match,pairs)
             target['label_matching']=_matching_record(fault_match,'fault_profile_with_shared_report_logs',stem,fault_hashes,raw)

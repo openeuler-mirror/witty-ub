@@ -310,3 +310,9 @@ HTTP 413 表示请求体超过限制；本项目默认配置和模板均设为 `
 可能保留旧配置，需要重新部署使模板生效。如果仍然报 413，检查实际加载的配置：
 `sudo nginx -T -c /etc/witty-ub/web/nginx.conf`，并检查外层网关的上传限制。
 20G 为整个请求体上限，包含 multipart 元数据。
+
+## 故障分类器与自动重训
+
+后端和 Agent 统一读取 `/var/witty-ub/fault_classifier/` 的已发布权重。
+后端 RPM 同时安装 `/var/witty-ub/classifier-runtime/` 的初始模型和提取代码，无需安装前端包。
+训练依赖、升级保留规则、跨机器共享目录及验证方式见[分类器部署说明](../../deploy/CLASSIFIER_RUNTIME.md)。

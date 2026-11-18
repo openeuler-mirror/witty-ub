@@ -11,11 +11,11 @@ python3 ../diagnostic-report-generation/scripts/generate_report.py \
 ```
 
 此命令实际提取日志观测，计算新增数值分类器和全特征余弦 K4，并渲染报告。
-不传 `--cases` 时使用 skill 内置的带标签参考库；传入时使用指定候选，
+不传 `--cases` 时使用当前发布版本的带标签参考库（无发布版本时使用内置资源）；传入时使用指定候选，
 `--api-base` 则明确从案例 API 读取候选。渲染器仍执行原报告契约校验。
 `--labels-only` 导出同一路径生成的标签 JSON；`--classifier-model` 仅用于显式覆盖。
 
-默认资源全部在本 skill 的 `assets/default_label_policy/`：
+初始资源在本 skill 的 `assets/default_label_policy/`，后台重训后优先读取共享目录的已发布版本：
 
 | 文件 | 作用 |
 | --- | --- |
@@ -26,7 +26,7 @@ python3 ../diagnostic-report-generation/scripts/generate_report.py \
 运行时不读取 `/home/witty-ub-logs`、仓库根 `scripts/`、GT 或 sklearn，
 也不使用 v6 的 474 套逐折权重；那些权重仅是历史评估记录。
 部署模型是一次全量拟合，不代表有新的独立测试成绩；79.96% 是 v6 的逐折重训数值分类器成绩。
-普通诊断不会训练或更新权重。报告中记录 `model_id` 和真实采用的路径。
+普通诊断不会训练或更新权重；后台重训与诊断请求分开执行。报告中记录 `model_id` 和真实采用的路径。
 
 ## 特征和退化条件
 
@@ -83,5 +83,56 @@ python3 scripts/match_baseline.py --query /tmp/query.json \
 旧的 `fixed_matching.py`、[固定 K4 说明](FIXED_FEATURE_MATCHING.md)保留给历史对照，
 不作为普通报告的默认决策。
 
-部署资源构建、重训和评估在仓库根 `scripts/fault_label_loo/` 维护，
-只有导出的冻结模型/参考库和推理代码进入 skill。更新数据后须离线重建资源，不能在报告流程里自动拟合。
+## 已确认案例变更后的自动训练
+
+后端 `latency.services.fault_classifier` 每 5 秒检查一次有效已确认案例集合。
+确认新增、归档/删除、源报告级联删除以及分类/检验状态变化均可触发；重启后会与持久化指纹核对。
+案例库两版前端顶部展示待训练、训练中、完成、失败或数据不足状态。
+训练期间每秒检查变更；再次变化时终止旧训练子进程，清理未发布产物，立即用最新集合重启。
+高频连续操作可能连续重启，以最终稳定的数据集合为准；旧任务不能覆盖最新结果。
+
+训练数据包含初始 474 个核验来源，以及当前符合条件的已确认来源。
+初始来源与案例按 `kb_id` / 来源名关联后由案例库接管：当前标签覆盖原标签，删除后不再从初始资源复活。
+未被案例库接管的历史核验来源仍保留，因此案例条数不等于训练样本数，删除少量案例也未必低于训练门槛。
+接管身份作为删除记录持久保存；不能只删除模型目录来实现案例删除。
+
+进入训练的新增来源必须同时满足：
+
+- 案例处于有效 `confirmed` 状态，且 `verification_json.closed_loop=true`，一级标签在五类范围内。
+- 源报告仍已确认，快照哈希、故障 ID 和标签与案例一致；多故障报告的相关故障已全部确认。
+- 有可读取的真实日志，或经过哈希验证的同版数值观测旁车；内置来源也可在身份和原始观测指纹完全匹配时复用历史观测。
+
+不从根因、结论或真实标签生成输入特征。缺少检验或观测的案例跳过并在状态中计数。
+同日志内容的别名合并为一个独立来源；同一报告的多个标签共享总权重 1，不以故障条数重复放大样本。
+主模型仍是 `numeric_units`、Logistic C=1、无类别重加权，每次从有效全量样本重新拟合。
+报告生成前的预测与事后确认标签仅作追溯记录；自动训练不生成新的独立测试准确率。
+
+### 数据不足的处理
+
+当前保护门槛：至少 20 个独立来源、至少两类有效标签、每个已出现类别至少 5 个独立来源。
+按去重后的来源计数，多标签来源分别计入其覆盖类别。门槛用于避免明显不适合训练的数据集，不保证准确率。
+低于门槛时不拟合、不沿用包含已删除来源的旧分类器，而是原子发布仅含当前有效来源的 K4 参考库。
+状态为 `insufficient_data`，显示数量与具体不足原因；主推理记录 `insufficient_training_data`，自动退化到全特征余弦 K4。
+参考库也为空或没有可比观测时，保留空标签，明确的用户使用故障码规则仍保留。
+补充符合条件的案例后自动重新判断门槛并训练；不足状态不会循环重试同一集合。
+
+### 发布、失败与部署
+
+模型与参考库写入不可变版本目录，校验通过且案例指纹仍一致后原子切换 `active.json`。
+单次匹配固定同一版本的模型和参考库；版本路径用于缓存，后续匹配自动读取新版本。
+普通训练异常保留上一发布版本，界面提示失败，支持操作人手动重试；同一失败集合不无限重试。
+“数据不足”属于明确退化状态，与训练异常区分。训练期间生成报告仍使用上一发布版本，因此界面建议等待完成。
+
+共享目录优先用绝对路径环境变量 `WITTY_CLASSIFIER_MODEL_DIR`，否则优先为 `${WITTY_DIR}/fault_classifier`；未设置 `WITTY_DIR` 时才兼容回落到 `WITTY_REPORT_DIR` 的同级
+`fault_classifier/`（默认 `/var/witty-ub/fault_classifier`）。各部署启动器均显式导出模型目录，后端和 Agent 必须看到同一目录；
+源码与 RPM 默认同为 `/var/witty-ub/fault_classifier`；RPM/容器后端独立从
+`/var/witty-ub/classifier-runtime` 加载初始模型及提取代码，无需安装前端包。
+Docker 的前后端角色共享持久卷 `witty-ub-classifier-models`。跨机必须挂载同一共享文件系统；
+各部署路径的配置和验证见[分类器部署说明](../../../../deploy/CLASSIFIER_RUNTIME.md)。目录保存：
+`training.json` 状态、`active.json` 指针、`versions/` 模型/参考库、`samples/` 观测缓存、临时 `jobs/`。
+后端依赖 `scikit-learn>=1.5,<2.0`；Agent 推理仅用标准库。PostgreSQL advisory lock 保证多个后端不会重复启动训练。
+`WITTY_CLASSIFIER_AUTO_TRAIN=0` 可暂停后台训练，默认启用。修改部署挂载或依赖后须重建/重启相关服务。
+
+`GET /diag_case_library/classifier/status` 返回状态；
+`POST /diag_case_library/classifier/retrain` 沿用操作人校验用于失败重试。
+仓库根 `scripts/fault_label_loo/` 保留离线资源构建及评估流程；生产自动训练由后端调度，报告流程不拟合。

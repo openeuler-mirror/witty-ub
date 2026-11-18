@@ -6,6 +6,11 @@ After=network.target
 Type=simple
 WorkingDirectory=/var/witty-ub/latency
 Environment=PYTHONPATH=/var/witty-ub
+Environment=WITTY_DIR=/var/witty-ub
+Environment=WITTY_REPORT_DIR=/var/witty-ub/reports
+Environment=WITTY_CLASSIFIER_MODEL_DIR=/var/witty-ub/fault_classifier
+Environment=WITTY_CASE_MATCHING_DIR=/var/witty-ub/classifier-runtime
+EnvironmentFile=-/etc/witty-ub/classifier.env
 ExecStart=/var/witty-ub/latency/deploy/run_backend.sh
 Restart=on-failure
 RestartSec=5
