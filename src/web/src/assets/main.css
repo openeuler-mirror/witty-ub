@@ -6419,10 +6419,12 @@ body.agent-panel-resizing-corner {
   font-size: 1.8rem;
   font-weight: 700;
   letter-spacing: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .detail-description {
-  max-width: 860px;
+  max-width: 100%;
   margin: 8px 0 0;
   border-left: 3px solid var(--primary);
   color: var(--muted);
@@ -6430,6 +6432,7 @@ body.agent-panel-resizing-corner {
   line-height: 1.6;
   padding-left: 10px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .detail-times {
@@ -6444,6 +6447,7 @@ body.agent-panel-resizing-corner {
 
 .detail-actions {
   display: flex;
+  flex-shrink: 0;
   min-height: 112px;
   flex-direction: column;
   justify-content: flex-end;
@@ -8666,6 +8670,10 @@ body.agent-panel-resizing-corner {
   .detail-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .detail-title-block {
+    width: 100%;
   }
 
   .detail-actions {

@@ -35,6 +35,7 @@ function setup({ controlRetryTimers = false } = {}) {
   const failures = new Set()
   const retryTimers = []
   const ref = (value) => ({ value })
+  const assets = ref([])
   const reactive = (value) => value
   const window = {
     location: { href: 'http://localhost/' },
@@ -136,6 +137,7 @@ function setup({ controlRetryTimers = false } = {}) {
     agentConnectionError,
     agentPendingPermissions, agentPendingQuestions, agentQuestionAnswers,
     filteredAgentSessions, sendAgentMessage,
+    getAgentSessionAssetName, agentSessionSearch, isAgentSessionsLoading,
   }`,
   )
   const api = get(
@@ -152,9 +154,9 @@ function setup({ controlRetryTimers = false } = {}) {
     {},
     ref('kb-new'),
     ref({ name: '测试资产' }),
-    ref([]),
+    assets,
   )
-  return { api, sessions, histories, statuses, storage, requests, deferred, failures, retryTimers }
+  return { api, sessions, histories, statuses, storage, requests, deferred, failures, retryTimers, assets }
 }
 
 const flush = () => new Promise((resolve) => setImmediate(resolve))
@@ -274,6 +276,7 @@ test('完成时历史尚未补齐会自动重试，取得最终回答后停止�
     histories.a.push(completionStep)
     await api.connectAgent('')
     await api.openAgentSession({ id: 'a' })
+    const historyRequests = requests.filter((item) => item.path === '/session/a/message').length
     emitAgentEvent(api, 'session.idle', { sessionID: 'a' })
     await flush()
     assert.equal(retryTimers.length, 1)
@@ -282,7 +285,7 @@ test('完成时历史尚未补齐会自动重试，取得最终回答后停止�
     await flush()
     assert.deepEqual(currentAnswer(api), ['诊断结论：网络异常'])
     assert.equal(retryTimers.length, 0)
-    assert.equal(requests.filter((item) => item.path === '/session/a/message').length, 3)
+    assert.equal(requests.filter((item) => item.path === '/session/a/message').length - historyRequests, 2)
   } finally {
     api.closeAgentEventStream()
   }
@@ -319,6 +322,7 @@ test('完成历史暂时失败时重试可以恢复，持续不完整时重试�
     histories.a.push(completionStep)
     await api.connectAgent('')
     await api.openAgentSession({ id: 'a' })
+    const historyRequests = requests.filter((item) => item.path === '/session/a/message').length
     failures.add('GET /session/a/message')
     emitAgentEvent(api, 'session.idle', { sessionID: 'a' })
     await flush()
@@ -336,7 +340,7 @@ test('完成历史暂时失败时重试可以恢复，持续不完整时重试�
       await flush()
     }
     assert.equal(retryTimers.length, 0, '不应无限轮询')
-    assert.ok(requests.filter((item) => item.path === '/session/a/message').length <= 7)
+    assert.ok(requests.filter((item) => item.path === '/session/a/message').length - historyRequests <= 6)
     assert.deepEqual(currentAnswer(api), ['诊断结论：网络异常'])
   } finally {
     api.closeAgentEventStream()
@@ -460,10 +464,132 @@ test('session metadata restores knowledge-base links without localStorage', asyn
   }
 })
 
-test('opening a legacy session backfills its knowledge-base metadata', async () => {
-  const { api, requests } = setup()
-  try {
+test('会话列表自动恢复历史资产库名称并支持搜索，无需打开会话', async () => {
+  const { api, histories, assets, storage, requests } = setup()
+  assets.value = [{ id: 'kb-a', name: '资产库 A' }, { id: 'kb-b', name: '资产库 B' }]
+  histories.b.push({
+    info: { id: 'u-b2', role: 'user' },
+    parts: [{ type: 'text', text: '当前页面选中的知识库 ID 是 kb-b。\n\n问题 B2' }],
+  })
+  await api.connectAgent('')
+  await flush()
+  assert.equal(api.getAgentSessionAssetName('a'), '资产库 A')
+  assert.equal(api.getAgentSessionAssetName('b'), '资产库 B')
+  api.agentSessionSearch.value = '资产库 B'
+  assert.deepEqual(api.filteredAgentSessions.value.map((session) => session.id), ['b'])
+  assert.equal(api.agentSessionId.value, '')
+  assert.deepEqual(api.agentChatMessages.value, [])
+  assert.deepEqual(JSON.parse(storage.get('witty-ub.agent-session-assets:/agent-api')), {
+    a: 'kb-a', b: 'kb-b',
+  })
+  assert.deepEqual(
+    requests.filter((request) => request.method === 'PATCH').map((request) => request.body),
+    [{ metadata: { witty_ub_kb_id: 'kb-a' } }, { metadata: { witty_ub_kb_id: 'kb-b' } }],
+  )
+})
+
+test('会话列表不为已有资产库关联或子会话读取历史', async () => {
+  const { api, sessions, storage, requests } = setup()
+  sessions[0].metadata = { witty_ub_kb_id: 'kb-a' }
+  storage.set('witty-ub.agent-session-assets:/agent-api', JSON.stringify({ b: 'kb-b' }))
+  sessions.push({ id: 'child', parentID: 'a' })
+  await api.connectAgent('')
+  await flush()
+  assert.ok(!requests.some((request) => request.path.endsWith('/message')))
+  assert.equal(api.agentSessionAssetIndex.value.b, 'kb-b')
+})
+
+test('资产库恢复失败不影响其他会话，刷新列表可重试且兼容不支持 metadata 的服务', async () => {
+  const { api, histories, failures, requests } = setup()
+  failures.add('GET /session/a/message')
+  failures.add('PATCH /session/b')
+  histories.b[0].parts[0].text = '当前会话对应的知识库 ID 是 kb-b。\n\n问题 B'
+  await api.connectAgent('')
+  await flush()
+  assert.equal(api.agentSessionAssetIndex.value.a, undefined)
+  assert.equal(api.agentSessionAssetIndex.value.b, 'kb-b')
+  assert.equal(api.agentConnectionError.value, '')
+  failures.delete('GET /session/a/message')
+  await api.loadAgentSessions()
+  await flush()
+  assert.equal(api.agentSessionAssetIndex.value.a, 'kb-a')
+  assert.equal(requests.filter((request) => request.path === '/session/b/message').length, 1)
+  assert.equal(api.agentConnectionError.value, '')
+})
+
+test('资产库恢复限制历史请求并发，不阻塞会话列表展示', async () => {
+  const { api, sessions, deferred, requests } = setup()
+  sessions.splice(0, sessions.length, ...Array.from({ length: 9 }, (_, i) => ({ id: `legacy-${i}` })))
+  const releases = sessions.map((session) => {
+    let release
+    deferred.set(`/session/${session.id}/message`, new Promise((resolve) => { release = resolve }))
+    return () => release([{
+      info: { role: 'user' },
+      parts: [{ type: 'text', text: `当前会话对应的知识库 ID 是 kb-${session.id}。\n\n问题` }],
+    }])
+  })
+  await api.connectAgent('')
+  assert.equal(api.isAgentSessionsLoading.value, false)
+  assert.equal(api.filteredAgentSessions.value.length, 9)
+  assert.equal(requests.filter((request) => request.path.endsWith('/message')).length, 4)
+  releases[0]()
+  await flush()
+  assert.equal(requests.filter((request) => request.path.endsWith('/message')).length, 5)
+  releases.forEach((release) => release())
+  await flush()
+  assert.equal(Object.keys(api.agentSessionAssetIndex.value).length, 9)
+})
+
+test('刷新、切换服务、删除或更新关联后，不应用迟到的资产库恢复结果', async () => {
+  for (const action of ['refresh', 'server', 'delete', 'update']) {
+    const { api, sessions, histories, deferred, requests } = setup()
+    let release
+    deferred.set('/session/a/message', new Promise((resolve) => { release = resolve }))
     await api.connectAgent('')
+    assert.equal(api.isAgentSessionsLoading.value, false)
+    if (action === 'refresh' || action === 'server') {
+      sessions[0].metadata = { witty_ub_kb_id: 'kb-current' }
+      if (action === 'refresh') await api.loadAgentSessions()
+      else await api.connectAgent('http://other-server')
+    } else if (action === 'delete') {
+      api.showAgentSessionDialog('delete', { id: 'a' })
+      await api.submitAgentSessionDialog()
+    } else {
+      emitAgentEvent(api, 'session.updated', {
+        info: { id: 'a', metadata: { witty_ub_kb_id: 'kb-current' } },
+      })
+    }
+    release(histories.a)
+    await flush()
+    assert.equal(api.agentSessionAssetIndex.value.a, action === 'delete' ? undefined : 'kb-current', action)
+    assert.ok(!requests.some((request) => request.method === 'PATCH' && request.path === '/session/a'), action)
+    assert.equal(api.agentSessionId.value, '')
+    assert.deepEqual(api.agentChatMessages.value, [])
+  }
+})
+
+test('迟到的 metadata 回填响应不能覆盖新服务的同名会话', async () => {
+  const { api, sessions, deferred } = setup()
+  let release
+  deferred.set('/session/a', new Promise((resolve) => { release = resolve }))
+  await api.connectAgent('')
+  await flush()
+  assert.equal(api.agentSessionAssetIndex.value.a, 'kb-a')
+  sessions[0].metadata = { witty_ub_kb_id: 'kb-other' }
+  await api.connectAgent('http://other-server')
+  release({ id: 'a', metadata: { witty_ub_kb_id: 'kb-a' } })
+  await flush()
+  assert.equal(api.agentSessionAssetIndex.value.a, 'kb-other')
+  assert.equal(api.agentSessions.value.find((session) => session.id === 'a').metadata.witty_ub_kb_id, 'kb-other')
+})
+
+test('opening a legacy session backfills its knowledge-base metadata', async () => {
+  const { api, requests, failures } = setup()
+  try {
+    failures.add('GET /session/a/message')
+    await api.connectAgent('')
+    await flush()
+    failures.clear()
     await api.openAgentSession({ id: 'a' })
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(api.agentSessionAssetIndex.value.a, 'kb-a')
@@ -597,7 +723,7 @@ test('reconnecting starts with an empty conversation instead of restoring the ac
 })
 
 test('session storage is scoped by server; child agent sessions are hidden', async () => {
-  const { api, sessions } = setup()
+  const { api, sessions, histories } = setup()
   try {
     sessions.push({ id: 'child', parentID: 'a', title: '子任务' })
     await api.connectAgent('')
@@ -605,6 +731,8 @@ test('session storage is scoped by server; child agent sessions are hidden', asy
     assert.equal(api.filteredAgentSessions.value.length, 2)
     // The second server has the same fake session list but no stored metadata.
     delete sessions.find((item) => item.id === 'a').metadata
+    // This server has no matching knowledge-base prefix in its session history.
+    histories.a = []
     await api.connectAgent('http://other-server')
     assert.equal(api.agentSessionId.value, '')
     assert.equal(api.agentSessionAssetIndex.value.a, undefined)

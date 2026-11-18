@@ -1954,6 +1954,8 @@ const setAgentSessionAssetId = (sessionId: string, assetId: string) => {
 const persistAgentSessionKb = async (sessionId: string, assetId: string) => {
   const session = agentSessions.value.find((item) => item.id === sessionId)
   if (!session || !assetId || getAgentSessionKbId(session) === assetId) return
+  const apiBase = agentApiBase.value
+  const authHeader = agentAuthHeader.value
   try {
     const updated = await requestAgentApi<OpenCodeSession>(
       `/session/${encodeURIComponent(sessionId)}`,
@@ -1967,13 +1969,18 @@ const persistAgentSessionKb = async (sessionId: string, assetId: string) => {
         }),
       },
     )
-    if (updated?.id) {
+    if (
+      updated?.id === sessionId &&
+      apiBase === agentApiBase.value &&
+      authHeader === agentAuthHeader.value &&
+      agentSessionAssetIndex.value[sessionId] === assetId
+    ) {
       agentSessions.value = agentSessions.value.map((item) =>
         item.id === updated.id ? { ...item, ...updated } : item,
       )
     }
   } catch {
-    // 老版本 OpenCode 或临时失败：打开会话时仍可用首条 prompt 前缀恢复。
+    // 老版本 OpenCode 或临时失败：仍可从历史消息恢复，并保留本地索引。
   }
 }
 
@@ -1998,6 +2005,36 @@ const restoreAgentSessionAssetIndex = (sessions: OpenCodeSession[]) => {
   }
 }
 
+const recoverAgentSessionAssetIndex = async (sessions: OpenCodeSession[], sequence: number) => {
+  // 旧会话可能既没有 metadata，也没有本地缓存；在列表中后台恢复，无需先打开会话。
+  const pending = sessions.filter(
+    (session) => !session.parentID && !agentSessionAssetIndex.value[session.id],
+  )
+  let cursor = 0
+  const recover = async () => {
+    while (sequence === agentSessionListSequence) {
+      const session = pending[cursor++]
+      if (!session) return
+      if (agentSessionAssetIndex.value[session.id]) continue
+      try {
+        const messages = await requestAgentApi<OpenCodeMessage[]>(
+          `/session/${encodeURIComponent(session.id)}/message`,
+        )
+        // 刷新列表、切换服务或删除会话后，丢弃旧请求，避免覆盖新的关联。
+        if (sequence !== agentSessionListSequence) return
+        if (agentSessionAssetIndex.value[session.id]) continue
+        const assetId = getAgentSessionAssetIdFromMessages(messages)
+        if (!assetId) continue
+        setAgentSessionAssetId(session.id, assetId)
+        void persistAgentSessionKb(session.id, assetId)
+      } catch {
+        // 单个会话失败不影响列表与其他会话，下次刷新列表时重试。
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, pending.length) }, recover))
+}
+
 const indexAgentSession = (sessionId: string) => {
   if (!selectedAssetId.value) return
   const assetId = selectedAssetId.value
@@ -2018,6 +2055,7 @@ const loadAgentSessions = async () => {
     agentSessions.value = sessions
     restoreAgentSessionAssetIndex(sessions)
     agentSessionStatuses.value = statuses
+    void recoverAgentSessionAssetIndex(sessions, sequence)
   } catch (error) {
     if (sequence !== agentSessionListSequence) return
     agentConnectionError.value = error instanceof Error ? error.message : '会话列表加载失败。'
@@ -3236,6 +3274,9 @@ const toFaultAggregatedEventRows = (
 
 const assets = ref<LogKnowledge[]>([])
 const selectedAsset = ref<LogKnowledge | null>(null)
+const selectedAssetDisplayName = computed(() =>
+  (selectedAsset.value?.name ?? '').replace(/([^\r\n]{100})(?=[^\r\n])/gu, '$1\n'),
+)
 const selectedAssetId = ref<string | null>(null)
 let assetSelectionRequestSequence = 0
 watch(selectedAssetId, (nextAssetId, previousAssetId) => {
@@ -5841,12 +5882,13 @@ const getTraceDelayValue = (
   if (!trace) return null
   // 优先从后端明细 raw 读取与 32 项关键时延指标同名的字段
   const raw = trace.raw as Record<string, unknown> | undefined
-  if (raw) {
-    const rawValue = raw[column.key]
-    if (typeof rawValue === 'number' && Number.isFinite(rawValue)) return rawValue
-  }
+  const rawValue = raw?.[column.key]
   const fallback = (trace as Record<string, unknown>)[column.key]
-  return typeof fallback === 'number' && Number.isFinite(fallback) ? fallback : null
+  const value = typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : fallback
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  // 与后端解析口径一致：uint64 上半区是负调度时延回绕后的无效测量值。
+  if (column.key === 'urma_sched_us' && value >= 2 ** 63) return null
+  return value
 }
 
 const hasTruncatedTotalLatency = (trace: TraceDetailRow | null | undefined) => {
@@ -20451,7 +20493,7 @@ onBeforeUnmount(() => {
         <header class="detail-header">
           <div class="detail-title-block">
             <p class="eyebrow">资产库详情</p>
-            <h1>{{ selectedAsset.name }}</h1>
+            <h1>{{ selectedAssetDisplayName }}</h1>
             <p class="detail-description">{{ selectedAsset.description }}</p>
             <div class="detail-times">
               <span>创建时间：{{ displayServerTime(selectedAsset.created_at) }}</span>
