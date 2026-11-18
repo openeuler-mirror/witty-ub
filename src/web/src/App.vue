@@ -5841,12 +5841,13 @@ const getTraceDelayValue = (
   if (!trace) return null
   // 优先从后端明细 raw 读取与 32 项关键时延指标同名的字段
   const raw = trace.raw as Record<string, unknown> | undefined
-  if (raw) {
-    const rawValue = raw[column.key]
-    if (typeof rawValue === 'number' && Number.isFinite(rawValue)) return rawValue
-  }
+  const rawValue = raw?.[column.key]
   const fallback = (trace as Record<string, unknown>)[column.key]
-  return typeof fallback === 'number' && Number.isFinite(fallback) ? fallback : null
+  const value = typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : fallback
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  // 与后端解析口径一致：uint64 上半区是负调度时延回绕后的无效测量值。
+  if (column.key === 'urma_sched_us' && value >= 2 ** 63) return null
+  return value
 }
 
 const hasTruncatedTotalLatency = (trace: TraceDetailRow | null | undefined) => {
