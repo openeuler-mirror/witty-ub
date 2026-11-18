@@ -89,7 +89,7 @@ html { -webkit-text-size-adjust: 100%; }
 .pnode-order { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--brand); color: var(--white); font-size: 11px; font-weight: 700; flex-shrink: 0; }
 .pnode.origin .pnode-order { background: var(--danger); }
 .pnode.impact .pnode-order { background: var(--warning); }
-.pnode-label { font-size: 13px; font-weight: 700; color: var(--gray-900); }
+.pnode-label { font-size: 13px; font-weight: 700; color: var(--gray-900); flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .pnode.origin .pnode-label { color: var(--danger); }
 .pnode.impact .pnode-label { color: var(--warning); }
 .pnode-tag.tag-origin { background: var(--danger); color: var(--white); }
@@ -563,7 +563,7 @@ body {  font-family: var(--font-sans);
 .pnode { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--card); transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); border-color: var(--hairline); box-shadow: none; }
 .pnode:hover { border-color: var(--hairline); box-shadow: none; }
 .pnode-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 46px; padding: 10px 14px; }
-.pnode-detail { font-size: 11.5px; color: var(--gray-500); font-family: var(--font-mono); overflow-wrap: anywhere; flex: 1; }
+.pnode-detail { padding: 10px 14px; font-size: 11.5px; color: var(--gray-500); font-family: var(--font-mono); line-height: 1.6; overflow-wrap: anywhere; }
 .pnode-tag { margin-left: auto; font-size: 10.5px; font-weight: 600; padding: 2px 10px; border-radius: 999px; flex-shrink: 0; white-space: nowrap; border: 1px solid transparent; }
 .pnode-tag.tag-mid { color: var(--info); border-color: #d9e4ff; background: #f1f5ff; }
 
@@ -1398,9 +1398,9 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
         <div class="pnode-head">
           <span class="pnode-order">{{ ns.order }}</span>
           <span class="pnode-label">{{ node.label }}</span>
-          {% if node.detail %}<span class="pnode-detail">{{ node.detail }}</span>{% endif %}
           <span class="pnode-tag tag-{{ node.type or 'mid' }}">{% if node.tag %}{{ node.tag }}{% elif node.type == 'origin' %}故障源头{% elif node.type == 'impact' %}业务影响{% else %}传播环节{% endif %}</span>
         </div>
+        {% if node.detail %}<div class="pnode-detail">{{ node.detail }}</div>{% endif %}
       </div>
       {% if node.branches %}
       <div class="pfork">
@@ -1419,9 +1419,9 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
               <div class="pnode-head">
                 <span class="pnode-order">{{ ['a','b','c','d','e','f','g','h'][ns.bo - 1] }}</span>
                 <span class="pnode-label">{{ sub.label }}</span>
-                {% if sub.detail %}<span class="pnode-detail">{{ sub.detail }}</span>{% endif %}
                 <span class="pnode-tag tag-{{ sub.type or 'mid' }}">{% if sub.tag %}{{ sub.tag }}{% elif sub.type == 'origin' %}故障源头{% elif sub.type == 'impact' %}业务影响{% else %}传播环节{% endif %}</span>
               </div>
+              {% if sub.detail %}<div class="pnode-detail">{{ sub.detail }}</div>{% endif %}
             </div>
             {% if not loop.last %}
             <div class="pconn">
