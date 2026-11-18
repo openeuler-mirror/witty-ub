@@ -65,6 +65,7 @@ from latency.exceptions import (
 )
 from latency.config import phenomenon as phenomenon_settings
 from latency.services.phenomenon_index import PhenomenonIndexService
+from latency.services.fault_classifier import FaultClassifierService
 from pydantic import ValidationError
 
 
@@ -118,6 +119,7 @@ async def lifespan(app: fastapi.FastAPI):
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(FaultClassifierService.tick,'interval',seconds=5,max_instances=1,coalesce=True)
     scheduler.start()
 
     if phenomenon_settings.index_enabled():

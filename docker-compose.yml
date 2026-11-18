@@ -73,6 +73,7 @@ services:
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
       # 诊断报告（agent 生成，前端「诊断报告」列表读取）
       - witty-ub-reports:/var/witty-ub/reports
+      - witty-ub-classifier-models:/var/witty-ub/fault_classifier
       # 内置定界报告：镜像种子按哈希同步到此卷并导入，换镜像即替换内容
       - witty-ub-builtin-reports:/var/witty-ub/builtin-reports
       # OpenCode 配置与会话数据：会话历史、登录凭据、会话与知识库关联
@@ -128,6 +129,7 @@ services:
       - witty-ub-results:/var/witty-ub/latency/file/file_parse_result
       # 诊断报告：后端读卷提供 /diagnostic_report 列表与报告下发
       - witty-ub-reports:/var/witty-ub/reports
+      - witty-ub-classifier-models:/var/witty-ub/fault_classifier
       # 内置定界报告：镜像种子按哈希同步到此卷并导入，换镜像即替换内容
       - witty-ub-builtin-reports:/var/witty-ub/builtin-reports
     secrets:
@@ -175,6 +177,7 @@ services:
       - witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data
       # 诊断报告：本节点 agent 生成报告落此卷（跨机分离部署不共享，见设计文档）
       - witty-ub-reports:/var/witty-ub/reports
+      - witty-ub-classifier-models:/var/witty-ub/fault_classifier
     environment:
       - WITTY_ROLE=frontend
       # 容器网络内经服务名访问后端
@@ -212,6 +215,9 @@ volumes:
   witty-ub-reports:
     driver: local
     name: witty-ub-reports
+  witty-ub-classifier-models:
+    driver: local
+    name: witty-ub-classifier-models
   witty-ub-builtin-reports:
     driver: local
     name: witty-ub-builtin-reports

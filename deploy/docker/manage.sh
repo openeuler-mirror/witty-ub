@@ -596,7 +596,7 @@ do_uninstall_all() {
     echo ""
     log_warn "About to delete:"
     echo "  - Containers: ${WITTY_CONTAINER}, ${WITTY_BACKEND_CONTAINER} (split), ${WITTY_FRONTEND_CONTAINER} (split), ${RAG_CORE_CONTAINER}, ${RAG_DB_CONTAINER}, ${PG_CONTAINER}"
-    echo "  - Volumes: witty-ub-data, witty-ub-case, witty-ub-logs, witty-ub-uploads, witty-ub-results, witty-ub-reports, witty-ub-builtin-reports, witty-ub-experience-data, ${OPENCODE_DATA_VOLUME}, ${RAG_DB_VOLUME}, ${PG_VOLUME}"
+    echo "  - Volumes: witty-ub-data, witty-ub-case, witty-ub-logs, witty-ub-uploads, witty-ub-results, witty-ub-reports, witty-ub-builtin-reports, witty-ub-experience-data, witty-ub-classifier-models, ${OPENCODE_DATA_VOLUME}, ${RAG_DB_VOLUME}, ${PG_VOLUME}"
     if [ "$scope" = "2" ]; then
         echo "  - Images: images used by the containers above"
     fi
@@ -627,7 +627,7 @@ do_uninstall_all() {
     done
 
     # 删除所有数据卷
-    for v in witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports witty-ub-builtin-reports witty-ub-experience-data "$OPENCODE_DATA_VOLUME" "$RAG_DB_VOLUME" "$PG_VOLUME"; do
+    for v in witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports witty-ub-builtin-reports witty-ub-experience-data witty-ub-classifier-models "$OPENCODE_DATA_VOLUME" "$RAG_DB_VOLUME" "$PG_VOLUME"; do
         if volume_exists "$v"; then
             log_info "Removing volume: $v"
             docker volume rm "$v" &>/dev/null

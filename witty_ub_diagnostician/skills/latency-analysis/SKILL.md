@@ -10,7 +10,7 @@ compatibility: >
   Requires HTTP API access to FastAPI backend on port 9772 via bash curl.
 metadata:
   author: witty-ub-diagnostician
-  version: "2.3"
+  version: "2.7"
   keywords: [时延分析, 高时延, P99, 延迟升高, 慢查询, KVC, 分布式缓存, 时间窗口, IP对聚合, GET, SET, 读写分离, RPC阶段, bRPC]
 allowed-tools: >
   Bash(curl:*) Bash(cd:*) Bash(python3:*)
@@ -18,6 +18,17 @@ allowed-tools: >
 ---
 
 # 时延异常诊断 (Latency Analysis)
+
+用于增强案例匹配时，将已取得的GET/SET独立请求/响应交给报告skill的
+`latency_features.py`，保留operation、bucket_key、metric_name、计数、样本/截断信息及来源。
+不要把桶请求占比说成物理耗时比例，也不要补造P99、健康baseline或SET内部细分。
+匹配和报告标签统一使用
+[固定特征匹配方案](../case-matching/references/FIXED_FEATURE_MATCHING.md)。
+保留 GET/SET 独立观测、计数分母、完整性及来源；将原始日志交给共用导出器生成
+基线、`.structured.json`和`.raw.json`，由固定特征评分和 K4 投票选择一级标签。
+不让 Agent 手写另一套权重或按报告目录选择算法，缺失观测保持未知。
+传输/回退、actor及同trace事件先后须来自原始日志，日志缺席不算反证。
+容器生命周期、磁盘/OOM等只有取得独立事件或指标并核对来源后才作为显式事实传入。
 
 引导 Agent 按**四阶段流程**顺序调用 HTTP API 的时延类接口，
 从广度扫描到深度下钻，避免在海量日志中盲目查询。

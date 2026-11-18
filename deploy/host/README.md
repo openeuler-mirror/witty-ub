@@ -287,3 +287,8 @@ journalctl --user -u witty-ub-frontend.service -f
 - [手动源码部署](../../docs/deployment/06-source.md)
 - [手动 RPM 部署](../../docs/deployment/07-rpm.md)
 - [手动容器部署](../../docs/deployment/08-container.md)
+
+## 故障分类器与自动重训
+
+后端和 Agent 统一读取 `/var/witty-ub/fault_classifier/` 的已发布权重。
+训练依赖、升级保留规则、跨机器共享目录及验证方式见[分类器部署说明](../CLASSIFIER_RUNTIME.md)。

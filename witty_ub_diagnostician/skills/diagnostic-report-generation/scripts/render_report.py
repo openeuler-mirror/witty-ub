@@ -260,6 +260,16 @@ def _check_fault_labels(path, conclusion, errors, warnings):
             )
 
 
+def _check_fixed_label(path, target, errors):
+    matching = target.get('label_matching') or {}
+    if matching.get('policy') not in ('numeric-units-classifier-cosine-fallback-v1','all-feature-vote-v1','all-feature-classifier-v1','fixed-feature-vote-v1', 'fixed-features-v1'):
+        return
+    expected = (matching.get('decision') or {}).get('label')
+    actual = (target.get('conclusion') or {}).get('first_level_label')
+    if actual!=expected:
+        errors.append(f'{path}.conclusion.first_level_label: 必须与标签选择策略的 decision.label 一致')
+
+
 def _check_evidence_traces(path, traces, errors, warnings):
     """证据锚点校验：可选键，缺省 / null / [] 一律视为零锚点（不产生任何提示）。"""
     if traces is None:
@@ -644,6 +654,7 @@ def validate(data) -> tuple[list[str], list[str]]:
             errors.append("faults / conclusion: 二者必须至少提供一个（单故障可用扁平 conclusion）")
         else:
             _check_fault_labels("conclusion", data["conclusion"], errors, warnings)
+            _check_fixed_label('report', data, errors)
             _check_evidence_traces("evidence_traces", data.get("evidence_traces"), errors, warnings)
         _check_latency("latency", data.get("latency"), errors)
         errors.extend(f"error: {message}" for message in validate_error(data.get("error")))
@@ -720,6 +731,7 @@ def validate(data) -> tuple[list[str], list[str]]:
             if not isinstance(f.get("conclusion"), dict):
                 errors.append(f"{p}.conclusion: 必填对象（一句话结论/故障域/影响面）")
             _check_fault_labels(f"{p}.conclusion", f.get("conclusion"), errors, warnings)
+            _check_fixed_label(p, f, errors)
             _check_enum(f"{p}.role", f.get("role"), ROLE_ENUM, errors)
             _check_enum(f"{p}.status", f.get("status"), STATUS_ENUM, errors)
             _check_enum(f"{p}.severity", f.get("severity"), SEVERITY_ENUM, errors)

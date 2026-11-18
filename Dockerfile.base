@@ -81,6 +81,7 @@ RUN python3 -m venv /var/witty-ub/latency/.venv && \
     sqlalchemy==2.0.51 \
     asyncpg==0.31.0 \
     "numpy>=1.26.0,<3.0.0" \
+    "scikit-learn>=1.5,<2.0" \
     "polars>=1.44.2,<2.0" && \
     rm -rf /root/.cache/pip
 
@@ -148,6 +149,7 @@ RUN python3 -m venv /var/witty-ub/latency/.venv && \
     sqlalchemy==2.0.51 \
     asyncpg==0.31.0 \
     "numpy>=1.26.0,<3.0.0" \
+    "scikit-learn>=1.5,<2.0" \
     "polars>=1.44.2,<2.0" && \
     rm -rf /root/.cache/pip
 

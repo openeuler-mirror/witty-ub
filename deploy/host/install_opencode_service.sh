@@ -30,6 +30,9 @@ UNIT_NAME="witty-ub-opencode.service"
 UNIT_SRC="$SCRIPT_DIR/systemd/$UNIT_NAME"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 export WITTY_API_BASE="${WITTY_API_BASE:-http://127.0.0.1:9772}"
+export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
+export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-$WITTY_DIR/reports}"
+export WITTY_CLASSIFIER_MODEL_DIR="${WITTY_CLASSIFIER_MODEL_DIR:-$WITTY_DIR/fault_classifier}"
 export WITTY_NO_PROXY="${WITTY_NO_PROXY:-127.0.0.1}"
 
 log() { echo "[opencode-service] $*"; }
@@ -61,9 +64,13 @@ do_install() {
     systemd_user_available || die "systemctl --user 不可用（需 systemd-pam 且已 enable-linger）"
     [ -f "$UNIT_SRC" ] || die "单元模板缺失: $UNIT_SRC"
     local bin
+    mkdir -p "$WITTY_CLASSIFIER_MODEL_DIR" "$WITTY_REPORT_DIR"
     bin="$(detect_opencode)"
     mkdir -p "$UNIT_DIR"
     sed -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
+        -e "s|__WITTY_DIR__|$WITTY_DIR|g" \
+        -e "s|__WITTY_REPORT_DIR__|$WITTY_REPORT_DIR|g" \
+        -e "s|__WITTY_CLASSIFIER_MODEL_DIR__|$WITTY_CLASSIFIER_MODEL_DIR|g" \
         -e "s|__OPENCODE_BIN__|$bin|g" \
         -e "s|__WITTY_API_BASE__|$WITTY_API_BASE|g" \
         -e "s|__WITTY_NO_PROXY__|$WITTY_NO_PROXY|g" \

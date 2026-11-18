@@ -33,6 +33,13 @@ FROM ${BASE_IMAGE_BACKEND} AS backend
 LABEL maintainer="witty-ub"
 LABEL description="Witty-UB backend image (FastAPI + C++ diagnosis tools)"
 
+# Backend owns its classifier runtime; it does not require the frontend Agent bundle.
+COPY witty_ub_diagnostician/skills/case-matching/scripts/ /var/witty-ub/classifier-runtime/scripts/
+COPY witty_ub_diagnostician/skills/case-matching/assets/ /var/witty-ub/classifier-runtime/assets/
+# Refresh ML dependencies even when building on an older cached base image.
+RUN /var/witty-ub/latency/.venv/bin/pip install --no-cache-dir \
+    --index-url https://repo.huaweicloud.com/repository/pypi/simple/ 'scikit-learn>=1.5,<2.0'
+
 COPY witty_ub_diagnostician/skills/diagnostic-report-generation/ /usr/share/witty-ub/report-generation/
 # Built-in report archive: shipping a new image with different content is what
 # replaces and reloads the packaged reports.
@@ -94,7 +101,7 @@ ENV WITTY_ROLE=backend
 
 EXPOSE 9772
 
-VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/witty-ub/builtin-reports", "/var/log/witty-ub"]
+VOLUME ["/var/witty-ub/fault_classifier", "/var/witty-ub/data", "/var/witty-ub/case", "/var/witty-ub/builtin-reports", "/var/log/witty-ub"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["/healthcheck.sh"]
@@ -143,7 +150,7 @@ ENV WITTY_ROLE=frontend
 
 EXPOSE 8080 4096
 
-VOLUME ["/var/log/witty-ub", "/root/.local/share/opencode"]
+VOLUME ["/var/witty-ub/fault_classifier", "/var/log/witty-ub", "/root/.local/share/opencode"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["/healthcheck.sh"]
@@ -160,6 +167,13 @@ LABEL description="Witty-UB: Fault localization tool for superpods with Lingqu(U
 
 # Built-in report import renders through the report-generation Skill, and the
 # archive ships in the image so a new image replaces the packaged reports.
+# Backend owns its classifier runtime; it does not require the frontend Agent bundle.
+COPY witty_ub_diagnostician/skills/case-matching/scripts/ /var/witty-ub/classifier-runtime/scripts/
+COPY witty_ub_diagnostician/skills/case-matching/assets/ /var/witty-ub/classifier-runtime/assets/
+# Refresh ML dependencies even when building on an older cached base image.
+RUN /var/witty-ub/latency/.venv/bin/pip install --no-cache-dir \
+    --index-url https://repo.huaweicloud.com/repository/pypi/simple/ 'scikit-learn>=1.5,<2.0'
+
 COPY witty_ub_diagnostician/skills/diagnostic-report-generation/ /usr/share/witty-ub/report-generation/
 COPY data/builtin-reports/builtin-diagnostic-reports.zip /usr/share/witty-ub/builtin-reports/reports.zip
 ENV WITTY_REPORT_RENDERER=/usr/share/witty-ub/report-generation/scripts/render_report.py \
@@ -251,7 +265,7 @@ RUN chmod +x /entrypoint.sh /healthcheck.sh /usr/local/bin/migrate_opencode_sess
 EXPOSE 8080 9772 4096
 
 # Volumes for persistent data
-VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/witty-ub/builtin-reports", "/var/log/witty-ub", "/root/.local/share/opencode"]
+VOLUME ["/var/witty-ub/fault_classifier", "/var/witty-ub/data", "/var/witty-ub/case", "/var/witty-ub/builtin-reports", "/var/log/witty-ub", "/root/.local/share/opencode"]
 
 # Health check (role-aware: frontend probes the remote backend)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

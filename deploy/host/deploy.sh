@@ -353,6 +353,23 @@ prepare_runtime_diagnosis_config() {
     sync_pg_credentials
 }
 
+# 后端训练与 Agent 共用独立的可写运行目录；重新部署不清理已发布模型。
+prepare_classifier_storage() {
+    local RUNTIME_DIR="${WITTY_DIR:-/var/witty-ub}"
+    export WITTY_DIR="$RUNTIME_DIR"
+    export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-$RUNTIME_DIR/reports}"
+    export WITTY_CLASSIFIER_MODEL_DIR="${WITTY_CLASSIFIER_MODEL_DIR:-$RUNTIME_DIR/fault_classifier}"
+    case "$WITTY_CLASSIFIER_MODEL_DIR" in
+        /*) ;;
+        *) _err "WITTY_CLASSIFIER_MODEL_DIR 必须是绝对路径"; return 1 ;;
+    esac
+    local SUDO=""
+    _is_root || SUDO="sudo"
+    $SUDO mkdir -p "$WITTY_CLASSIFIER_MODEL_DIR" "$WITTY_REPORT_DIR"
+    $SUDO chown "$(id -u):$(id -g)" "$WITTY_CLASSIFIER_MODEL_DIR" "$WITTY_REPORT_DIR"
+    $SUDO chmod 0750 "$WITTY_CLASSIFIER_MODEL_DIR"
+}
+
 # ──────────────────── systemd user units ────────────────────
 
 # systemctl --user 是否可用。user 会话强依赖 pam_systemd.so
@@ -387,6 +404,8 @@ install_systemd_units() {
     if [ "$WITTY_ROLE" != "frontend" ]; then
         sed -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
             -e "s|__WITTY_DIR__|$SYS_WITTY_DIR|g" \
+            -e "s|__WITTY_REPORT_DIR__|${WITTY_REPORT_DIR:-$SYS_WITTY_DIR/reports}|g" \
+            -e "s|__WITTY_CLASSIFIER_MODEL_DIR__|${WITTY_CLASSIFIER_MODEL_DIR:-$SYS_WITTY_DIR/fault_classifier}|g" \
             "$UNIT_SRC/witty-ub-backend.service" >"$UNIT_DIR/witty-ub-backend.service"
         UNITS+=(witty-ub-backend.service)
     fi
@@ -488,6 +507,7 @@ start_services() {
     local WEB_DIR="$PROJECT_DIR/src/web"
 
     mkdir -p "$LOG_DIR"
+    prepare_classifier_storage
 
     if [ "$WITTY_ROLE" != "frontend" ]; then
         prepare_runtime_diagnosis_config
@@ -922,6 +942,20 @@ clean_all() {
         fi
     else
         _warn "PostgreSQL 未连接，跳过清库 (检查 deploy.conf 或 PG_HOST/PG_PORT_RPM 环境变量)"
+    fi
+
+    # 分类器由后端维护；前端清理不能删掉共享目录中的后端模型。
+    if [ "$WITTY_ROLE" != "frontend" ]; then
+        local MODEL_DIR="${WITTY_CLASSIFIER_MODEL_DIR:-${WITTY_DIR:-/var/witty-ub}/fault_classifier}"
+        local MODEL_SUDO=""
+        _is_root || MODEL_SUDO="sudo"
+        case "$MODEL_DIR" in
+            /*)
+                $MODEL_SUDO rm -f -- "$MODEL_DIR/active.json" "$MODEL_DIR/training.json"
+                $MODEL_SUDO rm -rf -- "$MODEL_DIR/versions" "$MODEL_DIR/samples" "$MODEL_DIR/jobs"
+                ;;
+            *) _warn "模型目录不是绝对路径，跳过清理: $MODEL_DIR" ;;
+        esac
     fi
 
     # 3. 清 /var/witty-ub

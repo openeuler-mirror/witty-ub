@@ -196,7 +196,7 @@ class ErrorFeaturesTest(unittest.TestCase):
         error["conclusion"] = "<script>unsafe</script>"
         data = report_data(error)
         flat = {k: v for k, v in data.items() if k != "faults"}
-        flat.update(conclusion={}, error=deepcopy(error))
+        flat.update(conclusion={"first_level_label":None,"second_level_label":None}, error=deepcopy(error))
         multi = deepcopy(data)
         multi["faults"].append({**deepcopy(data["faults"][0]), "id": "F02", "role": "independent", "error": error_block()})
         multi["incident_summary"] = {"one_line_conclusion": "两个合成故障", "fault_count": 2}

@@ -99,5 +99,8 @@ export WITTY_INSTALL_PATH="${WITTY_INSTALL_PATH:-$PROJECT_DIR/build/src}"
 # 报告正文目录：内置报告导入与后端读盘必须指向同一处。
 export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
 export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-$WITTY_DIR/reports}"
+export WITTY_CLASSIFIER_MODEL_DIR="${WITTY_CLASSIFIER_MODEL_DIR:-$WITTY_DIR/fault_classifier}"
+export WITTY_CASE_MATCHING_DIR="${WITTY_CASE_MATCHING_DIR:-$PROJECT_DIR/witty_ub_diagnostician/skills/case-matching}"
+mkdir -p "$WITTY_CLASSIFIER_MODEL_DIR"
 
 exec "$LATENCY_DIR/.venv/bin/python" -u "$LATENCY_DIR/access/fastapi_server.py"

@@ -17,5 +17,11 @@ if [ -z "${PG_PASSWORD:-}" ]; then
     export PG_PASSWORD
 fi
 
+export WITTY_DIR="${WITTY_DIR:-/var/witty-ub}"
+export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-$WITTY_DIR/reports}"
+export WITTY_CLASSIFIER_MODEL_DIR="${WITTY_CLASSIFIER_MODEL_DIR:-$WITTY_DIR/fault_classifier}"
+export WITTY_CASE_MATCHING_DIR="${WITTY_CASE_MATCHING_DIR:-$WITTY_DIR/classifier-runtime}"
+mkdir -p "$WITTY_CLASSIFIER_MODEL_DIR"
+
 exec /var/witty-ub/latency/.venv/bin/python \
     /var/witty-ub/latency/access/fastapi_server.py
