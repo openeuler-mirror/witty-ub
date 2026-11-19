@@ -296,6 +296,25 @@ class LogSemanticProfileMsg(BaseModel):
 class LogSemanticProfileResponse(ResponseBase):
     result: LogSemanticProfileMsg = Field(..., description="日志语义码轮廓响应结果")
 
+class MamiFaultScanMsg(BaseModel):
+    found: bool = Field(default=False, description="该资产是否存在 mami 扫描结果")
+    log_id: Optional[str] = Field(default=None, description="命中的日志文件ID")
+    covered: Optional[bool] = Field(
+        default=None,
+        description="故障窗口三态：True=由失败trace界定；None=退回运行期；False=无窗口",
+    )
+    window_start: Optional[str] = Field(default=None, description="故障窗口开始时间")
+    window_end: Optional[str] = Field(default=None, description="故障窗口结束时间")
+    mami_files_found: int = Field(default=0, description="命中 mami 文件数")
+    event_count: int = Field(default=0, description="窗口内 mami 事件总数")
+    hardware_event_count: int = Field(default=0, description="窗口内硬件故障事件数")
+    hardware_hit: bool = Field(default=False, description="是否存在硬件故障信号")
+    signals: list[str] = Field(default_factory=list, description="去重后的硬件故障信号")
+    categories: list[str] = Field(default_factory=list, description="去重后的硬件故障类别")
+
+class MamiFaultScanResponse(ResponseBase):
+    result: MamiFaultScanMsg = Field(..., description="mami 硬件故障扫描汇总响应结果")
+
 class ListTraceFailureEventResultMsg(BaseModel):
     total: int = Field(..., description="符合条件的trace解析结果总数")
     trace_failure_event_results: list[TraceFailureEventModel] = Field(

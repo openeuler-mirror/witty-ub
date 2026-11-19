@@ -202,6 +202,36 @@ LOG_SEMANTIC_NOISE_RE = re.compile(r"^(?:[Tc]:)?[0-9A-Fa-f]{16,}$")
 LOG_SEMANTIC_PRIOR_ENABLED = False
 LOG_SEMANTIC_PRIOR_WEIGHT = 0.2
 
+# v3.0 mami 硬件故障通道（查询侧加性通道，D 通道）：与错误码→故障域先验
+# `_domain_prior` 同构——查询侧信号预测出一级标签（硬件故障），命中该标签的候选
+# 加性加分，不改判、不重排其他候选。
+#
+# 数据只在查询侧：候选案例库无 mami 事实（解析期才落库），故只能「查询侧 mami 硬件
+# 信号 → 预测一级标签=硬件故障 → 命中该标签的候选加分」。
+# 三态语义：只有 `hardware_hit=True`（窗口内确有 RAS 中断 / UB link 翻转 / 端口管理
+# ERROR）才加分；`False`/`unknown`（无扫描结果）**绝不作为负证据**（不减分）。
+MAMI_ENABLED = True
+MAMI_WEIGHT = 0.3
+MAMI_FIRST_LEVEL = "硬件故障"
+
+
+def _fetch_mami_scan(api_base: str, params: dict, timeout: int) -> dict:
+    """按资产向后端查询 mami 硬件故障扫描汇总；失败返回 {}（不阻断检索）。
+
+    ``params`` 传 kb_name / log_id / kb_id（非空项）。返回后端 ``resolve_mami_scan``
+    的结构（found/covered/hardware_hit/signals/categories/…）。
+    """
+    url = api_base.rstrip("/") + "/mami_fault_event/query"
+    body = {k: v for k, v in params.items() if v}
+    if not body:
+        return {}
+    try:
+        resp = _http_json(url, body, timeout)
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError):
+        return {}
+    result = resp.get("result") if isinstance(resp, dict) else None
+    return result if isinstance(result, dict) else {}
+
 
 def _log_semantic_asset() -> dict:
     """懒加载日志语义码轮廓资产；缺失或损坏时返回空（通道自动关闭，不影响其余打分）。"""
@@ -852,6 +882,14 @@ def _rerank(matches: list[dict], soft: dict, query_text: str = "") -> list[dict]
                             row["score_norm"] = round(
                                 row["score_norm"] + LOG_SEMANTIC_PRIOR_WEIGHT * sem_prob, 4
                             )
+    # v3.0 mami 硬件故障通道（查询侧加性通道）：查询侧窗口内有硬件故障信号时，
+    # 对一级标签=硬件故障的候选加性加分（与 _domain_prior 同构，同为排序前注入）。
+    mami = soft.get("mami") or {}
+    if MAMI_ENABLED and mami.get("hardware_hit"):
+        for row in rows:
+            row["mami_hit"] = True
+            if row["first_level_label"] == MAMI_FIRST_LEVEL:
+                row["score_norm"] = round(row["score_norm"] + MAMI_WEIGHT, 4)
     rows.sort(
         key=lambda item: (
             item["score_norm"],
@@ -1025,6 +1063,8 @@ def _mark_hit(
 
 
 def main(argv: list[str] | None = None) -> int:
+    global LOG_SEMANTIC_ENABLED, LOG_SEMANTIC_IDF, LOG_SEMANTIC_PRIOR_ENABLED, OPERATION_FILTER_ENABLED
+    global MAMI_ENABLED, MAMI_WEIGHT
     parser = argparse.ArgumentParser(description="历史诊断案例检索（case-matching Skill）")
     parser.add_argument("features", nargs="?", help="现场特征 JSON 路径（步骤 2）")
     parser.add_argument("--local-cases", help="本地固定方案入口；features为观测profile，参数为候选信封JSON")
@@ -1048,8 +1088,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--timeout", type=int, default=30, help="单次请求超时（秒），默认 30")
     parser.add_argument("--json", dest="json_out", help="候选结果落盘路径")
+    parser.add_argument(
+        "--no-mami",
+        action="store_true",
+        help="关闭 mami 硬件故障通道（默认开启：查询侧窗口内有硬件信号时给硬件故障候选加分）",
+    )
+    parser.add_argument(
+        "--mami-weight",
+        type=float,
+        default=MAMI_WEIGHT,
+        help=f"mami 通道加分权重，默认 {MAMI_WEIGHT}",
+    )
     args = parser.parse_args(argv)
-    global OPERATION_FILTER_ENABLED
+    if args.no_mami:
+        MAMI_ENABLED = False
+    MAMI_WEIGHT = args.mami_weight
     OPERATION_FILTER_ENABLED = args.operation_filter
 
     if args.hit:
@@ -1108,6 +1161,26 @@ def main(argv: list[str] | None = None) -> int:
                 soft["log_semantic_profile"] = profile
                 label = params.get("kb_name") or params.get("log_id") or params.get("kb_id")
                 print(f"已按资产 {label} 现算日志语义码轮廓（{len(profile)} 个语义项）")
+
+    # 查询侧 mami 硬件故障扫描：按资产向后端查询窗口内是否有硬件故障信号。
+    if MAMI_ENABLED:
+        label = soft.get("kb_name") or soft.get("log_id") or features.get("kb_id")
+        params = {
+            "kb_name": soft.get("kb_name"),
+            "log_id": soft.get("log_id"),
+            "kb_id": features.get("kb_id"),
+        }
+        if any(params.values()):
+            scan = _fetch_mami_scan(args.api_base, params, args.timeout)
+            if scan.get("hardware_hit"):
+                soft["mami"] = scan
+                print(
+                    f"已按资产 {label} 命中 mami 硬件故障信号"
+                    f"（hw={scan.get('hardware_event_count')}，"
+                    f"signals={','.join(scan.get('signals') or []) or '-'}）"
+                )
+            elif scan.get("found"):
+                print(f"资产 {label} 有 mami 扫描但窗口内无硬件故障信号（不加分）")
 
     query["page_cnt"] = args.page_cnt
     try:
@@ -1186,8 +1259,14 @@ def main(argv: list[str] | None = None) -> int:
                               (['kb_id:'+str(case['kb_id'])] if case.get('kb_id') else []),
                           'all_context_vector':case.get('all_context_vector'),
                           'second_level_label': case.get('second_level_label')})
+    # mami 硬件故障通道接入 default_matching 决策链路：查询侧命中硬件信号（见上方扫描块）
+    # 时，对 first_level_label=硬件故障 的候选加性加分并覆盖最终决策。
+    # --no-mami / --mami-weight 0 时该分支自然不触发。
+    mami_scan = soft.get("mami") or {}
+    mami_hit = bool(mami_scan.get("hardware_hit"))
     try:
-        result = default_match(query_profile,envelopes,query_observed,raw_observed,query_context)
+        result = default_match(query_profile,envelopes,query_observed,raw_observed,query_context,
+                               mami_hit=mami_hit,mami_weight=MAMI_WEIGHT)
     except ValueError as error:
         parser.error(str(error))
     # Historical prose and case popularity are display metadata only. Both
@@ -1229,6 +1308,7 @@ def main(argv: list[str] | None = None) -> int:
                     ),
                     "recall_query": query,
                     "soft_features": scoring_soft,
+                    "mami_scan": scoring_soft.get("mami"),
                     "api_total": payload["total"],
                     "excluded_control_plane": dropped,
                     "candidates": rows,

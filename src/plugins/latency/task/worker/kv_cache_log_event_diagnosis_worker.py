@@ -390,7 +390,9 @@ class KVCacheLogEventDiagnosisWorker(BaseWorker):
         
         # 添加配置文件中的参数
         for key, patterns in config.items():
-            if key == "brpc_log_file_patterns":
+            # brpc_log_file_patterns 属 UBSocket; mami_log_file 由本服务解析器自处理,
+            # 均非 diag-tool 认识的参数, 不下发, 避免外部工具因未知参数报错。
+            if key in ("brpc_log_file_patterns", "mami_log_file"):
                 continue
             if patterns:
                 cmd_args.extend([

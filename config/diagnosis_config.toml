@@ -20,6 +20,8 @@ ds_client_info_log_file = ["ds_client*.INFO.log", "*_runtime.log", "*_split_runt
 ds_worker_access_log_file = ["access.log", "access*.log", "*_access.log", "*_split_access.log"]
 ds_worker_info_log_file = ["datasystem_worker.INFO*.log", "kvcache.INFO*.log", "*_runtime.log", "*_split_runtime.log"]
 resource_log_file = ["resource.log"]
+# Mami 硬件日志（Ras interrupt / 链路切换 / port_mng ERROR），解析期按 KVCache 故障窗口过滤后落库
+mami_log_file = ["*_mami.log"]
 
 [log_analyzer_params]
 total_p99_threshold_ms = 2.0

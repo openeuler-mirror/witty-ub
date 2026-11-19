@@ -144,6 +144,10 @@ class LogFilenamePatternConfig(BaseModel):
     ds_worker_access_log_file: list[str] = Field(default_factory=list, description="Worker接口日志文件匹配模式")
     ds_worker_info_log_file: list[str] = Field(default_factory=list, description="Worker信息日志文件匹配模式")
     resource_log_file: list[str] = Field(default_factory=list, description="资源日志文件匹配模式")
+    mami_log_file: list[str] = Field(
+        default_factory=lambda: ["*_mami.log"],
+        description="Mami 硬件日志文件匹配模式（解析期按 KVCache 故障窗口过滤）",
+    )
     brpc_log_file_patterns: list[str] = Field(
         default_factory=lambda: ["brpc.log", "brpc.log.*", "*brpc*.log"],
         description="UBSocket 诊断日志文件匹配模式",
@@ -160,6 +164,7 @@ class KVCacheLogFilenamePatternConfig(BaseModel):
     ds_worker_access_log_file: list[str]
     ds_worker_info_log_file: list[str]
     resource_log_file: list[str]
+    mami_log_file: list[str] = Field(default_factory=lambda: ["*_mami.log"])
 
 
 class UBSocketLogFilenamePatternConfig(BaseModel):
