@@ -268,6 +268,7 @@ type LogFilenamePatternKey =
   | 'ds_worker_access_log_file'
   | 'ds_worker_info_log_file'
   | 'resource_log_file'
+  | 'mami_log_file'
 type LogAnalyzerThresholdKey =
   | 'total_p99_threshold_ms'
   | 'c2w_p99_threshold_ms'
@@ -3394,6 +3395,7 @@ const patternInputs = reactive<Record<LogFilenamePatternKey, string>>({
   ds_worker_access_log_file: '',
   ds_worker_info_log_file: '',
   resource_log_file: '',
+  mami_log_file: '',
 })
 const patternTypeOptions: Array<{
   key: LogFilenamePatternKey
@@ -3421,6 +3423,11 @@ const patternTypeOptions: Array<{
     description: 'Worker 运行与状态日志',
   },
   { key: 'resource_log_file', label: '资源日志', description: '资源监控与资源状态日志' },
+  {
+    key: 'mami_log_file',
+    label: 'Mami 硬件日志',
+    description: 'Mami 硬件告警日志（Ras interrupt / 链路切换 / port_mng ERROR）',
+  },
 ]
 const analyzerThresholdOptions: Array<{
   key: LogAnalyzerThresholdKey
@@ -3620,6 +3627,7 @@ const createDefaultDiagnosisConfig = (): DiagnosisConfigForm => ({
     ds_worker_access_log_file: [...diagnosisConfig.log_filename_pattern.ds_worker_access_log_file],
     ds_worker_info_log_file: [...diagnosisConfig.log_filename_pattern.ds_worker_info_log_file],
     resource_log_file: [...diagnosisConfig.log_filename_pattern.resource_log_file],
+    mami_log_file: [...(diagnosisConfig.log_filename_pattern.mami_log_file ?? ["*_mami.log"])],
   },
   logAnalyzerParams: {
     total_p99_threshold_ms: diagnosisConfig.log_analyzer_params.total_p99_threshold_ms,
@@ -3644,6 +3652,7 @@ const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfi
     ds_worker_access_log_file: [...config.log_filename_pattern.ds_worker_access_log_file],
     ds_worker_info_log_file: [...config.log_filename_pattern.ds_worker_info_log_file],
     resource_log_file: [...config.log_filename_pattern.resource_log_file],
+    mami_log_file: [...(config.log_filename_pattern.mami_log_file ?? ["*_mami.log"])],
   },
   logAnalyzerParams: {
     total_p99_threshold_ms: config.log_analyzer_params.total_p99_threshold_ms,

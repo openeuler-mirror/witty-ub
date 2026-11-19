@@ -87,8 +87,20 @@ def predict_numeric(model,numeric):
     return decision
 
 
+def mami_fuse(rows,mami_hit=False,mami_weight=0.):
+    """mami 硬件通道后处理：对本轮 mami 命中的查询，给一级标签为「硬件故障」的
+    候选按 mami_weight 做加性加分并重排（不改模型、不进训练）。"""
+    if not (mami_hit and mami_weight):return rows
+    for row in rows:
+        if row.get('first_level_label')=='硬件故障':
+            row['score_norm']=min(1.,row.get('score_norm',0.)+mami_weight)
+            row['score_raw']=row['score_norm']
+    return sorted(rows,key=lambda r:-r['score_norm'])
+
+
 def match(profile,cases=None,structured=None,raw=None,context=None,*,model=None,references=None,
-          query_identities=(),excluded_sources=(),allow_classifier=True,fallback_reason=None,assets_dir=None):
+          query_identities=(),excluded_sources=(),allow_classifier=True,fallback_reason=None,assets_dir=None,
+          mami_hit=False,mami_weight=0.):
     baseline_matching.validate_profile(profile)
     # Pin both assets once per prediction; an atomic activation cannot mix bundles.
     if assets_dir is None:assets_dir=model_registry.active_directory() or ASSETS
@@ -123,6 +135,7 @@ def match(profile,cases=None,structured=None,raw=None,context=None,*,model=None,
     except ValueError as error:
         rows=[];coverage={'reference_sources':0,'known_query_features':0,'reason':'invalid_reference_bank'}
         reference_error=str(error)
+    rows=mami_fuse(rows,mami_hit,mami_weight)
     retrieval=cosine_matching.decide(rows);numeric=extraction.vector('numeric_units',base,context)
     reason=fallback_reason if not allow_classifier else None;decision=None
     if allow_classifier:
@@ -140,6 +153,9 @@ def match(profile,cases=None,structured=None,raw=None,context=None,*,model=None,
                 reason='numeric_model_unavailable: '+str(error)
     if decision is None:
         decision=dict(retrieval);decision['fallback_reason']=reason or 'classifier_not_applicable'
+    if mami_hit and mami_weight:
+        decision=dict(retrieval);decision.update(method='mami_fused_cosine_k4',mami_applied=True,
+                                                  mami_weight=mami_weight,fallback_reason='mami_fusion')
     decision.update(policy=POLICY,fallback_used=decision['method']!='numeric_units_classifier')
     disagreement=bool(decision['method']=='numeric_units_classifier' and retrieval['label'] and
                       decision['label']!=retrieval['label'])

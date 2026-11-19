@@ -790,6 +790,10 @@ class TestKVCacheLogParseWorkerStopDelete:
              "delete_log_failure_events_by_log_id"),
             (kv_module.LogFailureEventPGManager,
              "delete_trace_failure_events_by_log_id"),
+            (kv_module.PodRolePGManager,
+             "delete_pod_roles_by_log_id"),
+            (kv_module.MamiFaultEventPGManager,
+             "delete_by_log_id"),
         ):
             mock = AsyncMock()
             monkeypatch.setattr(mgr, meth, mock)

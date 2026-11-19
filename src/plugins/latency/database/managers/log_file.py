@@ -38,6 +38,8 @@ class LogFilePGManager:
         "trace_failure_event",
         "brpc_profiling_result",
         "log_parse_result",
+        "mami_fault_event",
+        "mami_scan_summary",
     )
 
     @staticmethod

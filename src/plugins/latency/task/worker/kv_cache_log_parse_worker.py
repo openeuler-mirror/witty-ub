@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import time
 import uuid
@@ -59,6 +59,7 @@ from latency.database.managers.task_report import TaskReportPGManager
 from latency.database.managers.log_knowledge import LogKnowledgePGManager
 from latency.database.managers.log_file import LogFilePGManager
 from latency.database.managers.log_failure_event import LogFailureEventPGManager
+from latency.database.managers.mami_fault_event import MamiFaultEventPGManager
 from latency.database.managers.pod_role import PodRolePGManager
 from latency.database.utils import parse_timestamp
 from latency.database.managers.src_dst_aggregated_event import (
@@ -1851,6 +1852,140 @@ class KVCacheLogParseWorker(BaseWorker):
             logger.exception("[run] Bucket stats failed, degraded: %s", e)
             return None
 
+    # mami 窗口两端缓冲秒数：mami 事件与 KVCache trace 时间戳存在秒级/调度偏差，
+    # 且硬件故障常在首个失败请求前后发生，留 2 分钟覆盖面。
+    _MAMI_WINDOW_BUFFER_SECONDS = 120
+
+    @staticmethod
+    def _compute_mami_window(df_trace: Any) -> tuple[Any, Any, Any]:
+        """从 KVCache trace 识别故障时间范围，作为 mami 日志过滤窗口。
+
+        优先取失败 trace（``status_code`` 非空且非 ``0``）的时间范围；若没有
+        失败 trace，则退回全量 trace 运行期。两端各加 ``_MAMI_WINDOW_BUFFER_SECONDS``。
+
+        时间源按可用性回退：优先 ``timestamp``（ISO 串 / Datetime）；轻列 frame
+        （``_LIGHT_TRACE_COLUMNS``）不含该列，则退回 ``epoch_sec`` / ``bucket_epoch``
+        （epoch 秒，10s/1s 对齐）。缺这一步会导致轻列路径永远算不出窗口、mami 不落库。
+
+        Returns:
+            ``(start, end, covered)``。``covered`` 为三态事实：
+            ``True``=窗口由失败 trace 界定；``None``=有 trace 但无失败 trace
+            （退回运行期）；``False``=无任何可用 trace，窗口缺失。
+        """
+        import polars as pl
+
+        if df_trace is None or _trace_row_count(df_trace) == 0:
+            return None, None, False
+        if not hasattr(df_trace, "columns"):
+            return None, None, False
+
+        buffer = timedelta(seconds=KVCacheLogParseWorker._MAMI_WINDOW_BUFFER_SECONDS)
+
+        # 失败 trace 掩码（status_code 非空且非 0）；无该列则不区分。
+        covered: Any = None
+        failed = None
+        if "status_code" in df_trace.columns:
+            code = df_trace.get_column("status_code").cast(pl.Utf8)
+            mask = (
+                code.is_not_null() & (code != "") & (code != "0")
+            ).fill_null(False)
+            if bool(mask.any()):
+                failed = mask
+                covered = True
+
+        # 1) 优先 timestamp 列（ISO 串或 Datetime）。
+        if "timestamp" in df_trace.columns:
+            ts_col = df_trace.get_column("timestamp")
+            parsed = None
+            try:
+                parsed = (
+                    ts_col.str.to_datetime(strict=False)
+                    if ts_col.dtype == pl.String
+                    else ts_col.cast(pl.Datetime)
+                )
+            except Exception:
+                logger.warning(
+                    "[mami] trace timestamp unparsable, window skipped", exc_info=True
+                )
+            if parsed is not None:
+                series = (parsed.filter(failed) if failed is not None else parsed).drop_nulls()
+                if series.len() > 0:
+                    return series.min() - buffer, series.max() + buffer, covered
+
+        # 2) 轻列 frame：退回 epoch 秒列（epoch_sec 优先，其次 bucket_epoch）。
+        for col in ("epoch_sec", "bucket_epoch"):
+            if col not in df_trace.columns:
+                continue
+            epoch = df_trace.get_column(col).cast(pl.Int64)
+            if failed is not None:
+                epoch = epoch.filter(failed)
+            epoch = epoch.drop_nulls()
+            if epoch.len() == 0:
+                continue
+            start = KVCacheLogParseWorker._epoch_to_datetime(epoch.min())
+            end = KVCacheLogParseWorker._epoch_to_datetime(epoch.max())
+            return start - buffer, end + buffer, covered
+        return None, None, False
+
+    @staticmethod
+    def _epoch_to_datetime(epoch_seconds: int) -> Any:
+        """epoch 秒 → 无时区 datetime（与 ``timestamp`` 串解析结果同口径）。"""
+        from datetime import datetime, timezone
+
+        return datetime.fromtimestamp(epoch_seconds, tz=timezone.utc).replace(tzinfo=None)
+
+    @staticmethod
+    async def _store_mami_scan(
+        log_id: str,
+        kb_id: str,
+        log_dir: str,
+        window: tuple[Any, Any, Any],
+        patterns: Sequence[str],
+    ) -> None:
+        """扫描上传目录下的 mami 日志，把窗口内的硬件故障事实落库。
+
+        解析期只落"事实"（事件 + 窗口 + 计数），是否命中故障/如何加权的判断
+        全部留在召回期。任何异常只记日志，绝不影响主解析任务成败。
+        """
+        try:
+            from latency.parse.mami_log_parser import (
+                filter_by_window,
+                scan_mami_events,
+            )
+
+            start, end, covered = window
+            files_found = 0
+            events: list = []
+            # 无窗口（无 KVCache trace）时不落库：无法界定故障时间范围，
+            # 全量扫描只会引入无关噪声。
+            if patterns and log_dir and start is not None and end is not None:
+                files_found, raw_events = scan_mami_events(log_dir, list(patterns), start)
+                events = filter_by_window(raw_events, start, end)
+
+            summary = {
+                "log_id": log_id,
+                "kb_id": kb_id,
+                "window_start": start,
+                "window_end": end,
+                "mami_files_found": files_found,
+                "covered": covered,
+                "event_count": len(events),
+                "hardware_event_count": sum(1 for e in events if e.hardware),
+            }
+            await MamiFaultEventPGManager.replace_scan(summary, events)
+            logger.info(
+                "[mami] log_id=%s files=%d window=[%s, %s] events=%d hw=%d covered=%s",
+                log_id,
+                files_found,
+                start,
+                end,
+                summary["event_count"],
+                summary["hardware_event_count"],
+                covered,
+            )
+        except Exception as e:  # noqa: BLE001 —— 降级：mami 失败不影响主任务
+            logger.warning("[mami] scan/store failed, task unaffected: %s", e, exc_info=True)
+
     @staticmethod
     async def run(
         task_id: str,
@@ -1947,12 +2082,16 @@ class KVCacheLogParseWorker(BaseWorker):
 
             # 解析聚合阈值配置（异常判定 = 聚合侧单 trace 阈值）
             analyzer_config = None
+            mami_patterns: list[str] = []
             if kb_id:
                 from latency.database.managers.diagnosis_config import DiagnosisConfigPGManager
 
-                analyzer_config = (
-                    await DiagnosisConfigPGManager.get_or_create(kb_id)
-                ).log_analyzer_params
+                kvcache_config = await DiagnosisConfigPGManager.get_or_create(kb_id)
+                analyzer_config = getattr(kvcache_config, "log_analyzer_params", None)
+                pattern_config = getattr(kvcache_config, "log_filename_pattern", None)
+                mami_patterns = list(
+                    getattr(pattern_config, "mami_log_file", None) or []
+                )
             threshold_ms = float(
                 getattr(analyzer_config, "total_p99_threshold_ms", 2.0) or 2.0
             )
@@ -2005,6 +2144,15 @@ class KVCacheLogParseWorker(BaseWorker):
                 "[AGGREGATE] df_trace=%d",
                 _trace_row_count(df_trace),
             )
+
+            # mami 硬件日志过滤窗口：从 KVCache trace 识别故障时间范围
+            # （优先失败 trace，其次全量运行期），两端各加缓冲。此处 df_trace
+            # 仍在内存中，窗口随事件落库（见 _store_mami_scan）。
+            try:
+                mami_window = KVCacheLogParseWorker._compute_mami_window(df_trace)
+            except Exception:  # noqa: BLE001 —— 降级：窗口算不出就不落 mami
+                logger.warning("[mami] window computation failed", exc_info=True)
+                mami_window = (None, None, False)
 
             # 检查任务是否被取消
             task = await TaskPGManager.get_task_by_task_id(task_id)
@@ -2157,6 +2305,17 @@ class KVCacheLogParseWorker(BaseWorker):
             await LogFilePGManager.update_log_file(
                 task.op_id, {"anomalous_count": anomalous_count}
             )
+
+            # ── mami 硬件日志：扫描上传目录、过滤窗口内事实并落库 ──────
+            # 解析期只落"事实"（事件 + 窗口 + 计数），是否命中故障/加权判断
+            # 全部留在召回期；任何异常只记日志，绝不影响任务成败。
+            await KVCacheLogParseWorker._store_mami_scan(
+                log_id=task.op_id,
+                kb_id=kb_id or "",
+                log_dir=getattr(log_file, "file_path", None) or (log_dir or ""),
+                window=mami_window,
+                patterns=mami_patterns,
+            )
             
             # 重新聚合知识库统计：多日志共存时按剩余日志求和，
             # 直接写本日志的计数会覆盖其它日志的贡献。
@@ -2254,6 +2413,7 @@ class KVCacheLogParseWorker(BaseWorker):
             await LogFailureEventPGManager.delete_log_failure_events_by_log_id(log_id)
             await LogFailureEventPGManager.delete_trace_failure_events_by_log_id(log_id)
             await PodRolePGManager.delete_pod_roles_by_log_id(log_id)
+            await MamiFaultEventPGManager.delete_by_log_id(log_id)
         else:
             logger.info(f"[KVCacheLogParseWorker] log_id={log_id} 还有其他同类任务，不清理数据")
         

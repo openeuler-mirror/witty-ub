@@ -227,7 +227,7 @@ KVCache 侧：`log_parse_result.request_mode`（如 `__cn` 单跳/多跳相关�
 
 | 特征 | 含义 | 分布 |
 |---|---|---|
-| `has_ctrl_plane` | 日志文件名含 master/coordinator 进程 | SDK **0/12**，容器 19%、OS 10%，Worker 31%、硬件 22% |
+| `has_ctrl_plane` | 日志文件名含 master/coordinator 进程 | 容器 19%、OS 10%，Worker 31%、硬件 22% |
 | `has_rpc_dead` | E/W 原文含 `RPC peer dead` / `Metadata owner unavailable` / `brpc errno` / `deadline exceeded` | Worker 54~61%，**SDK 全 0** |
 | `has_urma_write` | 含 token `URMA_WRITE` | SDK 100%、容器 63%，Worker 25%、硬件 44% |
 | `has_worker_code` | 错误码含 39 / 1001 / 1002 | Worker 富集，**SDK 0%** |
@@ -257,12 +257,59 @@ KVCache 侧：`log_parse_result.request_mode`（如 `__cn` 单跳/多跳相关�
   且**容器重启事件根本不落日志**（E/W 原文无 restart/oom/kill 关键词），
   唯一独有线索「E/W 时间跨度中位 9s（突发）」噪声过大。
 - **OS 故障 10 条**：样本过少，各特征在硬件/Worker/OS 间均为 30~40%，当前不可分。
-- **SDK 故障 12 条**：存在 100% 召回规则（`URMA_WRITE` 且无 {39,1001,1002} 且无 RPC-dead 族，
-  且**场景里没有管控面进程日志**），但误伤硬件 116 条，只能当否决票、不能做正分类。
+- **SDK 故障 12 条**：无干净信号，只能当否决票、不能做正分类。
 - 三小类合计 49 条，任何 ±2 条的差异都在噪声内。
 
 **结论：小类在当前数据上已无算法空间，需先补数据**——容器重启/退出事件、独立的 OS 日志源，
 否则任何特征工程都是在噪声里拟合 49 条样本。
+
+### 4. 「异常 trace 的异常段 + 时延值」当特征（2026-11-13，时延值为净负）
+
+把「异常 trace 里哪个时延分段主导（异常段）」与「该段的时延数值（时延值）」当特征，
+对一级标签做区分度检验（两套口径都跑，结论一致）：
+
+| 指标（一级标签） | v7（n=151） | 28be/1112（n=123） |
+|---|---|---|
+| 多数类基线 | 43.7% | 52.0% |
+| **异常段名** 归一化MI | 0.119 | 0.301 |
+| **异常段名** 多数投票准确率 | 47.0%（+3.3pp） | 60.2%（+8.2pp） |
+| **时延值** 1-NN（log 量级） | 40.4%（−3.3pp） | 52.8%（+0.8pp） |
+| 段名+值 联合 1-NN | 39.7%（**比段名单用更差**） | 54.5%（**比段名单用更差**） |
+
+**关键否定证据（段内条件检验）**：给定段名后，段内用时延值做 1-NN **在所有段上都不增益**：
+v7 `sdk_processing_us` 41.0% vs 内基线 45.9%、`worker_access_latency_us` 31.6% vs 36.8%；
+28be `sdk_processing_us` 62.8% vs 63.8%、`local_worker_internal_us` 27.8% vs 50.0%、
+`worker_access_latency_us` 27.3% vs 45.5%。→ **时延数值本身不含标签信息，加入即降准。**
+
+**异常段名有弱增益但价值有限**：仅落在最易分的「硬件↔Worker」边界
+（`local_worker_internal_us`/`worker_access_latency_us` 段里 Worker 占 45~50%，
+vs 全体 Worker 占 32%）；对容器/OS/SDK 小类无帮助（这些小类仍散在 `sdk_processing_us` 段里，
+该段 94 条中硬件 60、Worker 25、容器 4、SDK 3）。且 v7 主导段高度退化
+（122/151 恒为 `sdk_processing_us`），增益依赖少数样本。
+
+**数据约束（硬伤）**：v7 异常的 trace 除 `total_latency`/`c2w_latency`(≡`c2w_urma_latency`)
+与 `sdk_processing_us` 外，其余分段字段填充率 <5%；28be 也只有
+`sdk_processing_us`/`local_worker_internal_us`/`worker_access_latency_us` 三段可用。
+**「时延值」当特征是净负——勿重复尝试；「异常段名」当前已由 `latency_components` 承载，
+换成 `*_us` 明细段只多 +3~8pp 且不解决小类，不值得单独引入。**
+
+### 5. 多个故障模式 / 日志关键字「组合」区分故障域（2026-11-13，对小类无效）
+
+曾设想「单特征共享、组合正交」：把 `failure_mode`（`fm:*`）与日志语义 token（`kw:*`）
+做 2~3 元合取，看能否为小类拼出纯净规则。数据集 = 两套 kb 全部有标签非 C 样本
+（v7 + 28be/1112，n=**396**；小类：容器 25、OS 7、SDK 8；日志关键字通道仅覆盖 137/396）。
+
+| 小类 | 最佳单特征纯度 | 最佳组合纯度（有支撑） | P≥0.6 规则集覆盖 |
+|---|---|---|---|
+| 容器故障 (25) | 0.17（`kw:UNKNOWN_TYPE`） | **0.16**（F1 口径，n_hit=91） | **0/25** |
+| OS故障 (7) | 0.07（`fm:kvcache_access_059`） | **0.11**（n_hit=9） | **0/7** |
+| SDK故障 (8) | 0.29（`fm:kvcache_runtime_398`） | **0.29**（与单特征持平） | **0/8** |
+
+**结论为负**：组合纯度**从未超过**单特征；唯一能做到 P=1.00 的组合全部 `n_hit=1`
+（只被 1 个样本命中，纯属过拟合，不可用）。机理与小类 #3 一致——小类与硬件/Worker
+**共享同一套 failure_mode 与日志 token**（`kvcache_access_022` 覆盖 140 样本、跨全部域），
+合取共享词元无法造出独家信号；样本量 7~25 也确实撑不起多特征规则。
+**勿再尝试用组合/关联规则救小类**——仍是「先补数据」的问题。
 
 ---
 
