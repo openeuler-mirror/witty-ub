@@ -12,8 +12,12 @@ def _source(case):return case.get('source_id') or case['id']
 def observed_vector(profile,structured=None,raw=None):
     import feature_vectors
     if structured is None:
-        structured={'schema_version':'evidence-v1','views':{},'codes':profile['status_codes'],
-            'modes':profile['failure_mode_ids'],'tokens':{},'log':{},'facts':{},'audit':{},'provenance':{}}
+        from enhanced_matching import extract_report
+
+        # Build valid mode tokens from cases that only have the legacy observations.
+        traces = ([{'failure_mode_id': mode} for mode in profile['failure_mode_ids']]
+                  + [{'status_code': code} for code in profile['status_codes']])
+        structured = extract_report({'faults': [{'evidence_traces': traces}]})
     return feature_vectors.build_observations(profile,structured,raw)
 
 

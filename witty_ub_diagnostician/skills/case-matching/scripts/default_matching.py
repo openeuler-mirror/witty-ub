@@ -1,10 +1,13 @@
 """Versioned numeric classifier with all-feature cosine K4 fallback; no training."""
+from collections import defaultdict
 from functools import lru_cache
 import gzip
 import hashlib
+from itertools import combinations
 import json
 import math
 from pathlib import Path
+import re
 
 import baseline_matching
 import cosine_matching
@@ -116,6 +119,45 @@ def rank_knowledge(query, references, cases, decision, excluded_sources=(), quer
     rows, _ = cosine_matching.rank(query, references, eligible, excluded_sources, query_identities,
                                    labels=(label,), require_shared_evidence=True)
     return [row for row in rows if row['score_norm'] > 0]
+
+
+def suggest_second_level(fault_modes, matched, cases, allowed_labels, query_identities=()):
+    """Look for agreement from distinct sources with the same observed failure mode."""
+    if not allowed_labels:
+        return {'label': None, 'reason': 'no_allowed_second_level_labels'}
+    modes = {mode for mode in fault_modes if re.fullmatch(baseline_matching.MODE_PART, mode)}
+    if not modes:
+        return {'label': None, 'reason': 'no_fault_failure_mode'}
+
+    first = matched['decision']['label']
+    eligible = {case['id']: case for case in cases or [] if case.get('status') == 'confirmed'
+                and case.get('label') == first and case.get('second_level_label') in allowed_labels}
+    query_identities = set(query_identities)
+    labels = set()
+    support_by_mode = defaultdict(list)
+    for row in matched.get('knowledge_candidates', matched['candidates']):
+        case = eligible.get(row['case_id'])
+        if not case or row['score_norm'] <= 0:
+            continue
+        identities = set(case.get('identity') or [])
+        if query_identities & identities:
+            continue
+        identities.add('case_source:' + (case.get('source_id') or case['id']))
+        case_modes = set((case.get('profile') or {}).get('failure_mode_ids') or [])
+        case_modes.update((case.get('structured') or {}).get('modes') or [])
+        for mode in modes & case_modes:
+            support_by_mode[mode].append((case['id'], identities))
+            labels.add(case['second_level_label'])
+
+    if len(labels) > 1:
+        return {'label': None, 'reason': 'conflicting_case_labels'}
+
+    for mode, support in sorted(support_by_mode.items()):
+        for (first_id, first_source), (case_id, source) in combinations(support, 2):
+            if first_source.isdisjoint(source):
+                return {'label': next(iter(labels)), 'failure_mode_id': mode,
+                        'supporting_case_ids': [first_id, case_id]}
+    return {'label': None, 'reason': 'insufficient_case_support'}
 
 
 def match(profile,cases=None,structured=None,raw=None,context=None,*,model=None,references=None,

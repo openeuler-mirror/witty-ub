@@ -14,6 +14,7 @@ sys.path.insert(0, str(CASE_SCRIPTS))
 import fixed_matching
 import match_cases
 import default_matching
+import baseline_matching
 
 HISTORICAL_SOURCE = 'diag_case_library'
 KNOWLEDGE_SOURCES = {
@@ -87,6 +88,7 @@ def _label_legacy_report(payload, cases=None, log_dir=None, work_dir=None, api_b
     pairs = {(row['first_level_label'], row['second_level_label']) for row in json.loads(
         (Path(__file__).resolve().parents[1]/'references/log_label.json').read_text())}
     observed_payload = payload if faults else {**payload, 'faults': [payload]}
+    query_identities = default_matching.identities(payload)
     for index, target in targets:
         candidate_cases = cases
         query, structured, raw = fixed_matching.extract_report(
@@ -119,23 +121,13 @@ def _label_legacy_report(payload, cases=None, log_dir=None, work_dir=None, api_b
                     decision.update(method='explicit_classifier',model_id=model['metadata']['model_id'],policy='all-feature-classifier-v1')
                     matched.update(decision=decision,policy='all-feature-classifier-v1')
                     matched.pop('knowledge_candidates', None)
-        decision = matched['decision']
-        conclusion = target.setdefault('conclusion', {})
-        first = decision['label']
-        second = conclusion.get('second_level_label') if conclusion.get('first_level_label')==first else None
-        if decision.get('method') in ('misoperation_rule','user_usage_rule'):
-            second = decision.get('second_level_label')
-        if (first, second) not in pairs:
-            second = None
-        conclusion['first_level_label'] = first
-        conclusion['second_level_label'] = second
-        conclusion['fault_domain'] = f'{first}/{second}' if first and second else None
-        target['label_matching'] = {'policy': matched['policy'], 'decision': decision,
+        target['label_matching'] = {'policy': matched['policy'], 'decision': matched['decision'],
             'retrieval_decision': matched.get('retrieval_decision'), 'evidence_prefix': stem,
             'scope': 'fault' if index is not None else 'report',
             'observation_hashes': {suffix: hashlib.sha256((work_dir/(stem+suffix)).read_bytes()).hexdigest()
                                    for suffix in ('.json', '.structured.json', '.raw.json')},
             'log_files': raw.get('provenance', {}).get('files', [])}
+        _apply_label(target, matched, pairs, candidate_cases, query_identities)
         _apply_knowledge_matches(target, matched, candidate_cases)
     return result
 
@@ -156,13 +148,31 @@ def _matching_record(matched,scope,stem,hashes,raw):
             'log_files':raw.get('provenance',{}).get('files',[])}
 
 
-def _apply_label(target,matched,pairs):
-    decision=matched['decision'];conclusion=target.setdefault('conclusion',{});first=decision['label']
-    second=conclusion.get('second_level_label') if conclusion.get('first_level_label')==first else None
-    if decision.get('method') in ('misoperation_rule','user_usage_rule'):second=decision.get('second_level_label')
-    if (first,second) not in pairs:second=None
-    conclusion.update(first_level_label=first,second_level_label=second,
+def _apply_label(target, matched, pairs, cases, query_identities):
+    decision = matched['decision']
+    first = decision['label']
+    conclusion = target.setdefault('conclusion', {})
+    if decision['method'] in ('misoperation_rule', 'user_usage_rule'):
+        second = decision.get('second_level_label')
+        selection = {'label': second if (first, second) in pairs else None,
+                     'method': decision['method'], 'misoperation_codes': decision.get('misoperation_codes', [])}
+    else:
+        allowed = {second for primary, second in pairs if primary == first}
+        modes = baseline_matching.extract_report({'faults': [target]})['failure_mode_ids']
+        suggestion = default_matching.suggest_second_level(modes, matched, cases, allowed, query_identities)
+        draft = conclusion.get('second_level_label')
+        if conclusion.get('first_level_label') == first and isinstance(draft, str) and draft in allowed:
+            selection = {'label': draft, 'method': 'draft'}
+            if suggestion['label']:
+                selection['case_suggestion'] = suggestion
+        else:
+            method = 'case_feature_consensus' if suggestion['label'] else 'unresolved'
+            selection = {**suggestion, 'method': method}
+
+    second = selection['label']
+    conclusion.update(first_level_label=first, second_level_label=second,
                       fault_domain=f'{first}/{second}' if first and second else None)
+    target['label_matching']['second_level_decision'] = selection
 
 
 def label_report(payload,cases=None,log_dir=None,work_dir=None,api_base=None,classifier_model=None):
@@ -202,8 +212,9 @@ def label_report(payload,cases=None,log_dir=None,work_dir=None,api_base=None,cla
     pairs={(row['first_level_label'],row['second_level_label']) for row in json.loads(
         (Path(__file__).resolve().parents[1]/'references/log_label.json').read_text())}
     if len(targets)==1:
-        _,target=targets[0];_apply_label(target,matched,pairs)
+        _,target=targets[0]
         target['label_matching']=_matching_record(matched,'report','report',hashes,raw)
+        _apply_label(target, matched, pairs, knowledge_cases, query_identities)
         _apply_knowledge_matches(target,matched,knowledge_cases)
     else:
         for index,target in targets:
@@ -213,8 +224,8 @@ def label_report(payload,cases=None,log_dir=None,work_dir=None,api_base=None,cla
             fault_match=default_matching.match(query,decision_cases,observed,raw,context,allow_classifier=False,
                 fallback_reason='multiple_faults_require_fault_scoped_evidence',assets_dir=assets_dir,
                 query_identities=query_identities,knowledge_cases=knowledge_cases)
-            _apply_label(target,fault_match,pairs)
             target['label_matching']=_matching_record(fault_match,'fault_profile_with_shared_report_logs',stem,fault_hashes,raw)
+            _apply_label(target, fault_match, pairs, knowledge_cases, query_identities)
             _apply_knowledge_matches(target,fault_match,knowledge_cases)
             (directory/(stem+'.matches.json')).write_text(json.dumps(fault_match,ensure_ascii=False,indent=2)+'\n')
     return result

@@ -268,6 +268,9 @@ def _check_fixed_label(path, target, errors):
     actual = (target.get('conclusion') or {}).get('first_level_label')
     if actual!=expected:
         errors.append(f'{path}.conclusion.first_level_label: 必须与标签选择策略的 decision.label 一致')
+    second = matching.get('second_level_decision')
+    if isinstance(second, dict) and (target.get('conclusion') or {}).get('second_level_label') != second.get('label'):
+        errors.append(f'{path}.conclusion.second_level_label: 必须与标签选择策略的 second_level_decision.label 一致')
 
 
 def _check_knowledge_case(path, entry, target, errors):

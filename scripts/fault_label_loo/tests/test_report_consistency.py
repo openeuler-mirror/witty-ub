@@ -20,7 +20,115 @@ from test_fixed_policy import inputs
 from test_render_report_cli import report_data
 
 
+MODE = 'kvcache_access_022'
+WORKER_EXIT = 'Worker故障-进程退出'
+WORKER_HANG = 'Worker故障-进程挂死'
+
+
+def worker_cases():
+    query, _, _, _ = inputs()
+    return [{'id': case_id, 'source_id': case_id, 'status': 'confirmed',
+             'label': 'Worker故障', 'second_level_label': WORKER_EXIT,
+             'profile': {**query, 'failure_mode_ids': [MODE]}}
+            for case_id in ('worker-a', 'worker-b')]
+
+
+def worker_report():
+    data = report_data()
+    data['basic_info']['operation'] = 'GET'
+    data['faults'][0]['evidence_traces'] = [{
+        'trace_id': 'observed-trace', 'kind': 'error', 'why': '现场故障模式与错误码',
+        'status_code': '1004', 'failure_mode_id': MODE,
+    }]
+    return data
+
+
 class ReportConsistencyTests(unittest.TestCase):
+    def test_second_level_is_filled_with_traceable_case_consensus(self):
+        data = worker_report()
+        data['faults'][0]['conclusion'].update(first_level_label='硬件故障',
+                                               second_level_label='网卡故障-时延高')
+        with tempfile.TemporaryDirectory() as tmp:
+            result = generate_report.label_report(data, worker_cases(), work_dir=Path(tmp))
+        fault = result['faults'][0]
+        self.assertEqual(fault['conclusion']['first_level_label'], 'Worker故障')
+        self.assertEqual(fault['conclusion']['second_level_label'], WORKER_EXIT)
+        self.assertEqual(fault['conclusion']['fault_domain'], f'Worker故障/{WORKER_EXIT}')
+        self.assertEqual(fault['label_matching']['second_level_decision'], {
+            'method': 'case_feature_consensus', 'label': WORKER_EXIT,
+            'failure_mode_id': MODE, 'supporting_case_ids': ['worker-a', 'worker-b'],
+        })
+        errors, _ = render_report.validate(result)
+        self.assertEqual(errors, [])
+        fault['conclusion'].update(second_level_label=WORKER_HANG,
+                                   fault_domain=f'Worker故障/{WORKER_HANG}')
+        errors, _ = render_report.validate(result)
+        self.assertTrue(any('second_level_decision.label' in error for error in errors))
+
+    def test_valid_draft_keeps_its_subtype_and_records_case_suggestion(self):
+        data = worker_report()
+        data['faults'][0]['conclusion'].update(first_level_label='Worker故障', second_level_label=WORKER_HANG)
+        with tempfile.TemporaryDirectory() as tmp:
+            result = generate_report.label_report(data, worker_cases(), work_dir=Path(tmp))
+        fault = result['faults'][0]
+        self.assertEqual(fault['conclusion']['second_level_label'], WORKER_HANG)
+        selection = fault['label_matching']['second_level_decision']
+        self.assertEqual(selection['method'], 'draft')
+        self.assertEqual(selection['case_suggestion']['label'], WORKER_EXIT)
+
+    def test_second_level_abstains_without_independent_agreeing_mode_evidence(self):
+        for variation, reason in (
+            ('shared_source', 'insufficient_case_support'),
+            ('shared_identity', 'insufficient_case_support'),
+            ('contradictory_label', 'conflicting_case_labels'),
+            ('unconfirmed', 'insufficient_case_support'),
+            ('report_wide_mode_only', 'no_fault_failure_mode'),
+        ):
+            with self.subTest(variation=variation), tempfile.TemporaryDirectory() as tmp:
+                data = worker_report()
+                cases = worker_cases()
+                if variation == 'shared_source':
+                    cases[1]['source_id'] = cases[0]['source_id']
+                elif variation == 'shared_identity':
+                    for case in cases:
+                        case['identity'] = ['kb_id:history']
+                elif variation == 'contradictory_label':
+                    cases.append({**cases[0], 'id': 'worker-c', 'source_id': 'worker-c',
+                                  'second_level_label': WORKER_HANG})
+                elif variation == 'unconfirmed':
+                    cases[1]['status'] = 'draft'
+                else:
+                    trace = data['faults'][0]['evidence_traces'][0]
+                    data['statistics']['evidence_traces'] = [dict(trace)]
+                    del trace['failure_mode_id']
+                result = generate_report.label_report(data, cases, work_dir=Path(tmp))
+                fault = result['faults'][0]
+                self.assertEqual(fault['conclusion']['first_level_label'], 'Worker故障')
+                self.assertIsNone(fault['conclusion']['second_level_label'])
+                self.assertEqual(fault['label_matching']['second_level_decision']['reason'], reason)
+
+    def test_second_level_preserves_misoperation_rule_priority(self):
+        data = worker_report()
+        data['faults'][0]['evidence_traces'][0]['status_code'] = '3'
+        with tempfile.TemporaryDirectory() as tmp:
+            result = generate_report.label_report(data, worker_cases(), work_dir=Path(tmp))
+        fault = result['faults'][0]
+        self.assertEqual(fault['conclusion']['second_level_label'], '误操作故障-KVCache使用问题')
+        self.assertEqual(fault['label_matching']['second_level_decision'], {
+            'method': 'misoperation_rule', 'label': '误操作故障-KVCache使用问题', 'misoperation_codes': ['3'],
+        })
+
+    def test_second_level_uses_each_faults_own_mode(self):
+        data = worker_report()
+        secondary = copy.deepcopy(data['faults'][0])
+        secondary.update(id='F02', role='secondary')
+        del secondary['evidence_traces'][0]['failure_mode_id']
+        data['faults'].append(secondary)
+        with tempfile.TemporaryDirectory() as tmp:
+            result = generate_report.label_report(data, worker_cases(), work_dir=Path(tmp))
+        self.assertEqual([fault['conclusion']['second_level_label'] for fault in result['faults']],
+                         [WORKER_EXIT, None])
+
     def test_report_generates_knowledge_cases_per_fault(self):
         query, _, _, _ = inputs()
         data = report_data()
