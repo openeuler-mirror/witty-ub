@@ -511,6 +511,10 @@ SET 走 CREATE/PUBLISH 写路径，**可用字段与 GET 不同**，阶段表按
 
 ## 板块 7：知识库匹配 (knowledge_matches)
 
+历史案例由报告生成器写入。每项的 `source` 为 `diag_case_library`，`id` 为案例 ID，
+`case_no` 为展示编号，`first_level_label` 和 `second_level_label` 来自案例，
+`score_norm` 为余弦相似度。历史案例的一级标签与所属故障的最终一级标签一致。
+
 ```json
 [
   {

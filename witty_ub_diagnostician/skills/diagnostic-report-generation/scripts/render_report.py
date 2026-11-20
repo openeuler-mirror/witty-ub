@@ -270,6 +270,19 @@ def _check_fixed_label(path, target, errors):
         errors.append(f'{path}.conclusion.first_level_label: 必须与标签选择策略的 decision.label 一致')
 
 
+def _check_knowledge_case(path, entry, target, errors):
+    if entry.get('source') != 'diag_case_library':
+        return
+    case_ids = (target.get('label_matching') or {}).get('knowledge_case_ids')
+    if case_ids is None:
+        return  # Existing reports can still be rendered from their saved sidecars.
+    label = (target.get('conclusion') or {}).get('first_level_label')
+    if not label or entry.get('first_level_label') != label:
+        errors.append(f'{path}.first_level_label: 历史案例的一级标签必须与所属故障一致')
+    if not isinstance(case_ids, list) or entry.get('id') not in case_ids:
+        errors.append(f'{path}.id: 必须来自所属故障的历史案例匹配结果')
+
+
 def _check_evidence_traces(path, traces, errors, warnings):
     """证据锚点校验：可选键，缺省 / null / [] 一律视为零锚点（不产生任何提示）。"""
     if traces is None:
@@ -704,6 +717,7 @@ def validate(data) -> tuple[list[str], list[str]]:
                     continue
                 if not km.get("id"):
                     errors.append(f"knowledge_matches[{j}].id: 缺少知识库匹配 ID")
+                _check_knowledge_case(f"knowledge_matches[{j}]", km, data, errors)
                 if not (km.get("match_logic") or km.get("symptom") or km.get("root_cause")
                         or km.get("title") or km.get("summary")):
                     errors.append(
@@ -770,6 +784,7 @@ def validate(data) -> tuple[list[str], list[str]]:
                         continue
                     if not km.get("id"):
                         errors.append(f"{p}.knowledge_matches[{j}].id: 缺少知识库匹配 ID")
+                    _check_knowledge_case(f"{p}.knowledge_matches[{j}]", km, f, errors)
                     if not (km.get("match_logic") or km.get("symptom") or km.get("root_cause")):
                         errors.append(
                             f"{p}.knowledge_matches[{j}]: 缺少可渲染内容"

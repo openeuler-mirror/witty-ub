@@ -50,6 +50,8 @@ def unknown_context(reason='logs_unavailable'):
 def identities(payload):
     basic=payload.get('basic_info') or {};values=[]
     if basic.get('kb_id'):values.append('kb_id:'+str(basic['kb_id']))
+    report_id=(payload.get('report') or {}).get('report_id')
+    if report_id:values.append('report_id:'+str(report_id))
     for key in ('kb_name','log_file'):
         if basic.get(key):values.append('name:'+str(basic[key]))
     return sorted(set(values))
@@ -98,9 +100,27 @@ def mami_fuse(rows,mami_hit=False,mami_weight=0.):
     return sorted(rows,key=lambda r:-r['score_norm'])
 
 
+def rank_knowledge(query, references, cases, decision, excluded_sources=(), query_identities=()):
+    """Rank confirmed cases within the fault's final label using the same cosine view."""
+    label = decision['label']
+    if not label or not cases:
+        return []
+    second = decision.get('second_level_label') if decision['method'] == 'misoperation_rule' else None
+    eligible = [case for case in cases if case.get('status') == 'confirmed'
+                and case.get('label') == label
+                and (not second or case.get('second_level_label') == second)]
+    if not eligible:
+        return []
+    if references.get('schema_version') != cosine_matching.VERSION:
+        references = {'schema_version': cosine_matching.VERSION, 'sources': [], 'cases': []}
+    rows, _ = cosine_matching.rank(query, references, eligible, excluded_sources, query_identities,
+                                   labels=(label,), require_shared_evidence=True)
+    return [row for row in rows if row['score_norm'] > 0]
+
+
 def match(profile,cases=None,structured=None,raw=None,context=None,*,model=None,references=None,
           query_identities=(),excluded_sources=(),allow_classifier=True,fallback_reason=None,assets_dir=None,
-          mami_hit=False,mami_weight=0.):
+          mami_hit=False,mami_weight=0.,knowledge_cases=None):
     baseline_matching.validate_profile(profile)
     # Pin both assets once per prediction; an atomic activation cannot mix bundles.
     if assets_dir is None:assets_dir=model_registry.active_directory() or ASSETS
@@ -113,10 +133,13 @@ def match(profile,cases=None,structured=None,raw=None,context=None,*,model=None,
     if context.get('schema_version')!=extraction.VERSION:context=unknown_context('feature_version_mismatch')
     query_identities=sorted(set(query_identities)|set(context.get('provenance',{}).get('source_identities',[])))
     misoperation_codes=set(profile['status_codes'])&baseline_matching.legacy.MISOPERATION_FAULT_CODES
-    if misoperation_codes:
+    if knowledge_cases is None:
+        knowledge_cases = cases
+    if misoperation_codes and not knowledge_cases:
         decision=fixed_matching.decide(profile,structured,raw,[]);decision['policy']=POLICY
         return {'policy':POLICY,'decision':decision,'retrieval_decision':decision,'candidates':[],
-                'feature_usage':{'business_rule':'misoperation_rule'},'fallback_used':False,'disagreement':False}
+                'knowledge_candidates':[], 'feature_usage':{'business_rule':'misoperation_rule'},
+                'fallback_used':False,'disagreement':False}
     reference_error=None
     if references is None:
         try:references=asset('cosine_bank',assets_dir)
@@ -131,6 +154,12 @@ def match(profile,cases=None,structured=None,raw=None,context=None,*,model=None,
         if set(query_identities)&set(source.get('identity',[])):excluded.add(source['source_id'])
     base=cosine_matching.observed_vector(profile,structured,raw)
     all_features=extraction.vector('all_context_v2',base,context)
+    if misoperation_codes:
+        decision=fixed_matching.decide(profile,structured,raw,[]);decision['policy']=POLICY
+        return {'policy':POLICY,'decision':decision,'retrieval_decision':decision,'candidates':[],
+                'knowledge_candidates':rank_knowledge(all_features,references,knowledge_cases,decision,
+                                                     excluded,query_identities),
+                'feature_usage':{'business_rule':'misoperation_rule'},'fallback_used':False,'disagreement':False}
     try:rows,coverage=cosine_matching.rank(all_features,references,cases,excluded,query_identities)
     except ValueError as error:
         rows=[];coverage={'reference_sources':0,'known_query_features':0,'reason':'invalid_reference_bank'}
@@ -160,6 +189,8 @@ def match(profile,cases=None,structured=None,raw=None,context=None,*,model=None,
     disagreement=bool(decision['method']=='numeric_units_classifier' and retrieval['label'] and
                       decision['label']!=retrieval['label'])
     return {'policy':POLICY,'engine':POLICY,'decision':decision,'retrieval_decision':retrieval,'candidates':rows,
+        'knowledge_candidates':rank_knowledge(all_features,references,knowledge_cases,decision,
+                                             excluded,query_identities),
         'fallback_used':decision['fallback_used'],'disagreement':disagreement,'excluded_source_ids':sorted(excluded),
         'feature_usage':{'classifier_view':'numeric_units','fallback_view':'all_context_v2',
             'numeric_feature_count':len(numeric),'cosine':coverage,'reference_error':reference_error,

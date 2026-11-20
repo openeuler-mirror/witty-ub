@@ -1098,8 +1098,8 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
     <div class="hero-meta" data-label-policy="numeric-units-classifier-cosine-fallback-v1">
       <span>报告级标签预测：{{ label_matching.decision.label or '观测不足' }}</span>
       <span>依据：{% if label_matching.decision.method == 'numeric_units_classifier' %}新增数值特征分类器{% elif label_matching.decision.method in ['misoperation_rule', 'user_usage_rule'] %}误操作故障规则{% else %}全特征余弦 K4 退化{% endif %}</span>
-      <span>历史案例参照：{{ label_matching.retrieval_decision.label or '无可比案例' }}</span>
-      {% if label_matching.disagreement %}<span>预测与案例投票不一致，请结合现场证据核对。</span>{% endif %}
+      {% if label_matching.retrieval_decision.method == 'all_feature_cosine_k4' %}<span>余弦 K4 参考投票：{{ label_matching.retrieval_decision.label or '无可比案例' }}</span>{% endif %}
+      {% if label_matching.disagreement %}<span>分类器与参考投票结果不同，请结合现场证据核对。</span>{% endif %}
       {% if is_multi %}<span>多故障逐项标签见故障档案，报告级预测不替代逐项归属。</span>{% endif %}
     </div>
     {% endif %}
@@ -1458,8 +1458,11 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
 {% for match in matches %}
 <div class="kb-match-card">
   <div class="kb-match-header">
-    <span class="kb-match-id">{{ match.rank }} {{ match.id }}</span>
+    <span class="kb-match-id"{% if match.case_no %} title="{{ match.id }}"{% endif %}>{{ match.rank }} {{ match.case_no or match.id }}</span>
     <span class="kb-match-stars">{{ match.stars }}</span>
+    {% if match.source == 'diag_case_library' and match.first_level_label %}
+    <span class="ctag ctag-l1">{{ match.first_level_label }}{% if match.second_level_label %} / {{ match.second_level_label }}{% endif %}</span>
+    {% endif %}
     {% if fid %}<span class="kb-fid">支撑 {{ fid }}</span>{% endif %}
   </div>
   <div class="kb-match-body">

@@ -4,7 +4,9 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
+import re
 import sys
 
 CASE_SCRIPTS = Path(__file__).resolve().parents[2]/'case-matching/scripts'
@@ -12,6 +14,65 @@ sys.path.insert(0, str(CASE_SCRIPTS))
 import fixed_matching
 import match_cases
 import default_matching
+
+HISTORICAL_SOURCE = 'diag_case_library'
+KNOWLEDGE_SOURCES = {
+    'failure_mode_knowledge', 'status_code_knowledge', 'experience-skill', 'rag',
+}
+KNOWLEDGE_ID = re.compile(
+    r'(?:(?:curated:|failure_mode:)?[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}'
+    r'|(?:experience:|EXP-)[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)+)'
+)
+CASE_ID = re.compile(
+    r'(?:experience:|exp-)?(?:ub-case-\d+|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})',
+    re.IGNORECASE,
+)
+
+
+def _is_knowledge_reference(entry, history_ids):
+    identifier = str(entry.get('id') or '')
+    if identifier in history_ids or CASE_ID.fullmatch(identifier):
+        return False
+    source = entry.get('source')
+    if source:
+        return isinstance(source, str) and source in KNOWLEDGE_SOURCES
+    return bool(KNOWLEDGE_ID.fullmatch(identifier))
+
+
+def _apply_knowledge_matches(target, matched, cases):
+    history = {case['id']: case for case in cases or [] if case.get('status') == 'confirmed'}
+    history_ids = {identifier for case in cases or []
+                   for identifier in (case['id'], case.get('case_no')) if identifier}
+    knowledge = [entry for entry in target.get('knowledge_matches') or []
+                 if isinstance(entry, dict) and _is_knowledge_reference(entry, history_ids)]
+    label = matched['decision']['label']
+    candidate_ids = []
+    if label:
+        for row in matched.get('knowledge_candidates', matched['candidates']):
+            case = history.get(row['case_id'])
+            if not case or case['label'] != label or row['score_norm'] <= 0:
+                continue
+            if case['id'] in candidate_ids:
+                continue
+            candidate_ids.append(case['id'])
+            score = row['score_norm']
+            knowledge.append({
+                'id': case['id'],
+                'case_no': case.get('case_no'),
+                'source': HISTORICAL_SOURCE,
+                'first_level_label': case['label'],
+                'second_level_label': case.get('second_level_label'),
+                'score_norm': score,
+                'match_logic': f'一级故障标签一致，观测特征相似度 {score:.3f}',
+                'symptom': case.get('symptom_summary') or '',
+                'root_cause': case.get('root_cause_summary') or '',
+                'solution': case.get('recommendation') or '',
+                'applicability': 'reference',
+            })
+            if len(candidate_ids) == 3:
+                break
+    target['knowledge_matches'] = knowledge
+    target['label_matching']['knowledge_case_ids'] = candidate_ids
 
 
 def _label_legacy_report(payload, cases=None, log_dir=None, work_dir=None, api_base=None,classifier_model=None):
@@ -21,10 +82,15 @@ def _label_legacy_report(payload, cases=None, log_dir=None, work_dir=None, api_b
     work_dir.mkdir(parents=True, exist_ok=True)
     faults = result.get('faults')
     targets = list(enumerate(faults)) if isinstance(faults, list) and faults else [(None, result)]
+    if isinstance(faults, list) and faults:
+        result.pop('knowledge_matches', None)
     pairs = {(row['first_level_label'], row['second_level_label']) for row in json.loads(
         (Path(__file__).resolve().parents[1]/'references/log_label.json').read_text())}
+    observed_payload = payload if faults else {**payload, 'faults': [payload]}
     for index, target in targets:
-        query, structured, raw = fixed_matching.extract_report(payload, log_dir, None if index is None else [index])
+        candidate_cases = cases
+        query, structured, raw = fixed_matching.extract_report(
+            observed_payload, log_dir, None if index is None else [index])
         stem = 'report' if index is None else f'fault-{index}'
         for suffix, value in [('.json', query), ('.structured.json', structured), ('.raw.json', raw)]:
             (work_dir/(stem+suffix)).write_text(json.dumps(value, ensure_ascii=False, indent=2)+'\n')
@@ -41,6 +107,7 @@ def _label_legacy_report(payload, cases=None, log_dir=None, work_dir=None, api_b
             if code:
                 raise ValueError(f'固定标签匹配失败，exit={code}')
             matched = json.loads((work_dir/(stem+'.matches.json')).read_text())
+            candidate_cases = matched['case_envelopes']
             if classifier_model is not None:
                 from classifier_matching import features
                 import feature_vectors,portable_classifier
@@ -51,6 +118,7 @@ def _label_legacy_report(payload, cases=None, log_dir=None, work_dir=None, api_b
                     decision=portable_classifier.predict(model,features(query,structured,raw,matched['candidates'],model['view']))
                     decision.update(method='explicit_classifier',model_id=model['metadata']['model_id'],policy='all-feature-classifier-v1')
                     matched.update(decision=decision,policy='all-feature-classifier-v1')
+                    matched.pop('knowledge_candidates', None)
         decision = matched['decision']
         conclusion = target.setdefault('conclusion', {})
         first = decision['label']
@@ -68,6 +136,7 @@ def _label_legacy_report(payload, cases=None, log_dir=None, work_dir=None, api_b
             'observation_hashes': {suffix: hashlib.sha256((work_dir/(stem+suffix)).read_bytes()).hexdigest()
                                    for suffix in ('.json', '.structured.json', '.raw.json')},
             'log_files': raw.get('provenance', {}).get('files', [])}
+        _apply_knowledge_matches(target, matched, candidate_cases)
     return result
 
 
@@ -103,34 +172,50 @@ def label_report(payload,cases=None,log_dir=None,work_dir=None,api_base=None,cla
     if model is not None and model.get('view')!='numeric_units':
         return _label_legacy_report(payload,cases,log_dir,work_dir,api_base,model)
     result=copy.deepcopy(payload);directory=Path(work_dir);directory.mkdir(parents=True,exist_ok=True)
+    faults = result.get('faults')
+    targets = list(enumerate(faults)) if isinstance(faults, list) and faults else [(None, result)]
+    if isinstance(faults, list) and faults:
+        result.pop('knowledge_matches', None)
+    observed_payload = payload if faults else {**payload, 'faults': [payload]}
     assets_dir=default_matching.model_registry.active_directory() or default_matching.ASSETS
-    profile,structured,raw,context=default_matching.observe(payload,log_dir)
+    profile,structured,raw,context=default_matching.observe(observed_payload,log_dir)
     hashes=_write_evidence(directory,'report',profile,structured,raw,context)
+    knowledge_cases = cases
+    configured_api = api_base or os.environ.get('WITTY_API_BASE')
+    if knowledge_cases is None and configured_api:
+        try:
+            knowledge_cases = match_cases.fetch_report_cases(configured_api)
+        except ValueError as error:
+            if api_base:
+                raise
+            print(error, file=sys.stderr)
+    # Explicit API sourcing continues to use verified library cases for the label vote.
+    decision_cases = cases
     if cases is None and api_base:
-        argv=[str(directory/'report.json'),'--api-base',api_base,'--json',str(directory/'report.matches.json')]
-        code=match_cases.main(argv)
-        if code:raise ValueError(f'案例库检索失败，exit={code}')
-        cases=json.loads((directory/'report.matches.json').read_text())['case_envelopes']
-    matched=default_matching.match(profile,cases,structured,raw,context,model=model,assets_dir=assets_dir,
-                                    query_identities=default_matching.identities(payload))
+        decision_cases = [case for case in knowledge_cases or []
+                          if case.get('status') == 'confirmed' and case.get('verification_closed')]
+    query_identities = default_matching.identities(payload)
+    matched=default_matching.match(profile,decision_cases,structured,raw,context,model=model,assets_dir=assets_dir,
+                                    query_identities=query_identities,knowledge_cases=knowledge_cases)
     (directory/'report.matches.json').write_text(json.dumps(matched,ensure_ascii=False,indent=2)+'\n')
     result['label_matching']=_matching_record(matched,'report','report',hashes,raw)
-    faults=result.get('faults');targets=list(enumerate(faults)) if isinstance(faults,list) and faults else [(None,result)]
     pairs={(row['first_level_label'],row['second_level_label']) for row in json.loads(
         (Path(__file__).resolve().parents[1]/'references/log_label.json').read_text())}
     if len(targets)==1:
-        index,target=targets[0];_apply_label(target,matched,pairs)
+        _,target=targets[0];_apply_label(target,matched,pairs)
         target['label_matching']=_matching_record(matched,'report','report',hashes,raw)
+        _apply_knowledge_matches(target,matched,knowledge_cases)
     else:
         for index,target in targets:
             query,observed,_=fixed_matching.extract_report(payload,None,[index])
             query['log_semantic_profile']=profile['log_semantic_profile'];observed['log']=structured['log']
             stem=f'fault-{index}';fault_hashes=_write_evidence(directory,stem,query,observed,raw,context)
-            fault_match=default_matching.match(query,cases,observed,raw,context,allow_classifier=False,
+            fault_match=default_matching.match(query,decision_cases,observed,raw,context,allow_classifier=False,
                 fallback_reason='multiple_faults_require_fault_scoped_evidence',assets_dir=assets_dir,
-                query_identities=default_matching.identities(payload))
+                query_identities=query_identities,knowledge_cases=knowledge_cases)
             _apply_label(target,fault_match,pairs)
             target['label_matching']=_matching_record(fault_match,'fault_profile_with_shared_report_logs',stem,fault_hashes,raw)
+            _apply_knowledge_matches(target,fault_match,knowledge_cases)
             (directory/(stem+'.matches.json')).write_text(json.dumps(fault_match,ensure_ascii=False,indent=2)+'\n')
     return result
 

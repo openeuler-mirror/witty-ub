@@ -45,7 +45,7 @@
 
 ## 诊断原则
 
-选择一级故障标签时，统一使用 case-matching 的固定特征匹配方案。新报告先运行 diagnostic-report-generation/scripts/generate_report.py（或其 --labels-only 模式），不得另写一套标签权重。默认由全部特征评分和 K4 投票决定标签。仅在用户明确指定分类器及模型时传 --classifier-model，诊断阶段不训练。K4 LOO 与分类器对照由 scripts/fault_label_loo/ 维护，共用 skill 观测向量及推理实现；随机训练/验证划分持久化。
+新报告通过 `diagnostic-report-generation/scripts/generate_report.py`（或其 `--labels-only` 模式）生成一级故障标签和历史案例。默认由数值分类器判定，失效时使用全特征余弦 K4。报告中的历史案例由生成器按每条故障的最终一级标签筛选和排序。仅在用户明确指定模型时传 `--classifier-model`。K4 LOO 与分类器对照由 `scripts/fault_label_loo/` 维护，并复用同版观测向量和推理实现。
 
 1. **先检索经验库**：任何技术问题都应先用 experience-skill 检索本地知识库；
    涉及历史故障现象、既有根因、可复用处置方案时，再用 case-matching 检索结构化案例。

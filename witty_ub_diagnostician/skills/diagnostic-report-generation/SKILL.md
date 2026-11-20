@@ -24,7 +24,9 @@ allowed-tools: >
 同时计算全特征余弦 K4 参照；数值不可用、模型不可用或逐故障归属时使用余弦 K4 退化。
 Agent 准备观测与诊断数据，不独立手写一级标签判定。报告级及逐故障策略、模型 ID、观测哈希、退化原因写入 `label_matching`。
 单故障采用报告级预测；多故障保留总体预测，各故障以自身观测走余弦退化，不把一个全局预测复制给全部故障。
-`--log-dir`提供现场原始日志。默认使用 skill 内带标签参考库；`--cases`显式提供候选，`--api-base`显式检索案例库。
+`--log-dir` 提供现场原始日志。默认用已发布或内置的带标签参考库辅助判定。
+配置 `WITTY_API_BASE` 时自动跨库读取已确认案例用于报告展示。`--api-base` 显式指定时，标签退化投票使用库中已完成验证的案例。
+`--cases` 提供离线候选信封，只有标记 `status: confirmed` 的案例可进入报告。
 已有标签不进入查询特征；二级标签按有效标签对和现场证据细分。
 
 已有报告用于匹配时，按[观测导出](references/EVIDENCE_EXPORT.md)生成基线、
@@ -299,21 +301,10 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 
 ### 知识库匹配纪律
 
-- 1~3 条、按匹配度降序；`match_logic` 必须写明 **L1(错误码)/L2(故障域)/L3(拓扑)**
-  三级匹配逻辑（哪级命中、哪级不命中）；L2 故障域即 `first_level_label/second_level_label`
-- 每条必须给 `applicability`：`direct` 可直接采用 / `adjust` 调整后采用 /
-  `reference` 仅供参考 / `not_recommended` 不建议采用——**不允许只给笼统匹配分**
-- 必须同时覆盖 curated 知识（failure_mode_knowledge）与 experience-skill 经验
-- **未见故障码先折算再检索**：本次证据里出现案例库从未收录的错误码时，先跑
-  `skills/case-matching/scripts/suggest_similar_codes.py --features <特征文件>`，
-  按它给出的「故障现象/故障原因 + 候选相近已知码（人工映射表 > 同码段 > 同故障域）」
-  选定 1~3 个相近码，用 `--pick "a,b" --apply` 写回特征的 `relaxed_status_codes`
-  再检索（这些码 0.5 降权参与软打分）。**报告里的错误码与故障码含义仍写真实码**，
-  `relaxed_status_codes` 只服务于「找得到相似案例」，不得当作本次故障码写进结论
-- 证据分层：知识库解释、历史案例与本次现场证据分别表述，不把知识库结论当成现场事实；
-  `POST /diag_case_library/search` 命中的已确认案例也只能作为**待验证假设**，须有本次现场
-  证据支撑才可用于根因，未验证的在结论中显式标注；若降级用了 `POST /diagnosis_case/search`
-  （旧表、未经人工确认），必须显式标注其未确认属性
+- `generate_report.py` 按每条故障最终采用的一级标签召回同类已确认案例，用同版观测向量的余弦相似度排序，最多展示 3 条。无同类可比观测时该故障无历史案例。
+- 历史案例由生成器写入 `knowledge_matches`，包含来源 `diag_case_library`、实际两级标签和相似度，适用性默认为 `reference`。草稿中的历史案例引用由本轮排序结果替换。
+- 原稿可补充故障模式、错误码或经验知识条目。填写实际 ID，并用 `source` 标明 `failure_mode_knowledge`、`status_code_knowledge`、`experience-skill` 或 `rag`。保留现场证据和适用性说明。
+- 已确认案例可作为待验证假设，结论需有本次现场证据支撑。用于探索的相近码或旧表案例可作为排查线索，报告仍记录现场真实错误码。
 
 ## 证据锚点纪律（faults[].evidence_traces[]）
 

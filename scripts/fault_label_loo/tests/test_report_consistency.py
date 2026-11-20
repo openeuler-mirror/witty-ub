@@ -1,4 +1,5 @@
 import contextlib
+import copy
 import io
 import json
 from pathlib import Path
@@ -20,6 +21,39 @@ from test_render_report_cli import report_data
 
 
 class ReportConsistencyTests(unittest.TestCase):
+    def test_report_generates_knowledge_cases_per_fault(self):
+        query, _, _, _ = inputs()
+        data = report_data()
+        data["basic_info"]["operation"] = "GET"
+        primary = data["faults"][0]
+        secondary = copy.deepcopy(primary)
+        secondary.update(id="F02", role="secondary")
+        data["faults"].append(secondary)
+        cases = []
+        for fault, case_id, label, code in (
+            (primary, "worker-case", "Worker故障", "1004"),
+            (secondary, "hardware-case", "硬件故障", "1001"),
+        ):
+            fault["evidence_traces"] = [{"status_code": code}]
+            cases.append({"id": case_id, "label": label, "status": "confirmed",
+                          "profile": {**query, "status_codes": [code]}})
+        with tempfile.TemporaryDirectory() as tmp:
+            result = generate_report.label_report(data, cases, work_dir=Path(tmp))
+        for fault, case in zip(result["faults"], cases):
+            self.assertEqual(fault["conclusion"]["first_level_label"], case["label"])
+            self.assertEqual([entry["id"] for entry in fault["knowledge_matches"]], [case["id"]])
+
+    def test_report_omits_history_when_only_operation_matches(self):
+        query, _, _, _ = inputs()
+        data = report_data()
+        data["basic_info"]["operation"] = "GET"
+        data["faults"][0]["knowledge_matches"] = [{"id": "UB-CASE-000042", "symptom": "旧案例"}]
+        cases = [{"id": "case", "label": "Worker故障", "status": "confirmed", "profile": query}]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = generate_report.label_report(data, cases, work_dir=Path(tmp))
+        self.assertEqual(result["faults"][0]["conclusion"]["first_level_label"], "Worker故障")
+        self.assertEqual(result["faults"][0]["knowledge_matches"], [])
+
     def test_report_labels_equal_shared_matching_and_ignore_answer_text(self):
         _, _, _, cases = inputs()
         payload = report_data()

@@ -4,6 +4,7 @@ import gzip
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -44,6 +45,99 @@ def fixtures():
 
 
 class DefaultPolicyTests(unittest.TestCase):
+    def test_generated_report_uses_final_label_for_live_knowledge_cases(self):
+        q, s, r, c, model, bank = fixtures()
+        data = report_data()
+        fault = data["faults"][0]
+        fault["knowledge_matches"] = [
+            {"id": "UB-CASE-000001", "source": "diag_case_library", "match_logic": "旧案例"},
+            {"id": "kvcache_access_022", "match_logic": "故障模式知识"},
+        ]
+        base = {"first_level_label": "硬件故障", "status": "confirmed",
+                "status_codes": ["1004"], "operation": "GET"}
+        rows = [
+            {**base, "id": "wrong-label", "first_level_label": "Worker故障"},
+            {**base, "id": "hardware", "case_no": "UB-CASE-000002", "symptom_summary": "历史硬件现象"},
+            {**base, "id": "draft", "status": "draft"},
+            {**base, "id": "operation-only", "status_codes": []},
+            {**base, "id": "same-report", "report_id": data["report"]["report_id"]},
+        ]
+        response = {"matches": [{"case": row} for row in rows], "total": len(rows)}
+
+        def assets(kind, *args):
+            return model if kind == "numeric_classifier" else bank
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(engine, "observe", return_value=(q, s, r, c)), \
+                patch.object(engine, "asset", side_effect=assets), \
+                patch.object(match_cases, "_search_all", return_value=response) as search, \
+                patch.dict(os.environ, {"WITTY_API_BASE": "http://case-service"}), \
+                patch.object(render_report, "cleanup_old_reports",
+                             return_value=render_report.CleanupOutcome([], {}, None)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            root = Path(tmp)
+            (root / "draft.json").write_text(json.dumps(data))
+            self.assertEqual(generate_report.main([str(root / "draft.json"), str(root / "report.html")]), 0)
+            search.assert_called_once_with("http://case-service", {
+                "scope": "all", "include_status": ["confirmed"], "page_cnt": 100,
+            }, 30)
+            result = json.loads((root / "report.json").read_text())
+            html = (root / "report.html").read_text()
+            matches = json.loads((root / "report.matching/report.matches.json").read_text())
+
+        self.assertEqual(matches["retrieval_decision"]["label"], "Worker故障")
+        self.assertEqual(matches["decision"]["label"], "硬件故障")
+        self.assertEqual([row["case_id"] for row in matches["knowledge_candidates"]], ["hardware"])
+        fault = result["faults"][0]
+        self.assertEqual([entry["id"] for entry in fault["knowledge_matches"]],
+                         ["kvcache_access_022", "hardware"])
+        case = fault["knowledge_matches"][1]
+        self.assertEqual(case["first_level_label"], fault["conclusion"]["first_level_label"])
+        self.assertIn("UB-CASE-000002", html)
+        self.assertNotIn("UB-CASE-000001", html)
+        case["first_level_label"] = "Worker故障"
+        errors, _ = render_report.validate(result)
+        self.assertTrue(any("历史案例的一级标签必须与所属故障一致" in error for error in errors))
+
+    def test_case_sorting_can_reuse_published_vectors_by_case_id(self):
+        q, s, r, c, model, bank = fixtures()
+        bank["cases"][0]["id"] = "measured-case"
+        cases = [{"id": "measured-case", "source_id": "report:alias",
+                  "label": "硬件故障", "status": "confirmed"}]
+        result = engine.match(q, None, s, r, c, model=model, references=bank, knowledge_cases=cases)
+        self.assertEqual([row["case_id"] for row in result["knowledge_candidates"]], ["measured-case"])
+        result = engine.match(q, None, s, r, c, model=model, references=bank, knowledge_cases=cases,
+                              excluded_sources=["history"])
+        self.assertEqual(result["knowledge_candidates"], [])
+
+    def test_library_stage_snapshot_can_match_without_raw_logs(self):
+        q, _, r, _, _, _ = fixtures()
+        q["status_codes"] = []
+        stage = {"key": "get_client", "trace_cnt": 1, "p90_ms": 8., "metric_name": "主阶段耗时"}
+        cases = match_cases.case_envelopes([{"case": {
+            "id": "stored-stage", "status": "confirmed", "first_level_label": "Worker故障",
+            "operation": "GET", "stage_features_json": {"sample_cnt": 10, "buckets": [stage]},
+        }}])
+        data = report_data()
+        data["faults"][0]["latency"] = {"stages": [{"features": {
+            "operation": "GET", "bucket_key": "get_client", "trace_cnt": 1, "sample_cnt": 10,
+            "metric_name": "主阶段耗时", "distribution": {"p90_ms": 8.},
+        }}]}
+        _, structured, _ = engine.fixed_matching.extract_report(data)
+        bank = {"schema_version": cosine_matching.VERSION, "sources": [], "cases": []}
+        result = engine.match(q, cases, structured, r, references=bank)
+        self.assertEqual([row["case_id"] for row in result["knowledge_candidates"]], ["stored-stage"])
+
+    def test_misoperation_case_must_match_the_rule_label_pair(self):
+        q, s, r, c, model, bank = fixtures()
+        q["status_codes"] = ["3"]
+        base = {"label": "业务故障", "status": "confirmed", "profile": q}
+        cases = [{**base, "id": "other-user-case"},
+                 {**base, "id": "usage-case", "second_level_label": "误操作故障-KVCache使用问题"}]
+        result = engine.match(q, cases, s, r, c, model=model, references=bank)
+        self.assertEqual(result["decision"]["method"], "misoperation_rule")
+        self.assertEqual([row["case_id"] for row in result["knowledge_candidates"]], ["usage-case"])
+
     def test_external_fault_vectors_from_same_source_do_not_overwrite_each_other(self):
         bank={'schema_version':cosine_matching.VERSION,'sources':[],'cases':[]}
         cases=[{'id':'a','source_id':'shared','label':'Worker故障','all_context_vector':{'x':1.}},
@@ -125,8 +219,8 @@ class DefaultPolicyTests(unittest.TestCase):
             self.assertEqual(result['faults'][0]['conclusion']['first_level_label'],'硬件故障')
             self.assertEqual(result['label_matching']['retrieval_decision']['label'],'Worker故障')
             self.assertIn('新增数值特征分类器',html)
-            self.assertIn('历史案例参照：Worker故障',html)
-            self.assertIn('预测与案例投票不一致',html)
+            self.assertIn('余弦 K4 参考投票：Worker故障',html)
+            self.assertIn('分类器与参考投票结果不同',html)
             self.assertTrue(result['label_matching']['disagreement'])
 
     def test_http_matching_uses_numeric_sidecar_and_same_fallback(self):

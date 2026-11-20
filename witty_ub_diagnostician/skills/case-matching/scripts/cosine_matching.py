@@ -3,6 +3,7 @@ import math
 import baseline_matching
 
 VERSION='all-context-cosine-bank-v1'
+MODEL_LABELS = ('OS故障', 'SDK故障', 'Worker故障', '容器故障', '硬件故障')
 
 
 def _source(case):return case.get('source_id') or case['id']
@@ -16,21 +17,36 @@ def observed_vector(profile,structured=None,raw=None):
     return feature_vectors.build_observations(profile,structured,raw)
 
 
-def rank(query,references,cases=None,excluded_sources=(),query_identities=()):
+def _shared_evidence(query, vector):
+    return any(
+        query[key] * vector[key] > 0
+        and key not in ('query:raw:available', 'query:legacy:status_codes:0')
+        and not key.startswith(('query:legacy:operation:', 'query:mechanism:operation:'))
+        and not key.endswith((':observed', ':known', ':sample_count', ':code_complete', ':truncated'))
+        for key in query.keys() & vector.keys()
+    )
+
+
+def rank(query,references,cases=None,excluded_sources=(),query_identities=(),*,
+         labels=MODEL_LABELS,require_shared_evidence=False):
     if references.get('schema_version')!=VERSION:raise ValueError('Unsupported cosine reference bank')
     excluded=set(excluded_sources);identities=set(query_identities)
     sources={r['source_id']:r for r in references['sources']}
+    case_sources = {case['id']: _source(case) for case in references.get('cases', [])}
     selected=[];vectors={};source_ids=set()
     for case in references['cases'] if cases is None else cases:
-        source=_source(case);known=sources.get(source)
-        if source in excluded or identities.intersection(case.get('identity',[])):continue
+        source=_source(case);reference_source=case_sources.get(case['id'],source)
+        known=sources.get(reference_source)
+        if {source,reference_source}&excluded or identities.intersection(case.get('identity',[])):continue
         if known and identities.intersection(known.get('identity',[])):continue
-        if case.get('label') not in ('OS故障','SDK故障','Worker故障','容器故障','硬件故障'):continue
-        vector=known['vector'] if known else case.get('all_context_vector')
+        if case.get('label') not in labels:continue
+        vector=case.get('all_context_vector')
+        if vector is None and known:vector=known['vector']
         if vector is None:
             if not case.get('profile'):continue
             vector=observed_vector(case['profile'],case.get('structured'),case.get('raw_observations'))
         if not vector or not any(vector.values()):continue
+        if require_shared_evidence and not _shared_evidence(query,vector):continue
         vectors[case['id']]=vector;source_ids.add(source);selected.append(case)
     maxima={}
     for vector in vectors.values():
