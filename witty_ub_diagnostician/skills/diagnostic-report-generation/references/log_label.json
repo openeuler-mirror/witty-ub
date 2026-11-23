@@ -1,372 +1,372 @@
 [
   {
-    "scope": "软件",
-    "first_level_label": "SDK故障",
-    "second_level_label": "SDK故障-进程异常退出"
+    "domain": "软件",
+    "component": "SDK故障",
+    "type": "SDK故障-进程异常退出"
   },
   {
-    "scope": "软件",
-    "first_level_label": "SDK故障",
-    "second_level_label": "SDK故障-进程反复重启"
+    "domain": "软件",
+    "component": "SDK故障",
+    "type": "SDK故障-进程反复重启"
   },
   {
-    "scope": "软件",
-    "first_level_label": "SDK故障",
-    "second_level_label": "SDK故障-进程挂死"
+    "domain": "软件",
+    "component": "SDK故障",
+    "type": "SDK故障-进程挂死"
   },
   {
-    "scope": "软件",
-    "first_level_label": "SDK故障",
-    "second_level_label": "SDK故障-进程CPU/内存/IO等资源使用超限"
+    "domain": "软件",
+    "component": "SDK故障",
+    "type": "SDK故障-进程CPU/内存/IO等资源使用超限"
   },
   {
-    "scope": "软件",
-    "first_level_label": "SDK故障",
-    "second_level_label": "SDK故障-进程申请不到CPU/内存/IO等资源"
+    "domain": "软件",
+    "component": "SDK故障",
+    "type": "SDK故障-进程申请不到CPU/内存/IO等资源"
   },
   {
-    "scope": "软件",
-    "first_level_label": "Worker故障",
-    "second_level_label": "Worker故障-进程退出"
+    "domain": "软件",
+    "component": "Worker故障",
+    "type": "Worker故障-进程退出"
   },
   {
-    "scope": "软件",
-    "first_level_label": "Worker故障",
-    "second_level_label": "Worker故障-进程反复重启"
+    "domain": "软件",
+    "component": "Worker故障",
+    "type": "Worker故障-进程反复重启"
   },
   {
-    "scope": "软件",
-    "first_level_label": "Worker故障",
-    "second_level_label": "Worker故障-进程挂死"
+    "domain": "软件",
+    "component": "Worker故障",
+    "type": "Worker故障-进程挂死"
   },
   {
-    "scope": "软件",
-    "first_level_label": "Worker故障",
-    "second_level_label": "Worker故障-进程CPU/内存/IO等资源使用超限"
+    "domain": "软件",
+    "component": "Worker故障",
+    "type": "Worker故障-进程CPU/内存/IO等资源使用超限"
   },
   {
-    "scope": "软件",
-    "first_level_label": "Worker故障",
-    "second_level_label": "Worker故障-进程申请不到CPU/内存/IO等资源"
+    "domain": "软件",
+    "component": "Worker故障",
+    "type": "Worker故障-进程申请不到CPU/内存/IO等资源"
   },
   {
-    "scope": "软件",
-    "first_level_label": "Coordinator故障",
-    "second_level_label": "Coordinator故障-进程异常退出"
+    "domain": "软件",
+    "component": "Coordinator故障",
+    "type": "Coordinator故障-进程异常退出"
   },
   {
-    "scope": "软件",
-    "first_level_label": "Coordinator故障",
-    "second_level_label": "Coordinator故障-进程反复重启"
+    "domain": "软件",
+    "component": "Coordinator故障",
+    "type": "Coordinator故障-进程反复重启"
   },
   {
-    "scope": "软件",
-    "first_level_label": "Coordinator故障",
-    "second_level_label": "Coordinator故障-进程挂死"
+    "domain": "软件",
+    "component": "Coordinator故障",
+    "type": "Coordinator故障-进程挂死"
   },
   {
-    "scope": "软件",
-    "first_level_label": "Coordinator故障",
-    "second_level_label": "Coordinator故障-进程CPU/内存/IO等资源使用超限"
+    "domain": "软件",
+    "component": "Coordinator故障",
+    "type": "Coordinator故障-进程CPU/内存/IO等资源使用超限"
   },
   {
-    "scope": "软件",
-    "first_level_label": "Coordinator故障",
-    "second_level_label": "Coordinator故障-进程申请不到CPU/内存/IO等资源"
+    "domain": "软件",
+    "component": "Coordinator故障",
+    "type": "Coordinator故障-进程申请不到CPU/内存/IO等资源"
   },
   {
-    "scope": "软件",
-    "first_level_label": "Coordinator故障",
-    "second_level_label": "Coordinator故障-网络不可用"
+    "domain": "软件",
+    "component": "Coordinator故障",
+    "type": "Coordinator故障-网络不可用"
   },
   {
-    "scope": "软件",
-    "first_level_label": "URMA故障",
-    "second_level_label": "URMA故障-初始化异常"
+    "domain": "软件",
+    "component": "URMA故障",
+    "type": "URMA故障-初始化异常"
   },
   {
-    "scope": "软件",
-    "first_level_label": "URMA故障",
-    "second_level_label": "URMA故障-建链异常"
+    "domain": "软件",
+    "component": "URMA故障",
+    "type": "URMA故障-建链异常"
   },
   {
-    "scope": "软件",
-    "first_level_label": "URMA故障",
-    "second_level_label": "URMA故障-数据通信API返回值异常"
+    "domain": "软件",
+    "component": "URMA故障",
+    "type": "URMA故障-数据通信API返回值异常"
   },
   {
-    "scope": "软件",
-    "first_level_label": "URMA故障",
-    "second_level_label": "URMA故障-数据通信CQE异步事件"
+    "domain": "软件",
+    "component": "URMA故障",
+    "type": "URMA故障-数据通信CQE异步事件"
   },
   {
-    "scope": "软件",
-    "first_level_label": "URMA故障",
-    "second_level_label": "URMA故障-数据通信AE异步事件"
+    "domain": "软件",
+    "component": "URMA故障",
+    "type": "URMA故障-数据通信AE异步事件"
   },
   {
-    "scope": "软件",
-    "first_level_label": "URMA故障",
-    "second_level_label": "URMA故障-反初始化异常"
+    "domain": "软件",
+    "component": "URMA故障",
+    "type": "URMA故障-反初始化异常"
   },
   {
-    "scope": "软件",
-    "first_level_label": "UDMA故障",
-    "second_level_label": "UDMA故障-驱动接口异常"
+    "domain": "软件",
+    "component": "UDMA故障",
+    "type": "UDMA故障-驱动接口异常"
   },
   {
-    "scope": "软件",
-    "first_level_label": "UBSE故障",
-    "second_level_label": "UB管控面故障-UBSE进程故障"
+    "domain": "软件",
+    "component": "UBSE故障",
+    "type": "UB管控面故障-UBSE进程故障"
   },
   {
-    "scope": "软件",
-    "first_level_label": "UBM故障",
-    "second_level_label": "UB管控面故障-UBM进程故障"
+    "domain": "软件",
+    "component": "UBM故障",
+    "type": "UB管控面故障-UBM进程故障"
   },
   {
-    "scope": "软件",
-    "first_level_label": "OS故障",
-    "second_level_label": "OS故障-重启"
+    "domain": "软件",
+    "component": "OS故障",
+    "type": "OS故障-重启"
   },
   {
-    "scope": "软件",
-    "first_level_label": "OS故障",
-    "second_level_label": "OS故障-Panic"
+    "domain": "软件",
+    "component": "OS故障",
+    "type": "OS故障-Panic"
   },
   {
-    "scope": "软件",
-    "first_level_label": "OS故障",
-    "second_level_label": "OS故障-挂死"
+    "domain": "软件",
+    "component": "OS故障",
+    "type": "OS故障-挂死"
   },
   {
-    "scope": "软件",
-    "first_level_label": "OS故障",
-    "second_level_label": "OS故障-CPU满"
+    "domain": "软件",
+    "component": "OS故障",
+    "type": "OS故障-CPU满"
   },
   {
-    "scope": "软件",
-    "first_level_label": "OS故障",
-    "second_level_label": "OS故障-内存不足"
+    "domain": "软件",
+    "component": "OS故障",
+    "type": "OS故障-内存不足"
   },
   {
-    "scope": "软件",
-    "first_level_label": "OS故障",
-    "second_level_label": "OS故障-硬盘IO速度慢"
+    "domain": "软件",
+    "component": "OS故障",
+    "type": "OS故障-硬盘IO速度慢"
   },
   {
-    "scope": "软件",
-    "first_level_label": "OS故障",
-    "second_level_label": "OS故障-硬盘空间不足"
+    "domain": "软件",
+    "component": "OS故障",
+    "type": "OS故障-硬盘空间不足"
   },
   {
-    "scope": "软件",
-    "first_level_label": "OS故障",
-    "second_level_label": "OS故障-fd不足"
+    "domain": "软件",
+    "component": "OS故障",
+    "type": "OS故障-fd不足"
   },
   {
-    "scope": "软件",
-    "first_level_label": "OS故障",
-    "second_level_label": "OS故障-时间跳变"
+    "domain": "软件",
+    "component": "OS故障",
+    "type": "OS故障-时间跳变"
   },
   {
-    "scope": "软件",
-    "first_level_label": "容器故障",
-    "second_level_label": "容器故障-SDK容器重启"
+    "domain": "软件",
+    "component": "容器故障",
+    "type": "容器故障-SDK容器重启"
   },
   {
-    "scope": "软件",
-    "first_level_label": "容器故障",
-    "second_level_label": "容器故障-Worker容器重启"
+    "domain": "软件",
+    "component": "容器故障",
+    "type": "容器故障-Worker容器重启"
   },
   {
-    "scope": "软件",
-    "first_level_label": "容器故障",
-    "second_level_label": "容器故障-Coordinator容器重启"
+    "domain": "软件",
+    "component": "容器故障",
+    "type": "容器故障-Coordinator容器重启"
   },
   {
-    "scope": "软件",
-    "first_level_label": "容器故障",
-    "second_level_label": "容器故障-CPU满"
+    "domain": "软件",
+    "component": "容器故障",
+    "type": "容器故障-CPU满"
   },
   {
-    "scope": "软件",
-    "first_level_label": "容器故障",
-    "second_level_label": "容器故障-内存不足"
+    "domain": "软件",
+    "component": "容器故障",
+    "type": "容器故障-内存不足"
   },
   {
-    "scope": "软件",
-    "first_level_label": "容器故障",
-    "second_level_label": "容器故障-存储空间不足"
+    "domain": "软件",
+    "component": "容器故障",
+    "type": "容器故障-存储空间不足"
   },
   {
-    "scope": "软件",
-    "first_level_label": "容器故障",
-    "second_level_label": "容器故障-存储空间只读"
+    "domain": "软件",
+    "component": "容器故障",
+    "type": "容器故障-存储空间只读"
   },
   {
-    "scope": "软件",
-    "first_level_label": "容器故障",
-    "second_level_label": "容器故障-fd不足"
+    "domain": "软件",
+    "component": "容器故障",
+    "type": "容器故障-fd不足"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "服务器故障-掉电"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "服务器故障-掉电"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "服务器故障-CPU故障"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "服务器故障-CPU故障"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "服务器故障-内存故障"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "服务器故障-内存故障"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "服务器故障-硬盘故障"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "服务器故障-硬盘故障"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "服务器故障-UB级联卡故障"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "服务器故障-UB级联卡故障"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "网卡故障-双网卡down"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "网卡故障-双网卡down"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "网卡故障-单网卡down"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "网卡故障-单网卡down"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "网卡故障-时延高"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "网卡故障-时延高"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "网卡故障-丢包"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "网卡故障-丢包"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "网卡故障-抖动"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "网卡故障-抖动"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "网卡故障-闪断"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "网卡故障-闪断"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "网卡故障-带宽不足"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "网卡故障-带宽不足"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "ub芯片故障-NFE"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "ub芯片故障-NFE"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "ub芯片故障-CE"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "ub芯片故障-CE"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "ub芯片故障-FE"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "ub芯片故障-FE"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "ub芯片故障-Jetty不足"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "ub芯片故障-Jetty不足"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "ub芯片故障-UB带宽不足"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "ub芯片故障-UB带宽不足"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "L1交换机故障-芯片故障"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "L1交换机故障-芯片故障"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "L1交换机故障-整机故障"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "L1交换机故障-整机故障"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "L2交换机故障-芯片故障"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "L2交换机故障-芯片故障"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "L2交换机故障-整机故障"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "L2交换机故障-整机故障"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "以太交换机故障-整机故障"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "以太交换机故障-整机故障"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "ub端口故障-down"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "ub端口故障-down"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "ub端口故障-闪断"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "ub端口故障-闪断"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "ub端口故障-丢包"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "ub端口故障-丢包"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "ub端口故障-降lane"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "ub端口故障-降lane"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "ub端口故障-时延高"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "ub端口故障-时延高"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "ub端口故障-抖动"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "ub端口故障-抖动"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "光纤故障-UB光纤故障"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "光纤故障-UB光纤故障"
   },
   {
-    "scope": "硬件",
-    "first_level_label": "硬件故障",
-    "second_level_label": "光纤故障-以太铜缆/光纤故障"
+    "domain": "硬件",
+    "component": "硬件故障",
+    "type": "光纤故障-以太铜缆/光纤故障"
   },
   {
-    "scope": "用户",
-    "first_level_label": "业务故障",
-    "second_level_label": "误操作故障-KVCache使用问题"
+    "domain": "用户",
+    "component": "业务故障",
+    "type": "误操作故障-KVCache使用问题"
   },
   {
-    "scope": "用户",
-    "first_level_label": "业务故障",
-    "second_level_label": "杰夫系统故障"
+    "domain": "用户",
+    "component": "业务故障",
+    "type": "杰夫系统故障"
   }
 ]

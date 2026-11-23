@@ -94,7 +94,7 @@ class AllFeatureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp,contextlib.redirect_stdout(io.StringIO()):
             default=generate_report.label_report(payload,cases,work_dir=Path(tmp)/'k4')
             explicit=generate_report.label_report(payload,cases,work_dir=Path(tmp)/'model',classifier_model=model)
-        self.assertIsNone(default['faults'][0]['conclusion']['first_level_label'])
+        self.assertIsNone(default['faults'][0]['conclusion']['domain'])
         self.assertTrue(default['faults'][0]['label_matching']['fallback_used'])
-        self.assertEqual(explicit['faults'][0]['conclusion']['first_level_label'],'OS故障')
+        self.assertEqual(explicit['faults'][0]['conclusion']['component'],'OS故障')
         self.assertEqual(explicit['faults'][0]['label_matching']['policy'],'all-feature-classifier-v1')

@@ -38,7 +38,7 @@
   "confidence": 0.92,
   "category": "mixed",
   "affected_scope": "host-101 / pod-worker-3；67.6% 故障 trace；12:03-12:11",
-  "conclusion": {"first_level_label": null, "second_level_label": null},
+  "conclusion": {"domain": null, "component": null, "type": null},
   "error": {},
   "latency": {},
   "root_cause": {},
@@ -58,7 +58,7 @@
 - `severity`: `P1` / `P2` / `P3`
 - `confidence`: 统一为 `0.0~1.0` 的 JSON number，最多两位小数；页面自动显示为百分比。
   新报告不得填写 `high`、`高`、`92`、`"92%"` 或 `"高92%"`。
-- `category`（故障类型，控制档案头标签）：`error` 错误/通断类（连接失败、错误码突增）/ `latency` 时延类（P99 超阈、慢调用，可无报错）/ `mixed` 时延与错误并存且同源（如丢包既导致慢又导致超时错误）。
+- `category`（异常类别，控制档案头标签）：`error` 错误/通断类（连接失败、错误码突增）/ `latency` 时延类（P99 超阈、慢调用，可无报错）/ `mixed` 时延与错误并存且同源（如丢包既导致慢又导致超时错误）。
 
 ### error 块（通断故障分布，错误类/mixed 有证据时填写）
 
@@ -175,7 +175,10 @@ GET/SET 各一套，展示 Top 错误码构成和时间窗 × 错误码热力表
   "secondary_fault_count": 1,
   "independent_fault_count": 1,
   "overall_impact": "3421 条故障 trace，波及 2 台 host、3 个 pod",
-  "confidence": 0.88
+  "confidence": 0.88,
+  "domain": "软件",
+  "component": "Worker故障",
+  "type": null
 }
 ```
 
@@ -240,27 +243,18 @@ GET/SET 各一套，展示 Top 错误码构成和时间窗 × 错误码热力表
 
 ## 板块 2：分析结论 (conclusion)
 
-`first_level_label`（一级标签）和 `second_level_label`（二级标签）为新报告必填的
-`string | null` 字段，取值与配对以 [log_label.json](log_label.json) 为准。
-每次生成时读取参考文件并按诊断证据做语义匹配，具体选择规则见
-[SKILL.md「故障标签」](../SKILL.md#故障标签)。只确定一级时二级为 `null`，
-无法确定一级时两者均为 `null`。例如确认 Worker 进程退出时，填写
-`"first_level_label": "Worker故障", "second_level_label": "Worker故障-进程退出"`。
-下例只定位到 RPC/网络，尚不能确定参考文件中的具体故障类别，故两级均为 `null`，
-`fault_domain` 同步写 `null`。
-多故障写在各自的 `faults[].conclusion`，扁平单故障写在 `conclusion`；
-`conclusion.fault_domain` 必须与两级标签一致：逐字填写
-`first_level_label/second_level_label`（斜杠拼接，如 `硬件故障/网卡故障-时延高`），
-不得自由填写「RPC/网络」等域文本；两级标签均为 `null` 时 `fault_domain` 也写 `null`。
-标签本身独立于原有诊断类型 `fault_type`、档案 `category`。
+`domain`、`component`、`type` 是必填的 `string | null` 字段，分别
+取自 [log_label.json](log_label.json) 同一记录的三个对应字段。
+例如 Worker 进程退出对应 `软件`、`Worker故障`、`Worker故障-进程退出`。
+无法定位的层级及其下层填 `null`。分类规则见 [SKILL.md「故障分类」](../SKILL.md#故障分类)。
+影响范围字段沿用原有百分比与描述口径。
 
 ```json
 {
-  "first_level_label": null,
-  "second_level_label": null,
   "one_line_conclusion": "pod-worker-3 (host-101) 与 etcd 节点之间网络抖动导致 RPC 连接超时，引发 kvcache GET 请求大面积返回 -1002 错误，影响 67.6% 的故障请求，持续 8 分钟。",
-  "fault_domain": null,
-  "fault_component": "etcd 连接",
+  "domain": null,
+  "component": null,
+  "type": null,
   "fault_function": "TcpConnector::connect()",
   "fault_function_loc": "src/transport/tcp_connector.cpp:161",
   "affected_scope_pct": "67.6",
@@ -512,8 +506,8 @@ SET 走 CREATE/PUBLISH 写路径，**可用字段与 GET 不同**，阶段表按
 ## 板块 7：知识库匹配 (knowledge_matches)
 
 历史案例由报告生成器写入。每项的 `source` 为 `diag_case_library`，`id` 为案例 ID，
-`case_no` 为展示编号，`first_level_label` 和 `second_level_label` 来自案例，
-`score_norm` 为余弦相似度。历史案例的一级标签与所属故障的最终一级标签一致。
+`case_no` 为展示编号，`domain`、`component` 和 `type` 为案例对应的分类路径，
+`score_norm` 为余弦相似度。
 
 ```json
 [
@@ -745,7 +739,7 @@ SET 走 CREATE/PUBLISH 写路径，**可用字段与 GET 不同**，阶段表按
 
 **撰写原则**
 - 1~3 条匹配结果，按匹配度降序；`stars` 表示匹配度（5 星=完美，3 星=中等）
-- `match_logic`: 说明 L1(错误码)/L2(故障域，即一级/二级标签)/L3(拓扑) 三级匹配逻辑
+- `match_logic`: 说明 L1(错误码)/L2(故障分类)/L3(拓扑) 三级匹配逻辑
 - `adoption_class`: `adoption-adopted` / `adoption-reference` / `adoption-not-adopted`
 - 必须同时包含 failure_mode_knowledge 的 curated 知识与 experience-skill 的经验知识
 

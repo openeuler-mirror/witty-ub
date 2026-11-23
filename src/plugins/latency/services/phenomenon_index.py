@@ -1415,11 +1415,9 @@ class PhenomenonIndexService:
             )
             if fault is None:
                 continue
-            conclusion = extractor.fault_conclusion(fault)
             try:
                 validation = label_taxonomy.validate_labels(
-                    conclusion.get("first_level_label"),
-                    conclusion.get("second_level_label"),
+                    *label_taxonomy.fault_case_labels(fault),
                 )
             except label_taxonomy.TaxonomyError:
                 continue

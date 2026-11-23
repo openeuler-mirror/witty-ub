@@ -92,12 +92,12 @@ class DefaultPolicyTests(unittest.TestCase):
         self.assertEqual([entry["id"] for entry in fault["knowledge_matches"]],
                          ["kvcache_access_022", "hardware"])
         case = fault["knowledge_matches"][1]
-        self.assertEqual(case["first_level_label"], fault["conclusion"]["first_level_label"])
+        self.assertEqual(case["domain"], fault["conclusion"]["domain"])
         self.assertIn("UB-CASE-000002", html)
         self.assertNotIn("UB-CASE-000001", html)
-        case["first_level_label"] = "Worker故障"
+        case["domain"] = "软件"
         errors, _ = render_report.validate(result)
-        self.assertTrue(any("历史案例的一级标签必须与所属故障一致" in error for error in errors))
+        self.assertTrue(any("历史案例的故障分类必须与所属故障的匹配结果一致" in error for error in errors))
 
     def test_case_sorting_can_reuse_published_vectors_by_case_id(self):
         q, s, r, c, model, bank = fixtures()
@@ -191,7 +191,7 @@ class DefaultPolicyTests(unittest.TestCase):
             result=generate_report.label_report(data,work_dir=Path(tmp))
         self.assertEqual(result['label_matching']['decision']['label'],'硬件故障')
         for fault in result['faults']:
-            self.assertEqual(fault['conclusion']['first_level_label'],'Worker故障')
+            self.assertEqual(fault['conclusion']['component'],'Worker故障')
             self.assertEqual(fault['label_matching']['decision']['method'],'all_feature_cosine_k4')
             self.assertIn('multiple_faults',fault['label_matching']['decision']['fallback_reason'])
 
@@ -216,10 +216,10 @@ class DefaultPolicyTests(unittest.TestCase):
                 code=generate_report.main([str(root/'draft.json'),str(root/'report.html')])
             self.assertEqual(code,0)
             result=json.loads((root/'report.json').read_text());html=(root/'report.html').read_text()
-            self.assertEqual(result['faults'][0]['conclusion']['first_level_label'],'硬件故障')
+            self.assertEqual(result['faults'][0]['conclusion']['domain'],'硬件')
             self.assertEqual(result['label_matching']['retrieval_decision']['label'],'Worker故障')
             self.assertIn('新增数值特征分类器',html)
-            self.assertIn('余弦 K4 参考投票：Worker故障',html)
+            self.assertNotIn('余弦 K4 参考投票：Worker故障',html)
             self.assertIn('分类器与参考投票结果不同',html)
             self.assertTrue(result['label_matching']['disagreement'])
 
@@ -257,7 +257,7 @@ class DefaultPolicyTests(unittest.TestCase):
             subprocess.run(command,cwd=root,check=True,capture_output=True)
             result=json.loads((root/'labelled.json').read_text())
             self.assertEqual(result['label_matching']['decision']['method'],'numeric_units_classifier')
-            self.assertEqual(result['faults'][0]['conclusion']['first_level_label'],'硬件故障')
+            self.assertEqual(result['faults'][0]['conclusion']['domain'],'硬件')
             self.assertEqual(result['label_matching']['retrieval_decision']['label'],'Worker故障')
 
 

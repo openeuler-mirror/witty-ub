@@ -281,11 +281,9 @@ def _error_scope(fault: dict[str, Any]) -> tuple[str | None, list[str], list[str
 
 
 def _labels(fault: dict[str, Any]) -> dict[str, Any]:
-    conclusion = report_phenomenon.fault_conclusion(fault)
     try:
         validation = label_taxonomy.validate_labels(
-            conclusion.get("first_level_label"),
-            conclusion.get("second_level_label"),
+            *label_taxonomy.fault_case_labels(fault),
         )
     except label_taxonomy.TaxonomyError:
         return {

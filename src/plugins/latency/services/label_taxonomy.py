@@ -1,5 +1,5 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2025. All rights reserved.
-"""Two-level fault label taxonomy shared with the report generation skill.
+"""Case-matching label view of the report generation taxonomy.
 
 The dictionary file is owned by ``witty_ub_diagnostician``; this module only
 reads it, validates label pairs and computes a stable snapshot hash/version.
@@ -29,6 +29,18 @@ TAXONOMY_DEPLOY_RELATIVE_PATH = (
 )
 
 _TAXONOMY_CACHE: dict[str, tuple[float, "Taxonomy"]] = {}
+
+
+def _model_label(domain, component, fault_type):
+    family = fault_type.partition("-")[0]
+    if fault_type == "使用问题":
+        return component
+    if domain == "硬件故障":
+        if family in {"L1交换机故障", "L2交换机故障"}:
+            return "UB交换机故障"
+        if family not in {"以太交换机故障", "光纤故障"}:
+            return domain
+    return family
 
 
 class TaxonomyError(Exception):
@@ -112,18 +124,27 @@ def load_taxonomy() -> Taxonomy:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise TaxonomyError("label_taxonomy_invalid") from exc
-    if not isinstance(payload, list):
-        raise TaxonomyError("label_taxonomy_invalid")
-
     pairs: dict[str, set[str]] = {}
-    for item in payload:
-        if not isinstance(item, dict):
-            raise TaxonomyError("label_taxonomy_invalid")
-        first = _known_label(item.get("first_level_label"))
-        second = _known_label(item.get("second_level_label"))
-        if first is None or second is None:
-            raise TaxonomyError("label_taxonomy_invalid")
-        pairs.setdefault(first, set()).add(second)
+    if isinstance(payload, dict):
+        for domain, components in payload.items():
+            if not isinstance(components, dict):
+                raise TaxonomyError("label_taxonomy_invalid")
+            for component, types in components.items():
+                if not isinstance(types, list) or not all(_known_label(value) for value in types):
+                    raise TaxonomyError("label_taxonomy_invalid")
+                for fault_type in types:
+                    family = _model_label(domain, component, fault_type)
+                    pairs.setdefault(family, set()).add(fault_type)
+    elif isinstance(payload, list):
+        # Keep support for two-level dictionaries supplied by existing installations.
+        for item in payload:
+            if not isinstance(item, dict):
+                raise TaxonomyError("label_taxonomy_invalid")
+            first = _known_label(item.get("component", item.get("first_level_label")))
+            second = _known_label(item.get("type", item.get("second_level_label")))
+            if first is None or second is None:
+                raise TaxonomyError("label_taxonomy_invalid")
+            pairs.setdefault(first, set()).add(second)
     if not pairs:
         raise TaxonomyError("label_taxonomy_invalid")
 
@@ -135,6 +156,33 @@ def load_taxonomy() -> Taxonomy:
     )
     _TAXONOMY_CACHE[str(path)] = (mtime, taxonomy)
     return taxonomy
+
+
+def fault_case_labels(fault: dict) -> tuple[object, object]:
+    """Read historical case labels or derive case-matching classes from report fields."""
+    conclusion = fault.get("conclusion")
+    if not isinstance(conclusion, dict):
+        return None, None
+    if "domain" in conclusion:
+        return conclusion.get("component"), conclusion.get("type")
+    if "fault_type" not in conclusion:
+        return conclusion.get("first_level_label"), conclusion.get("second_level_label")
+    domain = conclusion.get("fault_domain")
+    if not isinstance(domain, str) or not domain:
+        return None, None
+    component = conclusion.get("fault_component")
+    fault_type = conclusion["fault_type"]
+    if isinstance(fault_type, str) and isinstance(component, str):
+        return _model_label(domain, component, fault_type), fault_type
+    matching = fault.get("label_matching")
+    decision = matching.get("decision") if isinstance(matching, dict) else None
+    if isinstance(decision, dict) and isinstance(decision.get("label"), str):
+        return decision["label"], None
+    if domain == "硬件故障":
+        return domain, None
+    if component in ("URMA故障", "UDMA故障", "UB管控面故障", "亚健康故障", "误操作故障", "用户相关故障"):
+        return component, None
+    return None, None
 
 
 def _known_label(value: object) -> str | None:

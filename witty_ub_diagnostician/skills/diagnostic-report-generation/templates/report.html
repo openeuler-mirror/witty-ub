@@ -49,7 +49,7 @@ html { -webkit-text-size-adjust: 100%; }
 .status-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .status-badge.ok { background: var(--success-pale); color: var(--success); }
 .status-badge.warn { background: var(--warning-pale); color: var(--warning); }
-.conclusion-card .card-sub { font-size: 12px; color: var(--gray-500); margin-top: 4px; overflow-wrap: break-word; }
+.conclusion-card .card-sub { font-size: 12px; color: var(--gray-500); margin-top: 4px; overflow-wrap: anywhere; }
 .conclusion-func {
   display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 10px;
   margin-top: 14px; background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--brand);
@@ -316,8 +316,9 @@ body {  font-family: var(--font-sans);
 .hero-status {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
-  flex-shrink: 0;
   padding-top: 5px;
 }
 .hero-chip {
@@ -372,15 +373,12 @@ body {  font-family: var(--font-sans);
 .hero-metric-label { color: rgba(255,255,255,.46); font-size: 10px; letter-spacing: .5px; }
 .hero-metric-value {
   margin-top: 4px;
-  overflow: hidden;
   color: #fff;
   font-size: 16px;
   font-weight: 680;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
-.hero-metric-value.mono { font-size: 12px; color: #b9c8ff; }
 
 .report-nav-wrap {
   position: sticky;
@@ -494,16 +492,11 @@ body {  font-family: var(--font-sans);
   background: var(--accent);
 }
 .conclusion-text { font-weight: 700; color: var(--gray-900); line-height: 1.7; margin-bottom: 18px; max-width: 850px; font-size: 18px; letter-spacing: -.1px; }
-.conclusion-tags { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
-.conclusion-tags .ctag-label { font-size: 11px; letter-spacing: .6px; color: #98a2b3; font-weight: 600; flex-shrink: 0; }
-.conclusion-tags .ctag { display: inline-flex; align-items: center; font-size: 12.5px; font-weight: 600; border-radius: 999px; padding: 3px 12px; border: 1px solid var(--border); }
-.conclusion-tags .ctag-l1 { background: #fff7e6; color: #b45309; border-color: #fde68a; }
-.conclusion-tags .ctag-l2 { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
 .conclusion-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.conclusion-card { min-width: 0; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); padding: 15px 16px; text-align: left; box-shadow: none; }
+.conclusion-card { min-width: 0; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); padding: 15px 16px; text-align: left; box-shadow: none; }
 .conclusion-card:hover { border-color: var(--border); box-shadow: none; }
 .conclusion-card .card-label { font-size: 11px; letter-spacing: .6px; margin-bottom: 6px; white-space: nowrap; color: #98a2b3; }
-.conclusion-card .card-value { font-weight: 700; color: var(--gray-900); overflow-wrap: break-word; word-break: break-word; line-height: 1.35; font-size: 18px; }
+.conclusion-card .card-value { font-weight: 700; color: var(--gray-900); overflow-wrap: anywhere; line-height: 1.35; font-size: 18px; }
 
 .solution-group {  margin-bottom: 16px;
   position: relative;
@@ -982,7 +975,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
 @media (max-width: 820px) {
   .header-inner, .report-nav, .container { padding-left: 20px; padding-right: 20px; }
   .hero-top { flex-direction: column; gap: 16px; }
-  .hero-status { padding: 0; }
+  .hero-status { justify-content: flex-start; padding: 0; }
   .hero-metrics, .conclusion-cards { grid-template-columns: repeat(2, 1fr); }
   .info-grid { grid-template-columns: 1fr; }
   .workflow-summary { display: grid; grid-template-columns: repeat(2, 1fr); }
@@ -1036,7 +1029,6 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
   .hero-chip { color: var(--ink); border-color: var(--border); background: #fff; }
   .hero-metrics { border-color: var(--border); background: var(--border); }
   .hero-metric { background: #fff; }
-  .hero-metric-value.mono { color: var(--accent) !important; }
   .section-header { break-after: avoid; page-break-after: avoid; }
   .conclusion-card, .donut-card, .pnode { break-inside: avoid; }
   .kb-match-card { break-inside: avoid; page-break-inside: avoid; }
@@ -1061,17 +1053,40 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
 {%- endif -%}
 {%- set is_multi = fault_list | length > 1 -%}
 {%- set f0 = fault_list[0] -%}
-{%- set pns = namespace(p=f0) -%}
-{%- for _f in fault_list %}{% if incident_summary and _f.id == incident_summary.primary_fault_id %}{% set pns.p = _f %}{% endif %}{% endfor -%}
+{%- set main_fault = primary_fault or f0 -%}
+{%- set main_conclusion = main_fault.conclusion -%}
 {%- if incident_summary -%}
   {%- set inc = incident_summary -%}
 {%- else -%}
   {%- set inc = {'one_line_conclusion':f0.conclusion.one_line_conclusion,'fault_count':1,'primary_fault_id':f0.id,'secondary_fault_count':0,'independent_fault_count':0,'overall_impact':f0.conclusion.affected_scope_desc,'confidence':f0.conclusion.confidence} -%}
 {%- endif -%}
+{%- set report_confidence = inc.confidence -%}
+{%- if not is_multi and (report_confidence is undefined or report_confidence is none) -%}
+  {%- set report_confidence = main_fault.confidence -%}
+{%- endif -%}
 {%- set rels = fault_relations if fault_relations else [] -%}
 {%- set acts = action_plan if action_plan else [] -%}
 {%- set sec_ns = namespace(n=0) -%}
 
+{% macro m_fault_cards(c, confidence, hero=false, overall=false) %}
+{% set card = 'hero-metric' if hero else 'conclusion-card' %}
+{% set label = 'hero-metric-label' if hero else 'card-label' %}
+{% set value = 'hero-metric-value' if hero else 'card-value' %}
+<div class="{{ 'hero-metrics' if hero else 'conclusion-cards' }}">
+  {% for name, classification, fallback in [
+    ('故障域', c.domain, '未知故障'),
+    ('故障组件', c.component, '-')
+  ] %}
+  <div class="{{ card }}"><div class="{{ label }}">{{ name }}</div><div class="{{ value }}">{{ classification or fallback }}</div></div>
+  {% endfor %}
+  <div class="{{ card }}">
+    <div class="{{ label }}">影响范围</div>
+    <div class="{{ value }}">{% if overall %}{{ inc.overall_impact or '—' }}{% elif c.affected_scope_pct is defined and c.affected_scope_pct not in (none, '') %}{{ c.affected_scope_pct }}%{% else %}—{% endif %}</div>
+    {% if not overall and not hero and c.affected_scope_desc %}<div class="card-sub">{{ c.affected_scope_desc }}</div>{% endif %}
+  </div>
+  <div class="{{ card }}"><div class="{{ label }}">置信度</div><div class="{{ value }}">{{ confidence | confidence_pct }}</div></div>
+</div>
+{% endmacro %}
 
 <div class="header">
   <div class="header-inner">
@@ -1094,28 +1109,13 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
       <div class="hero-summary-label">EXECUTIVE DIAGNOSIS</div>
       <div class="hero-summary-text">{{ inc.one_line_conclusion }}</div>
     </div>
-    {% if label_matching is defined and label_matching and label_matching.policy == 'numeric-units-classifier-cosine-fallback-v1' %}
+    {% if label_matching is defined and label_matching.policy == 'numeric-units-classifier-cosine-fallback-v1' %}
     <div class="hero-meta" data-label-policy="numeric-units-classifier-cosine-fallback-v1">
-      <span>报告级标签预测：{{ label_matching.decision.label or '观测不足' }}</span>
-      <span>依据：{% if label_matching.decision.method == 'numeric_units_classifier' %}新增数值特征分类器{% elif label_matching.decision.method in ['misoperation_rule', 'user_usage_rule'] %}误操作故障规则{% else %}全特征余弦 K4 退化{% endif %}</span>
-      {% if label_matching.retrieval_decision.method == 'all_feature_cosine_k4' %}<span>余弦 K4 参考投票：{{ label_matching.retrieval_decision.label or '无可比案例' }}</span>{% endif %}
+      <span>分类依据：{% if label_matching.decision.method == 'numeric_units_classifier' %}新增数值特征分类器{% elif label_matching.decision.method in ['misoperation_rule', 'user_usage_rule'] %}误操作故障规则{% else %}全特征余弦 K4 退化{% endif %}</span>
       {% if label_matching.disagreement %}<span>分类器与参考投票结果不同，请结合现场证据核对。</span>{% endif %}
-      {% if is_multi %}<span>多故障逐项标签见故障档案，报告级预测不替代逐项归属。</span>{% endif %}
     </div>
     {% endif %}
-    <div class="hero-metrics">
-      {% if is_multi %}
-      <div class="hero-metric"><div class="hero-metric-label">识别故障</div><div class="hero-metric-value">{{ inc.fault_count }} 个</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">主故障</div><div class="hero-metric-value mono">{{ inc.primary_fault_id }}</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">次生 / 独立</div><div class="hero-metric-value">{{ inc.secondary_fault_count }} / {{ inc.independent_fault_count }}</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">综合置信度</div><div class="hero-metric-value">{{ inc.confidence | confidence_pct }}</div></div>
-      {% else %}
-      <div class="hero-metric"><div class="hero-metric-label">故障域</div><div class="hero-metric-value">{{ f0.conclusion.fault_domain or '-' }}</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">故障组件</div><div class="hero-metric-value">{{ f0.conclusion.fault_component or '-' }}</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">影响范围</div><div class="hero-metric-value">{% if f0.conclusion.affected_scope_pct %}{{ f0.conclusion.affected_scope_pct }}%{% else %}—{% endif %}</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">诊断置信度</div><div class="hero-metric-value">{{ f0.conclusion.confidence | confidence_pct }}</div></div>
-      {% endif %}
-    </div>
+    {{ m_fault_cards(main_conclusion, report_confidence, hero=true, overall=is_multi) }}
   </div>
 </div>
 <div class="report-nav-wrap"><nav class="report-nav" aria-label="报告章节导航">
@@ -1123,33 +1123,19 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
 </nav></div>
 <div class="container">
 {# ================= Fault-scoped block macros ================= #}
-{% macro m_conclusion(c) %}
+{% macro m_conclusion(c, confidence, summary=none, overall=false) %}
 {% if c %}
 <div class="conclusion-box">
-  <div class="conclusion-text">{{ c.one_line_conclusion }}</div>
-  {% if c.first_level_label or c.second_level_label %}
-  <div class="conclusion-tags">
-    <span class="ctag-label">故障标签</span>
-    {% if c.first_level_label %}<span class="ctag ctag-l1">{{ c.first_level_label }}</span>{% endif %}
-    {% if c.second_level_label %}<span class="ctag ctag-l2">{{ c.second_level_label }}</span>{% endif %}
-  </div>
-  {% endif %}
-  {% if c.fault_domain or c.fault_component %}
-  <div class="conclusion-cards">
-    <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">{{ c.fault_domain or '-' }}</div></div>
-    <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">{{ c.fault_component or '-' }}</div></div>
-    <div class="conclusion-card"><div class="card-label">影响范围</div><div class="card-value">{% if c.affected_scope_pct %}{{ c.affected_scope_pct }}%{% else %}—{% endif %}</div>{% if c.affected_scope_desc %}<div class="card-sub">{{ c.affected_scope_desc }}</div>{% endif %}</div>
-    <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">{{ c.confidence | confidence_pct }}</div></div>
-  </div>
-  {% endif %}
-  {% if c.fault_function %}
+  <div class="conclusion-text">{{ summary if summary is not none else c.one_line_conclusion }}</div>
+  {{ m_fault_cards(c, confidence, overall=overall) }}
+  {% if not overall and c.fault_function %}
   <div class="conclusion-func">
     <span class="func-label">故障函数</span>
     <code class="func-name">{{ c.fault_function }}</code>
     {% if c.fault_function_loc %}<code class="func-loc">{{ c.fault_function_loc }}</code>{% endif %}
   </div>
   {% endif %}
-  {% if c.key_findings %}
+  {% if not overall and c.key_findings %}
   <div class="key-findings"><h4>关键发现</h4><ul>{% for finding in c.key_findings %}<li>{{ finding }}</li>{% endfor %}</ul></div>
   {% endif %}
 </div>
@@ -1460,8 +1446,8 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
   <div class="kb-match-header">
     <span class="kb-match-id"{% if match.case_no %} title="{{ match.id }}"{% endif %}>{{ match.rank }} {{ match.case_no or match.id }}</span>
     <span class="kb-match-stars">{{ match.stars }}</span>
-    {% if match.source == 'diag_case_library' and match.first_level_label %}
-    <span class="ctag ctag-l1">{{ match.first_level_label }}{% if match.second_level_label %} / {{ match.second_level_label }}{% endif %}</span>
+    {% if match.source == 'diag_case_library' and match.domain %}
+    <span>{{ [match.domain, match.component] | select | join(' / ') }}</span>
     {% endif %}
     {% if fid %}<span class="kb-fid">支撑 {{ fid }}</span>{% endif %}
   </div>
@@ -1712,34 +1698,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
     <span class="section-title" data-subtitle="{% if is_multi %}故障总数、主故障与总体影响{% else %}核心结论与关键发现{% endif %}">事件诊断摘要</span>
   </div>
   <div class="section-body">
-    <div class="conclusion-box">
-      <div class="conclusion-text">{{ inc.one_line_conclusion }}</div>
-      {% if is_multi %}
-      <div class="conclusion-cards">
-        <div class="conclusion-card"><div class="card-label">识别故障</div><div class="card-value">{{ inc.fault_count }} 个</div><div class="card-sub">主故障 1 · 次生 {{ inc.secondary_fault_count }} · 独立 {{ inc.independent_fault_count }}</div></div>
-        <div class="conclusion-card"><div class="card-label">主故障</div><div class="card-value mono">{{ inc.primary_fault_id }}</div><div class="card-sub">{{ pns.p.title }}</div></div>
-        <div class="conclusion-card"><div class="card-label">总体影响范围</div><div class="card-value" style="font-size:12.5px;line-height:1.5;">{{ inc.overall_impact or '—' }}</div></div>
-        <div class="conclusion-card"><div class="card-label">综合置信度</div><div class="card-value">{{ inc.confidence | confidence_pct }}</div></div>
-      </div>
-      {% else %}
-      <div class="conclusion-cards">
-        <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">{{ f0.conclusion.fault_domain or '-' }}</div></div>
-        <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">{{ f0.conclusion.fault_component or '-' }}</div></div>
-        <div class="conclusion-card"><div class="card-label">影响范围</div><div class="card-value">{% if f0.conclusion.affected_scope_pct %}{{ f0.conclusion.affected_scope_pct }}%{% else %}—{% endif %}</div>{% if f0.conclusion.affected_scope_desc %}<div class="card-sub">{{ f0.conclusion.affected_scope_desc }}</div>{% endif %}</div>
-        <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">{{ f0.conclusion.confidence | confidence_pct }}</div></div>
-      </div>
-      {% if f0.conclusion.fault_function %}
-      <div class="conclusion-func">
-        <span class="func-label">故障函数</span>
-        <code class="func-name">{{ f0.conclusion.fault_function }}</code>
-        {% if f0.conclusion.fault_function_loc %}<code class="func-loc">{{ f0.conclusion.fault_function_loc }}</code>{% endif %}
-      </div>
-      {% endif %}
-      {% if f0.conclusion.key_findings %}
-      <div class="key-findings"><h4>关键发现</h4><ul>{% for finding in f0.conclusion.key_findings %}<li>{{ finding }}</li>{% endfor %}</ul></div>
-      {% endif %}
-      {% endif %}
-    </div>
+    {{ m_conclusion(main_conclusion, report_confidence, inc.one_line_conclusion, overall=is_multi) }}
   </div>
 </div>
 
@@ -1973,7 +1932,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
         {% if f.status == 'suspected' %}
         <div class="fa-secondary-note" style="background:#f2f4f7;border-color:#e2e6ec;color:#5D6B7A;">本故障为候选假设，根因尚未确认，下列结论与证据仅供参考，不能直接认定。</div>
         {% endif %}
-        {% if f.conclusion %}<h4 class="fa-sub">故障结论</h4>{{ m_conclusion(f.conclusion) }}{% endif %}
+        {% if f.conclusion %}<h4 class="fa-sub">故障结论</h4>{{ m_conclusion(f.conclusion, f.conclusion.confidence if f.conclusion.confidence is not none else f.confidence) }}{% endif %}
         {% if f.error and not f.simplified %}<h4 class="fa-sub">通断故障分布</h4>{{ m_error(f.error) }}{% endif %}
         {% if f.latency %}<h4 class="fa-sub">时延阶段定位</h4>{{ m_latency(f.latency) }}{% endif %}
         {% if not f.simplified %}

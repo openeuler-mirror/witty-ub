@@ -35,11 +35,18 @@ from pathlib import Path
 from typing import NamedTuple
 
 from error_features import validate_error
+from fault_classification import (
+    CLASSIFICATION_FIELDS,
+    classification_from_case_labels,
+    migrate_classification,
+    primary_fault,
+    taxonomy_error,
+    update_incident_classification,
+)
 from latency_features import validate_features
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_TEMPLATE = SKILL_DIR / "templates" / "report.html"
-LABEL_REFERENCE = SKILL_DIR / "references" / "log_label.json"
 FALLBACK_OUT_DIR = Path("/tmp/reports")
 KB_SLUG_FALLBACK = "unknown"
 
@@ -224,66 +231,59 @@ def _check_enum(path, value, enum, errors, required=True):
         errors.append(f"{path}: {value!r} 不是合法取值（{'|'.join(enum)}）")
 
 
-def _check_fault_labels(path, conclusion, errors, warnings):
+def _check_fault_classification(path, conclusion, errors):
     if not isinstance(conclusion, dict):
         return
-    fields = ("first_level_label", "second_level_label")
-    for field in fields:
+    # Older callers may validate a saved report directly, before normalization.
+    if "domain" not in conclusion and "first_level_label" in conclusion:
+        return
+    for field in CLASSIFICATION_FIELDS:
         if field not in conclusion:
             errors.append(f"{path}.{field}: 必填，无法匹配时填 null")
         elif conclusion[field] is not None and not isinstance(conclusion[field], str):
             errors.append(f"{path}.{field}: 必须是字符串或 null")
-    if any(field not in conclusion or
-           (conclusion[field] is not None and not isinstance(conclusion[field], str))
-           for field in fields):
-        return
-    first, second = (conclusion[field] for field in fields)
-    if first is None and second is None:
+    values = tuple(conclusion.get(field) for field in CLASSIFICATION_FIELDS)
+    if any(value is not None and not isinstance(value, str) for value in values):
         return
     try:
-        rows = json.loads(LABEL_REFERENCE.read_text(encoding="utf-8"))
-        pairs = {(row[fields[0]], row[fields[1]]) for row in rows}
+        invalid = taxonomy_error(*values)
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise Fatal(f"无法读取故障标签参考: {LABEL_REFERENCE}", str(exc)) from exc
-    if first not in {pair[0] for pair in pairs}:
-        errors.append(f"{path}.first_level_label: 必须取自 references/log_label.json；一级为 null 时二级也须为 null")
-    elif second is not None and (first, second) not in pairs:
-        errors.append(f"{path}.second_level_label: 必须与一级标签组成 references/log_label.json 中已有的标签对")
-    fault_domain = conclusion.get("fault_domain")
-    if fault_domain is not None:
-        if first is None and second is None:
-            warnings.append(f"{path}.fault_domain: 两级标签均为 null 时故障域应同步为 null")
-        elif fault_domain != f"{first}/{second}":
-            errors.append(
-                f"{path}.fault_domain: 必须与一级/二级标签一致"
-                f"（应为 {first!r}/{second!r}），不得自由填写域文本"
-            )
+        raise Fatal("无法读取 references/log_label.json", str(exc)) from exc
+    if invalid:
+        errors.append(f"{path}.{invalid}: 必须取自 references/log_label.json 中对应层级的同一条路径")
 
 
 def _check_fixed_label(path, target, errors):
-    matching = target.get('label_matching') or {}
-    if matching.get('policy') not in ('numeric-units-classifier-cosine-fallback-v1','all-feature-vote-v1','all-feature-classifier-v1','fixed-feature-vote-v1', 'fixed-features-v1'):
+    matching = target.get("label_matching") or {}
+    selection = matching.get("fault_type_decision")
+    conclusion = target.get("conclusion")
+    if not isinstance(selection, dict) or not isinstance(conclusion, dict):
         return
-    expected = (matching.get('decision') or {}).get('label')
-    actual = (target.get('conclusion') or {}).get('first_level_label')
-    if actual!=expected:
-        errors.append(f'{path}.conclusion.first_level_label: 必须与标签选择策略的 decision.label 一致')
-    second = matching.get('second_level_decision')
-    if isinstance(second, dict) and (target.get('conclusion') or {}).get('second_level_label') != second.get('label'):
-        errors.append(f'{path}.conclusion.second_level_label: 必须与标签选择策略的 second_level_decision.label 一致')
+    decision = matching.get("decision") or {}
+    if "domain" not in decision:
+        return
+    model_class = decision.get("label")
+    fault_type = selection.get("label")
+    expected = classification_from_case_labels(model_class, fault_type)
+    actual = tuple(conclusion.get(field) for field in CLASSIFICATION_FIELDS)
+    if expected != actual or expected[2] != fault_type:
+        errors.append(f"{path}.conclusion: 故障分类必须与标签选择策略及 fault_type_decision.label 一致")
 
 
 def _check_knowledge_case(path, entry, target, errors):
     if entry.get('source') != 'diag_case_library':
         return
-    case_ids = (target.get('label_matching') or {}).get('knowledge_case_ids')
+    matching = target.get('label_matching') or {}
+    case_ids = matching.get('knowledge_case_ids')
     if case_ids is None:
         return  # Existing reports can still be rendered from their saved sidecars.
-    label = (target.get('conclusion') or {}).get('first_level_label')
-    if not label or entry.get('first_level_label') != label:
-        errors.append(f'{path}.first_level_label: 历史案例的一级标签必须与所属故障一致')
     if not isinstance(case_ids, list) or entry.get('id') not in case_ids:
         errors.append(f'{path}.id: 必须来自所属故障的历史案例匹配结果')
+    if 'domain' in (matching.get('decision') or {}):
+        model_class = (matching.get('decision') or {}).get('label')
+        expected = classification_from_case_labels(model_class, entry.get('type'))
+        if tuple(entry.get(field) for field in CLASSIFICATION_FIELDS) != expected:
+            errors.append(f'{path}: 历史案例的故障分类必须与所属故障的匹配结果一致')
 
 
 def _check_evidence_traces(path, traces, errors, warnings):
@@ -461,10 +461,14 @@ def _compat_num(value):
     return value
 
 
-def _compat_conclusion(c):
+def _compat_conclusion(c, matched_class=None):
     """conclusion 缺省字段兜底：渲染器需要 affected_scope_pct / confidence 等。"""
     if not isinstance(c, dict):
         return c
+    try:
+        migrate_classification(c, matched_class)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise Fatal("无法读取报告分类或案例标签参考", str(exc)) from exc
     for field in ("affected_scope_pct", "affected_scope_desc",
                   "fault_function_loc", "confidence"):
         c.setdefault(field, None)
@@ -563,6 +567,7 @@ def _compat_knowledge_matches(kms):
     for km in kms:
         if not isinstance(km, dict):
             continue
+        migrate_classification(km)
         if not km.get("symptom") and km.get("title"):
             km["symptom"] = km["title"]
         if not km.get("solution") and km.get("summary"):
@@ -625,7 +630,8 @@ def normalize_compat(data):
         targets.extend(f for f in faults if isinstance(f, dict))
     for target in targets:
         if isinstance(target.get("conclusion"), dict):
-            _compat_conclusion(target["conclusion"])
+            decision = (target.get("label_matching") or {}).get("decision") or {}
+            _compat_conclusion(target["conclusion"], decision.get("label"))
         if isinstance(target.get("root_cause"), dict):
             _compat_root_cause(target["root_cause"])
         if isinstance(target.get("propagation"), dict):
@@ -636,6 +642,7 @@ def normalize_compat(data):
             _compat_latency(target["latency"])
         if isinstance(target.get("knowledge_matches"), list):
             _compat_knowledge_matches(target["knowledge_matches"])
+    update_incident_classification(data)
     return data
 
 
@@ -669,7 +676,7 @@ def validate(data) -> tuple[list[str], list[str]]:
         if not isinstance(data.get("conclusion"), dict):
             errors.append("faults / conclusion: 二者必须至少提供一个（单故障可用扁平 conclusion）")
         else:
-            _check_fault_labels("conclusion", data["conclusion"], errors, warnings)
+            _check_fault_classification("conclusion", data["conclusion"], errors)
             _check_fixed_label('report', data, errors)
             _check_evidence_traces("evidence_traces", data.get("evidence_traces"), errors, warnings)
         _check_latency("latency", data.get("latency"), errors)
@@ -747,7 +754,7 @@ def validate(data) -> tuple[list[str], list[str]]:
                 errors.append(f"{p}.title: 缺少故障名称")
             if not isinstance(f.get("conclusion"), dict):
                 errors.append(f"{p}.conclusion: 必填对象（一句话结论/故障域/影响面）")
-            _check_fault_labels(f"{p}.conclusion", f.get("conclusion"), errors, warnings)
+            _check_fault_classification(f"{p}.conclusion", f.get("conclusion"), errors)
             _check_fixed_label(p, f, errors)
             _check_enum(f"{p}.role", f.get("role"), ROLE_ENUM, errors)
             _check_enum(f"{p}.status", f.get("status"), STATUS_ENUM, errors)
@@ -923,7 +930,7 @@ SPEC = {
 report{title,report_id,generated_at}
 basic_info{kb_id,kb_name,log_file,operation,time_range_start,time_range_end,total_trace_cnt,fault_trace_cnt,fault_ratio,parse_ok,diagnosis_ok}
 faults[]{id,title,role,status,severity,confidence,category,affected_scope,conclusion,error,latency,root_cause,propagation,evidence_traces,knowledge_matches,solution,source_code,simplified,upstream,need_independent_fix}
-incident_summary{one_line_conclusion,fault_count,primary_fault_id,secondary_fault_count,independent_fault_count,overall_impact,confidence}
+incident_summary{one_line_conclusion,fault_count,primary_fault_id,secondary_fault_count,independent_fault_count,overall_impact,confidence,domain,component,type}
 fault_relations[]{from,to,type,confidence,evidence}
 action_plan[]{priority,fault_ids,action,depends_on,expected_effect,verify}
 statistics{stage_breakdown|stage_breakdowns,heatmap_metric,dist_total,top_error_codes,top_failure_domains,top_pods,top_hosts,time_heatmap}
@@ -933,11 +940,11 @@ workflow{session_id,total_steps,api_calls,duration,steps[]}
      category=error|latency|mixed; stage.status=ok|warn|bottleneck; share_bar.cls=s-ok|s-warn|s-bottleneck
      fault_relations.type=causes|common_cause|independent|correlated; evidence_traces[].kind=latency|error
 单故障可用扁平 conclusion/error/latency/root_cause/propagation/evidence_traces/knowledge_matches/solution/source_code，模板自动包成 F01
-每条 conclusion 新增 first_level_label / second_level_label（string|null）；每次生成须读取 references/log_label.json，按证据选已有标签对；只确定一级则二级为 null，均无法匹配则均为 null
+每条 conclusion 填写 domain / component / type，对应 references/log_label.json 的三级路径，未知层级及其下级填 null。事件摘要的分类取自主故障。
 示例与逐字段说明：references/REPORT_BLOCKS.md""",
     "basic_info": "kb_id,kb_name,log_file,operation,time_range_start,time_range_end,total_trace_cnt,fault_trace_cnt,fault_ratio,parse_ok,diagnosis_ok",
-    "conclusion": """first_level_label,second_level_label,one_line_conclusion,fault_domain,fault_component,fault_function,fault_function_loc,affected_scope_pct,affected_scope_desc,confidence,key_findings[]
-first_level_label / second_level_label：一级/二级标签，新报告必填 string|null，取值及配对见 references/log_label.json；按诊断证据语义匹配，未知层级填 null，一级 null 时二级也须 null；fault_domain 必须与两级标签一致（填写 一级/二级，两级均 null 时同步 null），不得自由填写域文本""",
+    "conclusion": """one_line_conclusion,domain,component,type,fault_function,fault_function_loc,affected_scope_pct,affected_scope_desc,confidence,key_findings[]
+domain / component / type：必填 string|null，依次取自 references/log_label.json 同一记录的 domain、component、type。未知层级及其下级填 null。""",
     "latency": """metrics[]{label,value,sub,tone,source?},stages[]{name,p99,baseline,ratio,share,status,detail,features?},conclusion
 metrics 中平均时延/P99.99 卡片强制 source={endpoint:'/log_parse_result/metrics/latency',request{kb_id,log_id,operation,start_time,end_time,bucket_seconds:3600,sample_mode:avg|p9999},response_path:'result.metrics[0].total_latency',returned_points:1,observed_total_latency_ms:<接口原值>}；两次请求除 sample_mode 外相同且响应均为单桶；value 由渲染器按前端 tooltip 规则自动生成（ms/us/ns，固定 3 位）
 features：从已有 /stats/stages 响应提取的互斥归因桶快照，不等同于物理阶段；旧字段保留
@@ -1183,7 +1190,7 @@ def render_report_html(data: dict, template_path: Path, data_path: Path) -> str:
     env.filters["confidence_pct"] = _format_confidence
     env.filters["time_hotspot_chart"] = _time_hotspot_chart
     try:
-        return env.get_template(template_path.name).render(**data)
+        return env.get_template(template_path.name).render({**data, "primary_fault": primary_fault(data)})
     except Exception as exc:  # 模板语法/结构问题：给出模板侧定位
         raise Fatal(
             f"渲染失败: {type(exc).__name__}: {exc}",

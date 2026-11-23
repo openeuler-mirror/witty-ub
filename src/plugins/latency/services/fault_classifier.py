@@ -202,6 +202,7 @@ class FaultClassifierService:
     @staticmethod
     async def samples(cases):
         from latency.services.report_review import ReportReviewService
+        from latency.services.label_taxonomy import fault_case_labels
         from latency.database.managers.log_file import LogFilePGManager
         groups={};skipped=[];samples=[];rt=runtime()
         for case in cases:groups.setdefault(case.get('report_id') or 'independent:'+case['id'],[]).append(case)
@@ -217,9 +218,9 @@ class FaultClassifierService:
                 payload=snapshot.payload
                 faults={f['id']:f for f in payload.get('faults',[]) if f.get('id')}
                 if faults and any(c['source_fault_id'] not in faults or
-                    (faults[c['source_fault_id']].get('conclusion') or {}).get('first_level_label')!=c['first_level_label'] for c in items):
+                    fault_case_labels(faults[c['source_fault_id']])[0]!=c['first_level_label'] for c in items):
                     raise ValueError('案例分类与已确认的故障快照不一致')
-                required={f['id'] for f in payload.get('faults',[]) if (f.get('conclusion') or {}).get('first_level_label') in rt.feature_vectors.LABELS}
+                required={f['id'] for f in payload.get('faults',[]) if fault_case_labels(f)[0] in rt.feature_vectors.LABELS}
                 if not required<={c['source_fault_id'] for c in items}:raise ValueError('多故障报告尚未全部确认')
                 key=fingerprint({'report':report_id,'hash':snapshot.sidecar_hash,'features':rt.extraction.VERSION})
                 cache=rt.model_registry.model_root()/'samples'/(key+'.json.gz')

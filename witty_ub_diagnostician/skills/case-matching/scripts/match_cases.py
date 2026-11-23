@@ -790,6 +790,13 @@ def _case_stage_observations(case: dict, operation: str) -> dict | None:
     return extract_report({"faults": [{"latency": {"stages": stages}}]})
 
 
+def case_for_matching(case: dict) -> dict:
+    """Normalize historical usage-problem labels to the current catalog pair."""
+    if (case.get("label"), case.get("second_level_label")) == ("用户相关故障", "使用问题"):
+        return {**case, "label": MISOPERATION_FIRST_LEVEL, "second_level_label": MISOPERATION_SECOND_LEVEL}
+    return case
+
+
 def case_envelopes(matches: list[dict]) -> list[dict]:
     """Separate historical observations from confirmed labels and display details."""
     import baseline_matching as baseline
@@ -824,7 +831,7 @@ def case_envelopes(matches: list[dict]) -> list[dict]:
         recommendation = case.get("recommendation") or "；".join(
             step["action"] for step in steps if isinstance(step, dict) and step.get("action")
         )
-        envelopes.append({
+        envelopes.append(case_for_matching({
             "id": case["id"],
             "source_id": "report:" + str(report_id) if report_id else case["id"],
             "label": case.get("first_level_label"),
@@ -840,7 +847,7 @@ def case_envelopes(matches: list[dict]) -> list[dict]:
             "symptom_summary": case.get("symptom_summary") or case.get("title"),
             "root_cause_summary": case.get("root_cause_summary"),
             "recommendation": recommendation,
-        })
+        }))
     return envelopes
 
 

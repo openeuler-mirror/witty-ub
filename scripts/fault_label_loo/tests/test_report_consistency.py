@@ -51,30 +51,69 @@ class ReportConsistencyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             result = generate_report.label_report(data, worker_cases(), work_dir=Path(tmp))
         fault = result['faults'][0]
-        self.assertEqual(fault['conclusion']['first_level_label'], 'Worker故障')
-        self.assertEqual(fault['conclusion']['second_level_label'], WORKER_EXIT)
-        self.assertEqual(fault['conclusion']['fault_domain'], f'Worker故障/{WORKER_EXIT}')
-        self.assertEqual(fault['label_matching']['second_level_decision'], {
+        self.assertEqual(fault['label_matching']['decision']['label'], 'Worker故障')
+        self.assertEqual(fault['conclusion']['type'], WORKER_EXIT)
+        self.assertEqual(fault['conclusion']['domain'], '软件')
+        self.assertEqual(fault['conclusion']['component'], 'Worker故障')
+        self.assertNotIn('first_level_label', fault['conclusion'])
+        self.assertNotIn('second_level_label', fault['conclusion'])
+        self.assertEqual(fault['label_matching']['fault_type_decision'], {
             'method': 'case_feature_consensus', 'label': WORKER_EXIT,
             'failure_mode_id': MODE, 'supporting_case_ids': ['worker-a', 'worker-b'],
         })
         errors, _ = render_report.validate(result)
         self.assertEqual(errors, [])
-        fault['conclusion'].update(second_level_label=WORKER_HANG,
-                                   fault_domain=f'Worker故障/{WORKER_HANG}')
+        fault['conclusion']['type'] = WORKER_HANG
         errors, _ = render_report.validate(result)
-        self.assertTrue(any('second_level_decision.label' in error for error in errors))
+        self.assertTrue(any('fault_type_decision.label' in error for error in errors))
 
     def test_valid_draft_keeps_its_subtype_and_records_case_suggestion(self):
         data = worker_report()
-        data['faults'][0]['conclusion'].update(first_level_label='Worker故障', second_level_label=WORKER_HANG)
+        data['faults'][0]['conclusion'].update(domain='软件', component='Worker故障',
+                                               type=WORKER_HANG)
         with tempfile.TemporaryDirectory() as tmp:
             result = generate_report.label_report(data, worker_cases(), work_dir=Path(tmp))
         fault = result['faults'][0]
-        self.assertEqual(fault['conclusion']['second_level_label'], WORKER_HANG)
-        selection = fault['label_matching']['second_level_decision']
+        self.assertEqual(fault['conclusion']['type'], WORKER_HANG)
+        selection = fault['label_matching']['fault_type_decision']
         self.assertEqual(selection['method'], 'draft')
         self.assertEqual(selection['case_suggestion']['label'], WORKER_EXIT)
+
+    def test_draft_type_from_another_component_does_not_override_prediction(self):
+        data = worker_report()
+        conclusion = data['faults'][0]['conclusion']
+        conclusion.update(
+            domain='软件', component='SDK故障',
+            type='SDK故障-进程异常退出',
+        )
+        del data['faults'][0]['evidence_traces'][0]['failure_mode_id']
+        with tempfile.TemporaryDirectory() as tmp:
+            result = generate_report.label_report(data, worker_cases(), work_dir=Path(tmp))
+
+        fault = result['faults'][0]
+        self.assertEqual(fault['label_matching']['decision']['label'], 'Worker故障')
+        self.assertEqual(fault['conclusion']['domain'], '软件')
+        self.assertEqual(fault['conclusion']['component'], 'Worker故障')
+        self.assertIsNone(fault['conclusion']['type'])
+        self.assertEqual(fault['label_matching']['fault_type_decision']['method'], 'unresolved')
+
+        fault['conclusion']['type'] = WORKER_EXIT
+        errors, _ = render_report.validate(result)
+        self.assertTrue(any('fault_type_decision.label' in error for error in errors))
+
+    def test_draft_does_not_fill_classification_when_policy_abstains(self):
+        data = worker_report()
+        data['faults'][0]['conclusion'].update(
+            domain='软件', component='Worker故障', type=WORKER_EXIT,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = generate_report.label_report(data, [], work_dir=Path(tmp))
+
+        fault = result['faults'][0]
+        self.assertIsNone(fault['label_matching']['decision']['label'])
+        self.assertEqual(fault['label_matching']['fault_type_decision']['method'], 'unresolved')
+        for field in ('domain', 'component', 'type'):
+            self.assertIsNone(fault['conclusion'][field])
 
     def test_second_level_abstains_without_independent_agreeing_mode_evidence(self):
         for variation, reason in (
@@ -103,20 +142,44 @@ class ReportConsistencyTests(unittest.TestCase):
                     del trace['failure_mode_id']
                 result = generate_report.label_report(data, cases, work_dir=Path(tmp))
                 fault = result['faults'][0]
-                self.assertEqual(fault['conclusion']['first_level_label'], 'Worker故障')
-                self.assertIsNone(fault['conclusion']['second_level_label'])
-                self.assertEqual(fault['label_matching']['second_level_decision']['reason'], reason)
+                self.assertEqual(fault['label_matching']['decision']['label'], 'Worker故障')
+                self.assertIsNone(fault['conclusion']['type'])
+                self.assertEqual(fault['label_matching']['fault_type_decision']['reason'], reason)
 
-    def test_second_level_preserves_misoperation_rule_priority(self):
+    def test_fault_type_preserves_misoperation_rule_priority(self):
         data = worker_report()
+        data['faults'][0]['conclusion'].update(
+            domain='软件', component='Worker故障', type=WORKER_EXIT,
+        )
         data['faults'][0]['evidence_traces'][0]['status_code'] = '3'
         with tempfile.TemporaryDirectory() as tmp:
             result = generate_report.label_report(data, worker_cases(), work_dir=Path(tmp))
         fault = result['faults'][0]
-        self.assertEqual(fault['conclusion']['second_level_label'], '误操作故障-KVCache使用问题')
-        self.assertEqual(fault['label_matching']['second_level_decision'], {
+        self.assertEqual(fault['conclusion']['domain'], '用户')
+        self.assertEqual(fault['conclusion']['component'], '业务故障')
+        self.assertEqual(fault['conclusion']['type'], '误操作故障-KVCache使用问题')
+        self.assertEqual(fault['label_matching']['fault_type_decision'], {
             'method': 'misoperation_rule', 'label': '误操作故障-KVCache使用问题', 'misoperation_codes': ['3'],
         })
+
+    def test_usage_rule_recalls_only_the_corresponding_catalog_type(self):
+        data = worker_report()
+        data['faults'][0]['evidence_traces'][0]['status_code'] = '3'
+        query, _, _, _ = inputs()
+        case = {'label': '业务故障', 'status': 'confirmed',
+                'profile': {**query, 'status_codes': ['3']}}
+        cases = [
+            {**case, 'id': 'usage-case', 'second_level_label': '误操作故障-KVCache使用问题'},
+            {**case, 'id': 'legacy-usage-case', 'label': '用户相关故障', 'second_level_label': '使用问题'},
+            {**case, 'id': 'other-case', 'second_level_label': '杰夫系统故障'},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = generate_report.label_report(data, cases, work_dir=Path(tmp))
+
+        matches = result['faults'][0]['knowledge_matches']
+        self.assertCountEqual([entry['id'] for entry in matches], ['usage-case', 'legacy-usage-case'])
+        self.assertEqual({entry['type'] for entry in matches}, {'误操作故障-KVCache使用问题'})
+        self.assertEqual(render_report.validate(result)[0], [])
 
     def test_second_level_uses_each_faults_own_mode(self):
         data = worker_report()
@@ -126,7 +189,7 @@ class ReportConsistencyTests(unittest.TestCase):
         data['faults'].append(secondary)
         with tempfile.TemporaryDirectory() as tmp:
             result = generate_report.label_report(data, worker_cases(), work_dir=Path(tmp))
-        self.assertEqual([fault['conclusion']['second_level_label'] for fault in result['faults']],
+        self.assertEqual([fault['conclusion']['type'] for fault in result['faults']],
                          [WORKER_EXIT, None])
 
     def test_report_generates_knowledge_cases_per_fault(self):
@@ -148,7 +211,7 @@ class ReportConsistencyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             result = generate_report.label_report(data, cases, work_dir=Path(tmp))
         for fault, case in zip(result["faults"], cases):
-            self.assertEqual(fault["conclusion"]["first_level_label"], case["label"])
+            self.assertEqual(fault["label_matching"]["decision"]["label"], case["label"])
             self.assertEqual([entry["id"] for entry in fault["knowledge_matches"]], [case["id"]])
 
     def test_report_omits_history_when_only_operation_matches(self):
@@ -159,7 +222,7 @@ class ReportConsistencyTests(unittest.TestCase):
         cases = [{"id": "case", "label": "Worker故障", "status": "confirmed", "profile": query}]
         with tempfile.TemporaryDirectory() as tmp:
             result = generate_report.label_report(data, cases, work_dir=Path(tmp))
-        self.assertEqual(result["faults"][0]["conclusion"]["first_level_label"], "Worker故障")
+        self.assertEqual(result["faults"][0]["label_matching"]["decision"]["label"], "Worker故障")
         self.assertEqual(result["faults"][0]["knowledge_matches"], [])
 
     def test_report_labels_equal_shared_matching_and_ignore_answer_text(self):
@@ -171,7 +234,7 @@ class ReportConsistencyTests(unittest.TestCase):
                                                one_line_conclusion='SDK故障 root cause answer')
         with tempfile.TemporaryDirectory() as tmp:
             result = generate_report.label_report(payload, cases, work_dir=Path(tmp))
-        self.assertEqual(result['faults'][0]['conclusion']['first_level_label'], expected)
+        self.assertNotIn('first_level_label', result['faults'][0]['conclusion'])
         self.assertEqual(result['faults'][0]['label_matching']['decision']['label'], expected)
         self.assertEqual(payload['faults'][0]['conclusion']['first_level_label'], 'OS故障')
 
@@ -182,14 +245,17 @@ class ReportConsistencyTests(unittest.TestCase):
             labelled = generate_report.label_report(payload, cases, work_dir=Path(tmp))
         errors, _ = render_report.validate(labelled)
         self.assertEqual(errors, [])
-        actual = labelled['faults'][0]['conclusion']['first_level_label']
-        labelled['faults'][0]['conclusion']['first_level_label'] = 'OS故障' if actual!='OS故障' else 'SDK故障'
+        fault = labelled['faults'][0]
+        fault['label_matching']['decision']['label'] = 'OS故障'
+        fault['conclusion'].update(domain='硬件', component='硬件故障', type=None)
         errors, _ = render_report.validate(labelled)
         self.assertTrue(any('标签选择策略' in error for error in errors))
 
     def test_agent_report_command_renders_the_rule_label(self):
-        _, _, _, cases = inputs()
-        payload = report_data(); payload['basic_info']['kb_id'] = None
+        cases = worker_cases()
+        payload = worker_report()
+        payload['basic_info']['kb_id'] = None
+        payload['faults'][0]['evidence_traces'][0]['status_code'] = '3'
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root/'draft.json').write_text(json.dumps(payload))
@@ -202,5 +268,8 @@ class ReportConsistencyTests(unittest.TestCase):
             self.assertTrue((root/'report.html').is_file())
             source = json.loads((root/'report.json').read_text())
             fault = source['faults'][0]
-            self.assertEqual(fault['conclusion']['first_level_label'], fault['label_matching']['decision']['label'])
+            self.assertNotIn('first_level_label', fault['conclusion'])
+            self.assertEqual(fault['conclusion']['domain'], '用户')
+            self.assertEqual(fault['conclusion']['component'], '业务故障')
+            self.assertEqual(fault['conclusion']['type'], '误操作故障-KVCache使用问题')
             self.assertEqual(fault['label_matching']['policy'], default_matching.POLICY)

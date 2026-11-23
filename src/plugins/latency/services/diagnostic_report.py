@@ -179,11 +179,9 @@ def _classification(fault: dict) -> ClassificationModel:
     """Validate one fault's labels for the report workbench."""
     from latency.services import label_taxonomy
 
-    conclusion = phenomenon_extractor.fault_conclusion(fault)
     try:
         validation = label_taxonomy.validate_labels(
-            conclusion.get("first_level_label"),
-            conclusion.get("second_level_label"),
+            *label_taxonomy.fault_case_labels(fault),
         )
     except label_taxonomy.TaxonomyError:
         return ClassificationModel(status="unavailable", error="label_taxonomy_unavailable")
