@@ -16,7 +16,7 @@
   classifier-runtime/                  # RPM/容器后端的包内资源，可随升级替换
     scripts/
     assets/default_label_policy/
-      numeric_classifier.json.gz       # 初始 474 来源部署模型
+      numeric_classifier.json.gz       # 内置 537 份全量报告训练的合并特征权重
       cosine_bank.json.gz
       manifest.json
   fault_classifier/                    # 运行数据，普通升级保留
@@ -34,6 +34,8 @@
 `WITTY_DIR` 默认为 `/var/witty-ub`，与源码仓库所在目录无关。
 修改报告目录 `WITTY_REPORT_DIR` 不会改变部署启动器明确指定的模型目录。
 `WITTY_CASE_MATCHING_DIR` 用于指定后端提取代码及初始资源目录，通常无需修改。
+
+源码部署直接读取仓库中的 case-matching 资源。RPM 安装助手校验包内权重、参考库及提取器。容器镜像构建也会校验后端与 Agent 各自打包的资源。三个部署方式共享相同的内置模型 `all-context-v2-full-537-20261124`。使用 `Dockerfile.rpm` 时，RPM 仓需提供包含该运行时的新版后端包。
 
 源码部署在启动时创建运行目录并赋予部署用户写权限；nohup 与 systemd 使用相同路径。
 Agent 的报告根目录也与后端统一为 `/var/witty-ub/reports`，可以同时为两端设置 `WITTY_REPORT_DIR` 覆盖。

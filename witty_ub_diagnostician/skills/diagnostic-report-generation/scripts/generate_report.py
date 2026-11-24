@@ -210,12 +210,12 @@ def _apply_label(target, matched, cases, query_identities):
 
 
 def label_report(payload,cases=None,log_dir=None,work_dir=None,api_base=None,classifier_model=None):
-    """Default report-level numeric inference plus observable cosine fallback/reference."""
+    """Report-level classifier inference plus observable cosine fallback/reference."""
     if cases is not None:
         cases = [match_cases.case_for_matching(case) for case in cases]
     model=classifier_model
     if isinstance(model,(str,Path)):model=default_matching.load_file(str(model))
-    if model is not None and model.get('view')!='numeric_units':
+    if model is not None and model.get('view') not in default_matching.CLASSIFIER_METHODS:
         return _label_legacy_report(payload,cases,log_dir,work_dir,api_base,model)
     result=copy.deepcopy(payload);directory=Path(work_dir);directory.mkdir(parents=True,exist_ok=True)
     faults = result.get('faults')
@@ -273,7 +273,7 @@ def main(argv=None):
     parser.add_argument('--cases', type=Path, help='已准备案例信封；不提供时检索已确认案例库')
     parser.add_argument('--log-dir', type=Path, help='本次现场原始日志；缺失时明确记录未知观测')
     parser.add_argument('--api-base', help='HTTP 案例库地址')
-    parser.add_argument('--classifier-model',type=Path,help='覆盖内置冻结模型；默认新增数值特征分类器，退化为全特征余弦 K4')
+    parser.add_argument('--classifier-model',type=Path,help='覆盖默认分类器权重；退化路径为全特征余弦 K4')
     parser.add_argument('--allow-incomplete', action='store_true')
     parser.add_argument('--labels-only', action='store_true', help='只生成已应用固定标签的 JSON，不渲染 HTML')
     args = parser.parse_args(argv)

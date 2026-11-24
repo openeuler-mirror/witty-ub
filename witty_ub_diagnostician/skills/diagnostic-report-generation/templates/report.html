@@ -1111,7 +1111,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
     </div>
     {% if label_matching is defined and label_matching.policy == 'numeric-units-classifier-cosine-fallback-v1' %}
     <div class="hero-meta" data-label-policy="numeric-units-classifier-cosine-fallback-v1">
-      <span>分类依据：{% if label_matching.decision.method == 'numeric_units_classifier' %}新增数值特征分类器{% elif label_matching.decision.method in ['misoperation_rule', 'user_usage_rule'] %}误操作故障规则{% else %}全特征余弦 K4 退化{% endif %}</span>
+      <span>分类依据：{% if label_matching.decision.method == 'all_context_classifier' %}合并特征分类器{% elif label_matching.decision.method == 'numeric_units_classifier' %}新增数值特征分类器{% elif label_matching.decision.method in ['misoperation_rule', 'user_usage_rule'] %}误操作故障规则{% else %}全特征余弦 K4 退化{% endif %}</span>
       {% if label_matching.disagreement %}<span>分类器与参考投票结果不同，请结合现场证据核对。</span>{% endif %}
     </div>
     {% endif %}

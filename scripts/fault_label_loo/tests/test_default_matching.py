@@ -254,7 +254,8 @@ class DefaultPolicyTests(unittest.TestCase):
             (logs/'ds_client_1.INFO.log').write_text('2026-11-18T00:00:00 | I | access_recorder.cpp:12 | hostA | 1:2 | trace | cluster | totalUs=1000\n')
             command=[sys.executable,'-S',str(skills/'diagnostic-report-generation/scripts/generate_report.py'),
                 str(root/'draft.json'),str(root/'labelled.json'),'--labels-only','--log-dir',str(logs)]
-            subprocess.run(command,cwd=root,check=True,capture_output=True)
+            env = {**os.environ, 'WITTY_CLASSIFIER_MODEL_DIR': str(root/'model-registry')}
+            subprocess.run(command,cwd=root,env=env,check=True,capture_output=True)
             result=json.loads((root/'labelled.json').read_text())
             self.assertEqual(result['label_matching']['decision']['method'],'numeric_units_classifier')
             self.assertEqual(result['faults'][0]['conclusion']['domain'],'硬件')

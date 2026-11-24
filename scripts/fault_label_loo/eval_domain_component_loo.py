@@ -43,10 +43,10 @@ def prediction(label):
     return {'domain': domain, 'component': component}
 
 
-def load_inputs(path):
+def load_inputs(path, *, reports_root=None):
     inputs = read_gzip(path)
     reports = inputs['reports']
-    root = Path(inputs['reports_root'])
+    root = reports_root if reports_root is not None else Path(inputs['reports_root'])
     actual = sorted(root.glob('*.json'))
     if [p.name for p in actual] != [row['source_id'] for row in reports]:
         raise ValueError('Report inventory changed after observation extraction')

@@ -49,9 +49,16 @@ def now():return local_now().isoformat(timespec='seconds')
 
 def dataset_fingerprint(cases):
     rt=runtime()
+    manifest_bytes = (rt.ASSETS/'manifest.json').read_bytes()
+    manifest = json.loads(manifest_bytes)
+    # Case retraining uses the reference bank as its seed. A bundled weight refresh is separate.
+    reference_seed = manifest.get('reference_training_seed', {})
+    bank_sha = manifest.get('files', {}).get('cosine_bank', {}).get('sha256')
+    legacy_seed = reference_seed.get('legacy_manifest_sha256') if reference_seed.get('bank_sha256') == bank_sha else None
+    seed = legacy_seed or hashlib.sha256(manifest_bytes).hexdigest()
     return fingerprint({'cases':cases,'features':rt.extraction.VERSION,
         'training_policy':[MIN_TRAINING_REPORTS,MIN_REPORTS_PER_CLASS],
-        'seed_manifest':hashlib.sha256((rt.ASSETS/'manifest.json').read_bytes()).hexdigest()})
+        'seed_manifest':seed})
 
 
 class FaultClassifierService:
@@ -248,7 +255,7 @@ class FaultClassifierService:
                     'cases':[{'id':c['id'],'label':c['first_level_label'],'source_id':'report:'+report_id,
                               'identity':sample['identity'],'source_fault_id':c['source_fault_id']} for c in items]}
                 matching=payload.get('label_matching') or {};prediction=matching.get('decision') or {}
-                if prediction.get('method')=='numeric_units_classifier' and prediction.get('model_id'):
+                if prediction.get('method') in rt.CLASSIFIER_METHODS.values() and prediction.get('model_id'):
                     sample['prediction_before_training']={'model_id':prediction['model_id'],
                         'prediction':prediction.get('label'),'confirmed_labels':sorted(labels),
                         'hit':prediction.get('label') in labels,

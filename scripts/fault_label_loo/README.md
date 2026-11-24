@@ -26,9 +26,16 @@ OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 
 ## 历史评估与部署
 
-当前部署默认已切换为“新增数值特征（统一单位）＋分类器”，全特征余弦 K4 为退化；
-部署说明见 case-matching skill 的 `references/DEFAULT_LABEL_POLICY.md`。
-下文 v5/v6 表格和命令描述历史评估协议，不自动改写历史结果。
+内置部署权重以 `all_context_v2` 在 `/root/loo/reports_1124` 的全部 537 份报告上训练。复现命令会逐份核对报告和冻结观测的哈希。
+
+```bash
+/home/witty-ub-logs/loo/1120/.venv/bin/python scripts/fault_label_loo/train_domain_component_classifier.py \
+  --run /root/loo/results/v1 --reports-root /root/loo/reports_1124 \
+  --out /root/loo/results/v1/deployment/numeric_classifier.json.gz \
+  --model-id all-context-v2-full-537-20261124
+```
+
+部署说明见 case-matching skill 的 `references/DEFAULT_LABEL_POLICY.md`。下文 v5/v6 表格和命令描述历史评估协议。
 
 公共特征与推理代码在 `witty_ub_diagnostician/skills/case-matching/scripts/`。
 本目录负责冻结输入、持久化划分、训练、评估、核验和汇总。所有数据和结果在仓库外。

@@ -54,7 +54,8 @@ prepare_classifier_runtime() {
     mkdir -p "$WITTY_CLASSIFIER_MODEL_DIR" || return 1
     if [ "${WITTY_ROLE:-all}" != "frontend" ]; then
         local required
-        for required in scripts/default_matching.py assets/default_label_policy/numeric_classifier.json.gz assets/default_label_policy/cosine_bank.json.gz; do
+        for required in scripts/default_matching.py assets/default_label_policy/manifest.json \
+            assets/default_label_policy/numeric_classifier.json.gz assets/default_label_policy/cosine_bank.json.gz; do
             [ -r "$WITTY_CASE_MATCHING_DIR/$required" ] || {
                 _err "分类器运行资源缺失: $WITTY_CASE_MATCHING_DIR/$required；请更新 witty-ub-backend RPM"
                 return 1

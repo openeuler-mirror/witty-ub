@@ -25,7 +25,5 @@ install -m 0644 "$source_skill/assets/default_label_policy/"*.json \
 # Verify both weights and reference bank without backend/ML dependencies.
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$target_runtime/scripts" python3 -S - <<'PY'
 import default_matching as runtime
-runtime.validate_model(runtime.asset('numeric_classifier', runtime.ASSETS))
-assert runtime.asset('cosine_bank', runtime.ASSETS)['schema_version'] == runtime.cosine_matching.VERSION
-print('Classifier runtime resources verified: ' + str(runtime.ASSETS))
+print(f'Classifier runtime resources verified: {runtime.verify_packaged_assets()} ({runtime.ASSETS})')
 PY

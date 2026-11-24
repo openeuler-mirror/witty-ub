@@ -38,8 +38,8 @@ RUN yum install -y witty-ub-backend && \
     yum clean all && \
     rm -rf /var/cache/yum
 
-RUN test -f /var/witty-ub/classifier-runtime/scripts/default_matching.py && \
-    test -f /var/witty-ub/classifier-runtime/assets/default_label_policy/numeric_classifier.json.gz && \
+RUN PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/var/witty-ub/classifier-runtime/scripts python3 -S -c \
+    'import default_matching; print(default_matching.verify_packaged_assets())' && \
     /var/witty-ub/latency/.venv/bin/python -c 'import sklearn'
 
 RUN mkdir -p /var/witty-ub/latency/file/file_upload \
@@ -77,6 +77,8 @@ RUN yum install -y python3 python3-pip gcc gcc-c++ cmake make curl tar && \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 COPY witty_ub_diagnostician/ /var/witty-ub/witty_ub_diagnostician/.opencode/
+RUN PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/var/witty-ub/witty_ub_diagnostician/.opencode/skills/case-matching/scripts python3 -S -c \
+    'import default_matching; print(default_matching.verify_packaged_assets())'
 RUN cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer && \
     bash build.sh && \
     cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts && \
@@ -136,8 +138,8 @@ RUN yum install -y witty-ub gettext nodejs npm python3-jinja2 curl libstdc++ && 
     rm -rf /var/cache/yum
 
 # Create additional directories if not created by RPM
-RUN test -f /var/witty-ub/classifier-runtime/scripts/default_matching.py && \
-    test -f /var/witty-ub/classifier-runtime/assets/default_label_policy/numeric_classifier.json.gz && \
+RUN PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/var/witty-ub/classifier-runtime/scripts python3 -S -c \
+    'import default_matching; print(default_matching.verify_packaged_assets())' && \
     /var/witty-ub/latency/.venv/bin/python -c 'import sklearn'
 
 RUN mkdir -p /var/witty-ub/latency/file/file_upload \
