@@ -10,12 +10,12 @@ POLICY = 'all-feature-vote-v1'
 def decide(query, structured, raw, rows):
     baseline.validate_profile(query)
     retrieval_decision = baseline.decide(rows)
-    usage = set(query['status_codes']).intersection(baseline.legacy.USER_USAGE_FAULT_CODES)
-    if usage:
-        supported = [r for r in rows if r['first_level_label']==baseline.legacy.USER_USAGE_FIRST_LEVEL]
+    misoperation_codes = set(query['status_codes']).intersection(baseline.legacy.MISOPERATION_FAULT_CODES)
+    if misoperation_codes:
+        supported = [r for r in rows if r['first_level_label']==baseline.legacy.MISOPERATION_FIRST_LEVEL]
         decision = baseline.decide(supported)
-        decision.update(label=baseline.legacy.USER_USAGE_FIRST_LEVEL, method='user_usage_rule', policy=POLICY,
-                        second_level_label=baseline.legacy.USER_USAGE_SECOND_LEVEL, user_usage_codes=sorted(usage))
+        decision.update(label=baseline.legacy.MISOPERATION_FIRST_LEVEL, method='misoperation_rule', policy=POLICY,
+                        second_level_label=baseline.legacy.MISOPERATION_SECOND_LEVEL, misoperation_codes=sorted(misoperation_codes))
         return decision
     if not rows:
         return {'label': None, 'method': 'empty', 'distribution': {}, 'policy': POLICY}
@@ -30,9 +30,9 @@ def decide(query, structured, raw, rows):
 
 def rank(query, cases, query_structured=None, query_raw=None):
     baseline.validate_profile(query)
-    if set(query['status_codes']).intersection(baseline.legacy.USER_USAGE_FAULT_CODES):
-        cases = [c for c in cases if c['label']==baseline.legacy.USER_USAGE_FIRST_LEVEL
-                 and c.get('second_level_label') in (None, baseline.legacy.USER_USAGE_SECOND_LEVEL)]
+    if set(query['status_codes']).intersection(baseline.legacy.MISOPERATION_FAULT_CODES):
+        cases = [c for c in cases if c['label']==baseline.legacy.MISOPERATION_FIRST_LEVEL
+                 and c.get('second_level_label') in (None, baseline.legacy.MISOPERATION_SECOND_LEVEL)]
     import all_feature_matching
     return all_feature_matching.rank(query,cases,query_structured,query_raw)
 

@@ -111,7 +111,7 @@ async def test_prepared_context_copy_keeps_one_transaction(monkeypatch):
     async def copy(table, *, records, columns):
         events.append('copy')
         assert table == 'log_failure_event'
-        assert records is rows
+        assert list(records) == rows
         assert columns is LogFailureEventPGManager._LOG_FAILURE_COPY_COLUMNS
         raise RuntimeError('copy failed')
     driver = SimpleNamespace(copy_records_to_table=copy)

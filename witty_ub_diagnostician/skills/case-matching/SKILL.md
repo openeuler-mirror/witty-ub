@@ -89,11 +89,11 @@ token，各自归一化为单位向量），cosine 相似度按 `0.5` 加到 `sc
 判别特征不足，保留只引入干扰；剔除后不含管控 top1 63.4%→68.3%）。候选列表与
 JSON 输出的 `excluded_control_plane` 字段会如实反映剔除条数。
 
-**用户使用问题硬召回口径（v2.3+）**：当查询特征 `status_codes` 命中
-`USER_USAGE_FAULT_CODES`（`1/3/9/12/17/28/2000/2001/2004/2006/3000/3001/3002/3004/3006/3007/3009`，
-**不含** `0/2/8/36`，其中 `0` 是「无错误/成功」码、不具备判别力），说明本次故障属用户使用问题，`match_cases.py` 会在召回查询上追加
-`first_level_label=用户相关故障` + `second_level_label=使用问题`，**只召回该类案例**，
-不再跨类别竞争；命中码与锁定标签会写入输出的 `user_usage_codes` / `fault_label_override`。
+**误操作故障硬召回口径（v2.3+）**：当查询特征 `status_codes` 命中
+`MISOPERATION_FAULT_CODES`（`1/3/9/12/17/28/2000/2001/2004/2006/3000/3001/3002/3004/3006/3007/3009`，
+**不含** `0/2/8/36`，其中 `0` 是「无错误/成功」码、不具备判别力），说明本次故障属误操作故障，`match_cases.py` 会在召回查询上追加
+`first_level_label=业务故障` + `second_level_label=误操作故障-KVCache使用问题`，**只召回该类案例**，
+不再跨类别竞争；命中码与锁定标签会写入输出的 `misoperation_codes` / `fault_label_override`。
 库内该类案例为 0 条时返回空候选，**不回退**到其他类别。
 
 **未见故障码回退口径（v2.3+）**：新日志可能出现案例库从未收录的故障码（例如
@@ -105,7 +105,7 @@ JSON 输出的 `excluded_control_plane` 字段会如实反映剔除条数。
 Agent 读候选后自行选定（判断不准就选同码段里案例最多、故障现象最接近的），再写回特征：
 `--pick "1004,1009" --apply --features <特征文件>`，即写入 `relaxed_status_codes`。
 这些码在 `match_cases.py` 里以 **share=0.5 降权**并入软打分（真实码仍为 1.0），
-但不参与用户使用问题硬判定、也不写进报告的故障码清单。
+但不参与误操作硬判定、也不写进报告的故障码清单。
 
 本 Skill **只做检索侧**：不诊断、不写报告、不沉淀案例。案例写入由
 `diagnostic-report-generation` 负责，字段口径见 `references/CASE_FEATURE_CONTRACT.md`。

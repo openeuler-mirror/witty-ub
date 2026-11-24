@@ -26,6 +26,8 @@ class PodRolePGManager:
     """PostgreSQL-backed pod_role manager."""
 
     _INSERT_BATCH_SIZE = 1024
+    # 单条 SQL 的绑定参数上限（asyncpg 32767）之内的安全批量，避免超大 IN 报错
+    _TRACE_ID_QUERY_BATCH = 5000
 
     @staticmethod
     def _normalize_pod_list(value: Any) -> list[str]:
@@ -118,15 +120,23 @@ class PodRolePGManager:
 
         ``log_ids`` 为空时不做日志包过滤（跨所有日志包查询），与
         ``LogFailureEventPGManager.list_trace_failure_events`` 的 kb 语义一致。
+
+        trace_id 数量可能很大（整个 KB 的 Trace），单个 ``IN (...)`` 会因绑定
+        参数超过 asyncpg 的 32767 上限而报错，这里分批查询后合并。
         """
         if not trace_ids:
             return []
-        stmt = select(PodRole).where(PodRole.trace_id.in_(trace_ids))
-        if log_ids:
-            stmt = stmt.where(PodRole.log_id.in_(log_ids))
+        unique_ids = list(dict.fromkeys(trace_ids))
+        rows: list[PodRole] = []
         async with PGManager.session() as session:
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
+            for start in range(0, len(unique_ids), PodRolePGManager._TRACE_ID_QUERY_BATCH):
+                batch = unique_ids[start:start + PodRolePGManager._TRACE_ID_QUERY_BATCH]
+                stmt = select(PodRole).where(PodRole.trace_id.in_(batch))
+                if log_ids:
+                    stmt = stmt.where(PodRole.log_id.in_(log_ids))
+                result = await session.execute(stmt)
+                rows.extend(result.scalars().all())
+        return rows
 
     @staticmethod
     async def delete_pod_roles_by_log_id(log_id: str) -> bool:

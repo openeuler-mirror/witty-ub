@@ -47,7 +47,7 @@ def _label_legacy_report(payload, cases=None, log_dir=None, work_dir=None, api_b
                 model=json.loads(Path(classifier_model).read_text()) if isinstance(classifier_model,(str,Path)) else classifier_model
                 if model.get('metadata',{}).get('feature_version')!=feature_vectors.VERSION:
                     raise ValueError('Classifier feature version mismatch')
-                if matched['decision']['method'] not in ('empty','user_usage_rule'):
+                if matched['decision']['method'] not in ('empty','misoperation_rule','user_usage_rule'):
                     decision=portable_classifier.predict(model,features(query,structured,raw,matched['candidates'],model['view']))
                     decision.update(method='explicit_classifier',model_id=model['metadata']['model_id'],policy='all-feature-classifier-v1')
                     matched.update(decision=decision,policy='all-feature-classifier-v1')
@@ -55,7 +55,7 @@ def _label_legacy_report(payload, cases=None, log_dir=None, work_dir=None, api_b
         conclusion = target.setdefault('conclusion', {})
         first = decision['label']
         second = conclusion.get('second_level_label') if conclusion.get('first_level_label')==first else None
-        if decision.get('method')=='user_usage_rule':
+        if decision.get('method') in ('misoperation_rule','user_usage_rule'):
             second = decision.get('second_level_label')
         if (first, second) not in pairs:
             second = None
@@ -90,7 +90,7 @@ def _matching_record(matched,scope,stem,hashes,raw):
 def _apply_label(target,matched,pairs):
     decision=matched['decision'];conclusion=target.setdefault('conclusion',{});first=decision['label']
     second=conclusion.get('second_level_label') if conclusion.get('first_level_label')==first else None
-    if decision.get('method')=='user_usage_rule':second=decision.get('second_level_label')
+    if decision.get('method') in ('misoperation_rule','user_usage_rule'):second=decision.get('second_level_label')
     if (first,second) not in pairs:second=None
     conclusion.update(first_level_label=first,second_level_label=second,
                       fault_domain=f'{first}/{second}' if first and second else None)

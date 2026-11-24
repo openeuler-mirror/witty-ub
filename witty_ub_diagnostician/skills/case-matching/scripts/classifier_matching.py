@@ -28,7 +28,7 @@ def match(profile,cases,structured,raw,model):
     if model.get('metadata',{}).get('feature_version')!=feature_vectors.VERSION:
         raise ValueError('Classifier feature version does not match current extractor')
     result=fixed_matching.match(profile,cases,structured,raw)
-    if result['decision']['method'] in ('empty','user_usage_rule'):return result
+    if result['decision']['method'] in ('empty','misoperation_rule','user_usage_rule'):return result
     values=features(profile,structured,raw,result['candidates'],model['view'])
     decision=portable_classifier.predict(model,values)
     decision.update(method='explicit_classifier',model_id=model['metadata']['model_id'],

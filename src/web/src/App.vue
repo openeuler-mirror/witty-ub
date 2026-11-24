@@ -3287,7 +3287,7 @@ watch(selectedAssetId, (nextAssetId, previousAssetId) => {
   agentSessionSearch.value = ''
 })
 const activePage = ref<'asset' | 'abnormal' | 'knowledge' | 'reports' | 'diag-cases'>('asset')
-type MonitorSection = 'latency' | 'fault' | 'brpc' | 'brpc-fault' | 'similarity'
+type MonitorSection = 'latency' | 'fault' | 'brpc' | 'brpc-fault'
 type MonitorProduct = 'KVCache' | 'UBSocket'
 type KnowledgeSection = 'skill' | 'wiki'
 const activeMonitorSection = ref<MonitorSection>('latency')
@@ -3461,110 +3461,6 @@ const logFiles = ref<LogFileModel[]>([])
 // 当前选中的日志文件 id：用于时延指标桶模式直读分位统计表（bucket_seconds + log_id）
 const selectedLogFileId = ref<string | null>(null)
 
-// ===== 相似案例分析 =====
-type SimilarityDimension = { name: string; label: string; score: number; weight: number; weighted_score: number }
-type SimilarityMatch = {
-  rank: number; root_cause_type: string; fault_category: string; case_category: string; case_id: string
-  log_file_id: string; log_file_name: string; attachment_path: string; description: string
-  similarity: number; base_score: number; cat_gate: number
-  reason: string; breakdown: SimilarityDimension[]
-}
-type SimilarityResult = { top_matches: SimilarityMatch[]; library_size: number; unique_types_count: number }
-const similarityLoading = ref(false)
-const similarityError = ref('')
-const similarityResult = ref<SimilarityResult | null>(null)
-const similarityExpandedCats = ref<Set<number>>(new Set())
-const similarityExpandedTypes = ref<Set<string>>(new Set())
-
-const fetchSimilarFaultTypes = async (logFileId: string, topK = 50): Promise<SimilarityResult> => {
-  return request<SimilarityResult>('/similarity_analysis', {
-    method: 'POST',
-    body: JSON.stringify({ log_file_id: logFileId, top_k: topK }),
-  })
-}
-
-const loadSimilarityAnalysis = async () => {
-  if (!selectedLogFileId.value) { similarityResult.value = null; return }
-  similarityLoading.value = true
-  similarityError.value = ''
-  similarityExpandedCats.value = new Set()
-  similarityExpandedTypes.value = new Set()
-  try {
-    // 并行：加载相似分析 + 确保分类描述可用
-    const [result] = await Promise.all([
-      fetchSimilarFaultTypes(selectedLogFileId.value, 5),
-      caseCategories.value.length ? Promise.resolve(caseCategories.value) : loadCategories().then(cats => { caseCategories.value = cats; return cats }),
-    ])
-    similarityResult.value = result
-    // 默认展开第一个大类
-    const grouped = similarityGroupedByCategory.value
-    if (grouped.length > 0) similarityExpandedCats.value.add(0)
-  } catch (e: any) {
-    similarityError.value = e?.message || '相似案例分析请求失败'
-    similarityResult.value = null
-  } finally {
-    similarityLoading.value = false
-  }
-}
-
-const similarityCategoryDesc = (catName: string) =>
-  caseCategories.value.find((c) => c.name === catName)?.description || ''
-
-// 按大类分组，取 Top-5 大类
-const similarityGroupedByCategory = computed(() => {
-  if (!similarityResult.value?.top_matches.length) return []
-  const catMap = new Map<string, SimilarityMatch[]>()
-  for (const m of similarityResult.value.top_matches) {
-    const cat = m.case_category || '未分类'
-    if (!catMap.has(cat)) catMap.set(cat, [])
-    catMap.get(cat)!.push(m)
-  }
-  // 每个大类内按相似度排序（已经是排好的，但保险起见再排一次）
-  for (const [, list] of catMap) {
-    list.sort((a, b) => b.similarity - a.similarity)
-  }
-  // 大类按最高相似度排序，取 Top-5
-  const grouped = Array.from(catMap.entries()).map(([cat, matches]) => ({
-    category: cat,
-    maxSim: matches[0]?.similarity ?? 0,
-    matches,
-  }))
-  grouped.sort((a, b) => b.maxSim - a.maxSim)
-  return grouped.slice(0, 5)
-})
-
-const toggleSimCat = (idx: number) => {
-  const s = new Set(similarityExpandedCats.value)
-  if (s.has(idx)) s.delete(idx)
-  else s.add(idx)
-  similarityExpandedCats.value = s
-}
-
-const toggleSimType = (key: string) => {
-  const s = new Set(similarityExpandedTypes.value)
-  if (s.has(key)) s.delete(key)
-  else s.add(key)
-  similarityExpandedTypes.value = s
-}
-
-watch(selectedLogFileId, (id) => {
-  if (id) { void loadSimilarityAnalysis() }
-  else { similarityResult.value = null }
-})
-
-const formatSimilarity = (sim: number) => (sim * 100).toFixed(1) + '%'
-
-const getAttachmentUrl = (caseId: string) => `${apiBase}/case_library/attachment/${encodeURIComponent(caseId)}`
-const getAttachmentDisplayName = (p: string) => {
-  if (!p) return ''
-  const parts = p.split('_')
-  return parts.length > 1 ? parts.slice(1).join('_') : p
-}
-
-const similarityFaultCategoryLabel = (cat: string) =>
-  cat === 'latency' ? '时延故障' : cat === 'connectivity' ? '通断故障' : cat === 'mixed' ? '混合故障' : '未知'
-const similarityFaultCategoryClass = (cat: string) =>
-  cat === 'latency' ? 'cat-latency' : cat === 'connectivity' ? 'cat-connectivity' : cat === 'mixed' ? 'cat-mixed' : 'cat-unknown'
 const isLogFilesLoading = ref(false)
 const isLogFilesPolling = ref(false)
 const logFilesPage = ref(1)
@@ -10203,11 +10099,6 @@ const loadLatencyChart = async () => {
 
   try {
     const filters = appliedFilters.value
-    const currentLogFile = logFiles.value.find((f) => getLogFileId(f) === selectedLogFileId.value)
-    const logId =
-      currentLogFile && isKvcacheLogFile(currentLogFile)
-        ? selectedLogFileId.value
-        : (pickDefaultKvcacheLogFile(logFiles.value)?.log_file_id ?? undefined)
     const body: Record<string, unknown> = {
       kb_id: assetId,
       max_points: maxPoints,
@@ -10216,7 +10107,6 @@ const loadLatencyChart = async () => {
       sort_order: 'asc',
       operation: selectedOperation.value.toUpperCase(),
       bucket_seconds: selectedLatencyScale.value,
-      log_id: logId,
     }
 
     if (filters.startTime) {
@@ -15677,21 +15567,12 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
     await loadAbnormalMonitorPage()
   }
 
-  // 切到相似案例分析时，如果未加载过则触发加载
-  if (targetSection === 'similarity' && selectedLogFileId.value && !similarityLoading.value && !similarityResult.value) {
-    void loadSimilarityAnalysis()
-  }
-
   await nextTick()
   if (targetSection === 'latency') {
     scrollMonitorPageToTop()
     return
   }
-  const targetId = targetSection === 'similarity'
-    ? 'similarity-analysis'
-    : targetSection === 'fault'
-      ? 'kv-fault'
-      : 'kv-latency'
+  const targetId = targetSection === 'fault' ? 'kv-fault' : 'kv-latency'
   const targetEl = document.getElementById(targetId)
   if (targetEl && assetDetailRef.value) {
     const container = assetDetailRef.value
@@ -16139,40 +16020,6 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section class="nav-section">
-        <div class="nav-title">诊断知识</div>
-        <div class="nav-list">
-          <div
-            class="nav-asset-item"
-            :class="{ selected: activePage === 'reports' }"
-            role="button"
-            tabindex="0"
-            @click="openDiagnosticReportsPage"
-            @keydown.enter="openDiagnosticReportsPage"
-            @keydown.space.prevent="openDiagnosticReportsPage"
-          >
-            <span class="asset-item-main">
-              <strong>定界文档</strong>
-              <small>阅读文档并检验定界结论</small>
-            </span>
-          </div>
-          <div
-            class="nav-asset-item"
-            :class="{ selected: activePage === 'diag-cases' }"
-            role="button"
-            tabindex="0"
-            @click="openDiagCasesPage"
-            @keydown.enter="openDiagCasesPage"
-            @keydown.space.prevent="openDiagCasesPage"
-          >
-            <span class="asset-item-main">
-              <strong>已知案例</strong>
-              <small>有效定界结论与任务日志案例</small>
-            </span>
-          </div>
-        </div>
-      </section>
-
       <section class="nav-section monitor-nav-section">
         <div class="nav-title">章节导航</div>
         <div class="monitor-nav-list">
@@ -16203,18 +16050,6 @@ onBeforeUnmount(() => {
                 @click="openMonitorPage('fault')"
               >
                 ⚠️ 通断故障监控
-              </button>
-              <button
-                class="monitor-nav-item"
-                :class="{
-                  active: activePage === 'abnormal' && activeMonitorSection === 'similarity',
-                  disabled: !selectedAssetId,
-                }"
-                type="button"
-                :disabled="!selectedAssetId"
-                @click="openMonitorPage('similarity')"
-              >
-                🔗 相似案例分析
               </button>
             </div>
           </div>
@@ -16268,6 +16103,22 @@ onBeforeUnmount(() => {
             @click="openKnowledgePage('wiki')"
           >
             📖 Wiki管理
+          </button>
+          <button
+            class="monitor-nav-item"
+            :class="{ active: activePage === 'reports' }"
+            type="button"
+            @click="openDiagnosticReportsPage"
+          >
+            📄 定界文档管理
+          </button>
+          <button
+            class="monitor-nav-item"
+            :class="{ active: activePage === 'diag-cases' }"
+            type="button"
+            @click="openDiagCasesPage"
+          >
+            📚 已知案例管理
           </button>
         </div>
       </section>
@@ -19300,122 +19151,6 @@ onBeforeUnmount(() => {
                     跳转
                   </button>
                 </span>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <!-- ===== 相似案例分析 ===== -->
-        <section v-if="activeMonitorProduct === 'KVCache'" id="similarity-analysis" class="monitor-section">
-          <header class="monitor-header">
-            <div class="monitor-header-top">
-              <h1>🔗 相似案例分析</h1>
-            </div>
-            <p class="monitor-sub">
-              从案例库中检索 Top-5 故障大类，展开可查看子类型相似度明细
-              <span v-if="similarityResult">· 案例库共 {{ similarityResult.library_size }} 条，{{ similarityResult.unique_types_count }} 种类型</span>
-            </p>
-          </header>
-
-          <div v-if="similarityLoading" class="similarity-state">
-            <div class="spinner"></div>
-            <div>正在分析相似案例...</div>
-          </div>
-          <div v-else-if="similarityError" class="similarity-state error">
-            <div class="error-icon">⚠️</div>
-            <div>{{ similarityError }}</div>
-          </div>
-          <div v-else-if="!selectedLogFileId" class="similarity-state">
-            <div>📋 请先选择日志文件</div>
-          </div>
-          <div v-else-if="!similarityResult?.top_matches.length" class="similarity-state">
-            <div>📭 案例库为空，请先上传案例数据</div>
-          </div>
-          <div v-else class="similarity-results">
-            <article
-              v-for="(group, gIdx) in similarityGroupedByCategory"
-              :key="gIdx"
-              class="similarity-cat-card"
-              :class="'cat-rank-' + (gIdx + 1)"
-            >
-              <div class="similarity-cat-header" @click="toggleSimCat(gIdx)">
-                <div class="cat-rank-badge" :class="'cat-rank-' + (gIdx + 1)">TOP {{ gIdx + 1 }}</div>
-                <div class="similarity-cat-info">
-                  <span class="similarity-cat-name">{{ group.category }}</span>
-                  <span v-if="similarityCategoryDesc(group.category)" class="similarity-cat-desc">{{ similarityCategoryDesc(group.category) }}</span>
-                  <span class="similarity-cat-count">{{ group.matches.length }} 个子类型</span>
-                </div>
-                <div class="similarity-cat-score">
-                  <span class="cat-score-value">{{ formatSimilarity(group.maxSim) }}</span>
-                  <span class="cat-score-label">最高相似度</span>
-                </div>
-                <span class="cat-expand-toggle" :class="{ expanded: similarityExpandedCats.has(gIdx) }">▶</span>
-              </div>
-
-              <div v-if="similarityExpandedCats.has(gIdx)" class="similarity-cat-body">
-                <div
-                  v-for="(match, mIdx) in group.matches"
-                  :key="gIdx + '-' + mIdx"
-                  class="similarity-subtype"
-                >
-                  <div
-                    class="similarity-subtype-header"
-                    @click="toggleSimType(gIdx + '-' + mIdx)"
-                  >
-                    <span class="subtype-rank">{{ mIdx + 1 }}</span>
-                    <span class="subtype-name">{{ match.root_cause_type }}</span>
-                    <a
-                      v-if="match.attachment_path"
-                      :href="getAttachmentUrl(match.case_id)"
-                      class="similarity-link"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      @click.stop
-                    >📎 附件</a>
-                    <span class="fault-cat" :class="similarityFaultCategoryClass(match.fault_category)">
-                      {{ similarityFaultCategoryLabel(match.fault_category) }}
-                    </span>
-                    <span class="subtype-score">{{ formatSimilarity(match.similarity) }}</span>
-                    <span class="subtype-toggle" :class="{ expanded: similarityExpandedTypes.has(gIdx + '-' + mIdx) }">▶</span>
-                  </div>
-                  <div v-if="similarityExpandedTypes.has(gIdx + '-' + mIdx)" class="similarity-subtype-detail">
-                    <div v-if="match.description" class="similarity-desc">{{ match.description }}</div>
-                    <div v-if="match.log_file_name" class="similarity-meta">来源：{{ match.log_file_name }}</div>
-                    <div class="similarity-reason">
-                      <div class="reason-title">📝 分析原因</div>
-                      <div class="reason-text">{{ match.reason }}</div>
-                    </div>
-                    <div class="similarity-breakdown">
-                      <div class="breakdown-title">📊 维度明细</div>
-                      <div class="breakdown-table">
-                        <div class="breakdown-row breakdown-header-row">
-                          <span class="col-name">维度</span>
-                          <span class="col-score">得分</span>
-                          <span class="col-weight">权重</span>
-                          <span class="col-weighted">加权分</span>
-                          <span class="col-bar">可视化</span>
-                        </div>
-                        <div
-                          v-for="dim in match.breakdown.filter((d) => d.weight > 0).slice(0, 8)"
-                          :key="dim.name"
-                          class="breakdown-row"
-                        >
-                          <span class="col-name">{{ dim.label }}</span>
-                          <span class="col-score">{{ dim.score.toFixed(2) }}</span>
-                          <span class="col-weight">{{ dim.weight.toFixed(1) }}</span>
-                          <span class="col-weighted">{{ dim.weighted_score.toFixed(3) }}</span>
-                          <span class="col-bar">
-                            <div
-                              class="score-bar"
-                              :style="{ width: Math.max(dim.score * 100, dim.weighted_score * 100 / 3).toFixed(0) + '%' }"
-                              :class="{ high: dim.score >= 0.7, medium: dim.score >= 0.4 && dim.score < 0.7 }"
-                            ></div>
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
             </article>
           </div>

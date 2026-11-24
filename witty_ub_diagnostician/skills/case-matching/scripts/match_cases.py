@@ -130,15 +130,15 @@ OPERATION_FILTER_ENABLED = False
 # 报告本身判别特征不足、label_vote 几乎全 miss，保留 C 候选只引入干扰。
 EXCLUDED_FIRST_LEVEL_LABELS: tuple[str, ...] = ("Coordinator故障", "UB管控面故障")
 
-# 「用户相关故障/使用问题」硬判定。查询侧错误码一旦命中 USER_USAGE_FAULT_CODES，
-# 本次故障即锁定为 用户相关故障/使用问题，并只召回该标签的案例，不再与其他类别竞争。
-# 码集 = KVCache 故障模式知识库「故障域=用户」的 16 个码，加上语义同属使用问题的
+# 「业务故障/误操作故障-KVCache使用问题」硬判定。查询侧错误码一旦命中 MISOPERATION_FAULT_CODES，
+# 本次故障即锁定为 业务故障/误操作故障-KVCache使用问题，并只召回该标签的案例，不再与其他类别竞争。
+# 码集 = KVCache 故障模式知识库「故障域=用户」的 16 个码，加上语义同属误操作故障的
 # 17/28/3004/3007/3009，并剔除 2/8/36——这三个码在现有案例库中分别挂在硬件/Worker/
-# 容器/Coordinator 场景上，不具备用户使用问题的判别力；再剔除 0——0 是「无错误/成功」
+# 容器/Coordinator 场景上，不具备误操作的判别力；再剔除 0——0 是「无错误/成功」
 # 码，在硬件故障报告里同样会出现，纳入会误触发硬判定。
-USER_USAGE_FIRST_LEVEL = "用户相关故障"
-USER_USAGE_SECOND_LEVEL = "使用问题"
-USER_USAGE_FAULT_CODES: frozenset[str] = frozenset({
+MISOPERATION_FIRST_LEVEL = "业务故障"
+MISOPERATION_SECOND_LEVEL = "误操作故障-KVCache使用问题"
+MISOPERATION_FAULT_CODES: frozenset[str] = frozenset({
     "1", "3", "9", "12", "17", "28",
     "2000", "2001", "2004", "2006",
     "3000", "3001", "3002", "3004", "3006", "3007", "3009",
@@ -463,7 +463,7 @@ def _extract_soft_features(features: dict) -> dict:
 
     status_codes 只装本次日志真实出现的码；relaxed_status_codes 装 Agent 为未见码
     选定的相近已知码（由 suggest_similar_codes.py 产出），以 0.5 降权并入软打分，
-    但不参与用户使用问题硬判定。
+    但不参与误操作硬判定。
     """
     status_codes = _values_with_shares(features, "status_codes", "status_code_shares")
     real = {item["value"] for item in status_codes}
@@ -511,13 +511,13 @@ def _soft_feature_count(soft: dict) -> int:
     )
 
 
-def _user_usage_hit(features: dict) -> list[str]:
-    """查询侧**真实**错误码命中的用户使用问题码（相近码不参与判定）。"""
+def _misoperation_hit(features: dict) -> list[str]:
+    """查询侧**真实**错误码命中的误操作故障码（相近码不参与判定）。"""
     values = {_normalize(code) for code in (features.get("status_codes") or [])}
-    return sorted(values & USER_USAGE_FAULT_CODES, key=lambda v: (len(v), v))
+    return sorted(values & MISOPERATION_FAULT_CODES, key=lambda v: (len(v), v))
 
 
-def _build_recall_query(features: dict, source: str = SOURCE_LIBRARY, user_usage: bool = False) -> dict:
+def _build_recall_query(features: dict, source: str = SOURCE_LIBRARY, misoperation: bool = False) -> dict:
     """构建宽召回查询：只带过滤头（kb_id/fault_type/min_confidence/operation），
     不带任何匹配信号——服务端按过滤条件返回候选，软打分在本脚本完成。
 
@@ -528,7 +528,7 @@ def _build_recall_query(features: dict, source: str = SOURCE_LIBRARY, user_usage
     仅当 OPERATION_FILTER_ENABLED 开启（--operation-filter）时才下发；legacy 通道
     kb_id 必填（旧表不支持 operation 过滤，只作正文标注）。
 
-    user_usage=True 时额外锁定一级/二级标签为 用户相关故障/使用问题，命中该规则的
+    misoperation=True 时额外锁定一级/二级标签为 业务故障/误操作故障-KVCache使用问题，命中该规则的
     故障只召回同类案例（当前案例库该类为 0 条，检索结果即为空，符合"严格只召回"口径）。
     """
     query: dict = {"page_num": 1, "page_cnt": 100}
@@ -548,9 +548,9 @@ def _build_recall_query(features: dict, source: str = SOURCE_LIBRARY, user_usage
         operation = features.get("operation")
         if OPERATION_FILTER_ENABLED and operation and str(operation).strip():
             query["operation"] = _normalize_operation(operation)
-        if user_usage:
-            query["first_level_label"] = USER_USAGE_FIRST_LEVEL
-            query["second_level_label"] = USER_USAGE_SECOND_LEVEL
+        if misoperation:
+            query["first_level_label"] = MISOPERATION_FIRST_LEVEL
+            query["second_level_label"] = MISOPERATION_SECOND_LEVEL
 
     return query
 
@@ -1018,7 +1018,7 @@ def _print_rows(
             "topK_vote": "top1 并列，top10 一级标签多数投票",
             "fallback_top1": "无有效标签候选，回退 top1",
             "fixed_feature_vote": "固定特征评分投票",
-            "user_usage_rule": "用户使用问题故障码规则",
+            "misoperation_rule": "误操作故障码规则",
         }
         print(
             f"一级标签选择: {vote['label']}（{method_label.get(vote['method'], vote['method'])}；"
@@ -1128,16 +1128,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         features = _load_features(args.features)
         soft = _extract_soft_features(features)
-        user_usage_codes = _user_usage_hit(features)
-        query = _build_recall_query(features, args.source, user_usage=bool(user_usage_codes))
+        misoperation_codes = _misoperation_hit(features)
+        query = _build_recall_query(features, args.source, misoperation=bool(misoperation_codes))
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"特征文件不可用: {error}", file=sys.stderr)
         return 2
 
-    if user_usage_codes:
+    if misoperation_codes:
         print(
-            f"命中用户使用问题规则（错误码 {'/'.join(user_usage_codes)}），"
-            f"直接判定为 {USER_USAGE_FIRST_LEVEL}/{USER_USAGE_SECOND_LEVEL}，仅召回该标签案例"
+            f"命中误操作故障规则（错误码 {'/'.join(misoperation_codes)}），"
+            f"直接判定为 {MISOPERATION_FIRST_LEVEL}/{MISOPERATION_SECOND_LEVEL}，仅召回该标签案例"
         )
 
     if not _soft_feature_count(soft):
@@ -1205,9 +1205,9 @@ def main(argv: list[str] | None = None) -> int:
             f"已剔除 {dropped} 条 Coordinator/UB管控面 候选（不参与软打分与投票）；"
             f"API total={payload['total']}，实际候选 {len(matches)} 条"
         )
-    if user_usage_codes and not matches:
+    if misoperation_codes and not matches:
         print(
-            f"案例库暂无 {USER_USAGE_FIRST_LEVEL}/{USER_USAGE_SECOND_LEVEL} 案例，"
+            f"案例库暂无 {MISOPERATION_FIRST_LEVEL}/{MISOPERATION_SECOND_LEVEL} 案例，"
             "按「严格只召回」口径返回空候选（不回退到其他类别）"
         )
     # Fixed default policy: query report prose must not steer retrieval ranking.
@@ -1299,12 +1299,12 @@ def main(argv: list[str] | None = None) -> int:
                     "source_label": SOURCE_LABEL[args.source],
                     "operation": features.get("operation"),
                     "query_text": features.get("query_text"),
-                    "user_usage_codes": user_usage_codes,
+                    "misoperation_codes": misoperation_codes,
                     "relaxed_status_codes": features.get("relaxed_status_codes") or [],
                     "fault_label_override": (
-                        {"first_level_label": USER_USAGE_FIRST_LEVEL,
-                         "second_level_label": USER_USAGE_SECOND_LEVEL}
-                        if user_usage_codes else None
+                        {"first_level_label": MISOPERATION_FIRST_LEVEL,
+                         "second_level_label": MISOPERATION_SECOND_LEVEL}
+                        if misoperation_codes else None
                     ),
                     "recall_query": query,
                     "soft_features": scoring_soft,

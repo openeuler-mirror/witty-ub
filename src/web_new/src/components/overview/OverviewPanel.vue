@@ -17,7 +17,6 @@ import DisconnectMonitor from './DisconnectMonitor.vue'
 import DisconnectAggregateEvents from './DisconnectAggregateEvents.vue'
 import BRPCInterfaceMonitor from './BRPCInterfaceMonitor.vue'
 import BRPCFaultMonitor from './BRPCFaultMonitor.vue'
-import SimilarityAnalysis from './SimilarityAnalysis.vue'
 import PageNav from '../common/PageNav.vue'
 
 const props = defineProps<{
@@ -207,14 +206,6 @@ const analysisLoading = computed(
   () => overviewLoading.value || brpcLoading.value || brpcFaultLoading.value,
 )
 
-// ===== 相似案例分析：当前 KVCache 已完成任务的 log_file_id =====
-const currentAnalysisLogFileId = computed(
-  () => latencyFilter.logId.value || scopeTasks.value[0]?.id || '',
-)
-const currentAnalysisLogFileName = computed(
-  () => scopeTasks.value.find((t) => t.id === currentAnalysisLogFileId.value)?.name || '',
-)
-
 const selectBrpcGraphNode = (id: string) => {
   brpcSelectedGraphNodeId.value = brpcSelectedGraphNodeId.value === id ? '' : id
 }
@@ -377,7 +368,7 @@ onMounted(() => {
             <span class="analysis-loading-dot" aria-hidden="true"></span>正在加载分析数据…
           </span>
         </div>
-        <div v-if="!isBrpcTask && analysisTab !== 'similarity'" class="scope-controls">
+        <div v-if="!isBrpcTask" class="scope-controls">
           <template v-if="!isBrpcTask">
             <template v-if="analysisTab === 'latency'">
               <label class="scope-field">
@@ -436,20 +427,11 @@ onMounted(() => {
         >
           通断故障监控
         </button>
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="analysisTab === 'similarity'"
-          :class="['analysis-tab', { active: analysisTab === 'similarity' }]"
-          @click="analysisTab = 'similarity'"
-        >
-          相似案例分析
-        </button>
       </div>
 
       <!-- 加载中不再整体替换内容：切 GET/SET 或切数据域时只提示，不清空已渲染的图与指标，
          避免整页闪烁 -->
-      <div v-if="!isBrpcTask && analysisTab !== 'similarity'" class="kpi-row">
+      <div v-if="!isBrpcTask" class="kpi-row">
         <div class="kpi-card">
           <div class="kpi-num">{{ kpiData.totalTraces.toLocaleString() }}</div>
           <div class="kpi-label">
@@ -556,13 +538,6 @@ onMounted(() => {
         <DisconnectMonitor v-if="analysisModule.disconnect === 'faults'" />
         <DisconnectAggregateEvents v-else />
       </template>
-
-      <!-- ===== 相似案例分析（与上两个监控页签同层级） ===== -->
-      <SimilarityAnalysis
-        v-if="!isBrpcTask && analysisTab === 'similarity'"
-        :log-file-id="currentAnalysisLogFileId"
-        :log-file-name="currentAnalysisLogFileName"
-      />
 
       <!-- ===== UBSocket 监控 ===== -->
       <template v-if="isBrpcTask">
