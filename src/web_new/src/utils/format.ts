@@ -38,6 +38,9 @@ export const normalizeTraceOperation = (operation?: string | null) => {
   return '-'
 }
 
+export const formatTraceLogMessage = (message?: string | null) =>
+  message?.replace(/(?:\\r\\n|\\n|\r\n?|\n)+/g, '\n') || '-'
+
 export const extractArray = <T>(payload: unknown, keys: string[]): T[] => {
   if (Array.isArray(payload)) return payload as T[]
   if (!payload || typeof payload !== 'object') return []

@@ -8,6 +8,7 @@ import { useTasks } from '../../composables/useTasks'
 import type { LogFileModel, LogKnowledge, LogType } from '../../types'
 import {
   failureModeDisplayCode,
+  formatTraceLogMessage,
   normalizeFaultCodes,
   normalizeTraceOperation,
 } from '../../utils/format'
@@ -1206,7 +1207,7 @@ onMounted(() => {
               <td style="font-family: monospace">{{ log.pod_name || '-' }}</td>
               <td>{{ log.pid && log.tid ? log.pid + ':' + log.tid : '-' }}</td>
               <td>{{ log.cluster_name || '-' }}</td>
-              <td style="white-space: normal; font-size: 12px">{{ log.message || '-' }}</td>
+              <td class="trace-log-message">{{ formatTraceLogMessage(log.message) }}</td>
             </tr>
             <tr v-if="traceDrawerLogs.length === 0">
               <td colspan="7" style="text-align: center; color: var(--text3)">

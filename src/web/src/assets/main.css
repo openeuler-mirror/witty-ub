@@ -6076,6 +6076,15 @@ body.agent-panel-resizing-corner {
   white-space: nowrap;
 }
 
+.trace-log-message {
+  white-space: pre-wrap;
+}
+
+.trace-log-message::after {
+  /* Keep the last line visible when the message ends with a newline. */
+  content: '\200b';
+}
+
 .log-error {
   background: #fef2f2;
 }
