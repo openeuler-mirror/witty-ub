@@ -6098,6 +6098,7 @@ const createLatencyEchartsOption = (
   const hasLegend = visibleSeries.length > 0
   const gridTop = 70
   const legendWidth = Math.max(320, chartWidth - 88)
+  let yAxisMax = 100
 
   return {
     color: visibleSeries.map((series) => series.color),
@@ -6177,14 +6178,21 @@ const createLatencyEchartsOption = (
       type: 'value',
       name: '延迟(ms)',
       min: 0,
-      max: (value: { max: number }) =>
-        Number.isFinite(value.max) && value.max > 0 ? value.max : 100,
+      max: ({ max }: { max: number }) => {
+        yAxisMax = Number.isFinite(max) && max > 0 ? max : 100
+        return yAxisMax
+      },
       splitLine: {
         lineStyle: {
           color: '#e2e8f0',
         },
       },
       axisLabel: {
+        showMaxLabel: true,
+        formatter: (value: number) => {
+          const precision = value === yAxisMax ? 3 : echarts.number.getPrecision(value)
+          return echarts.format.addCommas(echarts.number.round(value, precision, true))
+        },
         color: '#64748b',
         fontSize: 12,
       },
