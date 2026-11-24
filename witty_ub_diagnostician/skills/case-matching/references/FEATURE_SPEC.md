@@ -347,15 +347,15 @@ vs 全体 Worker 占 32%）；对容器/OS/SDK 小类无帮助（这些小类仍
   错误码、时延段、关键词等至少一类分布特征。
 - `operation`：library 通道是纯过滤字段，提交即隔离 GET/SET；legacy 通道没有该字段，
   只能把 `operation` 留在正文标注。任何通道都禁止把两种操作的信号合并成一次查询。
-- **用户使用问题锁定召回**：查询 `status_codes` 命中
-  `USER_USAGE_FAULT_CODES`（`1/3/9/12/17/28/2000/2001/2004/2006/3000/3001/3002/3004/3006/3007/3009`，
-  剔除 `0/2/8/36`，其中 `0` 为「无错误/成功」码）时，召回查询额外带 `first_level_label=用户相关故障` +
-  `second_level_label=使用问题`，**只召回该类案例**；命中码见输出 `user_usage_codes`，
+- **误操作故障锁定召回**：查询 `status_codes` 命中
+  `MISOPERATION_FAULT_CODES`（`1/3/9/12/17/28/2000/2001/2004/2006/3000/3001/3002/3004/3006/3007/3009`，
+  剔除 `0/2/8/36`，其中 `0` 为「无错误/成功」码）时，召回查询额外带 `first_level_label=业务故障` +
+  `second_level_label=误操作故障-KVCache使用问题`，**只召回该类案例**；命中码见输出 `misoperation_codes`，
   锁定标签见 `fault_label_override`。库内无该类案例时返回空，不降级、不回退。
 - **未见码的相近码回退**：`relaxed_status_codes`（可选）装案例库未收录的故障码所对应的
   相近已知码，由 `scripts/suggest_similar_codes.py` 产出（依据：人工映射表
   `references/similar_code_map.json` > 同码段家族 > 同知识库故障域）。这些码以
-  `share=0.5` 并入软打分；不计入 `status_code_shares`，不参与用户使用问题硬判定，
+  `share=0.5` 并入软打分；不计入 `status_code_shares`，不参与误操作硬判定，
   也不出现在报告的错误码清单里。检索输出会回显 `relaxed_status_codes`。
 - `share` ∈ (0,1]，表示该特征在本次故障中的贡献占比；占比小但确认存在的特征也应提交
   （分母会相应加权，保证 score_norm 可比）。

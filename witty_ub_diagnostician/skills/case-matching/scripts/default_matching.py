@@ -112,11 +112,11 @@ def match(profile,cases=None,structured=None,raw=None,context=None,*,model=None,
     context=context or unknown_context()
     if context.get('schema_version')!=extraction.VERSION:context=unknown_context('feature_version_mismatch')
     query_identities=sorted(set(query_identities)|set(context.get('provenance',{}).get('source_identities',[])))
-    usage=set(profile['status_codes'])&baseline_matching.legacy.USER_USAGE_FAULT_CODES
-    if usage:
+    misoperation_codes=set(profile['status_codes'])&baseline_matching.legacy.MISOPERATION_FAULT_CODES
+    if misoperation_codes:
         decision=fixed_matching.decide(profile,structured,raw,[]);decision['policy']=POLICY
         return {'policy':POLICY,'decision':decision,'retrieval_decision':decision,'candidates':[],
-                'feature_usage':{'business_rule':'user_usage_rule'},'fallback_used':False,'disagreement':False}
+                'feature_usage':{'business_rule':'misoperation_rule'},'fallback_used':False,'disagreement':False}
     reference_error=None
     if references is None:
         try:references=asset('cosine_bank',assets_dir)

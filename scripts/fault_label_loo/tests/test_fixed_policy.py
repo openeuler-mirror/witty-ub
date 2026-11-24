@@ -48,12 +48,12 @@ class FixedPolicyTests(unittest.TestCase):
         result = fixed_matching.match(query, [])
         self.assertIsNone(result['decision']['label'])
 
-    def test_user_usage_rule_is_shared_even_without_historical_cases(self):
+    def test_misoperation_rule_is_shared_even_without_historical_cases(self):
         query, _, _, _ = inputs()
         query['status_codes'] = ['3']
         result = fixed_matching.match(query, [])
-        self.assertEqual(result['decision']['label'], '用户相关故障')
-        self.assertEqual(result['decision']['second_level_label'], '使用问题')
+        self.assertEqual(result['decision']['label'], '业务故障')
+        self.assertEqual(result['decision']['second_level_label'], '误操作故障-KVCache使用问题')
         self.assertEqual(result['candidates'], [])
 
     def test_cli_uses_same_fixed_vote(self):

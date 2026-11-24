@@ -496,7 +496,7 @@ class GetLatencyMetricsRequest(StrictRequestModel):
     )
     log_id: Optional[str] = Field(
         default=None,
-        description="日志文件ID,用于直接查分位统计表;为空时回退实时聚合",
+        description="日志文件ID；为空时按整个知识库聚合（跨该库全部日志文件的桶曲线）",
     )
 
 class GetErrCodeMetricsRequest(StrictRequestModel):

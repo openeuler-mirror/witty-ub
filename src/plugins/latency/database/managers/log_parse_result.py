@@ -783,13 +783,6 @@ class LogParseResultPGManager:
                 "IP 维度过滤暂不支持：分位统计表每 (bucket, operation, mode) "
                 "只有一行整桶代表请求，无 IP 维度"
             )
-        if not req.log_id:
-            # 原先静默返回 (0, [])：前端没带 log_id 时表现为"暂无时延数据"，看不出原因。
-            # 曲线是按单个日志文件查的，缺参数属于请求错误，显式 400。
-            raise BadRequestBizException(
-                "缺少 log_id：时延曲线按单个日志文件查询，请带上 log_id"
-                "（前端选择的是当前/默认的 KVCache 日志文件）"
-            )
         rows = await LogParseResultPGManager._query_bucket_stats(
             bucket_table, req, stats_mode
         )
@@ -801,11 +794,15 @@ class LogParseResultPGManager:
         req: GetLatencyMetricsRequest,
         stats_mode: str,
     ) -> list[dict[str, Any]]:
-        stmt = (
-            select(table)
-            .where(table.log_id == req.log_id)
-            .where(table.mode == stats_mode)
-        )
+        stmt = select(table).where(table.mode == stats_mode)
+        if req.log_id:
+            stmt = stmt.where(table.log_id == req.log_id)
+        else:
+            # log_id 缺省：按知识库聚合该库下所有日志文件的桶曲线
+            # （单个 log_id 只覆盖一个案例；KB 级趋势需跨日志文件）。
+            stmt = stmt.join(LogFile, table.log_id == LogFile.id).where(
+                LogFile.kb_id == req.kb_id
+            )
         if req.operation:
             stmt = stmt.where(table.operation == req.operation.upper())
         if req.start_time:

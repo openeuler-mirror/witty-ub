@@ -1,0 +1,322 @@
+{
+  "99669578-0795-4197-9420-921855897b20": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_tcp_down_1QPS_001_20261117_19_22_22",
+    "task_id": "0a7d37a6-0738-43a0-a2eb-e1f9afeea2a4",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "11b8d2bc-142a-4586-a847-bf032de18341": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_tcp_down_1QPS_001_20261118_10_45_55",
+    "task_id": "04c54b02-50b2-46be-8d10-3ee1e81b2eb3",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "3c0ddb7b-8555-4238-a32e-6f082d238032": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_tcp_down_1QPS_001_20261118_14_27_58",
+    "task_id": "4e8a1ad1-47f8-49d5-81d1-0c8784d1078a",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "149a3cac-6321-4384-bcc4-7fd4c122caa9": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_tcp_down_1QPS_001_20261118_14_52_55",
+    "task_id": "b0c0a367-61d0-48fc-bc58-2f56c4efc938",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "0a8dec9f-fba6-42eb-b830-6958f5fe9a9d": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_tcp_down_1QPS_001_20261118_15_35_10",
+    "task_id": "1a4e58c2-9f23-4fba-86e1-47891a0b0ce5",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "eab167db-793d-409a-87cb-769413066ace": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_tcp_down_1QPS_001_20261118_19_30_33",
+    "task_id": "addd0f7b-1d04-40cb-adf7-3c93bfaee940",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "7af6142a-640c-4de9-8ac8-b83e0c0f8df4": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_tcp_down_1QPS_001_20261120_11_30_40",
+    "task_id": "c8297a18-ccd1-4d96-bb7a-3667e9926844",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "396b9025-a8df-42cc-989e-95a2b2b5814a": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_tcp_down_1QPS_001_20261120_13_10_31",
+    "task_id": "7340e120-e692-4965-b73f-1b66f7b34c08",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "ba87d0c4-5120-4109-ae87-358d8241fa62": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_ub_1QPS_001_20261117_14_21_25",
+    "task_id": "062e3350-50f3-4152-9b13-52a048b96e56",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "02db3687-cfac-4c2c-81ce-b0aa66122894": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_udma_1QPS_001_20261119_09_34_43",
+    "task_id": "8f6478b8-4595-45ea-bc54-501adf20cdc4",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "14a2219d-c36b-49ab-89f8-968c050ddff1": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_udma_1QPS_001_20261119_16_39_29",
+    "task_id": "9eb1c6be-5692-4ebb-ad18-e8e021d1875b",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "fce9c338-bdda-46a7-b7ad-e699c987ca97": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_upgrade_udma_1QPS_001_20261119_21_31_09",
+    "task_id": "c545e9f8-b096-4f8f-9679-c7c86842dc43",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "7a6db6e9-02e1-4da5-a990-a04dc496b4c5": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_upgrade_urma_1QPS_001_20261119_18_31_53",
+    "task_id": "ed542812-7aa7-452c-b3bd-db1508f3fd20",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "0a623267-8298-4847-a217-6da3932b0de3": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_upgrade_urma_1QPS_001_20261119_19_13_45",
+    "task_id": "74829e55-8ce9-4146-aa29-02d48ab654d4",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "83b37d22-9164-4e06-b378-db3629fa04f2": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_upgrade_urma_1QPS_001_20261119_19_34_40",
+    "task_id": "a384475e-d899-486a-8e8a-951687b40e6c",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "b55c2d6e-51d5-47dd-89ad-7cee73afa7ec": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_upgrade_urma_1QPS_002_20261119_20_34_41",
+    "task_id": "83421343-f355-4a83-99f8-80530674073a",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "741cd2d2-b4ee-4713-b2d9-6a67e5143918": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_upgrade_urma_1QPS_004_20261120_09_49_04",
+    "task_id": "1f60f46a-9cb9-4dcf-81c3-7d9870461f06",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "2f7d6996-cab5-4c78-995f-26c67071663c": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_urma_1QPS_001_20261113_10_50_51",
+    "task_id": "7613a247-842f-4479-9f0c-f11205830dee",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "21c6e04e-9c3d-48d8-8521-275e33dab468": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_urma_1QPS_001_20261113_12_57_21",
+    "task_id": "9c440794-c711-401b-94a8-5d93a91db2ee",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "5e8296ec-6eea-4f02-a9ce-ef121a2e839b": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_urma_1QPS_002_20261116_21_28_32",
+    "task_id": "e1ac50cc-5e0f-41ed-bb9d-f63ed46a12f4",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "92a75846-45be-472f-85cc-31e8b0025bf5": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_2clients_1worker_recall_6clients_2workers_urma_1QPS_002_20261117_09_47_13",
+    "task_id": "21ba40b1-e362-4e60-9742-4f9ab646467f",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "9e61886d-a1a5-47f7-911a-dcb301988c5e": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_500K_8M_recall_1_75M_inject_refine_worker_down_20261118_14_47_16",
+    "task_id": "50d13e42-5694-456f-b716-07c4c9375e63",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "5deccf9d-ef1e-438b-b213-a262d7f671cd": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_500K_8M_recall_1_75M_inject_refine_worker_down_20261118_15_28_13",
+    "task_id": "0200cd05-50ff-4218-ba52-f017cd53ce1e",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "90870c31-9b8a-48e3-81f5-5fb7f39ba5d6": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_500K_8M_recall_1_75M_inject_refine_worker_down_20261118_16_18_56",
+    "task_id": "c6881116-e8a7-4d89-80fe-991bf6e7cbcd",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "5a7c2bea-d587-4ee5-b30f-346f1902726b": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_500K_8M_recall_1_75M_inject_refine_worker_down_20261119_08_52_19",
+    "task_id": "2b2803f1-64ce-4fbf-a1ef-45804f6c6fed",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "dc145353-5795-41a5-a308-83cc55d7989e": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_500K_8M_recall_1_75M_inject_single_port_down_20261118_14_15_50",
+    "task_id": "4c00e3e0-b4e0-49bb-aceb-ce2986e735bb",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "5a683cc4-cbd2-4e24-8b3a-18ac700c3aa9": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_recall_2_workers_tcp_bandwidth_1QPS_001_20261119_14_47_13",
+    "task_id": "e0e5aa38-454e-41b2-99f5-5dec98170ec9",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "725b28df-df37-410f-be45-c351d2acbc48": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_recall_2_workers_tcp_delay_1QPS_001_20261119_17_38_18",
+    "task_id": "7114a2be-8b66-4236-827f-530e261699aa",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "ab4ff8cf-537e-4967-bdd3-cc7e658abceb": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_recall_2_workers_tcp_flapping_1QPS_001_20261119_15_17_46",
+    "task_id": "50e39198-079a-4108-9813-5053b12a7163",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "630604e4-07c6-41ee-b696-5cf72def34f9": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_recall_2_workers_tcp_flapping_1QPS_001_20261119_15_47_04",
+    "task_id": "2229a6af-baae-4f60-a0a7-f1fa65adda93",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "f0fcd80a-b76e-4a4b-8792-dfd25f031625": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_recall_2_workers_tcp_flapping_1QPS_001_20261119_16_17_33",
+    "task_id": "2387cdcd-fa8f-41eb-ae0c-3d922d4b5fb7",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "589d711c-e86d-4762-b62d-55936bb395b0": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_recall_2_workers_tcp_jitter_1QPS_001_20261119_16_39_57",
+    "task_id": "9d15a332-34fb-45ab-b90b-c7bb72fabaa7",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "72b6e657-970b-42a0-bf7f-c3089a989712": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_recall_2_workers_tcp_jitter_1QPS_001_20261119_17_16_25",
+    "task_id": "ec62f734-0af6-489a-86e0-b7a7ca29f161",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "cdf0d4a7-00b8-4d2f-90ce-e236f73f621c": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_recall_2_workers_tcp_loss_1QPS_001_20261119_11_48_35",
+    "task_id": "91bddbc0-13bb-493f-9123-c434911302eb",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "af361f29-2674-411d-bb0e-09e1b4d151b0": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_recall_2_workers_ub_flash_down_1QPS_001_20261120_15_45_40",
+    "task_id": "6b2705e8-f2ce-4701-8177-722b4a766edb",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "fbf7aad5-4fc1-456a-994a-599b4f6ecd3f": {
+    "dir_name": "lingqu_kvcache_dfx_ps_refine_recall_8_clients_2_sdk_exit_load_1QPS_001_20261120_16_55_59",
+    "task_id": "6220d119-62d6-447a-a9e7-4e2cbec4bf3e",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "9433951e-f864-4e32-bf20-1d35527b6e9a": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_scale_in_bmc_001",
+    "task_id": "e48356d7-a72b-4517-b140-6c7cfa24a6ff",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "08fcc951-7994-4be3-b97c-57a106035dd1": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_scale_in_bmc_001_20261118_17_10_07",
+    "task_id": "8469a806-8508-422a-86dc-8c74bf87530f",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "e9147aae-c64c-4b42-bffe-594b5b58fcf7": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_scale_in_client_exit_001_20261112_14_48_56",
+    "task_id": "74dcac8a-99ac-4a48-beed-1f7f4bd972f1",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "c6662ce5-6886-4645-9eae-ebf54e3f6947": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_scale_in_client_restart_001_20261117_19_23_37",
+    "task_id": "6abf73dd-ef76-4d71-9318-d47c44710fbb",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "ef8606e6-d572-4640-857a-400e655fcc86": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_OS_mem_little_001_20261113_09_25_57",
+    "task_id": "e12db7ac-5d7c-4114-acdc-330535e84fac",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "87b933f8-a78c-4810-9998-212426c09b5e": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_OS_mem_little_001_20261120_10_58_50",
+    "task_id": "f0e3ff56-f1cd-4031-87d0-f213b43670a9",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "dac979e7-50b8-4992-97e7-d66194e9dce7": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_OS_mem_little_001_20261120_11_16_26",
+    "task_id": "3377f3ac-9abb-4872-bde2-30f9243fa7fb",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "b0fcb8fa-eddb-4289-becc-ea33e380824e": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_OS_mem_little_001_20261120_11_28_36",
+    "task_id": "38850d1c-c275-41fa-ba99-a9264b3d9768",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "321b21ae-9a49-472d-b505-1f661ee42784": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_OS_mem_little_001_20261120_11_43_06",
+    "task_id": "a635a1f5-59ef-4610-9898-54479d8a50c8",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "cbf9b4be-3118-47a7-b7e5-b7a65e912298": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_OS_mem_little_001_20261120_14_10_44",
+    "task_id": "ce441b38-d7a8-4773-89df-7ff4f3e19a51",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "05008345-bc46-489d-a674-e5c0b2966b78": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_OS_mem_little_001_20261120_14_20_03",
+    "task_id": "f7df20e9-58eb-417d-acfe-544ac6cd1c3b",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "4d8148e6-b797-4452-bc60-34b0b0fbb3a0": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_OS_mem_little_001_20261120_14_49_03",
+    "task_id": "a3f5a2e2-9828-452d-a568-56c63a3cf817",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "9a6798cf-8ecf-4a24-be8b-8a8e935a3f2a": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_OS_mem_little_001_20261120_15_29_48",
+    "task_id": "23fc3ab8-ad24-4890-86c1-4eaba787995b",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "74dec049-f91f-40c5-b0de-112006762a3a": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_OS_mem_little_001_20261120_15_40_11",
+    "task_id": "320c4c8e-428d-47e8-98de-5ea1df30782f",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "0bd96342-a5bd-49f3-b9ad-81625528d682": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_container_cpu_full_001_20261119_17_27_07",
+    "task_id": "0e06469a-b4d4-40b7-9b48-181af96595d6",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "97035e35-3c1a-4480-a22b-bfc2aa4aff8d": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_container_mem_little_001_20261118_16_17_14",
+    "task_id": "2a210987-d907-48ac-9360-14ebdf8d403b",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "563e6d72-0a13-46b2-b566-36003fb5d6e0": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_container_mem_little_001_20261119_09_54_10",
+    "task_id": "e0769924-98ad-4958-82c0-45b414167ccc",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "c832c76a-3eae-4a73-b9a7-9dd35fe7ac92": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_container_mem_little_001_20261119_10_05_04",
+    "task_id": "58761322-5924-4e57-b812-0cb8cb558e4e",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "889c4c1c-a185-4b7e-86f9-f0c17abd63ac": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_container_mem_little_001_20261119_10_16_42",
+    "task_id": "749d4cd3-c163-4d45-b646-9b427d1cd628",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "cfe40bb9-a0bd-4fa7-959a-a9662f4eb33e": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_container_mem_little_001_20261119_11_25_38",
+    "task_id": "ba3930ba-38c7-429a-8979-73c3c0e3ec99",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "a9297f48-5723-4ec9-824a-bd2c06834a0b": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_hang_up_001_20261117_09_28_00",
+    "task_id": "2ac4037d-75a4-43b1-aa30-413883927dfb",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "afaf046a-7012-4bc2-816e-2a75228bad7f": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_hang_up_001_20261117_09_43_03",
+    "task_id": "39c88208-821d-45af-9342-2cb34e0e02dd",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "405b4d76-4938-4d6d-8b9b-a8d698477c41": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_tcp_jitter_001_20261116_16_38_57",
+    "task_id": "b1cdd7c6-3c70-40d1-8e68-93574fcded33",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "c8363e7b-b93d-405b-8792-23e6681d4876": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_tcp_loss_001_20261116_15_35_59",
+    "task_id": "07d5af89-79ed-4f50-8808-c43790ed1e2f",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "8e9f8df5-2ff1-4382-9432-390f9aaa27da": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_tcp_loss_001_20261116_16_03_00",
+    "task_id": "e0054940-6ec6-4a03-8ae0-ced54c384fca",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "f71d8043-8047-404d-ba1f-b6fe5ff930e4": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_ub_local_double_port_down_001_20261112_16_45_25",
+    "task_id": "84eaa05a-1e74-487c-801e-217caaa07678",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "4e532781-b603-410a-90f1-67113a1d7fbf": {
+    "dir_name": "lingqu_kvcache_dfx_worker_process_upgrade_ub_local_reduce_lane_001_20261116_15_25_14",
+    "task_id": "03156c3e-f49c-465f-835e-4a2b3709a107",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  },
+  "c1d9a254-f8e4-426c-a4ea-d565abbf587f": {
+    "dir_name": "lingqu_kvcache_dfx_write_remote_tcp_packet_loss_001_20261110_00_38_57",
+    "task_id": "638d74f6-3744-431b-93e8-fd533bd37a1d",
+    "kb_id": "4595d77c-f82f-461c-9673-d9d9ca9efba2"
+  }
+}

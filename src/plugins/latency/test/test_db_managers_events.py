@@ -1556,10 +1556,21 @@ async def test_get_latency_metrics_guards(monkeypatch):
             kb_id="kb-1", bucket_seconds=60, log_id="log-1", host="host-1"
         )
         await LogParseResultPGManager.get_latency_metrics(req)
-    # master：缺少 log_id 直接 400（时延曲线按单个日志文件查询）
-    req = GetLatencyMetricsRequest(kb_id="kb-1", bucket_seconds=60)
-    with pytest.raises(BadRequestBizException):
-        await LogParseResultPGManager.get_latency_metrics(req)
+
+
+async def test_get_latency_metrics_missing_log_id_aggregates_kb(monkeypatch):
+    # 缺少 log_id 不再 400：按整个知识库聚合（跨该库全部日志文件的桶曲线）
+    row = SimpleNamespace(
+        bucket=DT,
+        src_ip="10.0.0.1",
+        dst_ip="10.0.0.2",
+        trace_id="tr-1",
+        request_mode="mode",
+    )
+    install_session(monkeypatch, FakeSession(responses=[FakeResult(rows=[row])]))
+    req = GetLatencyMetricsRequest(kb_id="kb-1", bucket_seconds=60, sample_mode=SampleMode.P99)
+    total, rows = await LogParseResultPGManager.get_latency_metrics(req)
+    assert total == 1 and len(rows) == 1
 
 
 async def test_get_latency_metrics_happy(monkeypatch):

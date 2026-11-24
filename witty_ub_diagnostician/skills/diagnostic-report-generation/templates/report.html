@@ -1097,7 +1097,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
     {% if label_matching is defined and label_matching and label_matching.policy == 'numeric-units-classifier-cosine-fallback-v1' %}
     <div class="hero-meta" data-label-policy="numeric-units-classifier-cosine-fallback-v1">
       <span>报告级标签预测：{{ label_matching.decision.label or '观测不足' }}</span>
-      <span>依据：{% if label_matching.decision.method == 'numeric_units_classifier' %}新增数值特征分类器{% elif label_matching.decision.method == 'user_usage_rule' %}使用问题规则{% else %}全特征余弦 K4 退化{% endif %}</span>
+      <span>依据：{% if label_matching.decision.method == 'numeric_units_classifier' %}新增数值特征分类器{% elif label_matching.decision.method in ['misoperation_rule', 'user_usage_rule'] %}误操作故障规则{% else %}全特征余弦 K4 退化{% endif %}</span>
       <span>历史案例参照：{{ label_matching.retrieval_decision.label or '无可比案例' }}</span>
       {% if label_matching.disagreement %}<span>预测与案例投票不一致，请结合现场证据核对。</span>{% endif %}
       {% if is_multi %}<span>多故障逐项标签见故障档案，报告级预测不替代逐项归属。</span>{% endif %}

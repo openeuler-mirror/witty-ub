@@ -50,12 +50,22 @@ async def test_get_latency_metrics_rejects_unsupported_inputs(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_latency_metrics_missing_log_id_returns_empty():
-    # master（e6a14a03）：缺少 log_id 直接 400 —— 时延曲线按单个日志文件查询
-    with pytest.raises(BadRequestBizException):
-        await LogParseResultPGManager.get_latency_metrics(
-            GetLatencyMetricsRequest(kb_id="kb-1", sample_mode=SampleMode.P99, bucket_seconds=60)
-        )
+async def test_get_latency_metrics_missing_log_id_aggregates_kb(monkeypatch):
+    # 缺少 log_id 不再 400：按整个知识库聚合（跨该库全部日志文件的桶曲线）
+    captured = {}
+
+    async def _fake_query(table, req, stats_mode):
+        captured["log_id"] = req.log_id
+        return [{"time": "2026-05-10 10:00:00"}]
+
+    monkeypatch.setattr(
+        LogParseResultPGManager, "_query_bucket_stats", staticmethod(_fake_query)
+    )
+    total, rows = await LogParseResultPGManager.get_latency_metrics(
+        GetLatencyMetricsRequest(kb_id="kb-1", sample_mode=SampleMode.P99, bucket_seconds=60)
+    )
+    assert total == 1
+    assert captured["log_id"] is None
 
 
 @pytest.mark.asyncio
