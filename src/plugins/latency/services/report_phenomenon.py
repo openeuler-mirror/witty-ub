@@ -21,6 +21,7 @@ from latency.ENUM.phenomenon import (
     PhenomenonKind,
     VerificationLevel,
 )
+from latency.services.label_taxonomy import fault_case_labels
 
 TEXT_HARD_LIMIT = 1200
 HISTORICAL_REPORT_PREFIX = "report_hist_"
@@ -471,6 +472,7 @@ def _source_fault_hash_payload(
 ) -> dict:
     conclusion = _as_dict(fault.get("conclusion"))
     root_cause = _as_dict(fault.get("root_cause"))
+    fault_type = _text(conclusion.get("type", conclusion.get("fault_type")))
     return {
         "id": fault_id,
         "title": _text(fault.get("title")),
@@ -481,8 +483,9 @@ def _source_fault_hash_payload(
         "conclusion.key_findings": [
             str(item) for item in _as_list(conclusion.get("key_findings")) if item
         ],
-        "conclusion.fault_domain": _text(conclusion.get("fault_domain")),
-        "conclusion.fault_component": _text(conclusion.get("fault_component")),
+        "conclusion.fault_domain": _text(conclusion.get("domain", conclusion.get("fault_domain"))),
+        "conclusion.fault_component": _text(conclusion.get("component", conclusion.get("fault_component"))),
+        **({"conclusion.fault_type": fault_type} if fault_type else {}),
         "root_cause.confirmed_root_cause": _text(root_cause.get("confirmed_root_cause")),
         # Keep the historical key name so reports whose effective signal did
         # not change retain their existing binding hash.
@@ -623,8 +626,8 @@ def extract_report(
             title = scrubber.clean(_text(fault.get("title"))) or report_id
             conclusion = _as_dict(fault.get("conclusion"))
             symptom = _fault_symptom(scrubber, conclusion) or title
-            domain = scrubber.clean(_text(conclusion.get("fault_domain")))
-            component = scrubber.clean(_text(conclusion.get("fault_component")))
+            domain = scrubber.clean(_text(conclusion.get("domain", conclusion.get("fault_domain"))))
+            component = scrubber.clean(_text(conclusion.get("component", conclusion.get("fault_component"))))
             legacy_codes = (
                 _as_list(_as_dict(payload.get("statistics")).get("top_error_codes"))
                 if len(raw_faults) == 1
@@ -651,6 +654,7 @@ def extract_report(
             if status == "confirmed"
             else VerificationLevel.SUSPECTED
         )
+        first_level, second_level = fault_case_labels(fault)
         docs.append(
             PhenomenonDoc(
                 doc_id=f"report:{report_id}:{fault_id}",
@@ -671,8 +675,8 @@ def extract_report(
                 source_fault_hash=compute_source_fault_hash(
                     fault, fault_id, operation, status_codes
                 ),
-                first_level_label=_raw_text(conclusion.get("first_level_label")),
-                second_level_label=_raw_text(conclusion.get("second_level_label")),
+                first_level_label=_raw_text(first_level),
+                second_level_label=_raw_text(second_level),
                 operation=operation,
                 status_codes=status_codes,
                 failure_mode_ids=failure_mode_ids,

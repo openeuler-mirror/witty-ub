@@ -36,6 +36,8 @@ LABEL description="Witty-UB backend image (FastAPI + C++ diagnosis tools)"
 # Backend owns its classifier runtime; it does not require the frontend Agent bundle.
 COPY witty_ub_diagnostician/skills/case-matching/scripts/ /var/witty-ub/classifier-runtime/scripts/
 COPY witty_ub_diagnostician/skills/case-matching/assets/ /var/witty-ub/classifier-runtime/assets/
+RUN PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/var/witty-ub/classifier-runtime/scripts python3 -S -c \
+    'import default_matching; print(default_matching.verify_packaged_assets())'
 # Refresh ML dependencies even when building on an older cached base image.
 RUN /var/witty-ub/latency/.venv/bin/pip install --no-cache-dir \
     --index-url https://repo.huaweicloud.com/repository/pypi/simple/ 'scikit-learn>=1.5,<2.0'
@@ -118,6 +120,8 @@ LABEL description="Witty-UB frontend image (Nginx + OpenCode)"
 
 # Copy witty_ub_diagnostician contents into .opencode directory
 COPY witty_ub_diagnostician/ /var/witty-ub/witty_ub_diagnostician/.opencode/
+RUN PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/var/witty-ub/witty_ub_diagnostician/.opencode/skills/case-matching/scripts python3 -S -c \
+    'import default_matching; print(default_matching.verify_packaged_assets())'
 
 # Copy compiled libsimple.so from builder
 COPY --from=builder-cpp /build/witty_ub_diagnostician/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/simple-src/output/bin/libsimple.so /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/simple-src/output/bin/
@@ -170,6 +174,8 @@ LABEL description="Witty-UB: Fault localization tool for superpods with Lingqu(U
 # Backend owns its classifier runtime; it does not require the frontend Agent bundle.
 COPY witty_ub_diagnostician/skills/case-matching/scripts/ /var/witty-ub/classifier-runtime/scripts/
 COPY witty_ub_diagnostician/skills/case-matching/assets/ /var/witty-ub/classifier-runtime/assets/
+RUN PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/var/witty-ub/classifier-runtime/scripts python3 -S -c \
+    'import default_matching; print(default_matching.verify_packaged_assets())'
 # Refresh ML dependencies even when building on an older cached base image.
 RUN /var/witty-ub/latency/.venv/bin/pip install --no-cache-dir \
     --index-url https://repo.huaweicloud.com/repository/pypi/simple/ 'scikit-learn>=1.5,<2.0'
@@ -207,6 +213,8 @@ COPY config/diagnosis_config.toml /var/witty-ub/config/
 
 # Copy witty_ub_diagnostician contents into .opencode directory
 COPY witty_ub_diagnostician/ /var/witty-ub/witty_ub_diagnostician/.opencode/
+RUN PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/var/witty-ub/witty_ub_diagnostician/.opencode/skills/case-matching/scripts python3 -S -c \
+    'import default_matching; print(default_matching.verify_packaged_assets())'
 
 # Copy compiled libsimple.so from builder
 COPY --from=builder-cpp /build/witty_ub_diagnostician/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/simple-src/output/bin/libsimple.so /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer/simple-src/output/bin/

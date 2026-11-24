@@ -49,7 +49,7 @@ html { -webkit-text-size-adjust: 100%; }
 .status-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .status-badge.ok { background: var(--success-pale); color: var(--success); }
 .status-badge.warn { background: var(--warning-pale); color: var(--warning); }
-.conclusion-card .card-sub { font-size: 12px; color: var(--gray-500); margin-top: 4px; overflow-wrap: break-word; }
+.conclusion-card .card-sub { font-size: 12px; color: var(--gray-500); margin-top: 4px; overflow-wrap: anywhere; }
 .conclusion-func {
   display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 10px;
   margin-top: 14px; background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--brand);
@@ -309,8 +309,9 @@ body {  font-family: var(--font-sans);
 .hero-status {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
-  flex-shrink: 0;
   padding-top: 5px;
 }
 .hero-chip {
@@ -365,13 +366,11 @@ body {  font-family: var(--font-sans);
 .hero-metric-label { color: rgba(255,255,255,.46); font-size: 10px; letter-spacing: .5px; }
 .hero-metric-value {
   margin-top: 4px;
-  overflow: hidden;
   color: #fff;
   font-size: 16px;
   font-weight: 680;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .hero-metric-value.mono { font-size: 12px; color: #b9c8ff; }
 
@@ -488,10 +487,10 @@ body {  font-family: var(--font-sans);
 }
 .conclusion-text { font-weight: 700; color: var(--gray-900); line-height: 1.7; margin-bottom: 18px; max-width: 850px; font-size: 18px; letter-spacing: -.1px; }
 .conclusion-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.conclusion-card { min-width: 0; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); padding: 15px 16px; text-align: left; box-shadow: none; }
+.conclusion-card { min-width: 0; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); padding: 15px 16px; text-align: left; box-shadow: none; }
 .conclusion-card:hover { border-color: var(--border); box-shadow: none; }
 .conclusion-card .card-label { font-size: 11px; letter-spacing: .6px; margin-bottom: 6px; white-space: nowrap; color: #98a2b3; }
-.conclusion-card .card-value { font-weight: 700; color: var(--gray-900); overflow-wrap: break-word; word-break: break-word; line-height: 1.35; font-size: 18px; }
+.conclusion-card .card-value { font-weight: 700; color: var(--gray-900); overflow-wrap: anywhere; line-height: 1.35; font-size: 18px; }
 
 .solution-group {  margin-bottom: 16px;
   position: relative;
@@ -936,7 +935,7 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
 @media (max-width: 820px) {
   .header-inner, .report-nav, .container { padding-left: 20px; padding-right: 20px; }
   .hero-top { flex-direction: column; gap: 16px; }
-  .hero-status { padding: 0; }
+  .hero-status { justify-content: flex-start; padding: 0; }
   .hero-metrics, .conclusion-cards { grid-template-columns: repeat(2, 1fr); }
   .info-grid { grid-template-columns: 1fr; }
   .workflow-summary { display: grid; grid-template-columns: repeat(2, 1fr); }
@@ -1029,12 +1028,10 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
       <div class="hero-summary-text">本次诊断共识别 3 个故障：主故障 F01 为 host-101 到 etcd 网络丢包引发 RPC 连接超时，并导致次生故障 F02（pod-worker-7 连接池耗尽）；另有独立故障 F03（host-105 worker OOM）。F01 影响 67.6% 故障请求，为首要处置对象。</div>
     </div>
     <div class="hero-metrics">
-      
-      <div class="hero-metric"><div class="hero-metric-label">识别故障</div><div class="hero-metric-value">3 个</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">主故障</div><div class="hero-metric-value mono">F01</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">次生 / 独立</div><div class="hero-metric-value">1 / 1</div></div>
-      <div class="hero-metric"><div class="hero-metric-label">综合置信度</div><div class="hero-metric-value">高 88%</div></div>
-      
+      <div class="hero-metric"><div class="hero-metric-label">故障域</div><div class="hero-metric-value">未知故障</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">故障组件</div><div class="hero-metric-value">-</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">影响范围</div><div class="hero-metric-value">3421 条故障 trace，波及 2 台 host、3 个 pod，持续约 24 分钟</div></div>
+      <div class="hero-metric"><div class="hero-metric-label">置信度</div><div class="hero-metric-value">88%</div></div>
     </div>
   </div>
 </div>
@@ -1121,10 +1118,10 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
       <div class="conclusion-text">本次诊断共识别 3 个故障：主故障 F01 为 host-101 到 etcd 网络丢包引发 RPC 连接超时，并导致次生故障 F02（pod-worker-7 连接池耗尽）；另有独立故障 F03（host-105 worker OOM）。F01 影响 67.6% 故障请求，为首要处置对象。</div>
       
       <div class="conclusion-cards">
-        <div class="conclusion-card"><div class="card-label">识别故障</div><div class="card-value">3 个</div><div class="card-sub">主故障 1 · 次生 1 · 独立 1</div></div>
-        <div class="conclusion-card"><div class="card-label">主故障</div><div class="card-value mono">F01</div><div class="card-sub">host-101 → etcd 网络丢包导致 RPC 连接超时</div></div>
-        <div class="conclusion-card"><div class="card-label">总体影响范围</div><div class="card-value" style="font-size:12.5px;line-height:1.5;">3421 条故障 trace，波及 2 台 host、3 个 pod，持续约 24 分钟</div></div>
-        <div class="conclusion-card"><div class="card-label">综合置信度</div><div class="card-value">高 88%</div></div>
+        <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">未知故障</div></div>
+        <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">-</div></div>
+        <div class="conclusion-card"><div class="card-label">影响范围</div><div class="card-value">3421 条故障 trace，波及 2 台 host、3 个 pod，持续约 24 分钟</div></div>
+        <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">88%</div></div>
       </div>
       
     </div>
@@ -1667,10 +1664,10 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
       <div class="conclusion-text">pod-worker-3 (host-101) 与 etcd 节点之间网络抖动导致 RPC 连接超时，引发 kvcache GET 请求大面积返回 -1002 错误，影响 67.6% 的故障请求，持续 8 分钟。</div>
 
       <div class="conclusion-cards">
-        <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">RPC/网络</div></div>
-        <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">etcd 连接</div></div>
+        <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">未知故障</div></div>
+        <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">-</div></div>
         <div class="conclusion-card"><div class="card-label">影响范围</div><div class="card-value">67.6%</div><div class="card-sub">pod-worker-3 集中</div></div>
-        <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">高 92%</div></div>
+        <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">92%</div></div>
       </div>
 
 
@@ -2255,10 +2252,10 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
       <div class="conclusion-text">pod-worker-7 报 -1009 连接超时 174 次，根因为 F01 网络超时导致连接长期占用不释放、连接池（上限 128）被耗尽；F01 修复后本故障可恢复，但连接池释放策略需独立修复以防复发。</div>
 
       <div class="conclusion-cards">
-        <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">KVCache</div></div>
-        <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">worker 连接池</div></div>
+        <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">软件</div></div>
+        <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">Worker故障</div></div>
         <div class="conclusion-card"><div class="card-label">影响范围</div><div class="card-value">22.0%</div><div class="card-sub">pod-worker-7 集中</div></div>
-        <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">中高 85%</div></div>
+        <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">85%</div></div>
       </div>
 
 
@@ -2330,10 +2327,10 @@ summary.fa-header:hover .fa-chevron { background:#e3ecfb; }
       <div class="conclusion-text">host-105 上 pod-worker-9 于 12:20 出现 OOM 重启，错误码 -1005（资源不足）174 次；与 F01 时间窗不重叠、影响 pod 不交，为独立故障。</div>
 
       <div class="conclusion-cards">
-        <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">OS/资源</div></div>
-        <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">worker 内存</div></div>
+        <div class="conclusion-card"><div class="card-label">故障域</div><div class="card-value">软件</div></div>
+        <div class="conclusion-card"><div class="card-label">故障组件</div><div class="card-value">容器故障</div></div>
         <div class="conclusion-card"><div class="card-label">影响范围</div><div class="card-value">5.1%</div><div class="card-sub">pod-worker-9 单点</div></div>
-        <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">中 78%</div></div>
+        <div class="conclusion-card"><div class="card-label">置信度</div><div class="card-value">78%</div></div>
       </div>
 
 

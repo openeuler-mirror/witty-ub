@@ -80,6 +80,8 @@ sync_backend_data() {
     # install the data directly into the runtime dir.
     echo "Checking classifier runtime..."
     if [ ! -f "${WITTY_CASE_MATCHING_DIR}/assets/default_label_policy/numeric_classifier.json.gz" ] || \
+       [ ! -f "${WITTY_CASE_MATCHING_DIR}/assets/default_label_policy/manifest.json" ] || \
+       [ ! -f "${WITTY_CASE_MATCHING_DIR}/assets/default_label_policy/cosine_bank.json.gz" ] || \
        [ ! -f "${WITTY_CASE_MATCHING_DIR}/scripts/default_matching.py" ]; then
         echo "[ERROR] Classifier runtime missing: ${WITTY_CASE_MATCHING_DIR}; rebuild the backend image"
         exit 1

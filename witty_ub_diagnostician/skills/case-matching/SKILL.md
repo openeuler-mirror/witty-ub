@@ -4,12 +4,12 @@ description: >
   历史案例特征匹配与检索 Skill。从现场证据提取分布特征（错误码分布、超时时延段、
   故障模式、时间形态、影响范围、机理关键词），调用
   POST /diag_case_library/search 从**已人工确认**的超节点诊断案例库宽召回候选，
-  再做候选检索；用新增数值特征分类器选择报告级标签，退化为全特征余弦 K4；按 applicability 判定可迁移性，
+  再做候选检索；用报告级分类器选择标签，退化为全特征余弦 K4；按 applicability 判定可迁移性，
   采纳后回写命中。身份特征（IP/Pod/主机/集群名）不参与匹配。
   当需要判断"这个现象以前是否发生过"、"有没有可复用的处置经验"、"这个根因是否有先例"时使用。
 license: MIT
 compatibility: >
-  Bundled numeric inference and cosine matching require Python 3 standard library only.
+  Bundled classifier inference and cosine matching require Python 3 standard library only.
   HTTP API access to FastAPI backend on port 9772 is used for explicit case-library lookup.
 metadata:
   author: witty-ub-diagnostician
@@ -23,8 +23,8 @@ allowed-tools: >
 # 案例特征匹配 (Case Matching)
 
 普通诊断和 Agent 报告标签统一使用
-[数值分类器与余弦 K4 默认方案](references/DEFAULT_LABEL_POLICY.md)。共用入口是
-`scripts/default_matching.py`：新增数值特征（统一单位）＋当前已发布分类器为主，
+[分类器与余弦 K4 默认方案](references/DEFAULT_LABEL_POLICY.md)。共用入口是
+`scripts/default_matching.py`，优先使用当前已发布的分类器，内置权重采用合并特征。
 全特征余弦 K4 同时作为案例参照和退化路径。默认资源随 skill 打包，不需指定实验目录或模型路径。
 普通 `match_baseline.py` / `match_cases.py` 和报告入口统一使用这一策略；不在诊断时训练或调整模型。
 
@@ -34,12 +34,12 @@ allowed-tools: >
 详细输入、故障索引对齐和运行依赖见上面的默认方案文档；
 [旧底座说明](references/BASELINE_MATCHING.md)与[候选评分说明](references/COMBINATION_MATCHING.md)解释运行时底层计算。
 单故障采用报告级主预测；多故障保留报告级预测，各故障使用余弦 K4 退化，不复制同一个全局标签。
-初始资源由 474 份开发报告拟合；后端在已确认案例增删后自动重训并原子发布模型与参考库，
+内置合并特征权重由 537 份报告拟合。后端在已确认案例增删后自动重训并原子发布模型与参考库，
 Agent 通过共享模型目录读取已发布版本，以标准库推理。每次匹配固定同一版本，报告生成本身不训练。
 数据不足时自动停用分类器，使用当前参考库的全特征余弦 K4；无可比案例则保留空标签。
 训练中再次增删案例会终止旧训练并按最新数据重启；案例库顶部显示训练状态。
 数据资格、规模门槛、持久化与部署见[默认方案](references/DEFAULT_LABEL_POLICY.md#已确认案例变更后的自动训练)。
-离线评估仍位于仓库根 `scripts/fault_label_loo/`；v6 的逐折权重和 79.96% 成绩是评估记录，不是部署模型的独立测试。
+离线评估位于仓库根 `scripts/fault_label_loo/`，LOO 成绩来自逐折拟合。
 
 需要用真实标签挖掘更有区分力的日志模式时，参见
 [监督特征挖掘](references/SUPERVISED_FEATURE_MINING.md)。候选提取器不读取 GT；

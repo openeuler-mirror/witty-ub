@@ -19,13 +19,15 @@ allowed-tools: >
 # 诊断报告生成 (Diagnostic Report Generation)
 
 新诊断报告必须通过 `scripts/generate_report.py`：先用 case-matching 的
-[数值分类器与余弦 K4 默认方案](../case-matching/references/DEFAULT_LABEL_POLICY.md)选择一级标签，
+[数值分类器与余弦 K4 默认方案](../case-matching/references/DEFAULT_LABEL_POLICY.md)生成故障分类，
 再调用原渲染器。默认无需额外参数即加载 skill 内的新增数值特征（统一单位）分类器，
 同时计算全特征余弦 K4 参照；数值不可用、模型不可用或逐故障归属时使用余弦 K4 退化。
-Agent 准备观测与诊断数据，不独立手写一级标签判定。报告级及逐故障策略、模型 ID、观测哈希、退化原因写入 `label_matching`。
+Agent 准备观测与诊断数据，并根据现场证据填写已定位的故障组件和类型。报告级及逐故障策略、模型 ID、观测哈希、退化原因写入 `label_matching`。
 单故障采用报告级预测；多故障保留总体预测，各故障以自身观测走余弦退化，不把一个全局预测复制给全部故障。
-`--log-dir`提供现场原始日志。默认使用 skill 内带标签参考库；`--cases`显式提供候选，`--api-base`显式检索案例库。
-已有标签不进入查询特征；二级标签按有效标签对和现场证据细分。
+`--log-dir` 提供现场原始日志。默认用已发布或内置的带标签参考库辅助判定。
+配置 `WITTY_API_BASE` 时自动跨库读取已确认案例用于报告展示。`--api-base` 显式指定时，标签退化投票使用库中已完成验证的案例。
+`--cases` 提供离线候选信封，只有标记 `status: confirmed` 的案例可进入报告。
+分类字段不进入查询特征。故障类型可由 Agent 按现场证据填写，也可由已确认案例的特征匹配补全。
 
 已有报告用于匹配时，按[观测导出](references/EVIDENCE_EXPORT.md)生成基线、
 `.structured.json`、`.raw.json`，不重生成报告、不改 GT。
@@ -63,8 +65,8 @@ python3 render_report.py --spec statistics   # 单板块字段清单（可换任
 ```
 
 字段含义、示例与各板块撰写原则按需查 `references/REPORT_BLOCKS.md` 对应小节。
-每次生成报告前必须读取 [references/log_label.json](references/log_label.json)，
-先按下文「故障标签」规则准备观测；一级由共用默认标签策略生成，二级只填写有现场依据的已有标签。
+每次生成报告前读取 [references/log_label.json](references/log_label.json)，
+按下文「故障分类」规则准备观测与可确认的分类。
 
 **步骤 3 校验 JSON（强制）**：写完 JSON 后必须先运行独立校验；即使用户明确要求
 不生成 HTML，也不能跳过：
@@ -152,7 +154,7 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 | 解决方案 | `solution.short_term[]`、`solution.long_term[]`、`solution.verification[]`（每项为渲染文本） | `solution.steps[]{step,action,expected,risk}`、`solution.conclusion` |
 | 知识库匹配 | `knowledge_matches[]{id,rank,stars,match_logic,symptom,root_cause,solution}` | `knowledge_matches[]{title,summary,confidence}` |
 | 时延阶段 | `latency.stages[]{name,p50,p90,p99,baseline,ratio,share,status,detail}` | `latency.stages[]{p50,p90,max,share_pct}`（p99 自动从 max/p90 兜底） |
-| 结论 | `conclusion{first_level_label,second_level_label,fault_domain,affected_scope_pct,affected_scope_desc,confidence,key_findings}` | 缺省字段由渲染器补 `null`/`[]` |
+| 结论 | `conclusion{domain,component,type,affected_scope_pct,affected_scope_desc,confidence,key_findings}` | 缺省字段由渲染器补 `null`/`[]` |
 
 > 关键纪律：`root_cause` 提供对象时 `reasoning_chain[]{step_label,title,...}` 或
 > `confirmed_root_cause` 至少一项有效；`propagation` 提供对象时 `chain[]` 每节点至少
@@ -165,47 +167,26 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 > 把「日志语义错误码轮廓」写入 `basic_info.log_semantic_profile`。该字段随文档持久化，报告确认
 > 建案时自动进入案例库，并在案例检索的「日志语义码次级通道」中作为排序信号使用；Agent 无需手工填写。
 
-### 故障标签
+### 故障分类
 
-[references/log_label.json](references/log_label.json) 是随 Skill 固化的标签参考，
-也是标签取值的唯一来源，仅包含去重后的两级标签及其配对关系：
-`first_level_label` 为一级标签，`second_level_label` 为二级标签。
+`faults[].conclusion` 的 `domain`（故障域）、`component`（故障组件）、
+`type`（故障类型）分别取自只读参考 [log_label.json](references/log_label.json)
+同一条记录中的三个字段。三个字段始终存在，无法确定的层级
+及其下层填 `null`。例如 Worker 进程退出的路径为 `软件` → `Worker故障` →
+`Worker故障-进程退出`。影响范围继续使用 `affected_scope_pct`、`affected_scope_desc`，
+多故障事件使用 `incident_summary.overall_impact`。事件摘要的分类取自 `primary_fault_id`
+指定的主故障，综合置信度仍使用 `incident_summary.confidence`。
 
-- **标签文件只读（最高优先级）**：任何会话、任何工具都绝对禁止修改、覆盖、追加或
-  自动扩展 `references/log_label.json`。遇到所需标签不在目录中时，必须保持目录不变，
-  并按已有标签或证据不足规则处理；不得为了让校验通过而创建新标签。
-- 上游若用 `/` 分别拼接了多个一级、二级标签，这些拼接字符串不构成新标签。必须按顺序
-  将两侧拆成数量相同的原子标签，并把每个已存在于目录中的原子标签对写入独立的
-  `faults[]` 项；禁止把复合字符串写进单个 `first_level_label` 或 `second_level_label`，
-  更禁止把复合字符串追加回标签目录。
-
-- 新报告的每个 `faults[].conclusion` 必须包含 `first_level_label`、`second_level_label`；
-  **新报告必须始终产出 `faults[]`，单故障也不允许把 `conclusion` 等故障字段写在顶层**（扁平
-  结构仅限存量/历史报告导入兜底，见「单故障兼容」）。两者类型均为 `string | null`，
-  侧车 JSON 原样保留。
-- **误操作故障硬判定（优先于语义匹配）**：把该故障全部证据中的错误码
-  （`evidence_traces[].status_code` 与 `error.code_distribution.items[].code`）去重，
-  只要命中下列任一码，`first_level_label` 直接写 `业务故障`、`second_level_label`
-  直接写 `误操作故障-KVCache使用问题`，不再进入语义匹配：
-  `1、3、9、12、17、28、2000、2001、2004、2006、3000、3001、3002、3004、3006、3007、3009`。
-  判定集**不含** `0`（无错误/成功码）、`2`（K_INVALID）、`8`（K_NOT_READY）、`36`（K_NOT_SUPPORTED）
-  ——`0` 在正常链路与各类故障场景中都会出现，后三个码在硬件/Worker/容器/Coordinator 场景中同样
-  出现，均不具备误操作的判别力。
-  命中后按案例匹配规则只召回 `业务故障/误操作故障-KVCache使用问题` 案例；库中暂无该类案例时保留该标签，
-  不回落其他类别（`knowledge_matches` 允许为空）。
-- 一级标签由 `generate_report.py`调用共用默认标签策略写入，不依据根因文字重新手工选择。
-  二级标签根据现场证据与标签目录细分。不得利用日志文件名、训练样例名称或样例到标签的映射
-  推断标签，也不能只看到超时就推断为网卡故障。匹配用查询观测不读取结论或根因文字。
-- 非空值必须逐字使用参考文件中的值，不翻译、不改大小写、不自造标签；
-  二级标签非空时，两级标签必须来自参考文件中的同一对，不能通过二级标签的文字前缀推导一级标签。
-- 能确定一级、不能确定二级时，保留一级并将二级写为 `null`；两级都不匹配或证据不足时均写 `null`。
-  一级为 `null` 时二级也必须为 `null`，不要用空字符串、`"null"` 或 `"未知"` 代替。
-- 多故障逐条选择，不把主故障标签复制给所有故障；同一故障有多个候选时依据证据选择，
-  无法区分则只保留能确定的层级。标签不能提高原诊断的确认程度。
-- `conclusion.fault_domain` 必须逐字填写 `first_level_label/second_level_label`
-  组合（斜杠拼接，如 `硬件故障/网卡故障-时延高`），以 references/log_label.json
-  为准，**不得自由填写**「RPC/网络」「URMA」等域文本；两级标签均为 `null` 时
-  `fault_domain` 也写 `null`。报告页面「故障域」与「故障标签」因此始终一致。
+- **误操作故障规则优先**。故障证据中的 `evidence_traces[].status_code` 或
+  `error.code_distribution.items[].code` 命中 `1、3、9、12、17、28、2000、2001、2004、2006、3000、3001、3002、3004、3006、3007、3009`
+  任一码时，生成 `用户` → `业务故障` → `误操作故障-KVCache使用问题`，历史案例也按此类召回。
+- 先按原有策略选取组件，故障域取字典中该组件所属的域。故障类型沿用原二级选择规则，
+  优先保留本次选中组件下的有效草稿类型，并记录明确的案例建议。自动补全要求同组件下
+  至少两个独立来源的已确认案例共享本故障的 `failure_mode_id`，且支持同一有效类型。
+  类型冲突或证据不足时填 `null`。策略未选出可映射分类时，三个字段均填 `null`。
+  `label_matching.fault_type_decision` 记录类型判定来源。
+- HTML 卡片展示故障域、故障组件、影响范围和置信度。故障类型保存在报告 JSON 中。
+- 多故障逐条分类。主故障的分类用于报告摘要，个别故障的置信度来自其自身诊断。
 
 ### 多故障分诊（先分诊，再分配诊断深度）
 
@@ -214,7 +195,7 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 | 信号 | 归并为同一故障 | 拆为独立故障 |
 |------|--------------|-------------|
 | 时间窗 | 同一尖峰窗，或 A 稳定领先 B 1~3 分钟（级联时序） | 时间窗互不重叠 |
-| 故障域(一级/二级标签)/组件 | 域相同或存在上下游调用关系 | 域不同且无调用关系 |
+| 故障域和故障组件 | 域相同或存在上下游调用关系 | 域不同且无调用关系 |
 | 影响面 | 故障 pod/host 集合为包含关系 | 影响集合互不相交 |
 
 - 同一根因引起的多个异常 → **归并为一个故障**，多表现用传播链 `branches` 展示，不拆开
@@ -299,21 +280,10 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 
 ### 知识库匹配纪律
 
-- 1~3 条、按匹配度降序；`match_logic` 必须写明 **L1(错误码)/L2(故障域)/L3(拓扑)**
-  三级匹配逻辑（哪级命中、哪级不命中）；L2 故障域即 `first_level_label/second_level_label`
-- 每条必须给 `applicability`：`direct` 可直接采用 / `adjust` 调整后采用 /
-  `reference` 仅供参考 / `not_recommended` 不建议采用——**不允许只给笼统匹配分**
-- 必须同时覆盖 curated 知识（failure_mode_knowledge）与 experience-skill 经验
-- **未见故障码先折算再检索**：本次证据里出现案例库从未收录的错误码时，先跑
-  `skills/case-matching/scripts/suggest_similar_codes.py --features <特征文件>`，
-  按它给出的「故障现象/故障原因 + 候选相近已知码（人工映射表 > 同码段 > 同故障域）」
-  选定 1~3 个相近码，用 `--pick "a,b" --apply` 写回特征的 `relaxed_status_codes`
-  再检索（这些码 0.5 降权参与软打分）。**报告里的错误码与故障码含义仍写真实码**，
-  `relaxed_status_codes` 只服务于「找得到相似案例」，不得当作本次故障码写进结论
-- 证据分层：知识库解释、历史案例与本次现场证据分别表述，不把知识库结论当成现场事实；
-  `POST /diag_case_library/search` 命中的已确认案例也只能作为**待验证假设**，须有本次现场
-  证据支撑才可用于根因，未验证的在结论中显式标注；若降级用了 `POST /diagnosis_case/search`
-  （旧表、未经人工确认），必须显式标注其未确认属性
+- `generate_report.py` 按每条故障故障归类召回同类已确认案例，用同版观测向量的余弦相似度排序，最多展示 3 条。无同类可比观测时该故障无历史案例。
+- 历史案例由生成器写入 `knowledge_matches`，包含来源 `diag_case_library`、故障分类路径和相似度，适用性默认为 `reference`。草稿中的历史案例引用由本轮排序结果替换。
+- 原稿可补充故障模式、错误码或经验知识条目。填写实际 ID，并用 `source` 标明 `failure_mode_knowledge`、`status_code_knowledge`、`experience-skill` 或 `rag`。保留现场证据和适用性说明。
+- 已确认案例可作为待验证假设，结论需有本次现场证据支撑。用于探索的相近码或旧表案例可作为排查线索，报告仍记录现场真实错误码。
 
 ## 证据锚点纪律（faults[].evidence_traces[]）
 
@@ -332,6 +302,7 @@ F01 档案，但**新生成的报告一律禁止使用扁平结构**：单故障
 
 1. **禁止编造**：`trace_id` 必须逐字来自本次工具响应；不得凭印象、不得复用历史报告或
    知识库案例里的 ID，不得改写长度或大小写。
+   现场响应提供 `failure_mode_id` 时，按原值写入所属故障的锚点，供故障类型匹配使用。
 2. **`why` 必须可复核**：写明桶 key（如 `GET·URMA超时`）或完整过滤条件
    （status_code + pod + 时间窗）。`latency` 类必须点明"证据耗时 Top"口径——
    `top_traces` 是"桶内**证据耗时** Top"，代表该阶段耗时最极端的请求，
@@ -387,7 +358,7 @@ API 证据锚点。既无代表 trace、又无上述真实请求来源时，案�
 ## BRPC 诊断报告差异
 
 `fault_type=brpc` 时：`basic_info` 来自 `brpc_diag_batch`；
-`conclusion.fault_component` / `fault_function` 来自 `brpc_diag_node`；
+`conclusion.fault_function` 来自 `brpc_diag_node`，其余观测作为故障分类证据；
 `statistics` 改用 `GET /brpc-diagnosis/batch/{batch_id}/summary`
 （components → top_pods / top_failure_modes → peak_window；kb 全域用
 `GET /brpc-diagnosis/knowledge/{kb_id}/summary`）；`top_hosts` 无对应，可省略。

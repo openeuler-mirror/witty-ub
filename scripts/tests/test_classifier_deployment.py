@@ -74,6 +74,35 @@ def test_reinstall_seed_does_not_overwrite_published_state(tmp_path):
     assert marker.read_text() == '{"version":"trained"}'
 
 
+def test_source_and_installed_seed_predict_with_a_nonnumeric_feature(tmp_path):
+    packaged = tmp_path / 'classifier-runtime'
+    run(['bash', str(ROOT / 'deploy/rpm/install_classifier_runtime.sh'), str(SKILL), str(packaged)])
+    for runtime in (SKILL, packaged):
+        result = run([sys.executable, '-S', '-c', '''
+import default_matching as rt
+model = rt.asset('numeric_classifier')
+assert model['view'] == 'all_context_v2'
+assert set(model['classes']) == set(rt.COMPONENT_LABELS)
+assert model['metadata']['training_reports'] == 537
+assert rt.verify_packaged_assets() == model['metadata']['model_id']
+context = rt.unknown_context()
+prefix = 'mined2:templates:'
+feature = next(name for name in model['feature_names'] if name.startswith(prefix))
+context['families']['templates'][feature.removeprefix(prefix)] = 1.
+profile = {'schema_version': 'legacy-evidence-v1', 'status_codes': [], 'failure_mode_ids': [],
+           'latency_components': [], 'operation': None, 'log_semantic_profile': {}}
+result = rt.match(profile, context=context)
+assert result['decision']['method'] == 'all_context_classifier'
+assert result['decision']['model_id'] == model['metadata']['model_id']
+assert result['feature_usage']['numeric_feature_count'] == 0
+assert result['feature_usage']['classifier_view'] == model['view']
+assert not result['fallback_used']
+print(result['decision']['model_id'])
+'''], env={'PYTHONPATH': str(runtime/'scripts'), 'WITTY_CLASSIFIER_MODEL_DIR': str(tmp_path/'registry')},
+                     cwd=tmp_path)
+        assert result.stdout.strip()
+
+
 def test_host_agent_and_backend_export_same_runtime_paths(tmp_path):
     source = tmp_path / 'source'
     (source / 'deploy/host').mkdir(parents=True)

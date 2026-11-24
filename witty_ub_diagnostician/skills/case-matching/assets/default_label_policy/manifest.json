@@ -2,20 +2,19 @@
   "schema_version": "default-label-assets-v1",
   "policy": "numeric-units-classifier-cosine-fallback-v1",
   "feature_version": "contextual-log-observations-v2",
-  "training_reports": 474,
+  "training_reports": 537,
   "reference_cases": 514,
   "files": {
     "numeric_classifier": {
       "path": "numeric_classifier.json.gz",
-      "sha256": "f0444c6ec388fa09d81b897f5a7832b8e0a7d5f6e9df56ea57382c3c9598e21c"
+      "sha256": "86fa43c8de92f02293b41562e6fb25301c6fe878ac4f6c26118269e448514238"
     },
     "cosine_bank": {
       "path": "cosine_bank.json.gz",
       "sha256": "d714c6da239a6cdab4ccb445b5f3c5b9d30140118b51c237ca005c7792f6ecc6"
     }
   },
-  "gt_sha256": "9685f6eda7d22a29911b87782a230aeea2c8873532610f23fa0898e23be82c79",
-  "prepared_sha256": "ee60f1c27d47a316e823f1ecdb0935d53318cee411eb30ddaa9f6b12354c578f",
+  "gt_sha256": "a889e768064f13739d406900cda9e4e8741bfac46429b21f406cdb610d7547d7",
   "extractor_sha256": {
     "mined_log_features.py": "c7415fa19c3760d7a594a670aab86522429339a39a58514a068f13de8e767920",
     "mined_log_features_v2.py": "75bdfda8de948905dd1d9b6512e59b398b1da88117cdc5cab2c912c21c07b24d",
@@ -23,25 +22,33 @@
   },
   "deployment_training": true,
   "independent_test_score": null,
-  "evaluation_note": "79.96% is the v6 fold-retrained LOO procedure score, not a test of these full-data weights",
+  "evaluation_note": "The v1 LOO scores evaluate separately fitted folds. These full-data weights have no independent test score.",
   "dataset_audit": {
     "status": "passed",
-    "reports_root": "/home/witty-ub-logs/reports",
-    "truth_source": "/home/witty-ub-logs/gt_labels.json",
-    "truth_sha256": "9685f6eda7d22a29911b87782a230aeea2c8873532610f23fa0898e23be82c79",
-    "report_counts": {
-      "train": 229,
-      "v7": 332
-    },
-    "included_counts": {
-      "train": 194,
-      "v7": 280
-    },
-    "excluded_counts": {
-      "train": 35,
-      "v7": 52
-    },
-    "excluded_reason": "Coordinator故障 and UB管控面故障; fixed five-label scope"
+    "reports_root": "/root/loo/reports_1124",
+    "truth_source": "/root/loo/gt_labels.csv",
+    "truth_sha256": "a889e768064f13739d406900cda9e4e8741bfac46429b21f406cdb610d7547d7",
+    "reports": 537,
+    "matched_scenes": 141
   },
-  "source_observation_cache_version": "report-evidence-fingerprint-v1"
+  "source_observation_cache_version": "report-evidence-fingerprint-v1",
+  "reference_reports": 474,
+  "classifier_view": "all_context_v2",
+  "model_version": "all-context-v2-full-537-20261124",
+  "class_counts": {
+    "硬件故障": 308,
+    "容器故障": 39,
+    "SDK故障": 15,
+    "Worker故障": 154,
+    "OS故障": 20,
+    "UDMA故障": 3,
+    "URMA故障": 9
+  },
+  "observations_sha256": "cecffee7f47882449b742f594e3698d0f0bfb43e68bc64ca9501a715e3e871ad",
+  "taxonomy_sha256": "e5d7ed749d8c842bc89a743d21ce2879797aec0cade1cc0b540088a62dc72459",
+  "reference_prepared_sha256": "ee60f1c27d47a316e823f1ecdb0935d53318cee411eb30ddaa9f6b12354c578f",
+  "reference_training_seed": {
+    "bank_sha256": "d714c6da239a6cdab4ccb445b5f3c5b9d30140118b51c237ca005c7792f6ecc6",
+    "legacy_manifest_sha256": "4f1a08f2d18acec11a9b09c46f88dc88abc85c3a3d32bc038e10e56e0e3a3724"
+  }
 }

@@ -771,6 +771,98 @@ def _exclude_control_plane(matches: list[dict]) -> tuple[list[dict], int]:
     return kept, dropped
 
 
+def _case_stage_observations(case: dict, operation: str) -> dict | None:
+    """Adapt stored bucket measurements to the report observation extractor."""
+    snapshot = case.get("stage_features_json") or {}
+    if not snapshot.get("buckets"):
+        return None
+    from enhanced_matching import extract_report
+
+    stages = [{"features": {
+        "operation": _normalize_operation(snapshot.get("operation") or operation),
+        "bucket_key": bucket.get("key"),
+        "trace_cnt": bucket.get("trace_cnt"),
+        "sample_cnt": snapshot.get("sample_cnt"),
+        "truncated": snapshot.get("truncated"),
+        "metric_name": bucket.get("metric_name"),
+        "distribution": bucket,
+    }} for bucket in snapshot["buckets"]]
+    return extract_report({"faults": [{"latency": {"stages": stages}}]})
+
+
+def case_for_matching(case: dict) -> dict:
+    """Normalize historical usage-problem labels to the current catalog pair."""
+    if (case.get("label"), case.get("second_level_label")) == ("用户相关故障", "使用问题"):
+        return {**case, "label": MISOPERATION_FIRST_LEVEL, "second_level_label": MISOPERATION_SECOND_LEVEL}
+    return case
+
+
+def case_envelopes(matches: list[dict]) -> list[dict]:
+    """Separate historical observations from confirmed labels and display details."""
+    import baseline_matching as baseline
+
+    envelopes = []
+    for match in matches:
+        case = match["case"]
+        operation = _normalize_operation(case.get("operation") or "")
+        profile = {
+            "schema_version": baseline.VERSION,
+            **{
+                key: list(dict.fromkeys(
+                    value for item in case.get(key) or []
+                    if pattern.fullmatch(value := _normalize(item))
+                ))
+                for key, pattern in (("status_codes", baseline.CODE),
+                                     ("failure_mode_ids", baseline.MODE),
+                                     ("latency_components", baseline.BUCKET))
+            },
+            "operation": operation if operation in ("GET", "SET", "MIXED") else None,
+            "log_semantic_profile": case.get("log_semantic_profile") or {},
+        }
+        identity = list(case.get("identity") or [])
+        if case.get("kb_id"):
+            identity.append("kb_id:" + str(case["kb_id"]))
+        if case.get("kb_name"):
+            identity.append("name:" + str(case["kb_name"]))
+        report_id = case.get("report_id")
+        if report_id:
+            identity.append("report_id:" + str(report_id))
+        steps = case.get("remediation_json") or []
+        recommendation = case.get("recommendation") or "；".join(
+            step["action"] for step in steps if isinstance(step, dict) and step.get("action")
+        )
+        envelopes.append(case_for_matching({
+            "id": case["id"],
+            "source_id": "report:" + str(report_id) if report_id else case["id"],
+            "label": case.get("first_level_label"),
+            "second_level_label": case.get("second_level_label"),
+            "status": case.get("status"),
+            "verification_closed": (case.get("verification_json") or {}).get("closed_loop") is True,
+            "profile": profile,
+            "structured": case.get("structured") or _case_stage_observations(case, operation),
+            "raw_observations": case.get("raw_observations"),
+            "all_context_vector": case.get("all_context_vector"),
+            "identity": identity,
+            "case_no": case.get("case_no"),
+            "symptom_summary": case.get("symptom_summary") or case.get("title"),
+            "root_cause_summary": case.get("root_cause_summary"),
+            "recommendation": recommendation,
+        }))
+    return envelopes
+
+
+def fetch_report_cases(api_base: str, timeout: int = 30) -> list[dict]:
+    """Retrieve confirmed historical cases across knowledge bases for report matching."""
+    try:
+        result = _search_all(api_base, {"scope": "all", "include_status": ["confirmed"],
+                                       "page_cnt": 100}, timeout)
+    except (OSError, ValueError) as error:
+        raise ValueError(f"已确认案例库检索失败: {error}") from error
+    if len(result["matches"]) < result["total"]:
+        raise ValueError(f"已确认案例库检索不完整（{len(result['matches'])}/{result['total']}）")
+    return case_envelopes(result["matches"])
+
+
 def _rerank(matches: list[dict], soft: dict, query_text: str = "") -> list[dict]:
     """对宽召回结果做软打分并排序（score_norm 降序，并列时按文本余弦破平局）。
 
@@ -1242,23 +1334,10 @@ def main(argv: list[str] | None = None) -> int:
     }
     if query_profile['operation'] not in ('GET', 'SET', 'MIXED'):
         query_profile['operation'] = None
-    envelopes = []
-    for match in matches:
-        case = match.get('case') or {}
-        profile = {"schema_version": "legacy-evidence-v1",
-            **{key: list(dict.fromkeys(_normalize(v) for v in case.get(key) or []))
-               for key in ('status_codes', 'failure_mode_ids', 'latency_components')},
-            'operation': _normalize_operation(case.get('operation') or '') or None,
-            'log_semantic_profile': case.get('log_semantic_profile') or {}}
-        if profile['operation'] not in ('GET', 'SET', 'MIXED'):
-            profile['operation'] = None
-        envelopes.append({'id': case['id'], 'source_id': case.get('report_id') or case['id'],
-                          'label': case.get('first_level_label'), 'profile': profile,
-                          'structured': case.get('structured'), 'raw_observations':case.get('raw_observations'),
-                          'identity':list(case.get('identity') or [])+
-                              (['kb_id:'+str(case['kb_id'])] if case.get('kb_id') else []),
-                          'all_context_vector':case.get('all_context_vector'),
-                          'second_level_label': case.get('second_level_label')})
+    envelopes = case_envelopes(matches)
+    query_identities = ['kb_id:' + str(features['kb_id'])] if features.get('kb_id') else []
+    if features.get("kb_name"):
+        query_identities.append("name:" + str(features["kb_name"]))
     # mami 硬件故障通道接入 default_matching 决策链路：查询侧命中硬件信号（见上方扫描块）
     # 时，对 first_level_label=硬件故障 的候选加性加分并覆盖最终决策。
     # --no-mami / --mami-weight 0 时该分支自然不触发。
@@ -1266,6 +1345,7 @@ def main(argv: list[str] | None = None) -> int:
     mami_hit = bool(mami_scan.get("hardware_hit"))
     try:
         result = default_match(query_profile,envelopes,query_observed,raw_observed,query_context,
+                               query_identities=query_identities,
                                mami_hit=mami_hit,mami_weight=MAMI_WEIGHT)
     except ValueError as error:
         parser.error(str(error))
@@ -1312,6 +1392,7 @@ def main(argv: list[str] | None = None) -> int:
                     "api_total": payload["total"],
                     "excluded_control_plane": dropped,
                     "candidates": rows,
+                    "knowledge_candidates": result['knowledge_candidates'],
                     "label_vote": vote,
                     "decision": vote,
                     "retrieval_decision": retrieval_vote,

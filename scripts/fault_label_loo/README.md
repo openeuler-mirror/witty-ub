@@ -1,8 +1,41 @@
 # 全部特征：混合 K4 LOO 与分类器随机留出
 
-当前部署默认已切换为“新增数值特征（统一单位）＋分类器”，全特征余弦 K4 为退化；
-部署说明见 case-matching skill 的 `references/DEFAULT_LABEL_POLICY.md`。
-下文 v5/v6 表格和命令描述历史评估协议，不自动改写历史结果。
+## 537 份报告的故障域和故障组件 LOO
+
+主结果使用 `all_context_v2`，将每份报告的基础观测和日志特征合并为一个向量，再逐折评估固定 Logistic 配置和余弦 K4。汇总表同时保留其余六种 v6 特征表示供历史对照。
+
+对 `/root/loo/reports` 的平铺 JSON 报告逐份留出。同折排除资产别名和整组日志内容相同的来源，同场景的其他来源可以进入训练折。训练、K4 候选和评分统一使用 `/root/loo/gt_labels.csv`。`日志描述` 与去掉资产名前缀、时间戳和样本编号的名称精确匹配。`故障组件` 可包含多个用 `/` 分隔的值，故障域通过诊断标签目录映射。
+
+每份报告预测一个域与组件组合。单字段匹配任一真值即命中。组合命中要求两个字段匹配同一对真值。报告原始 `faults[].conclusion.domain` 和 `faults[].conclusion.component` 会逐份与真值核对，并记录缺失字段、标签集合和完整组合计数。
+
+```bash
+PY=/home/witty-ub-logs/loo/1120/.venv/bin/python
+OUT=/root/loo/results/v1
+"$PY" scripts/fault_label_loo/prepare_domain_component_loo.py \
+  --reports-root /root/loo/reports --logs-root /root/loo/data/logs \
+  --reference /home/witty-ub-logs/loo/1120 --out "$OUT/observations.json.gz" --jobs 8
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+  "$PY" scripts/fault_label_loo/eval_domain_component_loo.py \
+  --observations "$OUT/observations.json.gz" --gt-labels /root/loo/gt_labels.csv \
+  --out "$OUT" --jobs 8
+```
+
+`--reference` 可省略。指定时只有提取器和解压后的日志内容哈希一致才会复用旧日志观测。报告结构化观测始终从当前报告提取。
+
+`comparison.csv` 汇总三个目标的指标，`predictions.csv` 列出逐报告命中情况，`summary.json` 包含类别指标和混淆计数。`ground_truth.json` 保存逐报告真值，`report_verification.csv` 保存报告原始标注的核对结果。`folds.json` 和 `views/` 保存逐折来源、预测及审计。`validation.json` 记录全量划分核验和抽样重训、K4 重放。
+
+## 历史评估与部署
+
+内置部署权重以 `all_context_v2` 在 `/root/loo/reports_1124` 的全部 537 份报告上训练。复现命令会逐份核对报告和冻结观测的哈希。
+
+```bash
+/home/witty-ub-logs/loo/1120/.venv/bin/python scripts/fault_label_loo/train_domain_component_classifier.py \
+  --run /root/loo/results/v1 --reports-root /root/loo/reports_1124 \
+  --out /root/loo/results/v1/deployment/numeric_classifier.json.gz \
+  --model-id all-context-v2-full-537-20261124
+```
+
+部署说明见 case-matching skill 的 `references/DEFAULT_LABEL_POLICY.md`。下文 v5/v6 表格和命令描述历史评估协议。
 
 公共特征与推理代码在 `witty_ub_diagnostician/skills/case-matching/scripts/`。
 本目录负责冻结输入、持久化划分、训练、评估、核验和汇总。所有数据和结果在仓库外。
