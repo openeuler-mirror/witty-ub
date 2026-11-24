@@ -19,12 +19,11 @@
 
 1. 调用 latency-analysis / failure-code-analysis / brpc-diagnosis skill 完成诊断
 2. 用 `scripts/render_report.py --spec <板块>` 查字段清单，据此写数据 JSON；读取
-   [标签参考](references/log_label.json)，在每条故障的 `conclusion` 中填写
-   `first_level_label` / `second_level_label`（无法匹配的层级填 `null`）
-3. 必须先运行 `python3 scripts/render_report.py /tmp/report_data.json --validate-only`；
-   只要 JSON / 不渲染 HTML 时通过后即可停止，不会写 HTML、侧车或清理报告目录
-4. 需要 HTML 时运行 `python3 scripts/render_report.py /tmp/report_data.json`；正式渲染
-   会再次执行同一个校验器
+   [故障分类参考](references/log_label.json)，为每条故障的 `conclusion` 填写
+   `domain`、`component`、`type`（无法定位的层级及其下级填 `null`）
+3. 用 `python3 scripts/generate_report.py /tmp/report_data.json /tmp/report_classified.json --labels-only`
+   生成分类，再用 `python3 scripts/render_report.py /tmp/report_classified.json --validate-only` 校验 JSON
+4. 需要 HTML 时运行 `python3 scripts/render_report.py /tmp/report_classified.json`，同时生成 JSON 侧车
 5. 把报告路径与摘要交给用户；用户确认「报告 OK」后先确认整份报告
    （`POST /diagnostic_report/{report_id}/confirm`，带页面所见的 `expected_sidecar_hash`），
    再从目标故障生成案例草稿

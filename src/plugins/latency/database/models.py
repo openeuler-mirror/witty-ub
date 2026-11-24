@@ -194,7 +194,7 @@ class LogParseResult(Base):
 # ============================================================
 # 2b. 分位统计表: latency_bucket_*
 #     parse 时按 10s/1min/10min/1h 四档粒度预统计,每 (bucket, operation, mode)
-#     存一条统计行：端到端 AVG/P99.99 为全量精确聚合，阶段列保留代表 trace。
+#     存一条统计行：端到端 AVG/P99/P99.99 为全量精确聚合，阶段列保留代表 trace。
 #     按 log_id HASH 分区(仿 log_parse_result)。
 #     src_ip/dst_ip 是代表请求的属性,可为 NULL,不参与主键唯一性。
 # ============================================================
@@ -868,6 +868,46 @@ class PodRole(Base):
     meta_worker_pods: Mapped[Optional[list[str]]] = mapped_column(JSONB)
     data_worker_pods: Mapped[Optional[list[str]]] = mapped_column(JSONB)
     timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+
+
+# ============================================================
+# 7a. Mami 硬件日志事实表（解析期落库，只存事实，判断留在召回期）
+# ============================================================
+class MamiFaultEvent(Base):
+    """从上传目录读取、落在 KVCache 故障窗口内的 mami 日志事实。"""
+
+    __tablename__ = "mami_fault_event"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    log_id: Mapped[str] = mapped_column(String, index=True)
+    kb_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+    host_name: Mapped[Optional[str]] = mapped_column(String)
+    source_file: Mapped[Optional[str]] = mapped_column(Text)
+    timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    level: Mapped[Optional[str]] = mapped_column(String)
+    category: Mapped[Optional[str]] = mapped_column(String)
+    signal: Mapped[Optional[str]] = mapped_column(String)
+    message: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class MamiScanSummary(Base):
+    """每个 log_id 一行：mami 扫描的窗口与计数事实。"""
+
+    __tablename__ = "mami_scan_summary"
+
+    log_id: Mapped[str] = mapped_column(String, primary_key=True)
+    kb_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+    window_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    window_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
+    mami_files_found: Mapped[int] = mapped_column(Integer, default=0)
+    # 三态事实：True=窗口由故障 trace 界定；None=有 trace 但无故障 trace（退回运行期）；
+    # False=无任何 trace，窗口缺失、未落库。
+    covered: Mapped[Optional[bool]] = mapped_column(Boolean)
+    event_count: Mapped[int] = mapped_column(Integer, default=0)
+    hardware_event_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=lambda: local_now()
+    )
 
 
 class FailureModeKnowledge(Base):

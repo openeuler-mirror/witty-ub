@@ -156,6 +156,7 @@ install_backend() {
     }
 
     sync_pg_credentials
+    prepare_classifier_runtime || return 1
 
     _info "配置 SELinux 后端标签（若已启用）..."
     configure_backend_selinux || {
@@ -192,6 +193,7 @@ install_backend() {
 # $1: 后端地址（空则读 /etc/witty-ub/web/env 现值）
 install_frontend() {
     _step_header "初始化前端节点（Nginx + Skill/Wiki API + Agent 配置）"
+    prepare_classifier_runtime || return 1
 
     local backend_url agent_url
     backend_url="${1:-$(web_env_get WITTY_BACKEND_URL http://127.0.0.1:9772)}"
@@ -462,7 +464,7 @@ do_clean() {
     _warn "即将执行:"
     echo "  - 停止 witty-ub 服务"
     echo "  - 清空 PostgreSQL 全部数据表 (TRUNCATE CASCADE)"
-    echo "  - 清空运行时数据: 上传文件、解析结果、BRPC 诊断结果、cache"
+    echo "  - 清空运行时数据: 上传文件、解析结果、BRPC 诊断结果、cache、分类器权重与训练状态"
     [ "$scope" = "2" ] && echo "  - (范围2) 另删除 ${WITTY_LATENCY_DIR}/.venv 和 /var/log/witty-ub"
     echo "  - 保留: RPM 安装的业务数据/配置（data、config、witty_ub_diagnostician）"
     echo "  - 保留: PG 库本身 / PG 用户"
@@ -497,6 +499,15 @@ do_clean() {
     find "${WITTY_DIR}/latency/file/file_upload" -mindepth 1 -delete 2>/dev/null || true
     find "${WITTY_DIR}/latency/file/file_parse_result" -mindepth 1 -delete 2>/dev/null || true
     rm -rf "${WITTY_DIR}/brpc-tmp" "${WITTY_DIR}/cache" 2>/dev/null || true
+    if [ "$WITTY_ROLE" != "frontend" ]; then
+        case "$WITTY_CLASSIFIER_MODEL_DIR" in
+            /*)
+                rm -f -- "$WITTY_CLASSIFIER_MODEL_DIR/active.json" "$WITTY_CLASSIFIER_MODEL_DIR/training.json"
+                rm -rf -- "$WITTY_CLASSIFIER_MODEL_DIR/versions" "$WITTY_CLASSIFIER_MODEL_DIR/samples" "$WITTY_CLASSIFIER_MODEL_DIR/jobs"
+                ;;
+            *) _warn "模型目录不是绝对路径，跳过清理: $WITTY_CLASSIFIER_MODEL_DIR" ;;
+        esac
+    fi
     _log "运行数据已清空"
 
     # 4. 范围2: 删 venv/日志；RPM 文件仍由包管理器保留。
@@ -591,6 +602,7 @@ wait_experience_ready() {
 do_start() {
     _step_header "启动 witty-ub 服务"
     check_subpackages || return 1
+    prepare_classifier_runtime || return 1
 
     if [ "$WITTY_ROLE" != "frontend" ]; then
         [ -x "$WITTY_LATENCY_DIR/.venv/bin/python" ] || {
@@ -644,6 +656,7 @@ do_stop() {
 
 do_restart() {
     _step_header "重启 witty-ub 服务"
+    prepare_classifier_runtime || return 1
     if [ "$WITTY_ROLE" != "backend" ]; then
         configure_experience_service || return 1
         systemctl daemon-reload
@@ -740,6 +753,8 @@ do_agent_start() {
         _info "请确认 witty-ub-web 子包已安装"
         return 1
     fi
+
+    prepare_classifier_runtime || return 1
 
     # 加载前端连接配置 (WITTY_API_BASE / WITTY_NO_PROXY 等)
     if [[ -f "$WITTY_WEB_ENV" ]]; then

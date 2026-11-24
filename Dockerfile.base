@@ -35,6 +35,14 @@ RUN dnf update -y --allowerasing && \
     dnf clean all && \
     rm -rf /var/cache/dnf
 
+# experience-skill 的正文检索优先用 ripgrep（rg --json）。基础镜像的 24.03-lts
+# EPOL 不含该包；2403 SP4 的 EPOL 提供 rust-ripgrep，按需启用后安装。
+RUN printf '[EPOL-SP4]\nname=EPOL-SP4\nbaseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP4/EPOL/main/$basearch/\nenabled=0\ngpgcheck=1\ngpgkey=https://repo.openeuler.org/openEuler-24.03-LTS-SP4/OS/$basearch/RPM-GPG-KEY-openEuler\n' > /etc/yum.repos.d/openEuler-SP4.repo && \
+    dnf install -y --enablerepo=EPOL-SP4 rust-ripgrep && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf && \
+    rg --version
+
 # Create directories
 RUN mkdir -p /var/witty-ub/data/kvcache \
     /var/witty-ub/data/urma \
@@ -73,6 +81,7 @@ RUN python3 -m venv /var/witty-ub/latency/.venv && \
     sqlalchemy==2.0.51 \
     asyncpg==0.31.0 \
     "numpy>=1.26.0,<3.0.0" \
+    "scikit-learn>=1.5,<2.0" \
     "polars>=1.44.2,<2.0" && \
     rm -rf /root/.cache/pip
 
@@ -140,6 +149,7 @@ RUN python3 -m venv /var/witty-ub/latency/.venv && \
     sqlalchemy==2.0.51 \
     asyncpg==0.31.0 \
     "numpy>=1.26.0,<3.0.0" \
+    "scikit-learn>=1.5,<2.0" \
     "polars>=1.44.2,<2.0" && \
     rm -rf /root/.cache/pip
 
@@ -156,6 +166,14 @@ RUN dnf update -y --allowerasing && \
     nginx python3 python3-pip python3-jinja2 curl gettext nodejs npm findutils && \
     dnf clean all && \
     rm -rf /var/cache/dnf
+
+# experience-skill 的正文检索优先用 ripgrep（rg --json）。基础镜像的 24.03-lts
+# EPOL 不含该包；2403 SP4 的 EPOL 提供 rust-ripgrep，按需启用后安装。
+RUN printf '[EPOL-SP4]\nname=EPOL-SP4\nbaseurl=https://repo.openeuler.org/openEuler-24.03-LTS-SP4/EPOL/main/$basearch/\nenabled=0\ngpgcheck=1\ngpgkey=https://repo.openeuler.org/openEuler-24.03-LTS-SP4/OS/$basearch/RPM-GPG-KEY-openEuler\n' > /etc/yum.repos.d/openEuler-SP4.repo && \
+    dnf install -y --enablerepo=EPOL-SP4 rust-ripgrep && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf && \
+    rg --version
 
 RUN mkdir -p /var/witty-ub/web \
     /var/witty-ub/witty_ub_diagnostician \

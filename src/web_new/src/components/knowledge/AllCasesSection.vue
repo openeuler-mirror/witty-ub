@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import PageNav from '../common/PageNav.vue'
 import BaseModal from '../common/BaseModal.vue'
+import ClassifierTrainingBanner from './ClassifierTrainingBanner.vue'
 import { caseAttachmentUrl, fetchCases, type CaseRecord } from '../../api/caseLibrary'
 import { searchDiagCases, type DiagCaseMatch } from '../../api/diagCaseLibrary'
 import {
@@ -235,6 +236,8 @@ watch(caseVersion, () => void load())
         <button v-if="view === 'documents'" class="btn btn-primary" type="button" aria-haspopup="dialog" :aria-expanded="importDialogOpen" :disabled="importing" @click="toggleImport">导入定界报告</button>
       </div>
     </header>
+
+    <ClassifierTrainingBanner :refresh-token="caseVersion" :operator="operator" />
 
     <BaseModal :open="importDialogOpen" label="导入定界报告" size="form" :close-on-esc="!importing" :close-on-overlay="!importing" @close="closeImport">
       <template #header>

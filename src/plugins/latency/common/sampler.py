@@ -1,6 +1,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
 
 from latency.ENUM.sampling import SampleMode
+from latency.common.stats import percentile_from_sorted
 from latency.schemas.log import YUANRONG_METRIC_FIELDS
 from datetime import datetime
 from typing import Tuple, List, Dict, Any, Optional
@@ -239,6 +240,9 @@ class LatencyMetricsSampler:
             return sum(values) / len(values)
         elif mode in _PERCENTILE_MAP:
             values.sort()
+            if mode == SampleMode.P99:
+                # Match the trend buckets and perf_analyze's (n-1)*0.99 interpolation.
+                return percentile_from_sorted(values, 99)
             percentile = _PERCENTILE_MAP[mode]
             index = max(0, int(len(values) * percentile) - 1)
             return values[index]

@@ -90,7 +90,7 @@ CONFIG_KEYS=(
     WITTY_NETWORK_MODE_FRONTEND WITTY_NETWORK_SELFCHECK WITTY_NETWORK_FALLBACK
     PG_HOST PG_PORT PG_DATABASE PG_USER PG_PASSWORD PG_SECRET_FILE
     PG_HOST_IN_CONTAINER PG_PORT_IN_CONTAINER PG_CONTAINER_NAME PG_NETWORK PG_VOLUME
-    OPENCODE_CONFIG_DIR PG_IMAGE PG_HEALTH_INTERVAL PG_HEALTH_TIMEOUT PG_HEALTH_RETRIES
+    OPENCODE_CONFIG_DIR OPENCODE_DATA_VOLUME PG_IMAGE PG_HEALTH_INTERVAL PG_HEALTH_TIMEOUT PG_HEALTH_RETRIES
     PG_HEALTH_START_PERIOD
     WITTY_RAG_MCP_URL WITTY_RAG_NETWORK RAG_CONFIG_FILE RAG_DB_SECRET_FILE
     OPENGAUSS_RAG_IMAGE OPENGAUSS_RAG_IMAGE_NO_LSE OPENGAUSS_RAG_IMAGE_X86_AVX2
@@ -447,6 +447,10 @@ log_info "Effective network mode: app=${WITTY_NETWORK_MODE}, PG container=${PG_E
 
 # OpenCode 配置目录（宿主机）
 OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
+# OpenCode 数据目录/卷：会话历史、登录凭据、会话与知识库关联都在这里。
+# 旧版本没有挂载该目录，容器重建会丢历史；删除旧容器前会自动迁移到该卷。
+OPENCODE_DATA_VOLUME="${OPENCODE_DATA_VOLUME:-witty-ub-opencode-data}"
+OPENCODE_DATA_PATH="/root/.local/share/opencode"
 
 check_docker() {
     if ! command -v docker &>/dev/null; then
@@ -778,10 +782,13 @@ else
         'test -x /usr/bin/witty-ub-brpc-diag &&
          test -f /var/witty-ub/data/ubsocket/ubsocket_failure_mode.json &&
          test -f /var/witty-ub/data/umq/umq_failure_mode.json &&
-         test -f /var/witty-ub/data/urma/urma_failure_mode.json'; then
-        log_ok "BRPC diagnosis binary and data verified"
+         test -f /var/witty-ub/data/urma/urma_failure_mode.json &&
+         test -f /var/witty-ub/classifier-runtime/scripts/default_matching.py &&
+         test -f /var/witty-ub/classifier-runtime/assets/default_label_policy/numeric_classifier.json.gz &&
+         /var/witty-ub/latency/.venv/bin/python -c "import sklearn"'; then
+        log_ok "BRPC diagnosis and fault classifier runtime verified"
     else
-        log_error "Image is missing the BRPC diagnosis binary or required data files"
+        log_error "Image is missing diagnosis data, classifier runtime or scikit-learn"
         log_error "Please use an updated image containing witty-ub-brpc-diag and ubsocket/umq/urma rules"
         exit 1
     fi
@@ -810,11 +817,11 @@ log_info "Preparing Docker volumes ..."
 if [ "$ROLE" = "frontend" ]; then
     # frontend 也挂 witty-ub-logs：否则镜像声明的 VOLUME /var/log/witty-ub 会生成匿名卷，
     # 容器重建后日志丢失且残留孤儿卷（与文档"witty-ub-logs 通用"的描述保持一致）。
-    ROLE_VOLUMES=(witty-ub-logs witty-ub-experience-data witty-ub-reports)
+    ROLE_VOLUMES=(witty-ub-logs witty-ub-experience-data witty-ub-reports witty-ub-classifier-models "${OPENCODE_DATA_VOLUME}")
 else
-    ROLE_VOLUMES=(witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports witty-ub-builtin-reports)
+    ROLE_VOLUMES=(witty-ub-data witty-ub-case witty-ub-logs witty-ub-uploads witty-ub-results witty-ub-reports witty-ub-builtin-reports witty-ub-classifier-models)
     if [ "$ROLE" = "all" ]; then
-        ROLE_VOLUMES+=(witty-ub-experience-data)
+        ROLE_VOLUMES+=(witty-ub-experience-data "${OPENCODE_DATA_VOLUME}")
     fi
 fi
 for vol in "${ROLE_VOLUMES[@]}"; do
@@ -833,6 +840,61 @@ if [ "$ROLE" != "backend" ] && [ ! -d "$OPENCODE_CONFIG_DIR" ]; then
     mkdir -p "$OPENCODE_CONFIG_DIR"
 fi
 
+# 3.2.1 旧容器的 OpenCode 数据迁移
+# 旧版本把会话历史留在容器可写层，容器重建即丢失。删除旧容器前先把数据
+# 复制到命名卷；迁移失败时保留旧容器并以非 0 退出，避免静默丢历史。
+opencode_volume_has_data() {
+    docker run --rm -v "${OPENCODE_DATA_VOLUME}:/data" --entrypoint /bin/sh "$SELECTED_IMAGE" -c \
+        'test -f /data/opencode.db || test -d /data/storage' >/dev/null 2>&1
+}
+
+migrate_opencode_data_from_container() {
+    local source_container="$1"
+    [ "$ROLE" = "backend" ] && return 0
+
+    local mounted_name
+    mounted_name="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/root/.local/share/opencode"}}{{.Name}}{{end}}{{end}}' "$source_container" 2>/dev/null || true)"
+    if [ "${mounted_name}" = "${OPENCODE_DATA_VOLUME}" ]; then
+        log_ok "OpenCode data already persists on volume ${OPENCODE_DATA_VOLUME}"
+        return 0
+    fi
+    if opencode_volume_has_data; then
+        log_warn "Volume ${OPENCODE_DATA_VOLUME} already contains OpenCode data; keeping it"
+        return 0
+    fi
+
+    log_info "Migrating OpenCode session data from ${source_container} to volume ${OPENCODE_DATA_VOLUME} ..."
+    local tmp_dir cp_err
+    tmp_dir="$(mktemp -d)"
+    cp_err="$(mktemp)"
+    if ! docker cp "${source_container}:${OPENCODE_DATA_PATH}/." "${tmp_dir}/" 2>"${cp_err}"; then
+        if grep -qiE 'could not find|no such file' "${cp_err}" 2>/dev/null; then
+            log_warn "No OpenCode data directory in ${source_container}; skipping migration"
+            rm -rf "${tmp_dir}" "${cp_err}"
+            return 0
+        fi
+        log_error "Failed to read OpenCode data from ${source_container}:${OPENCODE_DATA_PATH}"
+        sed 's/^/    /' "${cp_err}" 2>/dev/null || true
+        rm -rf "${tmp_dir}" "${cp_err}"
+        log_error "Existing container is kept; resolve the error before retrying."
+        exit 1
+    fi
+    if ! docker run --rm -v "${OPENCODE_DATA_VOLUME}:/data" -v "${tmp_dir}:/src:ro" \
+        --entrypoint /bin/sh "$SELECTED_IMAGE" -c 'cp -a /src/. /data/'; then
+        rm -rf "${tmp_dir}" "${cp_err}"
+        # Drop partial history files so the next run cannot mistake the volume
+        # for a completed migration and remove the source container.
+        docker run --rm -v "${OPENCODE_DATA_VOLUME}:/data" --entrypoint /bin/sh "$SELECTED_IMAGE" -c \
+            'rm -f /data/opencode.db /data/opencode.db-wal /data/opencode.db-shm; rm -rf /data/storage' \
+            >/dev/null 2>&1 || true
+        log_error "Failed to copy OpenCode data into volume ${OPENCODE_DATA_VOLUME}"
+        log_error "Existing container is kept; resolve the error before retrying."
+        exit 1
+    fi
+    rm -rf "${tmp_dir}" "${cp_err}"
+    log_ok "OpenCode session data migrated to ${OPENCODE_DATA_VOLUME}"
+}
+
 # 3.4 清理同名旧容器
 if docker ps -a --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
     log_warn "Container ${CONTAINER_NAME} already exists"
@@ -840,6 +902,7 @@ if docker ps -a --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
         log_info "Stopping running container ..."
         docker stop "${CONTAINER_NAME}"
     fi
+    migrate_opencode_data_from_container "${CONTAINER_NAME}"
     log_info "Removing existing container ..."
     docker rm "${CONTAINER_NAME}"
     log_ok "Existing container removed"
@@ -964,6 +1027,7 @@ backend)
         -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
         -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
         -v witty-ub-reports:/var/witty-ub/reports \
+        -v witty-ub-classifier-models:/var/witty-ub/fault_classifier \
         -v witty-ub-builtin-reports:/var/witty-ub/builtin-reports \
         -v "${PG_SECRET_FILE}:/run/secrets/pg_password:ro" \
         "${EXTRA_MOUNT_ARGS[@]}" \
@@ -998,8 +1062,10 @@ frontend)
         "${PORT_ARGS[@]}" \
         -v witty-ub-logs:/var/log/witty-ub \
         -v "${OPENCODE_CONFIG_DIR}:/root/.config/opencode" \
+        -v "${OPENCODE_DATA_VOLUME}:${OPENCODE_DATA_PATH}" \
         -v witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data \
         -v witty-ub-reports:/var/witty-ub/reports \
+        -v witty-ub-classifier-models:/var/witty-ub/fault_classifier \
         -v witty-ub-builtin-reports:/var/witty-ub/builtin-reports \
         "${EXTRA_MOUNT_ARGS[@]}" \
         -e WITTY_ROLE=frontend \
@@ -1022,9 +1088,11 @@ frontend)
         -v witty-ub-uploads:/var/witty-ub/latency/file/file_upload \
         -v witty-ub-results:/var/witty-ub/latency/file/file_parse_result \
         -v witty-ub-reports:/var/witty-ub/reports \
+        -v witty-ub-classifier-models:/var/witty-ub/fault_classifier \
         -v witty-ub-builtin-reports:/var/witty-ub/builtin-reports \
         -v "${PG_SECRET_FILE}:/run/secrets/pg_password:ro" \
         -v "${OPENCODE_CONFIG_DIR}:/root/.config/opencode" \
+        -v "${OPENCODE_DATA_VOLUME}:${OPENCODE_DATA_PATH}" \
         -v witty-ub-experience-data:/var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/data \
         "${EXTRA_MOUNT_ARGS[@]}" \
         -e WITTY_ROLE=all \

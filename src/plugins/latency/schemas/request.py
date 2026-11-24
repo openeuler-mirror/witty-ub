@@ -266,6 +266,18 @@ class LogSemanticProfileRequest(StrictRequestModel):
         default=None, description="知识库ID；仅作为 log_file.kb_id 兜底"
     )
 
+class MamiFaultScanRequest(StrictRequestModel):
+    kb_name: Optional[str] = Field(
+        default=None,
+        description="资产名（= log_file.name，报告 basic_info.kb_name）；优先按此解析日志",
+    )
+    log_id: Optional[str] = Field(
+        default=None, description="日志文件ID；给定则直接使用该文件"
+    )
+    kb_id: Optional[str] = Field(
+        default=None, description="知识库ID；仅作为 log_file.kb_id 兜底"
+    )
+
 class ListTraceFailureEventResultRequest(StrictRequestModel):
     kb_id: str = Field(..., description="日志知识库ID，用于过滤指定知识库的结果")
     log_id: Optional[str] = Field(default=None, description="日志文件路径ID，用于过滤指定日志文件路径的结果")
@@ -484,7 +496,7 @@ class GetLatencyMetricsRequest(StrictRequestModel):
     )
     log_id: Optional[str] = Field(
         default=None,
-        description="日志文件ID,用于直接查分位统计表;为空时回退实时聚合",
+        description="日志文件ID；为空时按整个知识库聚合（跨该库全部日志文件的桶曲线）",
     )
 
 class GetErrCodeMetricsRequest(StrictRequestModel):

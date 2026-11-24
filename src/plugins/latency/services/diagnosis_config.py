@@ -43,6 +43,7 @@ class DiagnosisConfigService:
                     ds_worker_access_log_file=patterns.ds_worker_access_log_file,
                     ds_worker_info_log_file=patterns.ds_worker_info_log_file,
                     resource_log_file=patterns.resource_log_file,
+                    mami_log_file=patterns.mami_log_file,
                 ),
                 log_analyzer_params=config.log_analyzer_params,
                 enable_local_cache=config.enable_local_cache,
@@ -61,8 +62,10 @@ class DiagnosisConfigService:
         if not isinstance(update, KVCacheDiagnosisConfig):
             raise BadRequestBizException(message="log_type 与配置项不匹配")
         merged = current.model_dump(mode="python")
+        # exclude_unset：只覆盖调用方显式提交的字段。这样旧前端（未含 mami_log_file）
+        # 保存其它配置时不会把已配置的 mami 匹配模式重置回默认值。
         merged["log_filename_pattern"].update(
-            update.log_filename_pattern.model_dump(mode="python")
+            update.log_filename_pattern.model_dump(mode="python", exclude_unset=True)
         )
         merged["log_analyzer_params"] = update.log_analyzer_params.model_dump(
             mode="python"

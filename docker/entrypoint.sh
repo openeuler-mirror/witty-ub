@@ -27,6 +27,9 @@ export WITTY_RAG_MCP_URL="${WITTY_RAG_MCP_URL:-http://witty-rag-core:12312/sse}"
 export OPENCODE_HOST="${OPENCODE_HOST:-127.0.0.1}"
 # 诊断报告落盘根目录（由 witty-ub-reports 卷持久化；agent 子进程继承此变量）
 export WITTY_REPORT_DIR="${WITTY_REPORT_DIR:-${WITTY_DIR}/reports}"
+export WITTY_CLASSIFIER_MODEL_DIR="${WITTY_CLASSIFIER_MODEL_DIR:-${WITTY_DIR}/fault_classifier}"
+export WITTY_CASE_MATCHING_DIR="${WITTY_CASE_MATCHING_DIR:-${WITTY_DIR}/classifier-runtime}"
+mkdir -p "${WITTY_CLASSIFIER_MODEL_DIR}"
 # 内置定界报告：镜像内的只读种子 → 独立卷中的生效副本，按压缩包哈希判断是否重载
 export WITTY_BUILTIN_REPORTS="${WITTY_BUILTIN_REPORTS:-1}"
 export WITTY_BUILTIN_REPORT_ARCHIVE="${WITTY_BUILTIN_REPORT_ARCHIVE:-/usr/share/witty-ub/builtin-reports/reports.zip}"
@@ -75,6 +78,18 @@ sync_backend_data() {
     # would otherwise miss rules added by a newer image.
     # Source-built images seed from /usr/share/witty-ub/data; RPM images already
     # install the data directly into the runtime dir.
+    echo "Checking classifier runtime..."
+    if [ ! -f "${WITTY_CASE_MATCHING_DIR}/assets/default_label_policy/numeric_classifier.json.gz" ] || \
+       [ ! -f "${WITTY_CASE_MATCHING_DIR}/assets/default_label_policy/manifest.json" ] || \
+       [ ! -f "${WITTY_CASE_MATCHING_DIR}/assets/default_label_policy/cosine_bank.json.gz" ] || \
+       [ ! -f "${WITTY_CASE_MATCHING_DIR}/scripts/default_matching.py" ]; then
+        echo "[ERROR] Classifier runtime missing: ${WITTY_CASE_MATCHING_DIR}; rebuild the backend image"
+        exit 1
+    fi
+    "${WITTY_DIR}/latency/.venv/bin/python" -c 'import sklearn' || {
+        echo "[ERROR] Classifier training dependency missing: scikit-learn; rebuild the backend image"
+        exit 1
+    }
     echo "Syncing packaged diagnosis data..."
     WITTY_DATA_SEED_DIR="/usr/share/witty-ub/data"
     WITTY_RUNTIME_DATA_DIR="${WITTY_DIR}/data"
@@ -286,6 +301,25 @@ start_opencode() {
     done
 }
 
+# ── 历史会话知识库关联回填（all / frontend 角色） ──────────────
+# 会话历史由 OpenCode 数据卷保留；旧版本的知识库映射只存在首条消息前缀和
+# 浏览器 localStorage 中。启动后在后台把该 ID 写回会话 metadata，换浏览器
+# 或清理缓存后仍能恢复关联。失败只记日志，不影响容器启动。
+restore_opencode_session_kb() {
+    local log="/var/log/witty-ub/opencode_session_migration.log"
+    : >>"$log" 2>/dev/null || true
+    local script="${OPENCODE_SESSION_MIGRATION_SCRIPT:-/usr/local/bin/migrate_opencode_sessions.py}"
+    [ -x "$script" ] || return 0
+    local data_home="${XDG_DATA_HOME:-/root/.local/share}"
+    echo "Restoring knowledge-base links for existing OpenCode sessions..."
+    (
+        exec "$script" \
+            --database "${data_home}/opencode/opencode.db" \
+            --server "http://127.0.0.1:4096" \
+            --metadata-key witty_ub_kb_id
+    ) >>"$log" 2>&1 &
+}
+
 # 清理后台服务，也覆盖启动检查失败导致的退出；experience 子进程通过 exec 接收信号。
 trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
 trap 'exit 0' SIGTERM SIGINT
@@ -300,6 +334,7 @@ all)
     # OpenCode queries the latency HTTP API directly, so start it only
     # after the backend is healthy.
     start_opencode
+    restore_opencode_session_kb
     echo "All services started successfully!"
     echo "========================================"
     echo "  - Web UI:     http://localhost:8080"
@@ -326,6 +361,7 @@ frontend)
     start_experience
     wait_backend_ready
     start_opencode
+    restore_opencode_session_kb
     echo "Frontend-only container started successfully!"
     echo "========================================"
     echo "  - Web UI:     http://localhost:8080"
@@ -344,10 +380,12 @@ esac
 # Keep container running and forward signals
 # Use tail to keep the container alive and capture any background process output
 if [ "${WITTY_ROLE}" = "frontend" ]; then
-    tail -f /var/log/witty-ub/opencode_server.log /var/log/witty-ub/experience_server.log &
+    tail -f /var/log/witty-ub/opencode_server.log /var/log/witty-ub/experience_server.log \
+        /var/log/witty-ub/opencode_session_migration.log &
 elif [ "${WITTY_ROLE}" = "backend" ]; then
     tail -f /var/log/witty-ub/latency_server.log &
 else
-    tail -f /var/log/witty-ub/latency_server.log /var/log/witty-ub/opencode_server.log /var/log/witty-ub/experience_server.log &
+    tail -f /var/log/witty-ub/latency_server.log /var/log/witty-ub/opencode_server.log \
+        /var/log/witty-ub/experience_server.log /var/log/witty-ub/opencode_session_migration.log &
 fi
 wait

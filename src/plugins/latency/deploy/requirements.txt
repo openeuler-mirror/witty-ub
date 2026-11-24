@@ -30,6 +30,7 @@ asyncpg==0.31.0
 
 # Numerical computation (bucket percentile statistics, top-level import)
 numpy>=1.26.0,<3.0.0
+scikit-learn>=1.5,<2.0
 # scan_lines requires a recent 1.x; validate major upgrades before deployment.
 polars>=1.44.2,<2.0
 

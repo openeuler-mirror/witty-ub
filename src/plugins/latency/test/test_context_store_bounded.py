@@ -111,7 +111,7 @@ async def test_prepared_context_copy_keeps_one_transaction(monkeypatch):
     async def copy(table, *, records, columns):
         events.append('copy')
         assert table == 'log_failure_event'
-        assert records is rows
+        assert list(records) == rows
         assert columns is LogFailureEventPGManager._LOG_FAILURE_COPY_COLUMNS
         raise RuntimeError('copy failed')
     driver = SimpleNamespace(copy_records_to_table=copy)
@@ -201,6 +201,32 @@ def test_context_input_chunks_preserve_long_lines_and_order(tmp_path, monkeypatc
     batches = list(module.StoreTraceContextLogsWorker._context_scan_batches([(path.name, str(path))], {'t'}, [], []))
     assert all(batch.height <= 3 for batch in batches)
     assert pl.concat(batches)['raw_text'].to_list() == lines
+
+
+@pytest.mark.parametrize('source_kind', ['small', 'large', 'gzip'])
+def test_context_sanitized_read_removes_nul(tmp_path, monkeypatch, source_kind):
+    import gzip
+    import polars as pl
+
+    data = (
+        '2026-09-18T00:00:00 | I | file | pod | 1:2 | t | c | 日志 remoteWorkerId='.encode()
+        + b'\x7f\xa8\x13\x05\x00\xc4?\xcb\x00 end\n'
+    )
+    monkeypatch.setattr(module, '_CONTEXT_INPUT_BYTES', len(data) + 1 if source_kind == 'small' else 32)
+    path = tmp_path / ('runtime.log.gz' if source_kind == 'gzip' else 'runtime.log')
+    path.write_bytes(gzip.compress(data) if source_kind == 'gzip' else data)
+
+    flag = [False]
+    batches = list(module.StoreTraceContextLogsWorker._context_scan_batches(
+        [(path.name, str(path))], {'t'}, [], [], flag))
+
+    assert flag[0] is True
+    rows = pl.concat(batches).to_dicts()
+    assert len(rows) == 1
+    expected = data.decode('utf-8', errors='replace').replace('\x00', '').rstrip('\n')
+    assert rows[0]['raw_text'] == expected
+    assert rows[0]['message'] == expected.split(' | ', 7)[7]
+    assert all('\x00' not in value for value in rows[0].values() if isinstance(value, str))
 
 
 @pytest.mark.parametrize('compressed', [False, True])

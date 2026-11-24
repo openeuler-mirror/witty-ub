@@ -36,6 +36,7 @@ from latency.routers import (
     task,
     failure_mode_knowledge,
     log_failure_event_result,
+    mami_fault_event,
     diagnosis_case,
     diag_case_library,
     diagnosis_config,
@@ -65,6 +66,7 @@ from latency.exceptions import (
 )
 from latency.config import phenomenon as phenomenon_settings
 from latency.services.phenomenon_index import PhenomenonIndexService
+from latency.services.fault_classifier import FaultClassifierService
 from pydantic import ValidationError
 
 
@@ -118,6 +120,7 @@ async def lifespan(app: fastapi.FastAPI):
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(FaultClassifierService.tick,'interval',seconds=5,max_instances=1,coalesce=True)
     scheduler.start()
 
     if phenomenon_settings.index_enabled():
@@ -306,6 +309,7 @@ async def configure():
     app.include_router(task.router)
     app.include_router(failure_mode_knowledge.router)
     app.include_router(log_failure_event_result.router)
+    app.include_router(mami_fault_event.router)
     app.include_router(diagnosis_case.router)
     app.include_router(diag_case_library.router)
     app.include_router(diagnosis_config.router)

@@ -38,6 +38,10 @@ RUN yum install -y witty-ub-backend && \
     yum clean all && \
     rm -rf /var/cache/yum
 
+RUN PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/var/witty-ub/classifier-runtime/scripts python3 -S -c \
+    'import default_matching; print(default_matching.verify_packaged_assets())' && \
+    /var/witty-ub/latency/.venv/bin/python -c 'import sklearn'
+
 RUN mkdir -p /var/witty-ub/latency/file/file_upload \
     /var/witty-ub/latency/file/file_parse_result \
     /var/log/witty-ub
@@ -54,7 +58,7 @@ ENV PYTHONPATH=/var/witty-ub
 
 EXPOSE 9772
 
-VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub"]
+VOLUME ["/var/witty-ub/fault_classifier", "/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["/healthcheck.sh"]
@@ -73,6 +77,8 @@ RUN yum install -y python3 python3-pip gcc gcc-c++ cmake make curl tar && \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 COPY witty_ub_diagnostician/ /var/witty-ub/witty_ub_diagnostician/.opencode/
+RUN PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/var/witty-ub/witty_ub_diagnostician/.opencode/skills/case-matching/scripts python3 -S -c \
+    'import default_matching; print(default_matching.verify_packaged_assets())'
 RUN cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts/src/experience_skill_cli/tokenizer && \
     bash build.sh && \
     cd /var/witty-ub/witty_ub_diagnostician/.opencode/skills/experience-skill/scripts && \
@@ -105,13 +111,14 @@ COPY packaging/nginx/witty-ub-web.conf.template /etc/witty-ub/web/nginx.conf.tem
 
 COPY docker/entrypoint.sh /entrypoint.sh
 COPY docker/healthcheck.sh /healthcheck.sh
-RUN chmod +x /entrypoint.sh /healthcheck.sh
+COPY docker/migrate_opencode_sessions.py /usr/local/bin/migrate_opencode_sessions.py
+RUN chmod +x /entrypoint.sh /healthcheck.sh /usr/local/bin/migrate_opencode_sessions.py
 
 ENV WITTY_ROLE=frontend
 
 EXPOSE 8080 4096
 
-VOLUME ["/var/log/witty-ub"]
+VOLUME ["/var/witty-ub/fault_classifier", "/var/log/witty-ub", "/root/.local/share/opencode"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["/healthcheck.sh"]
@@ -131,6 +138,10 @@ RUN yum install -y witty-ub gettext nodejs npm python3-jinja2 curl libstdc++ && 
     rm -rf /var/cache/yum
 
 # Create additional directories if not created by RPM
+RUN PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/var/witty-ub/classifier-runtime/scripts python3 -S -c \
+    'import default_matching; print(default_matching.verify_packaged_assets())' && \
+    /var/witty-ub/latency/.venv/bin/python -c 'import sklearn'
+
 RUN mkdir -p /var/witty-ub/latency/file/file_upload \
     /var/witty-ub/latency/file/file_parse_result \
     /etc/witty-ub/web \
@@ -151,14 +162,15 @@ COPY packaging/nginx/witty-ub-web.conf.template /etc/witty-ub/web/nginx.conf.tem
 
 COPY docker/entrypoint.sh /entrypoint.sh
 COPY docker/healthcheck.sh /healthcheck.sh
-RUN chmod +x /entrypoint.sh /healthcheck.sh
+COPY docker/migrate_opencode_sessions.py /usr/local/bin/migrate_opencode_sessions.py
+RUN chmod +x /entrypoint.sh /healthcheck.sh /usr/local/bin/migrate_opencode_sessions.py
 
 ENV WITTY_ROLE=all
 ENV PYTHONPATH=/var/witty-ub
 
 EXPOSE 8080 9772 4096
 
-VOLUME ["/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub"]
+VOLUME ["/var/witty-ub/fault_classifier", "/var/witty-ub/data", "/var/witty-ub/case", "/var/log/witty-ub", "/root/.local/share/opencode"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["/healthcheck.sh"]

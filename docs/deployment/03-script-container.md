@@ -83,6 +83,7 @@ vi deploy/deploy.conf
 # witty-ub
 WITTY_HOST_PORT="32412"              # 宿主机端口
 WITTY_EXTRA_MOUNTS="/home:/home:ro"   # 额外挂载
+OPENCODE_DATA_VOLUME="witty-ub-opencode-data"  # OpenCode 会话历史/知识库关联卷
 
 # 容器运行时
 WITTY_NETWORK_MODE="bridge"           # bridge（默认）| host（共享宿主机网络）
@@ -123,6 +124,8 @@ PG_HOST_IN_CONTAINER=172.18.0.1 bash deploy/docker/manage.sh
 ```
 
 > **说明**：环境变量优先级高于 `deploy.conf`，作用于脚本安装路径（菜单 `[1]`/`[3]`，即 `deploy_witty.sh` / `deploy_pg.sh`）；Docker 容器内的运行时配置不受影响。若需修改 opencode 配置文件，请在宿主机上操作：`manage.sh` 会将宿主机的 opencode 配置目录（默认 `~/.config/opencode/`，可通过 `OPENCODE_CONFIG_DIR` 覆盖）映射到容器中，在容器内修改不会持久化。详见 [配置参考手册 · OpenCode 配置](../usage/03-configuration-reference.md#opencode-配置)。
+>
+> **会话历史**：`OPENCODE_DATA_VOLUME`（默认 `witty-ub-opencode-data`）保存 OpenCode 会话历史、登录凭据以及会话与知识库的关联。升级/重建容器会沿用该卷；首次从旧版本升级时，脚本在删除旧容器前自动把 `/root/.local/share/opencode` 迁入卷中，失败则保留旧容器并中止。
 >
 > `deploy_witty.sh` 会直接加载 `deploy.conf`，因此菜单 `[1]` 一键安装、直接 `bash deploy/docker/deploy_witty.sh --role …` 与菜单 `[3]`/`[14]`/`[15]` 的配置来源一致；优先级为：环境变量 > `deploy.conf` > 脚本内置默认值。
 
@@ -251,6 +254,8 @@ bash deploy/docker/manage.sh uninstall-pg --yes         # 仅 PostgreSQL 容器
 
 > 与 compose 混用的机器请用 `docker compose --profile allinone down -v` /
 > `docker compose --profile split down -v` 清理，两者不要交叉操作。
+>
+> `uninstall` 会删除 `witty-ub-opencode-data`，即 OpenCode 历史会话与知识库关联；只升级镜像或重建容器时不要执行卸载。
 
 ---
 

@@ -169,7 +169,7 @@ class LatencyFeaturesTest(unittest.TestCase):
         data = self.report_data()
         self.assertEqual(render_report.validate(data)[0], [])
         flat = {k: v for k, v in data.items() if k != "faults"}
-        flat.update(conclusion={}, latency=data["faults"][0]["latency"])
+        flat.update(conclusion={"first_level_label":None,"second_level_label":None}, latency=data["faults"][0]["latency"])
         self.assertEqual(render_report.validate(flat)[0], [])
         flat["latency"]["stages"][0]["features"]["distribution"]["p99_ms"] = 100
         self.assertTrue(render_report.validate(flat)[0])
@@ -239,7 +239,7 @@ class LatencyFeaturesTest(unittest.TestCase):
             sidecar = json.loads(output.with_suffix(".json").read_text(encoding="utf-8"))
             self.assertEqual(sidecar["faults"][0]["latency"]["stages"][0]["features"], f)
             flat = {k: v for k, v in data.items() if k != "faults"}
-            flat.update(conclusion={}, latency=data["faults"][0]["latency"])
+            flat.update(conclusion={"first_level_label":None,"second_level_label":None}, latency=data["faults"][0]["latency"])
             source.write_text(json.dumps(flat), encoding="utf-8")
             with patch.dict("os.environ", {"WITTY_REPORT_DIR": temp}), \
                     patch.object(render_report, "report_states", lambda _slug: _UnconfirmedStates()), \

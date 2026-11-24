@@ -163,6 +163,24 @@ def test_labels_are_copied_from_the_fault_with_a_snapshot_hash():
     )
 
 
+def test_case_draft_reads_three_level_report_classification():
+    payload = _payload()
+    conclusion = payload["faults"][0]["conclusion"]
+    conclusion.pop("first_level_label")
+    conclusion.pop("second_level_label")
+    conclusion.update(
+        domain="软件",
+        component="Worker故障",
+        type="Worker故障-进程退出",
+    )
+
+    preview = build_draft_from_fault(REPORT_ID, payload, "F01", SIDECAR_HASH)
+
+    assert preview.labels["status"] == "pair"
+    assert preview.labels["first_level_label"] == "Worker故障"
+    assert preview.labels["second_level_label"] == "Worker故障-进程退出"
+
+
 def test_unclassified_fault_is_reported_but_does_not_block_draft_creation():
     payload = _payload()
     del payload["faults"][0]["conclusion"]["first_level_label"]

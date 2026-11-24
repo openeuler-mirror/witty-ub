@@ -138,8 +138,8 @@ RAG Core 的模型与数据库段由 `deploy_rag.sh` 在部署时按环境变量
 1. **拉取镜像**：优先使用本地镜像，否则从 `hub-harbor.oepkgs.net/neocopilot/witty-ub:<角色tag>` 拉取
 2. **验证镜像**：检查镜像完整性（frontend 校验 Nginx/Web/Agent 资产，其余校验 BRPC 工具与数据）
 3. **创建网络**：复用已有的 Docker 网络
-4. **创建数据卷**：all/backend 建 `witty-ub-data/case/uploads/results`，all/frontend 建 `witty-ub-experience-data`；所有角色挂载 `witty-ub-logs/reports`
-5. **配置 OpenCode**：all/frontend 准备 OpenCode 配置目录
+4. **创建数据卷**：all/backend 建 `witty-ub-data/case/uploads/results`，all/frontend 建 `witty-ub-experience-data` 与 `witty-ub-opencode-data`；所有角色挂载 `witty-ub-logs/reports`
+5. **配置 OpenCode**：all/frontend 准备 OpenCode 配置目录，并挂载保存会话历史的 `witty-ub-opencode-data` 卷
 6. **自动检测 PG**：all/backend 检测 PostgreSQL 部署方式，自动配置连接参数；frontend 不连数据库
 7. **启动容器**：容器名分别为 `<名称>`、`<名称>-backend`、`<名称>-frontend`；backend 暴露 9772，frontend 暴露 32413 并按 `WITTY_BACKEND_URL` 反代后端
 8. **健康检查**：等待应用就绪（最多 180 秒）；all/frontend 除检查后端，还经 Nginx 检查 SKILL/WIKI 两类管理接口
@@ -155,6 +155,12 @@ RAG 故障影响。现象索引任务会周期性重试，RAG 恢复后继续处
 访问路径为 `http://<部署地址>:<Web端口>/experience_api/experiences`，Nginx 转发到容器内 `8082`，无需发布此端口。经验库通过 `witty-ub-experience-data` 卷持久化，运行日志为 `/var/log/witty-ub/experience_server.log`（同时输出到 `docker logs`）。依赖缺失、同步失败或 SKILL/WIKI 接口未就绪会使启动失败；运行期间接口失败会使容器健康检查失败。
 
 源码镜像和 RPM 容器镜像均在构建时准备技能运行环境，容器启动时无需安装依赖。
+
+OpenCode 的会话历史、登录凭据以及会话与知识库的关联保存在 `witty-ub-opencode-data`
+卷（容器内 `/root/.local/share/opencode`），镜像升级重建容器不会丢失。首次从旧版本
+升级时，脚本会在删除旧容器前把该目录复制到卷中；复制失败会保留旧容器并中止，不会
+静默丢历史。会话与知识库的关联同时写入 OpenCode session metadata，换浏览器或清理
+localStorage 后仍可恢复。
 
 > 分离部署顺序：先后端（`install-pg` + `install-backend`），后前端（`install-frontend`）。
 > 密钥权限按读取方自动设置：容器化 PG → `0440`，宿主机/远端 PG → `0400`。
@@ -421,3 +427,8 @@ bash manage.sh
 - [手动源码部署](../../docs/deployment/06-source.md)
 - [手动 RPM 部署](../../docs/deployment/07-rpm.md)
 - [手动容器部署](../../docs/deployment/08-container.md)
+
+## 故障分类器与自动重训
+
+后端和 Agent 统一读取 `/var/witty-ub/fault_classifier/` 的已发布权重。
+训练依赖、升级保留规则、跨机器共享目录及验证方式见[分类器部署说明](../CLASSIFIER_RUNTIME.md)。

@@ -285,6 +285,23 @@ class TestDeployConf:
         assert "POSTGRESQL_PASSWORD=witty-ub" not in compose
         assert "secrets:" in compose and "/run/secrets/pg_password" in compose
 
+    def test_docker_persists_opencode_session_and_kb_links(self):
+        app_deploy = (_DEPLOY_DIR / "docker/deploy_witty.sh").read_text()
+        manage = (_DEPLOY_DIR / "docker/manage.sh").read_text()
+        compose = (_PROJECT_ROOT / "docker-compose.yml").read_text()
+        entrypoint = (_PROJECT_ROOT / "docker/entrypoint.sh").read_text()
+        dockerfile = (_PROJECT_ROOT / "Dockerfile").read_text()
+
+        assert 'OPENCODE_DATA_VOLUME="${OPENCODE_DATA_VOLUME:-witty-ub-opencode-data}"' in app_deploy
+        assert '-v "${OPENCODE_DATA_VOLUME}:${OPENCODE_DATA_PATH}"' in app_deploy
+        assert "migrate_opencode_data_from_container" in app_deploy
+        assert "opencode_volume_has_data" in app_deploy
+        assert '"$OPENCODE_DATA_VOLUME"' in manage
+        assert "witty-ub-opencode-data:/root/.local/share/opencode" in compose
+        assert "/root/.local/share/opencode" in dockerfile
+        assert "restore_opencode_session_kb" in entrypoint
+        assert "migrate_opencode_sessions.py" in entrypoint
+
     def test_trusted_operator_switch_reaches_backend_containers(self):
         conf = (_DEPLOY_DIR / "deploy.conf").read_text()
         app_deploy = (_DEPLOY_DIR / "docker/deploy_witty.sh").read_text()

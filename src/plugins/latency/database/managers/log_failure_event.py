@@ -35,6 +35,20 @@ from sqlalchemy.dialects.postgresql import array, insert
 
 logger = logging.getLogger(__name__)
 
+_NUL = "\x00"
+_NUL_BYTES = b"\x00"
+
+
+def _strip_nul(value: Any) -> Any:
+    """PostgreSQL 文本列不接受 NUL(0x00)，落库前统一剔除。
+
+    源日志里的二进制载荷（如 ``remoteWorkerId=`` 的实例 ID）可能夹带 0x00，
+    直接 COPY/INSERT 会整批报 ``invalid byte sequence ... 0x00`` 并失败。
+    """
+    if isinstance(value, str) and _NUL in value:
+        return value.replace(_NUL, "")
+    return value
+
 
 class _EventRows(Protocol):
     def __len__(self) -> int: ...
@@ -142,20 +156,20 @@ class LogFailureEventPGManager:
                     LogFailureEvent(
                         id=data.get("id") or str(uuid.uuid4()),
                         log_id=data["log_id"],
-                        log_file=data.get("log_file") or "",
-                        raw_text=data.get("raw_text") or "",
-                        host_name=host_name,
+                        log_file=_strip_nul(data.get("log_file") or ""),
+                        raw_text=_strip_nul(data.get("raw_text") or ""),
+                        host_name=_strip_nul(host_name),
                         timestamp=parse_timestamp(data["timestamp"]),
-                        level=data.get("level") or "",
-                        filename=data.get("filename") or "",
-                        pod_name=data.get("pod_name") or "",
-                        pid=data.get("pid") or "",
-                        tid=data.get("tid") or "",
-                        trace_id=data.get("trace_id") or "",
-                        cluster_name=data.get("cluster_name") or "",
-                        message=data.get("message") or "",
-                        status_code=data.get("status_code") or "",
-                        failure_mode=failure_mode_str,
+                        level=_strip_nul(data.get("level") or ""),
+                        filename=_strip_nul(data.get("filename") or ""),
+                        pod_name=_strip_nul(data.get("pod_name") or ""),
+                        pid=_strip_nul(data.get("pid") or ""),
+                        tid=_strip_nul(data.get("tid") or ""),
+                        trace_id=_strip_nul(data.get("trace_id") or ""),
+                        cluster_name=_strip_nul(data.get("cluster_name") or ""),
+                        message=_strip_nul(data.get("message") or ""),
+                        status_code=_strip_nul(data.get("status_code") or ""),
+                        failure_mode=_strip_nul(failure_mode_str),
                     )
                 )
             async with PGManager.session() as session:
@@ -188,20 +202,20 @@ class LogFailureEventPGManager:
         return (
             param["id"],
             param["log_id"],
-            param["log_file"],
-            param["raw_text"],
-            param["host_name"],
+            _strip_nul(param["log_file"]),
+            _strip_nul(param["raw_text"]),
+            _strip_nul(param["host_name"]),
             parse_timestamp(param.get("timestamp")),
-            param["level"],
-            param["filename"],
-            param["pod_name"],
-            param["pid"],
-            param["tid"],
-            param["trace_id"],
-            param["cluster_name"],
-            param["message"],
-            param["status_code"],
-            param["failure_mode"],
+            _strip_nul(param["level"]),
+            _strip_nul(param["filename"]),
+            _strip_nul(param["pod_name"]),
+            _strip_nul(param["pid"]),
+            _strip_nul(param["tid"]),
+            _strip_nul(param["trace_id"]),
+            _strip_nul(param["cluster_name"]),
+            _strip_nul(param["message"]),
+            _strip_nul(param["status_code"]),
+            _strip_nul(param["failure_mode"]),
         )
 
     @staticmethod
@@ -239,20 +253,20 @@ class LogFailureEventPGManager:
                 {
                     "id": param["id"],
                     "log_id": param["log_id"],
-                    "log_file": param["log_file"],
-                    "raw_text": param["raw_text"],
-                    "host_name": param["host_name"],
+                    "log_file": _strip_nul(param["log_file"]),
+                    "raw_text": _strip_nul(param["raw_text"]),
+                    "host_name": _strip_nul(param["host_name"]),
                     "timestamp": parse_timestamp(param.get("timestamp")),
-                    "level": param["level"],
-                    "filename": param["filename"],
-                    "pod_name": param["pod_name"],
-                    "pid": param["pid"],
-                    "tid": param["tid"],
-                    "trace_id": param["trace_id"],
-                    "cluster_name": param["cluster_name"],
-                    "message": param["message"],
-                    "status_code": param["status_code"],
-                    "failure_mode": param["failure_mode"],
+                    "level": _strip_nul(param["level"]),
+                    "filename": _strip_nul(param["filename"]),
+                    "pod_name": _strip_nul(param["pod_name"]),
+                    "pid": _strip_nul(param["pid"]),
+                    "tid": _strip_nul(param["tid"]),
+                    "trace_id": _strip_nul(param["trace_id"]),
+                    "cluster_name": _strip_nul(param["cluster_name"]),
+                    "message": _strip_nul(param["message"]),
+                    "status_code": _strip_nul(param["status_code"]),
+                    "failure_mode": _strip_nul(param["failure_mode"]),
                 }
             )
         # id 为确定性取值（uuid5(log_id:...:raw_text)）：任务重试必然命中已存在
@@ -300,10 +314,15 @@ class LogFailureEventPGManager:
         """
         if not records:
             return
+
+        def sanitized_records():
+            for record in records:
+                yield tuple(_strip_nul(value) for value in record)
+
         async with PGManager.connection() as conn:
             raw_conn = await conn.get_raw_connection()
             await raw_conn.driver_connection.copy_records_to_table(
-                "log_failure_event", records=records,
+                "log_failure_event", records=sanitized_records(),
                 columns=LogFailureEventPGManager._LOG_FAILURE_COPY_COLUMNS,
             )
 
@@ -318,8 +337,14 @@ class LogFailureEventPGManager:
         """
         async with PGManager.connection() as conn:
             raw_conn = await conn.get_raw_connection()
+
+            async def sanitized_source():
+                # NUL 只可能出现在字段内容里，绝不会是 CSV 分隔/引号，直接按字节剔除即可。
+                async for chunk in source:
+                    yield chunk.replace(_NUL_BYTES, b"") if _NUL_BYTES in chunk else chunk
+
             await raw_conn.driver_connection.copy_to_table(
-                "log_failure_event", source=source,
+                "log_failure_event", source=sanitized_source(),
                 columns=LogFailureEventPGManager._LOG_FAILURE_COPY_COLUMNS,
                 format="csv", null="\\N",
             )

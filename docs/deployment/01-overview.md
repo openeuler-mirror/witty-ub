@@ -32,6 +32,8 @@ Witty-UB 是一个用于超节点故障定位的工具，前后端默认分离�
 
 两类节点也可以合并部署在同一台机器上，即单机 All-in-One 模式，`WITTY_ROLE=all` 为默认值，行为等价于上图两个节点叠加。Docker、RPM、源码三种部署方式均通过 `WITTY_ROLE` / `WITTY_BACKEND_URL` 等环境变量支持两种形态。
 
+前端节点的 OpenCode 会话历史、登录凭据与知识库关联保存在本机（容器部署为 `witty-ub-opencode-data` 卷），升级/重建前端容器不会丢失。
+
 ### 分离部署核心变量
 
 | 变量 | 默认值 | 说明 |

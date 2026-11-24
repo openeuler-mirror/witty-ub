@@ -28,9 +28,46 @@ from latency.schemas.diag_case_library import (
 from latency.services.diag_case_library import DiagCaseLibraryService
 from latency.services.resource_id import ResourceIdService
 from latency.services.report_review import require_operator
+from latency.services.fault_classifier import FaultClassifierService
+from latency.schemas.response import ResponseBase
 
 
 router = APIRouter(prefix="/diag_case_library", tags=["Diag Case Library"])
+
+class ClassifierTrainingStatus(BaseModel):
+    status: str
+    message: str
+    confirmed_case_count: int
+    sample_count: int | None = None
+    skipped_case_count: int = 0
+    model_version: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    pending_changes: bool = False
+    error: str | None = None
+    training_reason: str | None = None
+    class_counts: dict[str,int] = Field(default_factory=dict)
+
+
+class ClassifierTrainingResponse(ResponseBase):
+    result: ClassifierTrainingStatus
+
+
+class RetryClassifierRequest(BaseModel):
+    requested_by: str | None = None
+
+
+@router.get('/classifier/status',response_model=ClassifierTrainingResponse,operation_id='get_fault_classifier_training_status')
+async def get_classifier_training_status():
+    return ClassifierTrainingResponse(result=ClassifierTrainingStatus(**await FaultClassifierService.status()))
+
+
+@router.post('/classifier/retrain',response_model=ClassifierTrainingResponse,operation_id='retry_fault_classifier_training')
+async def retry_classifier_training(req: RetryClassifierRequest,
+    operator_header: Annotated[str | None,Header(alias='X-Witty-Operator')]=None):
+    require_operator(req.requested_by,operator_header)
+    return ClassifierTrainingResponse(result=ClassifierTrainingStatus(**await FaultClassifierService.retry()))
+
 
 class VerifyCaseRequest(BaseModel):
     expected_revision: int = Field(ge=0)

@@ -246,11 +246,9 @@ class ReportReviewService:
 
     @staticmethod
     def labels_from_fault(fault: dict[str, Any]) -> dict[str, Any]:
-        conclusion = _as_dict(fault.get("conclusion"))
         try:
             validation = label_taxonomy.validate_labels(
-                conclusion.get("first_level_label"),
-                conclusion.get("second_level_label"),
+                *label_taxonomy.fault_case_labels(fault),
             )
         except label_taxonomy.TaxonomyError:
             return {

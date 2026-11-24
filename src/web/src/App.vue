@@ -107,6 +107,7 @@ type OpenCodeSession = {
   title?: string
   parentID?: string
   time?: { created?: number; updated?: number }
+  metadata?: Record<string, unknown>
 }
 
 type OpenCodeMessage = {
@@ -179,6 +180,7 @@ type OpenCodeEvent = {
       role?: string
       title?: string
       time?: { created?: number; completed?: number }
+      metadata?: Record<string, unknown>
       error?: unknown
       finish?: string
     }
@@ -266,6 +268,7 @@ type LogFilenamePatternKey =
   | 'ds_worker_access_log_file'
   | 'ds_worker_info_log_file'
   | 'resource_log_file'
+  | 'mami_log_file'
 type LogAnalyzerThresholdKey =
   | 'total_p99_threshold_ms'
   | 'c2w_p99_threshold_ms'
@@ -1191,6 +1194,9 @@ const isAgentSessionSaving = ref(false)
 const agentSessionDialogError = ref('')
 const agentSessionAssetIndex = ref<Record<string, string>>({})
 const agentSessionIndexStorageKey = 'witty-ub.agent-session-assets'
+// OpenCode 会话 metadata 里保存知识库关联：换浏览器或清理 localStorage 后，
+// 仍能从服务端恢复会话与知识库的对应关系。旧会话由首条 prompt 前缀回填。
+const agentSessionKbMetadataKey = 'witty_ub_kb_id'
 const agentStorageKey = (key: string) => `${key}:${agentApiBase.value}`
 const activeAgentSessionTitle = computed(
   () =>
@@ -1229,6 +1235,19 @@ const availableAgentProviders = computed(() => {
 const newProviderModels = computed(() =>
   selectedAgentProvider.value ? Object.values(selectedAgentProvider.value.models) : [],
 )
+const getAgentSessionKbId = (session: { metadata?: Record<string, unknown> }): string => {
+  const value = session.metadata?.[agentSessionKbMetadataKey]
+  return typeof value === 'string' ? value : ''
+}
+const getAgentSessionAssetIdFromMessages = (messages: OpenCodeMessage[]): string => {
+  for (const message of messages) {
+    if (message.info.role !== 'user') continue
+    const context = message.parts?.find((part) => part.type === 'text')?.text
+    const assetId = context?.match(/^当前(?:页面选中|会话对应)的知识库 ID 是 ([^。]+)。/)?.[1]
+    if (assetId) return assetId
+  }
+  return ''
+}
 const getAgentSessionAssetName = (sessionId: string) => {
   const assetId = agentSessionAssetIndex.value[sessionId]
   return assets.value.find((asset) => asset.id === assetId)?.name || assetId || '未知资产库'
@@ -1253,6 +1272,8 @@ let agentLocalMessageSequence = 0
 let agentRequestSequence = 0
 let agentEventStreamSequence = 0
 let agentSessionListSequence = 0
+let agentMessageRefreshSequence = 0
+let agentMessageRevision = 0
 let agentHistoryEvents: MessageEvent<string>[] = []
 let shouldIgnoreNextAgentAbortError = false
 let agentPanelResize:
@@ -1922,13 +1943,104 @@ const withAgentQuestionReplies = (
   return result
 }
 
-const indexAgentSession = (sessionId: string) => {
-  if (!selectedAssetId.value) return
+const setAgentSessionAssetId = (sessionId: string, assetId: string) => {
+  if (!sessionId || !assetId || agentSessionAssetIndex.value[sessionId] === assetId) return
   agentSessionAssetIndex.value = {
     ...agentSessionAssetIndex.value,
-    [sessionId]: selectedAssetId.value,
+    [sessionId]: assetId,
   }
   saveAgentSessionAssetIndex()
+}
+
+const persistAgentSessionKb = async (sessionId: string, assetId: string) => {
+  const session = agentSessions.value.find((item) => item.id === sessionId)
+  if (!session || !assetId || getAgentSessionKbId(session) === assetId) return
+  const apiBase = agentApiBase.value
+  const authHeader = agentAuthHeader.value
+  try {
+    const updated = await requestAgentApi<OpenCodeSession>(
+      `/session/${encodeURIComponent(sessionId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          metadata: {
+            ...session.metadata,
+            [agentSessionKbMetadataKey]: assetId,
+          },
+        }),
+      },
+    )
+    if (
+      updated?.id === sessionId &&
+      apiBase === agentApiBase.value &&
+      authHeader === agentAuthHeader.value &&
+      agentSessionAssetIndex.value[sessionId] === assetId
+    ) {
+      agentSessions.value = agentSessions.value.map((item) =>
+        item.id === updated.id ? { ...item, ...updated } : item,
+      )
+    }
+  } catch {
+    // 老版本 OpenCode 或临时失败：仍可从历史消息恢复，并保留本地索引。
+  }
+}
+
+const restoreAgentSessionAssetIndex = (sessions: OpenCodeSession[]) => {
+  const next = { ...agentSessionAssetIndex.value }
+  let changed = false
+  for (const session of sessions) {
+    if (session.parentID) continue
+    const kbId = getAgentSessionKbId(session)
+    if (!kbId || next[session.id] === kbId) continue
+    next[session.id] = kbId
+    changed = true
+  }
+  if (changed) {
+    agentSessionAssetIndex.value = next
+    saveAgentSessionAssetIndex()
+  }
+  for (const session of sessions) {
+    if (session.parentID) continue
+    const assetId = next[session.id]
+    if (assetId && !getAgentSessionKbId(session)) void persistAgentSessionKb(session.id, assetId)
+  }
+}
+
+const recoverAgentSessionAssetIndex = async (sessions: OpenCodeSession[], sequence: number) => {
+  // 旧会话可能既没有 metadata，也没有本地缓存；在列表中后台恢复，无需先打开会话。
+  const pending = sessions.filter(
+    (session) => !session.parentID && !agentSessionAssetIndex.value[session.id],
+  )
+  let cursor = 0
+  const recover = async () => {
+    while (sequence === agentSessionListSequence) {
+      const session = pending[cursor++]
+      if (!session) return
+      if (agentSessionAssetIndex.value[session.id]) continue
+      try {
+        const messages = await requestAgentApi<OpenCodeMessage[]>(
+          `/session/${encodeURIComponent(session.id)}/message`,
+        )
+        // 刷新列表、切换服务或删除会话后，丢弃旧请求，避免覆盖新的关联。
+        if (sequence !== agentSessionListSequence) return
+        if (agentSessionAssetIndex.value[session.id]) continue
+        const assetId = getAgentSessionAssetIdFromMessages(messages)
+        if (!assetId) continue
+        setAgentSessionAssetId(session.id, assetId)
+        void persistAgentSessionKb(session.id, assetId)
+      } catch {
+        // 单个会话失败不影响列表与其他会话，下次刷新列表时重试。
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, pending.length) }, recover))
+}
+
+const indexAgentSession = (sessionId: string) => {
+  if (!selectedAssetId.value) return
+  const assetId = selectedAssetId.value
+  setAgentSessionAssetId(sessionId, assetId)
+  void persistAgentSessionKb(sessionId, assetId)
 }
 
 const loadAgentSessions = async () => {
@@ -1942,7 +2054,9 @@ const loadAgentSessions = async () => {
     ])
     if (sequence !== agentSessionListSequence) return
     agentSessions.value = sessions
+    restoreAgentSessionAssetIndex(sessions)
     agentSessionStatuses.value = statuses
+    void recoverAgentSessionAssetIndex(sessions, sequence)
   } catch (error) {
     if (sequence !== agentSessionListSequence) return
     agentConnectionError.value = error instanceof Error ? error.message : '会话列表加载失败。'
@@ -1992,13 +2106,14 @@ const createAgentSession = async () => {
   try {
     const created = await requestAgentApi<OpenCodeSession>('/session', {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        metadata: { [agentSessionKbMetadataKey]: assetId },
+      }),
     })
     if (!created?.id) throw new Error('Agent 服务没有返回会话 ID。')
     if (sequence !== agentRequestSequence) throw new Error('当前会话已切换。')
     agentSessionId.value = created.id
-    agentSessionAssetIndex.value[created.id] = assetId
-    saveAgentSessionAssetIndex()
+    setAgentSessionAssetId(created.id, getAgentSessionKbId(created) || assetId)
     saveActiveAgentSession()
     agentSessionListSequence += 1
     isAgentSessionsLoading.value = false
@@ -2007,6 +2122,7 @@ const createAgentSession = async () => {
     )
     if (sequence !== agentRequestSequence) throw new Error('当前会话已切换。')
     agentSessions.value = [session, ...agentSessions.value.filter((item) => item.id !== session.id)]
+    if (!getAgentSessionKbId(session)) void persistAgentSessionKb(session.id, assetId)
     return session
   } finally {
     isAgentSessionCreating.value = false
@@ -2105,13 +2221,11 @@ const openAgentSession = async (session: OpenCodeSession) => {
     if (sequence !== agentRequestSequence) return
     agentSessionStatuses.value = statuses
     agentChatMessages.value = withAgentQuestionReplies(session.id, toAgentChatMessages(messages))
-    const context = messages
-      .find((message) => message.info.role === 'user')
-      ?.parts?.find((part) => part.type === 'text')?.text
-    const assetId = context?.match(/^当前(?:页面选中|会话对应)的知识库 ID 是 ([^。]+)。/)?.[1]
-    if (assetId && !agentSessionAssetIndex.value[session.id]) {
-      agentSessionAssetIndex.value[session.id] = assetId
-      saveAgentSessionAssetIndex()
+    const sessionKbId = getAgentSessionKbId(session)
+    const assetId = sessionKbId || getAgentSessionAssetIdFromMessages(messages)
+    if (assetId) {
+      setAgentSessionAssetId(session.id, assetId)
+      if (!sessionKbId) void persistAgentSessionKb(session.id, assetId)
     }
     const model = [...messages].reverse().find((message) => message.info.model)?.info.model
     const provider = agentProviders.value?.all.find((item) => item.id === model?.providerID)
@@ -2634,6 +2748,75 @@ const rejectAgentQuestion = async (request: OpenCodeQuestionRequest) => {
   }
 }
 
+// 完成事件可能重复，历史写入也可能落后于 SSE。只采用最新请求且不丢失
+// 已收到的消息/正文；短暂补拉未落盘的最终回答，避免界面停在「已完成」。
+const refreshCompletedAgentMessages = async () => {
+  const refreshSequence = ++agentMessageRefreshSequence
+  const requestSequence = agentRequestSequence
+  const sessionId = agentSessionId.value
+  const isCurrent = () =>
+    refreshSequence === agentMessageRefreshSequence &&
+    requestSequence === agentRequestSequence &&
+    sessionId === agentSessionId.value &&
+    !isAgentSending.value
+
+  for (const delay of [0, 250, 750, 1500]) {
+    if (delay) await new Promise<void>((resolve) => window.setTimeout(resolve, delay))
+    if (!isCurrent()) return
+    const revision = agentMessageRevision
+    try {
+      const history = await requestAgentApi<OpenCodeMessage[]>(
+        `/session/${encodeURIComponent(sessionId)}/message`,
+      )
+      if (!isCurrent()) return
+      if (revision !== agentMessageRevision) continue
+      const snapshot = toAgentChatMessages(history)
+      const currentUsers = agentChatMessages.value.filter(
+        (message) => message.role === 'user' && !message.questionReply,
+      )
+      const fetchedUsers = snapshot.filter((message) => message.role === 'user')
+      if (
+        currentUsers.some((message, index) => {
+          const fetched = fetchedUsers[index]
+          return message.messageId
+            ? fetched?.messageId !== message.messageId
+            : fetched?.content !== message.content
+        })
+      )
+        continue
+      const preservesStream = agentChatMessages.value.every((message) => {
+        if (message.role !== 'assistant' || !message.messageId) return true
+        const fetched = snapshot.find((item) => item.messageId === message.messageId)
+        if (!fetched) return false
+        if (message.finish && fetched.finish !== message.finish) return false
+        if (message.aborted && !fetched.aborted) return false
+        if (message.status === 'error' && fetched.status !== 'error') return false
+        return (message.parts ?? []).every((part) => {
+          const fetchedPart = fetched.parts?.find((item) => item.id === part.id)
+          if (!fetchedPart) return false
+          if (part.type !== 'tool') return fetchedPart.text.startsWith(part.text)
+          return (
+            !['completed', 'error'].includes(part.tool?.status || '') ||
+            fetchedPart.tool?.status === part.tool?.status
+          )
+        })
+      })
+      const lastTurn = buildAgentTurns(snapshot).at(-1)
+      if (!preservesStream) continue
+      agentChatMessages.value = withAgentQuestionReplies(sessionId, snapshot)
+      snapshot.forEach((message) => {
+        if (message.role === 'assistant' && message.messageId) {
+          assistantMessageIds.add(message.messageId)
+        }
+      })
+      void scrollAgentChatToBottom()
+      if (lastTurn?.answer.length || lastTurn?.status === 'error') return
+    } catch {
+      // 保留实时内容；暂时失败与尚未写入最终消息都使用同一个有上限的重试。
+    }
+  }
+}
+
 const handleOpenCodeEvent = (event: MessageEvent<string>) => {
   let payload: OpenCodeEvent
   try {
@@ -2648,6 +2831,8 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     agentSessions.value = agentSessions.value.map((item) =>
       item.id === updated.id ? { ...item, ...updated } : item,
     )
+    const kbId = getAgentSessionKbId(updated)
+    if (updated.id && kbId) setAgentSessionAssetId(updated.id, kbId)
   }
   const eventSessionId =
     properties?.sessionID || properties?.info?.sessionID || properties?.part?.sessionID
@@ -2659,6 +2844,7 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     agentHistoryEvents.push(event)
     return
   }
+  if (payload.type.startsWith('message.')) agentMessageRevision += 1
   if (payload.type === 'permission.asked' && properties?.id) {
     const request = normalizeAgentPermissionRequest(properties)
     if (request) addAgentPermissionRequest(request)
@@ -2779,21 +2965,7 @@ const handleOpenCodeEvent = (event: MessageEvent<string>) => {
     agentSessionStatuses.value[eventSessionId] = { type: 'idle' }
     if (agentSessionId.value) {
       void refreshAgentSession(agentSessionId.value)
-      const sequence = agentRequestSequence
-      void requestAgentApi<OpenCodeMessage[]>(
-        `/session/${encodeURIComponent(agentSessionId.value)}/message`,
-      )
-        .then((messages) => {
-          if (sequence === agentRequestSequence && !isAgentSending.value) {
-            agentChatMessages.value = withAgentQuestionReplies(
-              agentSessionId.value,
-              toAgentChatMessages(messages),
-            )
-          }
-        })
-        .catch(() => {
-          // Keep the streamed response if history is temporarily unavailable.
-        })
+      void refreshCompletedAgentMessages()
     }
     void scrollAgentChatToBottom()
     return
@@ -2845,6 +3017,7 @@ const replayAgentHistoryEvents = () => {
 }
 
 const closeAgentEventStream = () => {
+  agentMessageRefreshSequence += 1
   agentEventController?.abort()
   agentEventController = null
   isAgentEventStreamConnected = false
@@ -3102,6 +3275,9 @@ const toFaultAggregatedEventRows = (
 
 const assets = ref<LogKnowledge[]>([])
 const selectedAsset = ref<LogKnowledge | null>(null)
+const selectedAssetDisplayName = computed(() =>
+  (selectedAsset.value?.name ?? '').replace(/([^\r\n]{100})(?=[^\r\n])/gu, '$1\n'),
+)
 const selectedAssetId = ref<string | null>(null)
 let assetSelectionRequestSequence = 0
 watch(selectedAssetId, (nextAssetId, previousAssetId) => {
@@ -3111,7 +3287,7 @@ watch(selectedAssetId, (nextAssetId, previousAssetId) => {
   agentSessionSearch.value = ''
 })
 const activePage = ref<'asset' | 'abnormal' | 'knowledge' | 'reports' | 'diag-cases'>('asset')
-type MonitorSection = 'latency' | 'fault' | 'brpc' | 'brpc-fault' | 'similarity'
+type MonitorSection = 'latency' | 'fault' | 'brpc' | 'brpc-fault'
 type MonitorProduct = 'KVCache' | 'UBSocket'
 type KnowledgeSection = 'skill' | 'wiki'
 const activeMonitorSection = ref<MonitorSection>('latency')
@@ -3219,6 +3395,7 @@ const patternInputs = reactive<Record<LogFilenamePatternKey, string>>({
   ds_worker_access_log_file: '',
   ds_worker_info_log_file: '',
   resource_log_file: '',
+  mami_log_file: '',
 })
 const patternTypeOptions: Array<{
   key: LogFilenamePatternKey
@@ -3246,6 +3423,11 @@ const patternTypeOptions: Array<{
     description: 'Worker 运行与状态日志',
   },
   { key: 'resource_log_file', label: '资源日志', description: '资源监控与资源状态日志' },
+  {
+    key: 'mami_log_file',
+    label: 'Mami 硬件日志',
+    description: 'Mami 硬件告警日志（Ras interrupt / 链路切换 / port_mng ERROR）',
+  },
 ]
 const analyzerThresholdOptions: Array<{
   key: LogAnalyzerThresholdKey
@@ -3279,110 +3461,6 @@ const logFiles = ref<LogFileModel[]>([])
 // 当前选中的日志文件 id：用于时延指标桶模式直读分位统计表（bucket_seconds + log_id）
 const selectedLogFileId = ref<string | null>(null)
 
-// ===== 相似案例分析 =====
-type SimilarityDimension = { name: string; label: string; score: number; weight: number; weighted_score: number }
-type SimilarityMatch = {
-  rank: number; root_cause_type: string; fault_category: string; case_category: string; case_id: string
-  log_file_id: string; log_file_name: string; attachment_path: string; description: string
-  similarity: number; base_score: number; cat_gate: number
-  reason: string; breakdown: SimilarityDimension[]
-}
-type SimilarityResult = { top_matches: SimilarityMatch[]; library_size: number; unique_types_count: number }
-const similarityLoading = ref(false)
-const similarityError = ref('')
-const similarityResult = ref<SimilarityResult | null>(null)
-const similarityExpandedCats = ref<Set<number>>(new Set())
-const similarityExpandedTypes = ref<Set<string>>(new Set())
-
-const fetchSimilarFaultTypes = async (logFileId: string, topK = 50): Promise<SimilarityResult> => {
-  return request<SimilarityResult>('/similarity_analysis', {
-    method: 'POST',
-    body: JSON.stringify({ log_file_id: logFileId, top_k: topK }),
-  })
-}
-
-const loadSimilarityAnalysis = async () => {
-  if (!selectedLogFileId.value) { similarityResult.value = null; return }
-  similarityLoading.value = true
-  similarityError.value = ''
-  similarityExpandedCats.value = new Set()
-  similarityExpandedTypes.value = new Set()
-  try {
-    // 并行：加载相似分析 + 确保分类描述可用
-    const [result] = await Promise.all([
-      fetchSimilarFaultTypes(selectedLogFileId.value, 5),
-      caseCategories.value.length ? Promise.resolve(caseCategories.value) : loadCategories().then(cats => { caseCategories.value = cats; return cats }),
-    ])
-    similarityResult.value = result
-    // 默认展开第一个大类
-    const grouped = similarityGroupedByCategory.value
-    if (grouped.length > 0) similarityExpandedCats.value.add(0)
-  } catch (e: any) {
-    similarityError.value = e?.message || '相似案例分析请求失败'
-    similarityResult.value = null
-  } finally {
-    similarityLoading.value = false
-  }
-}
-
-const similarityCategoryDesc = (catName: string) =>
-  caseCategories.value.find((c) => c.name === catName)?.description || ''
-
-// 按大类分组，取 Top-5 大类
-const similarityGroupedByCategory = computed(() => {
-  if (!similarityResult.value?.top_matches.length) return []
-  const catMap = new Map<string, SimilarityMatch[]>()
-  for (const m of similarityResult.value.top_matches) {
-    const cat = m.case_category || '未分类'
-    if (!catMap.has(cat)) catMap.set(cat, [])
-    catMap.get(cat)!.push(m)
-  }
-  // 每个大类内按相似度排序（已经是排好的，但保险起见再排一次）
-  for (const [, list] of catMap) {
-    list.sort((a, b) => b.similarity - a.similarity)
-  }
-  // 大类按最高相似度排序，取 Top-5
-  const grouped = Array.from(catMap.entries()).map(([cat, matches]) => ({
-    category: cat,
-    maxSim: matches[0]?.similarity ?? 0,
-    matches,
-  }))
-  grouped.sort((a, b) => b.maxSim - a.maxSim)
-  return grouped.slice(0, 5)
-})
-
-const toggleSimCat = (idx: number) => {
-  const s = new Set(similarityExpandedCats.value)
-  if (s.has(idx)) s.delete(idx)
-  else s.add(idx)
-  similarityExpandedCats.value = s
-}
-
-const toggleSimType = (key: string) => {
-  const s = new Set(similarityExpandedTypes.value)
-  if (s.has(key)) s.delete(key)
-  else s.add(key)
-  similarityExpandedTypes.value = s
-}
-
-watch(selectedLogFileId, (id) => {
-  if (id) { void loadSimilarityAnalysis() }
-  else { similarityResult.value = null }
-})
-
-const formatSimilarity = (sim: number) => (sim * 100).toFixed(1) + '%'
-
-const getAttachmentUrl = (caseId: string) => `${apiBase}/case_library/attachment/${encodeURIComponent(caseId)}`
-const getAttachmentDisplayName = (p: string) => {
-  if (!p) return ''
-  const parts = p.split('_')
-  return parts.length > 1 ? parts.slice(1).join('_') : p
-}
-
-const similarityFaultCategoryLabel = (cat: string) =>
-  cat === 'latency' ? '时延故障' : cat === 'connectivity' ? '通断故障' : cat === 'mixed' ? '混合故障' : '未知'
-const similarityFaultCategoryClass = (cat: string) =>
-  cat === 'latency' ? 'cat-latency' : cat === 'connectivity' ? 'cat-connectivity' : cat === 'mixed' ? 'cat-mixed' : 'cat-unknown'
 const isLogFilesLoading = ref(false)
 const isLogFilesPolling = ref(false)
 const logFilesPage = ref(1)
@@ -3445,6 +3523,7 @@ const createDefaultDiagnosisConfig = (): DiagnosisConfigForm => ({
     ds_worker_access_log_file: [...diagnosisConfig.log_filename_pattern.ds_worker_access_log_file],
     ds_worker_info_log_file: [...diagnosisConfig.log_filename_pattern.ds_worker_info_log_file],
     resource_log_file: [...diagnosisConfig.log_filename_pattern.resource_log_file],
+    mami_log_file: [...(diagnosisConfig.log_filename_pattern.mami_log_file ?? ["*_mami.log"])],
   },
   logAnalyzerParams: {
     total_p99_threshold_ms: diagnosisConfig.log_analyzer_params.total_p99_threshold_ms,
@@ -3469,6 +3548,7 @@ const fromDiagnosisConfigApi = (config: DiagnosisConfigApiModel): DiagnosisConfi
     ds_worker_access_log_file: [...config.log_filename_pattern.ds_worker_access_log_file],
     ds_worker_info_log_file: [...config.log_filename_pattern.ds_worker_info_log_file],
     resource_log_file: [...config.log_filename_pattern.resource_log_file],
+    mami_log_file: [...(config.log_filename_pattern.mami_log_file ?? ["*_mami.log"])],
   },
   logAnalyzerParams: {
     total_p99_threshold_ms: config.log_analyzer_params.total_p99_threshold_ms,
@@ -5529,7 +5609,8 @@ const formatTraceDelayColumnValue = (
   if (column.unit === 'count') return String(Math.round(value))
   if (value === 0) return '0'
   if (value > 0 && Number(value.toFixed(3)) === 0) {
-    return `${formatMetricValue(value * 1000)} ns`
+    const nanoseconds = formatMetricValue(value * 1000)
+    return nanoseconds === '0.000' ? '0' : `${nanoseconds} ns`
   }
   return `${formatMetricValue(value)} ${column.unit}`
 }
@@ -5707,12 +5788,13 @@ const getTraceDelayValue = (
   if (!trace) return null
   // 优先从后端明细 raw 读取与 32 项关键时延指标同名的字段
   const raw = trace.raw as Record<string, unknown> | undefined
-  if (raw) {
-    const rawValue = raw[column.key]
-    if (typeof rawValue === 'number' && Number.isFinite(rawValue)) return rawValue
-  }
+  const rawValue = raw?.[column.key]
   const fallback = (trace as Record<string, unknown>)[column.key]
-  return typeof fallback === 'number' && Number.isFinite(fallback) ? fallback : null
+  const value = typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : fallback
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  // 与后端解析口径一致：uint64 上半区是负调度时延回绕后的无效测量值。
+  if (column.key === 'urma_sched_us' && value >= 2 ** 63) return null
+  return value
 }
 
 const hasTruncatedTotalLatency = (trace: TraceDetailRow | null | undefined) => {
@@ -5913,6 +5995,7 @@ const createLatencyEchartsOption = (
   const hasLegend = visibleSeries.length > 0
   const gridTop = 70
   const legendWidth = Math.max(320, chartWidth - 88)
+  let yAxisMax = 100
 
   return {
     color: visibleSeries.map((series) => series.color),
@@ -5992,14 +6075,21 @@ const createLatencyEchartsOption = (
       type: 'value',
       name: '延迟(ms)',
       min: 0,
-      max: (value: { max: number }) =>
-        Number.isFinite(value.max) && value.max > 0 ? value.max : 100,
+      max: ({ max }: { max: number }) => {
+        yAxisMax = Number.isFinite(max) && max > 0 ? max : 100
+        return yAxisMax
+      },
       splitLine: {
         lineStyle: {
           color: '#e2e8f0',
         },
       },
       axisLabel: {
+        showMaxLabel: true,
+        formatter: (value: number) => {
+          const precision = value === yAxisMax ? 3 : echarts.number.getPrecision(value)
+          return echarts.format.addCommas(echarts.number.round(value, precision, true))
+        },
         color: '#64748b',
         fontSize: 12,
       },
@@ -8302,14 +8392,12 @@ const resourceLogHeaders = [
   'Cache Hit Info',
 ]
 
+const trimTraceLogFieldSpacing = (value: string) => value.replace(/^[^\S\r\n]+|[^\S\r\n]+$/g, '')
+
 const splitRawLogText = (rawText: string) =>
   rawText
-    .split(/\s*\|\s*/)
-    .map((part) => part.trim())
-    .filter((part, index, parts) => part || index < parts.length - 1)
-
-const normalizeTraceLogColumnValue = (label: string, value: string) =>
-  label.toLowerCase() === 'message' ? value.replace(/(?:\\n|\r?\n)$/, '') : value
+    .split('|')
+    .filter((part, index, parts) => index < parts.length - 1 || trimTraceLogFieldSpacing(part))
 
 const normalizeTraceLogColumns = (headers: string[], fields: string[]) => {
   const normalizedHeaders = [...headers]
@@ -8318,9 +8406,13 @@ const normalizeTraceLogColumns = (headers: string[], fields: string[]) => {
   }
   return fields.map((value, index) => {
     const label = normalizedHeaders[index] || `field_${index + 1}`
+    const displayValue =
+      label.toLowerCase() === 'message'
+        ? trimTraceLogFieldSpacing(value).replace(/(?:\\r\\n|\\n|\r\n?|\n)+/g, '\n')
+        : value.trim()
     return {
       label,
-      value: normalizeTraceLogColumnValue(label, value) || '-',
+      value: displayValue || '-',
     }
   })
 }
@@ -8346,11 +8438,14 @@ const buildTraceRawColumns = (
   if (fields.length >= accessLogHeaders.length) {
     const accessFields = [
       ...fields.slice(0, accessLogHeaders.length - 1),
-      fields.slice(accessLogHeaders.length - 1).join(' | '),
+      fields.slice(accessLogHeaders.length - 1).join('|'),
     ]
     const message = accessLogHeaders
       .slice(7)
-      .map((header, index) => `${header}: ${accessFields[index + 7] || '-'}`)
+      .map(
+        (header, index) =>
+          `${header}: ${trimTraceLogFieldSpacing(accessFields[index + 7] ?? '') || '-'}`,
+      )
       .join(' | ')
 
     return {
@@ -8364,7 +8459,7 @@ const buildTraceRawColumns = (
       formatName: '运行日志',
       columns: normalizeTraceLogColumns(runLogHeaders, [
         ...fields.slice(0, runLogHeaders.length - 1),
-        fields.slice(runLogHeaders.length - 1).join(' | '),
+        fields.slice(runLogHeaders.length - 1).join('|'),
       ]),
     }
   }
@@ -10010,11 +10105,6 @@ const loadLatencyChart = async () => {
 
   try {
     const filters = appliedFilters.value
-    const currentLogFile = logFiles.value.find((f) => getLogFileId(f) === selectedLogFileId.value)
-    const logId =
-      currentLogFile && isKvcacheLogFile(currentLogFile)
-        ? selectedLogFileId.value
-        : (pickDefaultKvcacheLogFile(logFiles.value)?.log_file_id ?? undefined)
     const body: Record<string, unknown> = {
       kb_id: assetId,
       max_points: maxPoints,
@@ -10023,7 +10113,6 @@ const loadLatencyChart = async () => {
       sort_order: 'asc',
       operation: selectedOperation.value.toUpperCase(),
       bucket_seconds: selectedLatencyScale.value,
-      log_id: logId,
     }
 
     if (filters.startTime) {
@@ -15484,21 +15573,12 @@ const openMonitorPage = async (section: MonitorSection = 'latency') => {
     await loadAbnormalMonitorPage()
   }
 
-  // 切到相似案例分析时，如果未加载过则触发加载
-  if (targetSection === 'similarity' && selectedLogFileId.value && !similarityLoading.value && !similarityResult.value) {
-    void loadSimilarityAnalysis()
-  }
-
   await nextTick()
   if (targetSection === 'latency') {
     scrollMonitorPageToTop()
     return
   }
-  const targetId = targetSection === 'similarity'
-    ? 'similarity-analysis'
-    : targetSection === 'fault'
-      ? 'kv-fault'
-      : 'kv-latency'
+  const targetId = targetSection === 'fault' ? 'kv-fault' : 'kv-latency'
   const targetEl = document.getElementById(targetId)
   if (targetEl && assetDetailRef.value) {
     const container = assetDetailRef.value
@@ -15946,40 +16026,6 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section class="nav-section">
-        <div class="nav-title">诊断知识</div>
-        <div class="nav-list">
-          <div
-            class="nav-asset-item"
-            :class="{ selected: activePage === 'reports' }"
-            role="button"
-            tabindex="0"
-            @click="openDiagnosticReportsPage"
-            @keydown.enter="openDiagnosticReportsPage"
-            @keydown.space.prevent="openDiagnosticReportsPage"
-          >
-            <span class="asset-item-main">
-              <strong>定界文档</strong>
-              <small>阅读文档并检验定界结论</small>
-            </span>
-          </div>
-          <div
-            class="nav-asset-item"
-            :class="{ selected: activePage === 'diag-cases' }"
-            role="button"
-            tabindex="0"
-            @click="openDiagCasesPage"
-            @keydown.enter="openDiagCasesPage"
-            @keydown.space.prevent="openDiagCasesPage"
-          >
-            <span class="asset-item-main">
-              <strong>已知案例</strong>
-              <small>有效定界结论与任务日志案例</small>
-            </span>
-          </div>
-        </div>
-      </section>
-
       <section class="nav-section monitor-nav-section">
         <div class="nav-title">章节导航</div>
         <div class="monitor-nav-list">
@@ -16010,18 +16056,6 @@ onBeforeUnmount(() => {
                 @click="openMonitorPage('fault')"
               >
                 ⚠️ 通断故障监控
-              </button>
-              <button
-                class="monitor-nav-item"
-                :class="{
-                  active: activePage === 'abnormal' && activeMonitorSection === 'similarity',
-                  disabled: !selectedAssetId,
-                }"
-                type="button"
-                :disabled="!selectedAssetId"
-                @click="openMonitorPage('similarity')"
-              >
-                🔗 相似案例分析
               </button>
             </div>
           </div>
@@ -16075,6 +16109,22 @@ onBeforeUnmount(() => {
             @click="openKnowledgePage('wiki')"
           >
             📖 Wiki管理
+          </button>
+          <button
+            class="monitor-nav-item"
+            :class="{ active: activePage === 'reports' }"
+            type="button"
+            @click="openDiagnosticReportsPage"
+          >
+            📄 定界文档管理
+          </button>
+          <button
+            class="monitor-nav-item"
+            :class="{ active: activePage === 'diag-cases' }"
+            type="button"
+            @click="openDiagCasesPage"
+          >
+            📚 已知案例管理
           </button>
         </div>
       </section>
@@ -19112,122 +19162,6 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <!-- ===== 相似案例分析 ===== -->
-        <section v-if="activeMonitorProduct === 'KVCache'" id="similarity-analysis" class="monitor-section">
-          <header class="monitor-header">
-            <div class="monitor-header-top">
-              <h1>🔗 相似案例分析</h1>
-            </div>
-            <p class="monitor-sub">
-              从案例库中检索 Top-5 故障大类，展开可查看子类型相似度明细
-              <span v-if="similarityResult">· 案例库共 {{ similarityResult.library_size }} 条，{{ similarityResult.unique_types_count }} 种类型</span>
-            </p>
-          </header>
-
-          <div v-if="similarityLoading" class="similarity-state">
-            <div class="spinner"></div>
-            <div>正在分析相似案例...</div>
-          </div>
-          <div v-else-if="similarityError" class="similarity-state error">
-            <div class="error-icon">⚠️</div>
-            <div>{{ similarityError }}</div>
-          </div>
-          <div v-else-if="!selectedLogFileId" class="similarity-state">
-            <div>📋 请先选择日志文件</div>
-          </div>
-          <div v-else-if="!similarityResult?.top_matches.length" class="similarity-state">
-            <div>📭 案例库为空，请先上传案例数据</div>
-          </div>
-          <div v-else class="similarity-results">
-            <article
-              v-for="(group, gIdx) in similarityGroupedByCategory"
-              :key="gIdx"
-              class="similarity-cat-card"
-              :class="'cat-rank-' + (gIdx + 1)"
-            >
-              <div class="similarity-cat-header" @click="toggleSimCat(gIdx)">
-                <div class="cat-rank-badge" :class="'cat-rank-' + (gIdx + 1)">TOP {{ gIdx + 1 }}</div>
-                <div class="similarity-cat-info">
-                  <span class="similarity-cat-name">{{ group.category }}</span>
-                  <span v-if="similarityCategoryDesc(group.category)" class="similarity-cat-desc">{{ similarityCategoryDesc(group.category) }}</span>
-                  <span class="similarity-cat-count">{{ group.matches.length }} 个子类型</span>
-                </div>
-                <div class="similarity-cat-score">
-                  <span class="cat-score-value">{{ formatSimilarity(group.maxSim) }}</span>
-                  <span class="cat-score-label">最高相似度</span>
-                </div>
-                <span class="cat-expand-toggle" :class="{ expanded: similarityExpandedCats.has(gIdx) }">▶</span>
-              </div>
-
-              <div v-if="similarityExpandedCats.has(gIdx)" class="similarity-cat-body">
-                <div
-                  v-for="(match, mIdx) in group.matches"
-                  :key="gIdx + '-' + mIdx"
-                  class="similarity-subtype"
-                >
-                  <div
-                    class="similarity-subtype-header"
-                    @click="toggleSimType(gIdx + '-' + mIdx)"
-                  >
-                    <span class="subtype-rank">{{ mIdx + 1 }}</span>
-                    <span class="subtype-name">{{ match.root_cause_type }}</span>
-                    <a
-                      v-if="match.attachment_path"
-                      :href="getAttachmentUrl(match.case_id)"
-                      class="similarity-link"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      @click.stop
-                    >📎 附件</a>
-                    <span class="fault-cat" :class="similarityFaultCategoryClass(match.fault_category)">
-                      {{ similarityFaultCategoryLabel(match.fault_category) }}
-                    </span>
-                    <span class="subtype-score">{{ formatSimilarity(match.similarity) }}</span>
-                    <span class="subtype-toggle" :class="{ expanded: similarityExpandedTypes.has(gIdx + '-' + mIdx) }">▶</span>
-                  </div>
-                  <div v-if="similarityExpandedTypes.has(gIdx + '-' + mIdx)" class="similarity-subtype-detail">
-                    <div v-if="match.description" class="similarity-desc">{{ match.description }}</div>
-                    <div v-if="match.log_file_name" class="similarity-meta">来源：{{ match.log_file_name }}</div>
-                    <div class="similarity-reason">
-                      <div class="reason-title">📝 分析原因</div>
-                      <div class="reason-text">{{ match.reason }}</div>
-                    </div>
-                    <div class="similarity-breakdown">
-                      <div class="breakdown-title">📊 维度明细</div>
-                      <div class="breakdown-table">
-                        <div class="breakdown-row breakdown-header-row">
-                          <span class="col-name">维度</span>
-                          <span class="col-score">得分</span>
-                          <span class="col-weight">权重</span>
-                          <span class="col-weighted">加权分</span>
-                          <span class="col-bar">可视化</span>
-                        </div>
-                        <div
-                          v-for="dim in match.breakdown.filter((d) => d.weight > 0).slice(0, 8)"
-                          :key="dim.name"
-                          class="breakdown-row"
-                        >
-                          <span class="col-name">{{ dim.label }}</span>
-                          <span class="col-score">{{ dim.score.toFixed(2) }}</span>
-                          <span class="col-weight">{{ dim.weight.toFixed(1) }}</span>
-                          <span class="col-weighted">{{ dim.weighted_score.toFixed(3) }}</span>
-                          <span class="col-bar">
-                            <div
-                              class="score-bar"
-                              :style="{ width: Math.max(dim.score * 100, dim.weighted_score * 100 / 3).toFixed(0) + '%' }"
-                              :class="{ high: dim.score >= 0.7, medium: dim.score >= 0.4 && dim.score < 0.7 }"
-                            ></div>
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </article>
-          </div>
-        </section>
-
         <section
           v-if="activeMonitorProduct === 'UBSocket'"
           id="brpc-monitor"
@@ -20317,7 +20251,7 @@ onBeforeUnmount(() => {
         <header class="detail-header">
           <div class="detail-title-block">
             <p class="eyebrow">资产库详情</p>
-            <h1>{{ selectedAsset.name }}</h1>
+            <h1>{{ selectedAssetDisplayName }}</h1>
             <p class="detail-description">{{ selectedAsset.description }}</p>
             <div class="detail-times">
               <span>创建时间：{{ displayServerTime(selectedAsset.created_at) }}</span>
@@ -22602,8 +22536,8 @@ onBeforeUnmount(() => {
                               column.label.toLowerCase() === 'level' ? getTraceLogLevelClass(log) : '',
                             ]"
                           >
-                            {{ column.value }}
                             <template v-if="isTraceLogMessageColumn(column)">
+                              <span class="trace-log-message">{{ column.value }}</span>
                               <button
                                 v-for="mode in getTraceLogFailureModeLabels(log)"
                                 :key="mode.id"
@@ -22615,6 +22549,7 @@ onBeforeUnmount(() => {
                                 🔴 {{ mode.label }}
                               </button>
                             </template>
+                            <template v-else>{{ column.value }}</template>
                           </td>
                         </tr>
                       </tbody>
@@ -22923,8 +22858,8 @@ onBeforeUnmount(() => {
                               column.label.toLowerCase() === 'level' ? getTraceLogLevelClass(log) : '',
                             ]"
                           >
-                            {{ column.value }}
                             <template v-if="isTraceLogMessageColumn(column)">
+                              <span class="trace-log-message">{{ column.value }}</span>
                               <button
                                 v-for="mode in getTraceLogFailureModeLabels(log)"
                                 :key="mode.id"
@@ -22936,6 +22871,7 @@ onBeforeUnmount(() => {
                                 🔴 {{ mode.label }}
                               </button>
                             </template>
+                            <template v-else>{{ column.value }}</template>
                           </td>
                         </tr>
                       </tbody>

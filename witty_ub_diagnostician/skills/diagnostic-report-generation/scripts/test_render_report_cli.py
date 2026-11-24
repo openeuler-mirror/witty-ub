@@ -3,7 +3,7 @@ import io
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -43,6 +43,60 @@ def report_data() -> dict:
 
 
 class RenderReportCliTest(unittest.TestCase):
+    def test_time_hotspot_accepts_normalized_heights_in_both_modes(self):
+        for mode in ("fault", "latency"):
+            with self.subTest(mode=mode):
+                data = report_data()
+                data["statistics"] = {
+                    "heatmap_metric": mode,
+                    "time_heatmap": [
+                        {"time": "11:01", "pct": 0, "level": 0},
+                        {"time": "11:04", "pct": 18.5, "level": 1},
+                        {"time": "11:06", "pct": 100, "level": 3, "spike": True},
+                    ],
+                }
+                if mode == "latency":
+                    for slot in data["statistics"]["time_heatmap"]:
+                        slot["lat_ms"] = slot["pct"] * 20
+
+                errors, _ = render_report.validate(data)
+                self.assertEqual(errors, [])
+                html = render_report.render_report_html(
+                    data, render_report.DEFAULT_TEMPLATE, Path("hotspot-test.json")
+                )
+                self.assertIn('style="height: 100%;"', html)
+                if mode == "latency":
+                    self.assertIn('2000<span style="font-size:9px;">ms</span>', html)
+
+    def test_time_hotspot_rejects_out_of_range_and_nonfinite_heights(self):
+        for pct in (-1, 100.01, 3010.3, float("nan"), float("inf"),
+                    float("-inf"), "NaN", "Infinity", None, "bad"):
+            with self.subTest(pct=pct):
+                data = report_data()
+                data["statistics"]["time_heatmap"] = [{"time": "11:06", "pct": pct}]
+                errors, _ = render_report.validate(data)
+                self.assertTrue(any(
+                    "statistics.time_heatmap[0].pct" in error and "0~100" in error
+                    for error in errors
+                ), errors)
+
+    def test_invalid_hotspot_height_blocks_validation_and_render_without_writes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "report.json"
+            data = report_data()
+            data["statistics"]["time_heatmap"] = [{"time": "11:06", "pct": 3010.3}]
+            source.write_text(json.dumps(data), encoding="utf-8")
+            for options in (["--validate-only"], [str(root / "out.html")]):
+                with self.subTest(options=options), \
+                        patch("sys.stderr", new_callable=io.StringIO) as stderr, \
+                        patch.object(render_report, "render_report_html") as render:
+                    result = render_report.main([str(source), *options])
+                self.assertEqual(result, 2)
+                self.assertIn("statistics.time_heatmap[0].pct", stderr.getvalue())
+                render.assert_not_called()
+                self.assertEqual(list(root.iterdir()), [source])
+
     @staticmethod
     def _overview_metric(label: str, mode: str, observed: float = 12.34) -> dict:
         return {
@@ -165,14 +219,16 @@ class RenderReportCliTest(unittest.TestCase):
             Path("confidence-test.json"),
         )
 
-        self.assertIn("诊断置信度</div><div class=\"hero-metric-value\">90%</div>", html)
+        self.assertIn('置信度</div><div class="hero-metric-value">90%</div>', html)
+        self.assertIn('<span class="chip chip-conf">置信 90%</span>', html)
         self.assertNotIn("置信 high", html)
         self.assertNotIn("高90%", html)
 
-    def test_missing_fault_domain_and_component_render_as_dash(self):
+    def test_missing_classification_uses_field_specific_placeholders(self):
         data = report_data()
-        data["faults"][0]["conclusion"]["fault_domain"] = None
-        data["faults"][0]["conclusion"]["fault_component"] = ""
+        data["faults"][0]["conclusion"].update(
+            domain=None, component=None, type=None,
+        )
         render_report.normalize_compat(data)
 
         errors, _ = render_report.validate(data)
@@ -184,15 +240,75 @@ class RenderReportCliTest(unittest.TestCase):
             Path("missing-fault-location-test.json"),
         )
 
-        self.assertIn(
-            '故障域</div><div class="hero-metric-value">-</div>', html
+        for value_class, count in (("hero-metric-value", 1), ("card-value", 2)):
+            for label, placeholder in (("故障域", "未知故障"), ("故障组件", "-")):
+                with self.subTest(value_class=value_class, label=label):
+                    self.assertEqual(
+                        html.count(f'{label}</div><div class="{value_class}">{placeholder}</div>'),
+                        count,
+                    )
+
+    def test_multi_fault_sidecar_and_cards_use_primary_classification(self):
+        data = report_data()
+        primary = data["faults"][0]
+        primary["conclusion"].update(
+            domain="软件", component="Worker故障",
+            type="Worker故障-进程申请不到CPU/内存/IO等资源",
+            affected_scope_pct=0, affected_scope_desc="主故障范围",
         )
-        self.assertIn(
-            '故障组件</div><div class="hero-metric-value">-</div>', html
+        primary["confidence"] = 0.94
+        secondary = {
+            **primary, "id": "F02", "role": "secondary", "confidence": 0.61,
+            "conclusion": {
+                "first_level_label": "硬件故障", "second_level_label": "网卡故障-丢包",
+                "affected_scope_pct": 18, "affected_scope_desc": "次生故障范围",
+            },
+        }
+        data["faults"].insert(0, secondary)
+        impact = "impact_scope_" * 30
+        data["incident_summary"] = {
+            "primary_fault_id": "F01", "one_line_conclusion": "两个故障",
+            "fault_count": 2, "confidence": 0.82, "overall_impact": impact,
+        }
+        data["fault_relations"] = [{"from": "F01", "to": "F02", "type": "causes", "evidence": "同窗传播"}]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "draft.json"
+            output = root / "report.html"
+            source.write_text(json.dumps(data), encoding="utf-8")
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(render_report.main([str(source), str(output)]), 0)
+            html = output.read_text(encoding="utf-8")
+            sidecar = json.loads(output.with_suffix(".json").read_text(encoding="utf-8"))
+
+        summary = sidecar["incident_summary"]
+        self.assertEqual((summary["domain"], summary["component"], summary["type"]),
+                         ("软件", "Worker故障", "Worker故障-进程申请不到CPU/内存/IO等资源"))
+        self.assertEqual(summary["overall_impact"], impact)
+        self.assertEqual(summary["confidence"], 0.82)
+        self.assertEqual(sidecar["faults"][0]["conclusion"]["type"], "网卡故障-丢包")
+        for fault in sidecar["faults"]:
+            self.assertNotIn("first_level_label", fault["conclusion"])
+            self.assertNotIn("second_level_label", fault["conclusion"])
+        self.assertEqual(html.count(impact), 2)
+        self.assertIn('置信度</div><div class="hero-metric-value">82%</div>', html)
+        self.assertIn('置信度</div><div class="card-value">82%</div>', html)
+        self.assertIn('置信度</div><div class="card-value">94%</div>', html)
+        self.assertIn('置信度</div><div class="card-value">61%</div>', html)
+        self.assertNotIn('>故障类型</div>', html)
+        self.assertNotIn('Worker故障-进程申请不到CPU/内存/IO等资源', html)
+        self.assertIn('<span class="chip chip-conf">置信 94%</span>', html)
+        self.assertIn('<span class="chip chip-conf">置信 61%</span>', html)
+        self.assertIn('<div class="card-value">0%</div>', html)
+        self.assertNotIn('>故障标签<', html)
+
+    def test_classification_must_follow_one_taxonomy_branch(self):
+        data = report_data()
+        data["faults"][0]["conclusion"].update(
+            domain="软件", component="URMA故障", type="网卡故障-丢包",
         )
-        self.assertNotIn(
-            '故障域</div><div class="hero-metric-value">None</div>', html
-        )
+        errors, _ = render_report.validate(data)
+        self.assertTrue(any("conclusion.type" in error for error in errors))
 
     def test_validate_only_does_not_load_template_or_write_files(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -249,6 +365,73 @@ class RenderReportCliTest(unittest.TestCase):
             self.assertEqual(result, 2)
             self.assertIn("不接受输出 HTML 路径", stderr.getvalue())
             self.assertFalse((root / "out.html").exists())
+
+
+class TimeHotspotChartTest(unittest.TestCase):
+    def test_regular_and_zero_only_series_keep_the_linear_scale(self):
+        for values in ([], [0, 0], [0, 100], [10, 20, 50, 100], [90, 100]):
+            with self.subTest(values=values):
+                stats = {"time_heatmap": [{"pct": v} for v in values]}
+                chart = render_report._time_hotspot_chart(stats)
+                self.assertIsNone(chart["axis"])
+                self.assertEqual([s["height"] for s in chart["slots"]], list(values))
+                self.assertFalse(any(s["broken"] for s in chart["slots"]))
+
+    def test_broken_scale_skips_only_an_empty_interval_and_preserves_evidence(self):
+        stats = {"time_heatmap": [{"pct": v} for v in [0, 2, 3, 80, 100]]}
+        original = json.dumps(stats)
+        chart = render_report._time_hotspot_chart(stats)
+
+        self.assertEqual(chart["axis"]["ticks"],
+                         [(0, "0%"), (40, "3.6%"), (52, "64%"), (100, "100%")])
+        self.assertEqual([s["broken"] for s in chart["slots"]],
+                         [False, False, False, True, True])
+        heights = [s["height"] for s in chart["slots"]]
+        self.assertEqual(heights, sorted(heights))
+        self.assertEqual((heights[0], heights[-1]), (0, 100))
+        self.assertTrue(all(0 <= h <= 40 or 52 <= h <= 100 for h in heights))
+        self.assertAlmostEqual(heights[1] / heights[2], 2 / 3)
+        self.assertAlmostEqual((heights[3] - 52) / (heights[4] - 52), 16 / 36)
+        self.assertEqual(json.dumps(stats), original)
+
+    def test_small_gap_and_gradual_growth_do_not_trigger_a_break(self):
+        for values in ([0.001, 0.01, 1, 2, 5, 10, 20, 50, 100], [1, 4, 16, 64, 100]):
+            with self.subTest(values=values):
+                chart = render_report._time_hotspot_chart(
+                    {"time_heatmap": [{"pct": v} for v in values]}
+                )
+                self.assertIsNone(chart["axis"])
+
+    def test_latency_axis_uses_actual_milliseconds_and_shows_zero_as_ms(self):
+        data = report_data()
+        data["statistics"] = {
+            "heatmap_metric": "latency",
+            "time_heatmap": [
+                {"time": f"11:{i:02d}", "pct": value / 10,
+                 "lat_ms": value, "level": 3, "spike": i == 4}
+                for i, value in enumerate([0, 1, 2, 900, 1000])
+            ],
+        }
+        self.assertEqual(render_report.validate(data)[0], [])
+        html = render_report.render_report_html(
+            data, render_report.DEFAULT_TEMPLATE, Path("broken-latency.json")
+        )
+        self.assertIn('class="tchart has-break"', html)
+        self.assertEqual(html.count('<svg class="tbreak"'), 3)  # axis + two tall bars
+        self.assertIn("省略 2.4 ms～720 ms 区间", html)
+        self.assertIn('>1000 ms</span>', html)
+        self.assertIn('0<span style="font-size:9px;">ms</span>', html)
+        self.assertIn('1000<span style="font-size:9px;">ms</span>', html)
+
+    def test_missing_or_nonfinite_latency_cannot_create_a_broken_axis(self):
+        for value in (None, "bad", -1, float("inf"), float("nan")):
+            with self.subTest(value=value):
+                chart = render_report._time_hotspot_chart({
+                    "heatmap_metric": "latency",
+                    "time_heatmap": [{"pct": 1, "lat_ms": value},
+                                     {"pct": 100, "lat_ms": 1000}],
+                })
+                self.assertIsNone(chart["axis"])
 
 
 class CleanupTest(unittest.TestCase):

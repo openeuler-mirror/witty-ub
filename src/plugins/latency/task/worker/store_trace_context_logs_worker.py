@@ -569,7 +569,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                     while block := stream.read(_CONTEXT_INPUT_BYTES):
                         if not block.endswith(b"\n"):
                             block += stream.readline()
-                        sanitized = block.decode("utf-8", errors="replace").encode("utf-8")
+                        sanitized = block.decode("utf-8", errors="replace").replace("\x00", "").encode("utf-8")
                         src = pl.scan_lines(sanitized).with_columns(pl.lit(path).alias("_path"))
                         plan = StoreTraceContextLogsWorker._context_projection(
                             src, trace_ids, access_names, enable_local_cache
@@ -605,7 +605,7 @@ class StoreTraceContextLogsWorker(BaseWorker):
                     # Sanitize the in-memory block we already read — no file
                     # re-read. This is the gz/large-file branch where one
                     # 64 MiB block is held between yield and collect.
-                    sanitized = block.decode("utf-8", errors="replace").encode("utf-8")
+                    sanitized = block.decode("utf-8", errors="replace").replace("\x00", "").encode("utf-8")
                     src = pl.scan_lines(sanitized).with_columns(
                         pl.lit(paths[0]).alias("_path")
                     )

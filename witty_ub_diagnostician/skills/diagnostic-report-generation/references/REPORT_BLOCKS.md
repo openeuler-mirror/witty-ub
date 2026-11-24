@@ -38,7 +38,7 @@
   "confidence": 0.92,
   "category": "mixed",
   "affected_scope": "host-101 / pod-worker-3；67.6% 故障 trace；12:03-12:11",
-  "conclusion": {"first_level_label": null, "second_level_label": null},
+  "conclusion": {"domain": null, "component": null, "type": null},
   "error": {},
   "latency": {},
   "root_cause": {},
@@ -58,7 +58,7 @@
 - `severity`: `P1` / `P2` / `P3`
 - `confidence`: 统一为 `0.0~1.0` 的 JSON number，最多两位小数；页面自动显示为百分比。
   新报告不得填写 `high`、`高`、`92`、`"92%"` 或 `"高92%"`。
-- `category`（故障类型，控制档案头标签）：`error` 错误/通断类（连接失败、错误码突增）/ `latency` 时延类（P99 超阈、慢调用，可无报错）/ `mixed` 时延与错误并存且同源（如丢包既导致慢又导致超时错误）。
+- `category`（异常类别，控制档案头标签）：`error` 错误/通断类（连接失败、错误码突增）/ `latency` 时延类（P99 超阈、慢调用，可无报错）/ `mixed` 时延与错误并存且同源（如丢包既导致慢又导致超时错误）。
 
 ### error 块（通断故障分布，错误类/mixed 有证据时填写）
 
@@ -175,7 +175,10 @@ GET/SET 各一套，展示 Top 错误码构成和时间窗 × 错误码热力表
   "secondary_fault_count": 1,
   "independent_fault_count": 1,
   "overall_impact": "3421 条故障 trace，波及 2 台 host、3 个 pod",
-  "confidence": 0.88
+  "confidence": 0.88,
+  "domain": "软件",
+  "component": "Worker故障",
+  "type": null
 }
 ```
 
@@ -240,27 +243,18 @@ GET/SET 各一套，展示 Top 错误码构成和时间窗 × 错误码热力表
 
 ## 板块 2：分析结论 (conclusion)
 
-`first_level_label`（一级标签）和 `second_level_label`（二级标签）为新报告必填的
-`string | null` 字段，取值与配对以 [log_label.json](log_label.json) 为准。
-每次生成时读取参考文件并按诊断证据做语义匹配，具体选择规则见
-[SKILL.md「故障标签」](../SKILL.md#故障标签)。只确定一级时二级为 `null`，
-无法确定一级时两者均为 `null`。例如确认 Worker 进程退出时，填写
-`"first_level_label": "Worker故障", "second_level_label": "Worker故障-进程退出"`。
-下例只定位到 RPC/网络，尚不能确定参考文件中的具体故障类别，故两级均为 `null`，
-`fault_domain` 同步写 `null`。
-多故障写在各自的 `faults[].conclusion`，扁平单故障写在 `conclusion`；
-`conclusion.fault_domain` 必须与两级标签一致：逐字填写
-`first_level_label/second_level_label`（斜杠拼接，如 `硬件故障/网卡故障-时延高`），
-不得自由填写「RPC/网络」等域文本；两级标签均为 `null` 时 `fault_domain` 也写 `null`。
-标签本身独立于原有诊断类型 `fault_type`、档案 `category`。
+`domain`、`component`、`type` 是必填的 `string | null` 字段，分别
+取自 [log_label.json](log_label.json) 同一记录的三个对应字段。
+例如 Worker 进程退出对应 `软件`、`Worker故障`、`Worker故障-进程退出`。
+无法定位的层级及其下层填 `null`。分类规则见 [SKILL.md「故障分类」](../SKILL.md#故障分类)。
+影响范围字段沿用原有百分比与描述口径。
 
 ```json
 {
-  "first_level_label": null,
-  "second_level_label": null,
   "one_line_conclusion": "pod-worker-3 (host-101) 与 etcd 节点之间网络抖动导致 RPC 连接超时，引发 kvcache GET 请求大面积返回 -1002 错误，影响 67.6% 的故障请求，持续 8 分钟。",
-  "fault_domain": null,
-  "fault_component": "etcd 连接",
+  "domain": null,
+  "component": null,
+  "type": null,
   "fault_function": "TcpConnector::connect()",
   "fault_function_loc": "src/transport/tcp_connector.cpp:161",
   "affected_scope_pct": "67.6",
@@ -511,6 +505,10 @@ SET 走 CREATE/PUBLISH 写路径，**可用字段与 GET 不同**，阶段表按
 
 ## 板块 7：知识库匹配 (knowledge_matches)
 
+历史案例由报告生成器写入。每项的 `source` 为 `diag_case_library`，`id` 为案例 ID，
+`case_no` 为展示编号，`domain`、`component` 和 `type` 为案例对应的分类路径，
+`score_norm` 为余弦相似度。
+
 ```json
 [
   {
@@ -705,10 +703,16 @@ SET 走 CREATE/PUBLISH 写路径，**可用字段与 GET 不同**，阶段表按
   `detail` 可选，用于补充关键对比（如"C2W 异常而 W2W 正常"这种区分性证据）
 
 **时间热点图（time_heatmap）两种模式**
-- 故障量模式（默认，`"heatmap_metric": "fault"` 或不填）：柱高与数值为该时段故障 trace 占比
+- 故障量模式（默认，`"heatmap_metric": "fault"` 或不填）：柱高与数值为该时段故障 trace 数相对峰值槽的百分比
 - 时延模式（`"heatmap_metric": "latency"`）：每个 slot 额外填 `"lat_ms"`（该时段 P99 毫秒数），
   柱高仍按 `pct` 归一化，数值区显示 P99 ms，标题自动标注"各时段 P99 时延"
+- 两种模式的 `pct` 均为 **0~100 的有限数值**（不带 `%`）；时延模式用
+  `lat_ms / 各槽 P99 最大值 × 100`。峰值为 0 时各槽填 0，不直接把计数或毫秒值用作柱高。
 - `slot.fault`：该尖峰归属的故障编号（`top_*` 条目同理可带 `"fault"` 显示 F 标签）
+- 相邻非零数值相差至少 8 倍，且间隔占最大值至少 30% 时，渲染器自动在无数据区间
+  断轴：高柱及纵轴同步显示两条平行锯齿线，纵轴跳过该区间，上下两段各自线性缩放。
+  时延模式刻度使用 `lat_ms` 毫秒值，故障量模式使用相对峰值百分比；柱顶保留原始值，
+  图下注明省略区间。此为展示转换，不修改输入 JSON，也不放宽 `pct` 的合法范围。
 
 **数据来源和注意事项**
 - `top_error_codes` / `top_pods` / `top_hosts`: `POST /stats/error_codes`（`items[]` 的
@@ -724,7 +728,7 @@ SET 走 CREATE/PUBLISH 写路径，**可用字段与 GET 不同**，阶段表按
   数据中不需要填颜色；「其他」扇区固定灰 `#C3CBD4`
 - `time_heatmap`: `POST /stats/heatmap`（自动选窗 1m/10m/1h，返回 `items[]` 的 `window_start`
   +`fault_trace_cnt`；显式传 `window_size` 控制槽宽，如故障窗短用 `"1m"`；6~12 个时间槽为宜），
-  `pct` = `fault_trace_cnt` / 峰值槽，`time` 取 `window_start` 的 `HH:MM`；渲染为垂直迷你柱图，
+  `pct` = `fault_trace_cnt` / 峰值槽故障数 × 100，`time` 取 `window_start` 的 `HH:MM`；渲染为垂直迷你柱图，
   `level` 0 → 灰=无故障、1 → `--brand-pale`、2 → `--brand-soft`、3 → `--brand`；
   **红色仅由 `spike: true` 触发**（不随 level 变化），尖峰柱顶部显示红色徽章且时间标签变红；
   时间维度是趋势不是构成，故用柱图不用饼图
@@ -735,7 +739,7 @@ SET 走 CREATE/PUBLISH 写路径，**可用字段与 GET 不同**，阶段表按
 
 **撰写原则**
 - 1~3 条匹配结果，按匹配度降序；`stars` 表示匹配度（5 星=完美，3 星=中等）
-- `match_logic`: 说明 L1(错误码)/L2(故障域，即一级/二级标签)/L3(拓扑) 三级匹配逻辑
+- `match_logic`: 说明 L1(错误码)/L2(故障分类)/L3(拓扑) 三级匹配逻辑
 - `adoption_class`: `adoption-adopted` / `adoption-reference` / `adoption-not-adopted`
 - 必须同时包含 failure_mode_knowledge 的 curated 知识与 experience-skill 的经验知识
 

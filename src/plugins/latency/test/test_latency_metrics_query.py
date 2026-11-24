@@ -50,12 +50,22 @@ async def test_get_latency_metrics_rejects_unsupported_inputs(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_latency_metrics_missing_log_id_returns_empty():
-    # master（e6a14a03）：缺少 log_id 直接 400 —— 时延曲线按单个日志文件查询
-    with pytest.raises(BadRequestBizException):
-        await LogParseResultPGManager.get_latency_metrics(
-            GetLatencyMetricsRequest(kb_id="kb-1", sample_mode=SampleMode.P99, bucket_seconds=60)
-        )
+async def test_get_latency_metrics_missing_log_id_aggregates_kb(monkeypatch):
+    # 缺少 log_id 不再 400：按整个知识库聚合（跨该库全部日志文件的桶曲线）
+    captured = {}
+
+    async def _fake_query(table, req, stats_mode):
+        captured["log_id"] = req.log_id
+        return [{"time": "2026-05-10 10:00:00"}]
+
+    monkeypatch.setattr(
+        LogParseResultPGManager, "_query_bucket_stats", staticmethod(_fake_query)
+    )
+    total, rows = await LogParseResultPGManager.get_latency_metrics(
+        GetLatencyMetricsRequest(kb_id="kb-1", sample_mode=SampleMode.P99, bucket_seconds=60)
+    )
+    assert total == 1
+    assert captured["log_id"] is None
 
 
 @pytest.mark.asyncio
@@ -74,7 +84,7 @@ async def test_get_latency_metrics_valid_request_uses_bucket_table(monkeypatch):
         GetLatencyMetricsRequest(kb_id="kb-1", sample_mode=SampleMode.P99, bucket_seconds=60, log_id="lg")
     )
     assert total == 1
-    assert captured == {"table": "LatencyBucket1min", "mode": "p99"}
+    assert captured == {"table": "LatencyBucket1min", "mode": "p99l"}
 
 
 @pytest.mark.asyncio
@@ -113,3 +123,42 @@ async def test_get_latency_metrics_p9999_uses_linear_storage_mode(monkeypatch):
         )
     )
     assert captured["mode"] == "p9999l"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [SampleMode.P99, SampleMode.NONE])
+@pytest.mark.parametrize("operation, expected", [("GET", 19.9), ("SET", 199.0)])
+async def test_web_p99_trend_returns_linear_bucket_value(monkeypatch, mode, operation, expected):
+    """The chart's service returns exact precomputed P99, even at max_points=1."""
+    import polars as pl
+    from latency.bucket.statistics import compute_bucket_stats_from_frame
+    from latency.services.log_parse_result import LogParseResultService
+
+    frame = pl.DataFrame({
+        "tid": ["g1", "g2", "s1", "s2"],
+        "bucket_epoch": [1704067200] * 4,
+        "total_ms": [10.0, 20.0, 100.0, 200.0],
+        "total_latency": [10.0, 20.0, 100.0, 200.0],
+        "operation": ["GET", "GET", "SET", "SET"],
+    })
+    buckets = compute_bucket_stats_from_frame(frame)[60]
+
+    async def query(table, req, stats_mode):
+        assert stats_mode == "p99l"
+        row = buckets.filter(
+            (pl.col("mode") == stats_mode) & (pl.col("operation") == req.operation)
+        ).to_dicts()[0]
+        return [{
+            "time": "2024-01-01 00:00:00",
+            "total_latency": row["total_latency"],
+            "total_latency_us": row["total_latency_us"],
+        }]
+
+    monkeypatch.setattr(LogParseResultPGManager, "_query_bucket_stats", staticmethod(query))
+    result = await LogParseResultService.get_latency_metrics(GetLatencyMetricsRequest(
+        kb_id="kb", log_id="log", operation=operation, sample_mode=mode,
+        bucket_seconds=60, max_points=1,
+    ))
+    assert result.total == 1
+    assert result.metrics[0]["total_latency"] == pytest.approx(expected)
+    assert result.metrics[0]["total_latency_us"] == pytest.approx(expected * 1000)

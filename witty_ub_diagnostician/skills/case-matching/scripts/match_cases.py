@@ -130,15 +130,15 @@ OPERATION_FILTER_ENABLED = False
 # 报告本身判别特征不足、label_vote 几乎全 miss，保留 C 候选只引入干扰。
 EXCLUDED_FIRST_LEVEL_LABELS: tuple[str, ...] = ("Coordinator故障", "UB管控面故障")
 
-# 「用户相关故障/使用问题」硬判定。查询侧错误码一旦命中 USER_USAGE_FAULT_CODES，
-# 本次故障即锁定为 用户相关故障/使用问题，并只召回该标签的案例，不再与其他类别竞争。
-# 码集 = KVCache 故障模式知识库「故障域=用户」的 16 个码，加上语义同属使用问题的
+# 「业务故障/误操作故障-KVCache使用问题」硬判定。查询侧错误码一旦命中 MISOPERATION_FAULT_CODES，
+# 本次故障即锁定为 业务故障/误操作故障-KVCache使用问题，并只召回该标签的案例，不再与其他类别竞争。
+# 码集 = KVCache 故障模式知识库「故障域=用户」的 16 个码，加上语义同属误操作故障的
 # 17/28/3004/3007/3009，并剔除 2/8/36——这三个码在现有案例库中分别挂在硬件/Worker/
-# 容器/Coordinator 场景上，不具备用户使用问题的判别力；再剔除 0——0 是「无错误/成功」
+# 容器/Coordinator 场景上，不具备误操作的判别力；再剔除 0——0 是「无错误/成功」
 # 码，在硬件故障报告里同样会出现，纳入会误触发硬判定。
-USER_USAGE_FIRST_LEVEL = "用户相关故障"
-USER_USAGE_SECOND_LEVEL = "使用问题"
-USER_USAGE_FAULT_CODES: frozenset[str] = frozenset({
+MISOPERATION_FIRST_LEVEL = "业务故障"
+MISOPERATION_SECOND_LEVEL = "误操作故障-KVCache使用问题"
+MISOPERATION_FAULT_CODES: frozenset[str] = frozenset({
     "1", "3", "9", "12", "17", "28",
     "2000", "2001", "2004", "2006",
     "3000", "3001", "3002", "3004", "3006", "3007", "3009",
@@ -201,6 +201,36 @@ LOG_SEMANTIC_NOISE_RE = re.compile(r"^(?:[Tc]:)?[0-9A-Fa-f]{16,}$")
 # 后续在时间留出池上复评的开关。
 LOG_SEMANTIC_PRIOR_ENABLED = False
 LOG_SEMANTIC_PRIOR_WEIGHT = 0.2
+
+# v3.0 mami 硬件故障通道（查询侧加性通道，D 通道）：与错误码→故障域先验
+# `_domain_prior` 同构——查询侧信号预测出一级标签（硬件故障），命中该标签的候选
+# 加性加分，不改判、不重排其他候选。
+#
+# 数据只在查询侧：候选案例库无 mami 事实（解析期才落库），故只能「查询侧 mami 硬件
+# 信号 → 预测一级标签=硬件故障 → 命中该标签的候选加分」。
+# 三态语义：只有 `hardware_hit=True`（窗口内确有 RAS 中断 / UB link 翻转 / 端口管理
+# ERROR）才加分；`False`/`unknown`（无扫描结果）**绝不作为负证据**（不减分）。
+MAMI_ENABLED = True
+MAMI_WEIGHT = 0.3
+MAMI_FIRST_LEVEL = "硬件故障"
+
+
+def _fetch_mami_scan(api_base: str, params: dict, timeout: int) -> dict:
+    """按资产向后端查询 mami 硬件故障扫描汇总；失败返回 {}（不阻断检索）。
+
+    ``params`` 传 kb_name / log_id / kb_id（非空项）。返回后端 ``resolve_mami_scan``
+    的结构（found/covered/hardware_hit/signals/categories/…）。
+    """
+    url = api_base.rstrip("/") + "/mami_fault_event/query"
+    body = {k: v for k, v in params.items() if v}
+    if not body:
+        return {}
+    try:
+        resp = _http_json(url, body, timeout)
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError):
+        return {}
+    result = resp.get("result") if isinstance(resp, dict) else None
+    return result if isinstance(result, dict) else {}
 
 
 def _log_semantic_asset() -> dict:
@@ -433,7 +463,7 @@ def _extract_soft_features(features: dict) -> dict:
 
     status_codes 只装本次日志真实出现的码；relaxed_status_codes 装 Agent 为未见码
     选定的相近已知码（由 suggest_similar_codes.py 产出），以 0.5 降权并入软打分，
-    但不参与用户使用问题硬判定。
+    但不参与误操作硬判定。
     """
     status_codes = _values_with_shares(features, "status_codes", "status_code_shares")
     real = {item["value"] for item in status_codes}
@@ -452,7 +482,7 @@ def _extract_soft_features(features: dict) -> dict:
         "time_shape": _normalize(features["time_shape"]) if features.get("time_shape") else None,
         "affected_scope": _normalize(features["affected_scope"]) if features.get("affected_scope") else None,
         # 保守版仅 link_pair 参与打分；其余形状（bi_pair/conc/spread）案例侧暂无法提取，置空不参与。
-        "topology_shape": "link_pair" if _normalize(features["topology_shape"]) == "link_pair" else None,
+        "topology_shape": "link_pair" if _normalize(features.get("topology_shape")) == "link_pair" else None,
         # 日志语义码通道的查询侧索引（见 LOG_SEMANTIC_*）：优先 log_id，回退报告 basic_info.kb_name。
         "log_id": str(features.get("log_id") or "").strip() or None,
         "kb_name": (
@@ -481,13 +511,13 @@ def _soft_feature_count(soft: dict) -> int:
     )
 
 
-def _user_usage_hit(features: dict) -> list[str]:
-    """查询侧**真实**错误码命中的用户使用问题码（相近码不参与判定）。"""
+def _misoperation_hit(features: dict) -> list[str]:
+    """查询侧**真实**错误码命中的误操作故障码（相近码不参与判定）。"""
     values = {_normalize(code) for code in (features.get("status_codes") or [])}
-    return sorted(values & USER_USAGE_FAULT_CODES, key=lambda v: (len(v), v))
+    return sorted(values & MISOPERATION_FAULT_CODES, key=lambda v: (len(v), v))
 
 
-def _build_recall_query(features: dict, source: str = SOURCE_LIBRARY, user_usage: bool = False) -> dict:
+def _build_recall_query(features: dict, source: str = SOURCE_LIBRARY, misoperation: bool = False) -> dict:
     """构建宽召回查询：只带过滤头（kb_id/fault_type/min_confidence/operation），
     不带任何匹配信号——服务端按过滤条件返回候选，软打分在本脚本完成。
 
@@ -498,7 +528,7 @@ def _build_recall_query(features: dict, source: str = SOURCE_LIBRARY, user_usage
     仅当 OPERATION_FILTER_ENABLED 开启（--operation-filter）时才下发；legacy 通道
     kb_id 必填（旧表不支持 operation 过滤，只作正文标注）。
 
-    user_usage=True 时额外锁定一级/二级标签为 用户相关故障/使用问题，命中该规则的
+    misoperation=True 时额外锁定一级/二级标签为 业务故障/误操作故障-KVCache使用问题，命中该规则的
     故障只召回同类案例（当前案例库该类为 0 条，检索结果即为空，符合"严格只召回"口径）。
     """
     query: dict = {"page_num": 1, "page_cnt": 100}
@@ -518,9 +548,9 @@ def _build_recall_query(features: dict, source: str = SOURCE_LIBRARY, user_usage
         operation = features.get("operation")
         if OPERATION_FILTER_ENABLED and operation and str(operation).strip():
             query["operation"] = _normalize_operation(operation)
-        if user_usage:
-            query["first_level_label"] = USER_USAGE_FIRST_LEVEL
-            query["second_level_label"] = USER_USAGE_SECOND_LEVEL
+        if misoperation:
+            query["first_level_label"] = MISOPERATION_FIRST_LEVEL
+            query["second_level_label"] = MISOPERATION_SECOND_LEVEL
 
     return query
 
@@ -741,6 +771,98 @@ def _exclude_control_plane(matches: list[dict]) -> tuple[list[dict], int]:
     return kept, dropped
 
 
+def _case_stage_observations(case: dict, operation: str) -> dict | None:
+    """Adapt stored bucket measurements to the report observation extractor."""
+    snapshot = case.get("stage_features_json") or {}
+    if not snapshot.get("buckets"):
+        return None
+    from enhanced_matching import extract_report
+
+    stages = [{"features": {
+        "operation": _normalize_operation(snapshot.get("operation") or operation),
+        "bucket_key": bucket.get("key"),
+        "trace_cnt": bucket.get("trace_cnt"),
+        "sample_cnt": snapshot.get("sample_cnt"),
+        "truncated": snapshot.get("truncated"),
+        "metric_name": bucket.get("metric_name"),
+        "distribution": bucket,
+    }} for bucket in snapshot["buckets"]]
+    return extract_report({"faults": [{"latency": {"stages": stages}}]})
+
+
+def case_for_matching(case: dict) -> dict:
+    """Normalize historical usage-problem labels to the current catalog pair."""
+    if (case.get("label"), case.get("second_level_label")) == ("用户相关故障", "使用问题"):
+        return {**case, "label": MISOPERATION_FIRST_LEVEL, "second_level_label": MISOPERATION_SECOND_LEVEL}
+    return case
+
+
+def case_envelopes(matches: list[dict]) -> list[dict]:
+    """Separate historical observations from confirmed labels and display details."""
+    import baseline_matching as baseline
+
+    envelopes = []
+    for match in matches:
+        case = match["case"]
+        operation = _normalize_operation(case.get("operation") or "")
+        profile = {
+            "schema_version": baseline.VERSION,
+            **{
+                key: list(dict.fromkeys(
+                    value for item in case.get(key) or []
+                    if pattern.fullmatch(value := _normalize(item))
+                ))
+                for key, pattern in (("status_codes", baseline.CODE),
+                                     ("failure_mode_ids", baseline.MODE),
+                                     ("latency_components", baseline.BUCKET))
+            },
+            "operation": operation if operation in ("GET", "SET", "MIXED") else None,
+            "log_semantic_profile": case.get("log_semantic_profile") or {},
+        }
+        identity = list(case.get("identity") or [])
+        if case.get("kb_id"):
+            identity.append("kb_id:" + str(case["kb_id"]))
+        if case.get("kb_name"):
+            identity.append("name:" + str(case["kb_name"]))
+        report_id = case.get("report_id")
+        if report_id:
+            identity.append("report_id:" + str(report_id))
+        steps = case.get("remediation_json") or []
+        recommendation = case.get("recommendation") or "；".join(
+            step["action"] for step in steps if isinstance(step, dict) and step.get("action")
+        )
+        envelopes.append(case_for_matching({
+            "id": case["id"],
+            "source_id": "report:" + str(report_id) if report_id else case["id"],
+            "label": case.get("first_level_label"),
+            "second_level_label": case.get("second_level_label"),
+            "status": case.get("status"),
+            "verification_closed": (case.get("verification_json") or {}).get("closed_loop") is True,
+            "profile": profile,
+            "structured": case.get("structured") or _case_stage_observations(case, operation),
+            "raw_observations": case.get("raw_observations"),
+            "all_context_vector": case.get("all_context_vector"),
+            "identity": identity,
+            "case_no": case.get("case_no"),
+            "symptom_summary": case.get("symptom_summary") or case.get("title"),
+            "root_cause_summary": case.get("root_cause_summary"),
+            "recommendation": recommendation,
+        }))
+    return envelopes
+
+
+def fetch_report_cases(api_base: str, timeout: int = 30) -> list[dict]:
+    """Retrieve confirmed historical cases across knowledge bases for report matching."""
+    try:
+        result = _search_all(api_base, {"scope": "all", "include_status": ["confirmed"],
+                                       "page_cnt": 100}, timeout)
+    except (OSError, ValueError) as error:
+        raise ValueError(f"已确认案例库检索失败: {error}") from error
+    if len(result["matches"]) < result["total"]:
+        raise ValueError(f"已确认案例库检索不完整（{len(result['matches'])}/{result['total']}）")
+    return case_envelopes(result["matches"])
+
+
 def _rerank(matches: list[dict], soft: dict, query_text: str = "") -> list[dict]:
     """对宽召回结果做软打分并排序（score_norm 降序，并列时按文本余弦破平局）。
 
@@ -852,6 +974,14 @@ def _rerank(matches: list[dict], soft: dict, query_text: str = "") -> list[dict]
                             row["score_norm"] = round(
                                 row["score_norm"] + LOG_SEMANTIC_PRIOR_WEIGHT * sem_prob, 4
                             )
+    # v3.0 mami 硬件故障通道（查询侧加性通道）：查询侧窗口内有硬件故障信号时，
+    # 对一级标签=硬件故障的候选加性加分（与 _domain_prior 同构，同为排序前注入）。
+    mami = soft.get("mami") or {}
+    if MAMI_ENABLED and mami.get("hardware_hit"):
+        for row in rows:
+            row["mami_hit"] = True
+            if row["first_level_label"] == MAMI_FIRST_LEVEL:
+                row["score_norm"] = round(row["score_norm"] + MAMI_WEIGHT, 4)
     rows.sort(
         key=lambda item: (
             item["score_norm"],
@@ -973,16 +1103,18 @@ def _print_rows(
     if not rows:
         print("候选案例: 0 条（宽召回下仍为空，说明库内无同类故障；不代表系统健康）")
         return
-    print(f"候选案例: {len(rows)} 条（按分布特征软匹配分降序，并列时按文本余弦破平局）")
+    print(f"候选案例: {len(rows)} 条（按默认观测匹配分降序，最终并列保留底座原顺序）")
     if vote and vote.get("label"):
         method_label = {
             "top1_margin": "top1 明显胜出，直接采用",
             "topK_vote": "top1 并列，top10 一级标签多数投票",
             "fallback_top1": "无有效标签候选，回退 top1",
+            "fixed_feature_vote": "固定特征评分投票",
+            "misoperation_rule": "误操作故障码规则",
         }
         print(
-            f"一级标签投票: {vote['label']}（{method_label.get(vote['method'], vote['method'])}；"
-            f"top10 分布 {vote['distribution']}）"
+            f"一级标签选择: {vote['label']}（{method_label.get(vote['method'], vote['method'])}；"
+            f"候选前4项分布 {vote.get('distribution', {})}）"
         )
     for index, row in enumerate(rows, start=1):
         prefix = f"[{index}] {row['case_no']} " if row.get("case_no") else f"[{index}] "
@@ -1023,8 +1155,14 @@ def _mark_hit(
 
 
 def main(argv: list[str] | None = None) -> int:
+    global LOG_SEMANTIC_ENABLED, LOG_SEMANTIC_IDF, LOG_SEMANTIC_PRIOR_ENABLED, OPERATION_FILTER_ENABLED
+    global MAMI_ENABLED, MAMI_WEIGHT
     parser = argparse.ArgumentParser(description="历史诊断案例检索（case-matching Skill）")
     parser.add_argument("features", nargs="?", help="现场特征 JSON 路径（步骤 2）")
+    parser.add_argument("--local-cases", help="本地固定方案入口；features为观测profile，参数为候选信封JSON")
+    parser.add_argument("--local-structured-query", help="已有evidence-v1观测旁车的位置")
+    parser.add_argument("--local-raw-query", help="已有固定原始观测旁车；默认自动读取同名.raw.json")
+    parser.add_argument("--local-exclude-source-id", action="append", default=[], help="本地入口排除来源ID，可多次指定")
     parser.add_argument("--hit", metavar="CASE_ID", help="命中回写指定案例（步骤 5，可脱离特征文件单独执行）")
     parser.add_argument("--api-base", default=DEFAULT_API_BASE, help="API 基址，默认取 WITTY_API_BASE")
     parser.add_argument(
@@ -1041,31 +1179,22 @@ def main(argv: list[str] | None = None) -> int:
         help="启用服务端 operation 过滤（默认关闭：拉全后由 operation 特征软处理操作域）",
     )
     parser.add_argument("--timeout", type=int, default=30, help="单次请求超时（秒），默认 30")
-    parser.add_argument(
-        "--no-log-semantic",
-        action="store_true",
-        help="关闭日志语义码次级通道（默认为开启，用于消融对比）",
-    )
-    parser.add_argument(
-        "--no-log-semantic-idf",
-        action="store_true",
-        help="日志语义码通道退回纯 TF（不按 IDF 重加权，用于消融对比）",
-    )
-    parser.add_argument(
-        "--log-semantic-prior",
-        action="store_true",
-        help="启用「码→标签先验」通道（默认关闭：按池内 语义码→一级标签 分布投票加分）",
-    )
     parser.add_argument("--json", dest="json_out", help="候选结果落盘路径")
+    parser.add_argument(
+        "--no-mami",
+        action="store_true",
+        help="关闭 mami 硬件故障通道（默认开启：查询侧窗口内有硬件信号时给硬件故障候选加分）",
+    )
+    parser.add_argument(
+        "--mami-weight",
+        type=float,
+        default=MAMI_WEIGHT,
+        help=f"mami 通道加分权重，默认 {MAMI_WEIGHT}",
+    )
     args = parser.parse_args(argv)
-
-    global LOG_SEMANTIC_ENABLED, LOG_SEMANTIC_IDF, LOG_SEMANTIC_PRIOR_ENABLED, OPERATION_FILTER_ENABLED
-    if args.no_log_semantic:
-        LOG_SEMANTIC_ENABLED = False
-    if args.no_log_semantic_idf:
-        LOG_SEMANTIC_IDF = False
-    if args.log_semantic_prior:
-        LOG_SEMANTIC_PRIOR_ENABLED = True
+    if args.no_mami:
+        MAMI_ENABLED = False
+    MAMI_WEIGHT = args.mami_weight
     OPERATION_FILTER_ENABLED = args.operation_filter
 
     if args.hit:
@@ -1073,23 +1202,38 @@ def main(argv: list[str] | None = None) -> int:
     if not args.features:
         parser.error("需要提供特征 JSON 路径，或使用 --hit CASE_ID")
 
+    if args.local_cases:
+        if not args.json_out:
+            parser.error("--local-cases需要--json输出路径")
+        if args.operation_filter:
+            parser.error("本地候选池由输入文件确定，不使用HTTP operation过滤")
+        from match_baseline import main as baseline_main
+        local_args = ["--query", args.features, "--cases", args.local_cases, "--out", args.json_out]
+        if args.local_structured_query:
+            local_args += ["--structured-query", args.local_structured_query]
+        if args.local_raw_query:
+            local_args += ["--raw-query", args.local_raw_query]
+        for source_id in args.local_exclude_source_id:
+            local_args += ["--exclude-source-id", source_id]
+        return baseline_main(local_args)
+
     try:
         features = _load_features(args.features)
         soft = _extract_soft_features(features)
-        user_usage_codes = _user_usage_hit(features)
-        query = _build_recall_query(features, args.source, user_usage=bool(user_usage_codes))
+        misoperation_codes = _misoperation_hit(features)
+        query = _build_recall_query(features, args.source, misoperation=bool(misoperation_codes))
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"特征文件不可用: {error}", file=sys.stderr)
         return 2
 
-    if user_usage_codes:
+    if misoperation_codes:
         print(
-            f"命中用户使用问题规则（错误码 {'/'.join(user_usage_codes)}），"
-            f"直接判定为 {USER_USAGE_FIRST_LEVEL}/{USER_USAGE_SECOND_LEVEL}，仅召回该标签案例"
+            f"命中误操作故障规则（错误码 {'/'.join(misoperation_codes)}），"
+            f"直接判定为 {MISOPERATION_FIRST_LEVEL}/{MISOPERATION_SECOND_LEVEL}，仅召回该标签案例"
         )
 
     if not _soft_feature_count(soft):
-        print("警告: 特征文件未提供任何分布特征，软打分全部为 0（仍按 confidence/hit_count 排序）")
+        print("特征文件未提供分布特征；评分仅使用已有观测，未知通道增量为零")
 
     # 查询侧日志语义码轮廓：优先用特征 JSON 内联；否则按 kb_id 向后端现算
     # （新资产尚未进离线资产时也能自动启用该通道，无需人工步骤）。
@@ -1109,6 +1253,26 @@ def main(argv: list[str] | None = None) -> int:
                 soft["log_semantic_profile"] = profile
                 label = params.get("kb_name") or params.get("log_id") or params.get("kb_id")
                 print(f"已按资产 {label} 现算日志语义码轮廓（{len(profile)} 个语义项）")
+
+    # 查询侧 mami 硬件故障扫描：按资产向后端查询窗口内是否有硬件故障信号。
+    if MAMI_ENABLED:
+        label = soft.get("kb_name") or soft.get("log_id") or features.get("kb_id")
+        params = {
+            "kb_name": soft.get("kb_name"),
+            "log_id": soft.get("log_id"),
+            "kb_id": features.get("kb_id"),
+        }
+        if any(params.values()):
+            scan = _fetch_mami_scan(args.api_base, params, args.timeout)
+            if scan.get("hardware_hit"):
+                soft["mami"] = scan
+                print(
+                    f"已按资产 {label} 命中 mami 硬件故障信号"
+                    f"（hw={scan.get('hardware_event_count')}，"
+                    f"signals={','.join(scan.get('signals') or []) or '-'}）"
+                )
+            elif scan.get("found"):
+                print(f"资产 {label} 有 mami 扫描但窗口内无硬件故障信号（不加分）")
 
     query["page_cnt"] = args.page_cnt
     try:
@@ -1133,19 +1297,74 @@ def main(argv: list[str] | None = None) -> int:
             f"已剔除 {dropped} 条 Coordinator/UB管控面 候选（不参与软打分与投票）；"
             f"API total={payload['total']}，实际候选 {len(matches)} 条"
         )
-    if user_usage_codes and not matches:
+    if misoperation_codes and not matches:
         print(
-            f"案例库暂无 {USER_USAGE_FIRST_LEVEL}/{USER_USAGE_SECOND_LEVEL} 案例，"
+            f"案例库暂无 {MISOPERATION_FIRST_LEVEL}/{MISOPERATION_SECOND_LEVEL} 案例，"
             "按「严格只召回」口径返回空候选（不回退到其他类别）"
         )
-    rows = _rerank(matches, soft, features.get("query_text") or "")
-    vote = _label_vote(rows)
+    # Fixed default policy: query report prose must not steer retrieval ranking.
+    scoring_soft = {**soft, "log_keywords": []}
+    base_rows = _rerank(matches, scoring_soft, "")
+    from combination_matching import apply_default
+    query_observed = features.get("structured")
+    companion = os.path.splitext(args.features)[0] + ".structured.json"
+    if query_observed is None and os.path.isfile(companion):
+        with open(companion, encoding="utf-8") as handle:
+            query_observed = json.load(handle)
+    profiles = {(m.get("case") or {}).get("id"): (m.get("case") or {}).get("structured") for m in matches}
+    rows = apply_default(base_rows, query_observed, profiles)
+    retrieval_vote = _label_vote(rows)
+    raw_observed = features.get("raw_observations")
+    raw_companion = os.path.splitext(args.features)[0] + ".raw.json"
+    if raw_observed is None and os.path.isfile(raw_companion):
+        with open(raw_companion, encoding="utf-8") as handle:
+            raw_observed = json.load(handle)
+    from default_matching import match as default_match
+    query_context=features.get('mined_observations')
+    context_companion=os.path.splitext(args.features)[0]+'.mined.json'
+    if query_context is None and os.path.isfile(context_companion):
+        with open(context_companion,encoding='utf-8') as handle:query_context=json.load(handle)
+    query_profile = {
+        "schema_version": "legacy-evidence-v1",
+        "status_codes": list(dict.fromkeys(_normalize(v) for v in features.get("status_codes", []))),
+        "failure_mode_ids": list(dict.fromkeys(_normalize(v) for v in features.get("failure_mode_ids", []))),
+        "latency_components": list(dict.fromkeys(_normalize(v) for v in features.get("latency_components", []))),
+        "operation": scoring_soft.get("operation"),
+        "log_semantic_profile": scoring_soft.get("log_semantic_profile") or {},
+    }
+    if query_profile['operation'] not in ('GET', 'SET', 'MIXED'):
+        query_profile['operation'] = None
+    envelopes = case_envelopes(matches)
+    query_identities = ['kb_id:' + str(features['kb_id'])] if features.get('kb_id') else []
+    if features.get("kb_name"):
+        query_identities.append("name:" + str(features["kb_name"]))
+    # mami 硬件故障通道接入 default_matching 决策链路：查询侧命中硬件信号（见上方扫描块）
+    # 时，对 first_level_label=硬件故障 的候选加性加分并覆盖最终决策。
+    # --no-mami / --mami-weight 0 时该分支自然不触发。
+    mami_scan = soft.get("mami") or {}
+    mami_hit = bool(mami_scan.get("hardware_hit"))
+    try:
+        result = default_match(query_profile,envelopes,query_observed,raw_observed,query_context,
+                               query_identities=query_identities,
+                               mami_hit=mami_hit,mami_weight=MAMI_WEIGHT)
+    except ValueError as error:
+        parser.error(str(error))
+    # Historical prose and case popularity are display metadata only. Both
+    # Candidate ranking and label vote use only the closed observation schema.
+    display = {row['case_id']: row for row in rows}
+    rows, vote, retrieval_vote = result['candidates'], result['decision'], result['retrieval_decision']
+    display_keys = ('case_no', 'second_level_label', 'status', 'title', 'fault_type', 'operation','confidence',
+                    'revision', 'hit_count', 'updated_at', 'symptom_summary', 'root_cause',
+                    'root_cause_detail', 'recommendation', 'verification_closed', 'verification_result',
+                    'scope_limits', 'counter_evidence_count', 'evidence_ref_count', 'fingerprint')
+    for row in rows:
+        row.update({key: display[row['case_id']].get(key) for key in display_keys})
     _print_rows(
         rows[: args.top],
         payload["total"],
         features.get("operation"),
         query,
-        soft,
+        scoring_soft,
         args.source,
         vote,
     )
@@ -1155,23 +1374,32 @@ def main(argv: list[str] | None = None) -> int:
             json.dump(
                 {
                     "source": args.source,
+                    "policy": result['policy'],
                     "source_confirmed": args.source == SOURCE_LIBRARY,
                     "source_label": SOURCE_LABEL[args.source],
                     "operation": features.get("operation"),
                     "query_text": features.get("query_text"),
-                    "user_usage_codes": user_usage_codes,
+                    "misoperation_codes": misoperation_codes,
                     "relaxed_status_codes": features.get("relaxed_status_codes") or [],
                     "fault_label_override": (
-                        {"first_level_label": USER_USAGE_FIRST_LEVEL,
-                         "second_level_label": USER_USAGE_SECOND_LEVEL}
-                        if user_usage_codes else None
+                        {"first_level_label": MISOPERATION_FIRST_LEVEL,
+                         "second_level_label": MISOPERATION_SECOND_LEVEL}
+                        if misoperation_codes else None
                     ),
                     "recall_query": query,
-                    "soft_features": soft,
+                    "soft_features": scoring_soft,
+                    "mami_scan": scoring_soft.get("mami"),
                     "api_total": payload["total"],
                     "excluded_control_plane": dropped,
                     "candidates": rows,
+                    "knowledge_candidates": result['knowledge_candidates'],
                     "label_vote": vote,
+                    "decision": vote,
+                    "retrieval_decision": retrieval_vote,
+                    "feature_usage": result.get('feature_usage'),
+                    "fallback_used": result.get('fallback_used'),
+                    "disagreement": result.get('disagreement',False),
+                    "case_envelopes": envelopes,
                 },
                 handle,
                 ensure_ascii=False,

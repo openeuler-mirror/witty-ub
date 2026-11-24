@@ -646,7 +646,7 @@ _LIGHT_TRACE_COLUMNS: tuple[str, ...] = (
 # 不可用时兜底（见 _percentile_modes），正常路径读 statistics 的真值。
 _PERCENTILE_MODES_FALLBACK: tuple[tuple[str, float], ...] = (
     ("avg", 0.5),
-    ("p99", 0.99),
+    ("p99l", 0.99),
     ("p9999l", 0.9999),
     ("pmax", 1.0),
 )
