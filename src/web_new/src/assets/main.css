@@ -2273,9 +2273,15 @@ html.is-modal-open {
   vertical-align: top;
 }
 
-.log-table td:last-child {
+.log-table td.trace-log-message {
   font-size: 12px;
-  white-space: normal;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.trace-log-message::after {
+  /* Keep the last line visible when the message ends with a newline. */
+  content: '\200b';
 }
 
 .filter-bar {

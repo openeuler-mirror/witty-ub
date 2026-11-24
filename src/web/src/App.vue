@@ -8391,14 +8391,12 @@ const resourceLogHeaders = [
   'Cache Hit Info',
 ]
 
+const trimTraceLogFieldSpacing = (value: string) => value.replace(/^[^\S\r\n]+|[^\S\r\n]+$/g, '')
+
 const splitRawLogText = (rawText: string) =>
   rawText
-    .split(/\s*\|\s*/)
-    .map((part) => part.trim())
-    .filter((part, index, parts) => part || index < parts.length - 1)
-
-const normalizeTraceLogColumnValue = (label: string, value: string) =>
-  label.toLowerCase() === 'message' ? value.replace(/(?:\\n|\r?\n)$/, '') : value
+    .split('|')
+    .filter((part, index, parts) => index < parts.length - 1 || trimTraceLogFieldSpacing(part))
 
 const normalizeTraceLogColumns = (headers: string[], fields: string[]) => {
   const normalizedHeaders = [...headers]
@@ -8407,9 +8405,13 @@ const normalizeTraceLogColumns = (headers: string[], fields: string[]) => {
   }
   return fields.map((value, index) => {
     const label = normalizedHeaders[index] || `field_${index + 1}`
+    const displayValue =
+      label.toLowerCase() === 'message'
+        ? trimTraceLogFieldSpacing(value).replace(/(?:\\r\\n|\\n|\r\n?|\n)+/g, '\n')
+        : value.trim()
     return {
       label,
-      value: normalizeTraceLogColumnValue(label, value) || '-',
+      value: displayValue || '-',
     }
   })
 }
@@ -8435,11 +8437,14 @@ const buildTraceRawColumns = (
   if (fields.length >= accessLogHeaders.length) {
     const accessFields = [
       ...fields.slice(0, accessLogHeaders.length - 1),
-      fields.slice(accessLogHeaders.length - 1).join(' | '),
+      fields.slice(accessLogHeaders.length - 1).join('|'),
     ]
     const message = accessLogHeaders
       .slice(7)
-      .map((header, index) => `${header}: ${accessFields[index + 7] || '-'}`)
+      .map(
+        (header, index) =>
+          `${header}: ${trimTraceLogFieldSpacing(accessFields[index + 7] ?? '') || '-'}`,
+      )
       .join(' | ')
 
     return {
@@ -8453,7 +8458,7 @@ const buildTraceRawColumns = (
       formatName: '运行日志',
       columns: normalizeTraceLogColumns(runLogHeaders, [
         ...fields.slice(0, runLogHeaders.length - 1),
-        fields.slice(runLogHeaders.length - 1).join(' | '),
+        fields.slice(runLogHeaders.length - 1).join('|'),
       ]),
     }
   }
@@ -22530,8 +22535,8 @@ onBeforeUnmount(() => {
                               column.label.toLowerCase() === 'level' ? getTraceLogLevelClass(log) : '',
                             ]"
                           >
-                            {{ column.value }}
                             <template v-if="isTraceLogMessageColumn(column)">
+                              <span class="trace-log-message">{{ column.value }}</span>
                               <button
                                 v-for="mode in getTraceLogFailureModeLabels(log)"
                                 :key="mode.id"
@@ -22543,6 +22548,7 @@ onBeforeUnmount(() => {
                                 🔴 {{ mode.label }}
                               </button>
                             </template>
+                            <template v-else>{{ column.value }}</template>
                           </td>
                         </tr>
                       </tbody>
@@ -22851,8 +22857,8 @@ onBeforeUnmount(() => {
                               column.label.toLowerCase() === 'level' ? getTraceLogLevelClass(log) : '',
                             ]"
                           >
-                            {{ column.value }}
                             <template v-if="isTraceLogMessageColumn(column)">
+                              <span class="trace-log-message">{{ column.value }}</span>
                               <button
                                 v-for="mode in getTraceLogFailureModeLabels(log)"
                                 :key="mode.id"
@@ -22864,6 +22870,7 @@ onBeforeUnmount(() => {
                                 🔴 {{ mode.label }}
                               </button>
                             </template>
+                            <template v-else>{{ column.value }}</template>
                           </td>
                         </tr>
                       </tbody>
