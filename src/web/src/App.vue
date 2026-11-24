@@ -5609,7 +5609,8 @@ const formatTraceDelayColumnValue = (
   if (column.unit === 'count') return String(Math.round(value))
   if (value === 0) return '0'
   if (value > 0 && Number(value.toFixed(3)) === 0) {
-    return `${formatMetricValue(value * 1000)} ns`
+    const nanoseconds = formatMetricValue(value * 1000)
+    return nanoseconds === '0.000' ? '0' : `${nanoseconds} ns`
   }
   return `${formatMetricValue(value)} ${column.unit}`
 }

@@ -65,6 +65,14 @@ test('正常调度值及阈值以下最近可表示值保持原样，raw 优先�
   assert.equal(getTraceDelayStatusLabel({ raw: { urma_sched_us: 1501 } }, sched), '异常')
 })
 
+test('纳秒保留三位小数后为零的时延显示为无单位的 0', () => {
+  assert.equal(formatTraceDelayColumnValue(0, sched), '0')
+  assert.equal(formatTraceDelayColumnValue(0.00000049, sched), '0')
+  assert.equal(formatTraceDelayColumnValue(0.0000005, sched), '0.001 ns')
+  assert.equal(formatTraceDelayColumnValue(0.0004, sched), '0.400 ns')
+  assert.equal(formatTraceDelayColumnValue(-0.00000049, sched), '无效值')
+})
+
 test('缺失或非有限调度值仍按缺失处理，其他指标不应用调度上界', () => {
   for (const value of [null, undefined, NaN, Infinity, -Infinity]) {
     assert.equal(getTraceDelayValue({ raw: { urma_sched_us: value } }, sched), null)
